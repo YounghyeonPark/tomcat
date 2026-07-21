@@ -54,6 +54,7 @@ See [docs/PRINCIPLES.md](docs/PRINCIPLES.md) for the full statement.
 - [Requirements](docs/REQUIREMENTS.md)
 - [System Architecture](docs/ARCHITECTURE.md)
 - [Design Decisions (ADR log)](docs/DESIGN_DECISIONS.md)
+- [Related Work & References](docs/REFERENCES.md)
 - [Glossary](docs/GLOSSARY.md)
 
 ## Status
