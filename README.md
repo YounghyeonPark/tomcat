@@ -1,9 +1,15 @@
-# TomCat — Tendon-Driven Robot Cat
+# Project T.O.M.C.A.T.
 
-A quadruped robot that uses synthetic cables (tendons) pulled by rotary motors
-instead of a rigid gear/actuator at every joint. This biomimetic design mimics
-feline musculoskeletal structure to provide flexible, cat-like agility,
-energy-efficient movement, and passive shock absorption.
+**Tendon-Operated Mechanism for a Compliant Actuated Tomcat**
+
+A community-driven, open quadruped robot that uses synthetic cables (tendons)
+pulled by rotary motors instead of a rigid gear/actuator at every joint. This
+biomimetic design mimics feline musculoskeletal structure to provide flexible,
+cat-like agility, energy-efficient movement, and passive shock absorption.
+
+> The name is a backronym: **T**endon-**O**perated **M**echanism for a
+> **C**ompliant **A**ctuated **T**omcat — advanced in intent, community-driven
+> in spirit.
 
 ## Why tendon-driven?
 
