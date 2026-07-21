@@ -1,0 +1,27 @@
+# Build artifacts
+/build/
+/firmware/build/
+*.o
+*.elf
+*.hex
+*.bin
+
+# KiCad backups / autosave
+*-backups/
+*.kicad_sch-bak
+*.kicad_pcb-bak
+_autosave-*
+fp-info-cache
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# Editors / OS
+.vscode/
+.idea/
+*~
+.DS_Store
+Thumbs.db
