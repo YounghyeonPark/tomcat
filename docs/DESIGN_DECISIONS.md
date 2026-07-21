@@ -52,6 +52,19 @@ context, and consequences. Status is one of: **Proposed**, **Accepted**,
   motor loops + SBC for planning (clean separation, adds a bus + comms).
 - **Decision:** *Undecided.* Depends on final DOF count and loop budget.
 
+## ADR-0006: Articulated tendon-driven spine (whole-body curvature)
+- **Status:** Accepted
+- **Context:** Principle P2 requires the body to curve like a real cat's
+  (arching, lateral bend, righting-reflex twist). A rigid torso cannot do this.
+- **Decision:** Model the torso as a serial chain of tendon-driven spine
+  segments rather than a single rigid link. Long tendons run along the column
+  from motors in the shoulder/pelvic girdles; antagonistic routing bends the
+  chain (see ADR-0002). ❓ Segment count and DOF-per-segment are open (NFR2/NFR2b).
+- **Consequences:** Significantly higher DOF and control coupling — many joints
+  share tendons. The kinematic model must treat the body as a moving, curving
+  base for the legs (whole-body kinematics), not a fixed frame. Adds a spine
+  torque/tension budget alongside the leg budget.
+
 ---
 
 ### How to add an ADR

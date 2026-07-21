@@ -67,7 +67,8 @@ joints, foot contact sensors).
 | Main compute     | High/mid-level control, planning, host comms                  |
 | Real-time MCU(s) | Low-level motor loops, safety, sensor sampling                |
 | Motor drivers    | Power stage per motor (BLDC/DC), current sensing              |
-| Motors           | Rotary actuators pulling tendons (centralized in torso)       |
+| Motors           | Rotary actuators pulling tendons (centralized in girdles)     |
+| Spine            | Serial chain of tendon-driven segments; curves the whole body (ADR-0006) |
 | Tension sensors  | Per-tendon force feedback (load cell or current estimate)     |
 | Joint sensors    | Absolute/relative joint angle (or inferred from cable travel) |
 | Foot sensors     | Ground contact / force detection                             |

@@ -33,5 +33,7 @@ lands. The workspace sweep is also limited by the placeholder joint limits
 (foot pitch is held at 0), so only part of the reachable area is currently
 in-limit; revisit once real joint ranges exist.
 
-Next steps: 3D (frontal-plane abduction) leg, gait trajectory generation, and
-validating the tendon map against measured cable friction/stretch.
+Next steps: an articulated **spine model** (per [ADR-0006](../docs/DESIGN_DECISIONS.md))
+so the leg base can curve, whole-body kinematics on top of it, a 3D
+(frontal-plane abduction) leg, gait trajectory generation, and validating the
+tendon map against measured cable friction/stretch.

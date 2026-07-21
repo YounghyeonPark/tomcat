@@ -38,8 +38,19 @@ much like biological muscle and tendon.
 | `tools/`        | Scripts for build, calibration, and analysis                  |
 | `tests/`        | Unit and hardware-in-the-loop tests                           |
 
+## Design principles
+
+1. **Tendon-driven, centralized multi-motor actuation** — every joint, in the
+   limbs *and the spine*, is pulled by cables from body-mounted motors; no motor
+   sits at a joint.
+2. **Feline form: the whole body may curve** — the torso is an articulated,
+   tendon-driven spine, so the body arches, bends, and twists like a real cat.
+
+See [docs/PRINCIPLES.md](docs/PRINCIPLES.md) for the full statement.
+
 ## Documents
 
+- [Design Principles](docs/PRINCIPLES.md)
 - [Requirements](docs/REQUIREMENTS.md)
 - [System Architecture](docs/ARCHITECTURE.md)
 - [Design Decisions (ADR log)](docs/DESIGN_DECISIONS.md)
