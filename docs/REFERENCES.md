@@ -1,5 +1,9 @@
 # T.O.M.C.A.T. — Related Work & References
 
+> **See [LITERATURE_REVIEW.md](LITERATURE_REVIEW.md)** for the deep, fully-read
+> and adversarially-verified synthesis with actionable recommendations. This file
+> is the raw source index behind it.
+
 Curated prior art for a tendon-driven, flexible-bodied robot cat. Grouped by
 topic and cross-referenced to our [design principles](PRINCIPLES.md) and
 [ADRs](DESIGN_DECISIONS.md). Each entry notes *why it matters here*.
