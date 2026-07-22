@@ -56,6 +56,7 @@ See [docs/PRINCIPLES.md](docs/PRINCIPLES.md) for the full statement.
 - [Design Decisions (ADR log)](docs/DESIGN_DECISIONS.md)
 - [Literature Review](docs/LITERATURE_REVIEW.md) — deep, cited synthesis of prior art
 - [Related Work & References](docs/REFERENCES.md) — raw source index
+- [Sub-Agent Team](docs/TEAM.md) — specialist agents + coordinating lead
 - [Glossary](docs/GLOSSARY.md)
 
 ## Status
