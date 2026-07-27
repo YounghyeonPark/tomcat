@@ -17,8 +17,15 @@ import numpy as np
 # Make the package importable when run directly from the repo.
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "src"))
 
-from tomcat_kin import LegModel, TendonMap, ActuationMode  # noqa: E402
-from tomcat_kin.params import DEFAULT_LOADS  # noqa: E402
+from tomcat_kin import (  # noqa: E402
+    LegModel,
+    TendonMap,
+    ActuationMode,
+    SpineModel,
+    WholeBody,
+    Girdle,
+)
+from tomcat_kin.params import DEFAULT_LOADS, DEFAULT_SPINE  # noqa: E402
 from tomcat_kin import torque_budget  # noqa: E402
 
 
@@ -49,6 +56,36 @@ def main() -> None:
         result = torque_budget.evaluate(leg, tmap, load, grid=25)
         print(result.report())
         print()
+
+    print("=== Spine FK + whole-body (straight vs. arched back) ===")
+    spine = SpineModel()
+    body = WholeBody(spine=spine)
+
+    # A common standing leg pose (hip points down, knee/ankle flexed).
+    stand = np.deg2rad([-80.0, 60.0, 10.0])
+    leg_q = {name: stand for name in body.leg_names}
+
+    # Uniform positive bend = dorsiflexion (arched / "Halloween cat") posture.
+    q_straight = np.zeros(DEFAULT_SPINE.n_segments)
+    q_arch = np.full(DEFAULT_SPINE.n_segments, np.deg2rad(20.0))
+
+    for label, q_spine in (("straight", q_straight), ("arched", q_arch)):
+        rear = spine.girdle_pose(q_spine, Girdle.REAR)
+        front = spine.girdle_pose(q_spine, Girdle.FRONT)
+        feet = body.foot_positions(q_spine, leg_q)
+        print(f"[{label}] spine q (deg): {np.rad2deg(q_spine)}")
+        print(f"  rear girdle  (x,z,theta): {rear}")
+        print(f"  front girdle (x,z,theta): {front}")
+        print(f"  front foot LF (x,z): {feet['LF']}")
+        print(f"  rear foot  LR (x,z): {feet['LR']}")
+
+    # Show a spine joint getting the same tendon treatment as a leg joint.
+    spine_tendons = TendonMap.from_spine(DEFAULT_SPINE, mode=ActuationMode.ANTAGONISTIC)
+    spine_tau = np.full(DEFAULT_SPINE.n_segments, 0.2)  # N·m per segment
+    ssol = spine_tendons.resolve(spine_tau)
+    print(f"\nspine tendon tensions (flexor)  N: {ssol.tension_flexor}")
+    print(f"spine tendon tensions (extensor) N: {ssol.tension_extensor}")
+    print(f"spine realized joint torque  N·m : {ssol.joint_torque}")
 
 
 if __name__ == "__main__":

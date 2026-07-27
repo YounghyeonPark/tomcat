@@ -25,7 +25,7 @@ from enum import Enum
 
 import numpy as np
 
-from .params import TendonParams, DEFAULT_TENDON
+from .params import TendonParams, SpineParams, DEFAULT_TENDON
 
 
 class ActuationMode(Enum):
@@ -54,7 +54,12 @@ class TendonSolution:
 
 @dataclass
 class TendonMap:
-    """Per-joint tendon and actuator model for one leg."""
+    """Per-joint tendon and actuator model.
+
+    Works for any number of joints (the moment-arm array sets the count), so the
+    same class serves the 3-joint leg and the N-segment spine. `from_spine`
+    builds one directly from `SpineParams`.
+    """
 
     params: TendonParams = DEFAULT_TENDON
     mode: ActuationMode = ActuationMode.ANTAGONISTIC
@@ -63,6 +68,28 @@ class TendonMap:
         self._r = np.asarray(self.params.joint_moment_arm, dtype=float)
         self._k = np.asarray(self.params.spring_stiffness, dtype=float)
         self._q0 = np.asarray(self.params.spring_rest_angle, dtype=float)
+
+    @classmethod
+    def from_spine(
+        cls,
+        spine_params: SpineParams,
+        mode: ActuationMode = ActuationMode.ANTAGONISTIC,
+    ) -> "TendonMap":
+        """Build a spine tendon map from `SpineParams`.
+
+        The spine's per-segment moment arms / spring parameters are packed into a
+        `TendonParams` so spine joints get the exact same antagonistic
+        torque<->tension and angle<->cable treatment as the leg joints. The
+        resulting arrays have length `n_segments` instead of 3.
+        """
+        tp = TendonParams(
+            joint_moment_arm=tuple(spine_params.joint_moment_arm),
+            motor_spool_radius=spine_params.motor_spool_radius,
+            pretension=spine_params.pretension,
+            spring_stiffness=tuple(spine_params.spring_stiffness),
+            spring_rest_angle=tuple(spine_params.spring_rest_angle),
+        )
+        return cls(params=tp, mode=mode)
 
     # ----------------------------------------------- geometry (angle <-> cable)
     def cable_lengths(self, q) -> np.ndarray:
@@ -110,7 +137,7 @@ class TendonMap:
 
     def _resolve_spring(self, tau: np.ndarray, q=None) -> TendonSolution:
         # tau = r * T_flex - k*(q - q0)  =>  T_flex = (tau + k*(q-q0)) / r
-        q = np.zeros(3) if q is None else np.asarray(q, dtype=float)
+        q = np.zeros_like(self._r) if q is None else np.asarray(q, dtype=float)
         spring_torque = self._k * (q - self._q0)
         t_flex = (tau + spring_torque) / self._r
         # A cable cannot push: clamp to the pretension floor.
