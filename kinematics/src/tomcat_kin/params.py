@@ -47,8 +47,11 @@ class TendonParams:
     spine reuses this container (see `SpineParams` / `TendonMap.from_spine`).
     """
 
-    # Joint pulley radii / moment arms (m) — converts tension to joint torque.  ❓ TBD
-    joint_moment_arm: tuple[float, ...] = (0.015, 0.012, 0.010)
+    # Joint pulley radii / moment arms (m) — converts tension to joint torque.
+    # Sized in mechanical/LEG_TENDON_SPEC.md (hip/knee/ankle): largest packageable
+    # pulley at each joint to cut cable tension (T = tau/r).  Roughly halves the
+    # land-case peak vs. the original (0.015,0.012,0.010).  Still ❓ TBD.
+    joint_moment_arm: tuple[float, ...] = (0.028, 0.025, 0.014)
 
     # Motor spool radius (m) — converts motor torque to cable tension.  ❓ TBD
     motor_spool_radius: float = 0.008
@@ -64,10 +67,15 @@ class TendonParams:
     # Capstan (Coulomb) friction over the routing pulleys / sheaths. The motor-side
     # cable tension differs from the joint-side tension by exp(±mu * wrap_angle):
     # PULLING against the load costs exp(+mu*wrap), PAYING OUT gains exp(-mu*wrap).
-    #   friction_coeff : mu, dimensionless Coulomb coefficient of the routing.  ❓ TBD
-    #   wrap_angle     : theta_wrap, TOTAL cable wrap over all guides (rad).      ❓ TBD
+    #   friction_coeff : mu, dimensionless Coulomb coefficient of the routing.
+    #   wrap_angle     : theta_wrap, TOTAL cable wrap over all guides (rad).
     # mu = 0 OR wrap = 0  =>  factor = 1  =>  motor-side tension == joint-side.
-    friction_coeff: float = 0.0
+    # mechanical/LEG_TENDON_SPEC.md gives mu ~= 0.10 (low-friction idlers) and
+    # PER-STATION wrap angles that differ by joint (the distal ankle path is worst,
+    # ~+87% motor-side). This scalar model can't hold per-joint wrap, so wrap_angle
+    # is left 0 (inert) pending a per-joint-wrap extension; set mu here so it's
+    # ready, and use the sensitivity tool with explicit wrap to explore the effect.
+    friction_coeff: float = 0.10
     wrap_angle: float = 0.0
 
     # Series cable compliance: model the tendon as a linear spring of stiffness

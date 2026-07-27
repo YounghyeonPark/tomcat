@@ -61,13 +61,18 @@ context, and consequences. Status is one of: **Proposed**, **Accepted**,
     non-backdrivable reduction or **brake/latch** to offload the electrical DC
     hold, treated as a thermally-derated continuous-torque point
     ([sensorless-FOC note](notes/sensorless-foc-stance-hold.md)).
-- **Consequences / burden accepted:**
-  - **High cable tension** (~400–1000 N at the high-torque hip/knee in the M1
-    land case). Mitigations to pursue: **maximize joint moment arms** within
-    packaging, high-strength low-stretch cable, and adequate pulley/bearing
-    sizing — follow-up for **tomcat-mechanical** / **tomcat-kinematics**.
-  - **Tendon friction & stretch** must be modeled and compensated in the tendon
-    map and control loop (no longer a spine-only concern).
+- **Consequences / burden accepted** (mitigation now spec'd — [LEG_TENDON_SPEC.md](../mechanical/LEG_TENDON_SPEC.md)):
+  - **High cable tension** addressed by moment-arm sizing to (0.028, 0.025,
+    0.014) m: this brings **continuous stand/trot tension into the ~20–70 N
+    band (~55 N)**, leaving a **~500 N residual only in the ×2.5 single-leg land
+    transient**. That residual is a **structural** design load (1.5 mm UHMWPE
+    cable, SF ~4.5; bearing static rating), **not** a continuous fatigue/thermal
+    duty — so the pure-tendon leg is buildable. Geometry alone cannot reach the
+    band at the land transient (would need a ~200 mm pulley); the **stance brake**
+    offloads the sustained hold.
+  - **Tendon friction & stretch** are modeled (capstan + series compliance) in
+    the tendon map (no longer a spine-only concern); per-joint routing wrap is a
+    model TODO.
   - Per-tendon **tension sensing (ADR-0004) now applies to the legs too.**
 
 ## ADR-0004: Tension & position sensing method
