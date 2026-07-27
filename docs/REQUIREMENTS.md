@@ -17,6 +17,8 @@ curve.
 - G4. Energy-efficient movement compared with a direct-drive baseline.
 - G5. An articulated, tendon-driven spine so the body can arch, bend laterally,
   and twist like a real cat (P2).
+- G6. Mid-air righting: reorient during a fall to land feet-first, via an
+  inertial tail complemented by spine twist (see [ADR-0007](DESIGN_DECISIONS.md)).
 
 ## 2. Functional requirements
 
@@ -28,6 +30,7 @@ curve.
 | FR4  | Execute a parameterized gait to produce forward walking.                    | Must     |
 | FR9  | Actuate the spine to bend (dorsoventral + lateral) via tendons.             | Must     |
 | FR10 | Coordinate spine curvature with leg motion (whole-body posture).            | Should   |
+| FR11 | Detect a fall and reorient (tail + spine twist) to land feet-first.        | Should   |
 | FR5  | Detect and recover from a foot slip / unexpected ground contact.            | Should   |
 | FR6  | Report telemetry (per-motor current, tension, angle) over a host link.      | Should   |
 | FR7  | Support a calibration routine for zeroing tendon tension and joint range.   | Must     |
@@ -41,6 +44,7 @@ curve.
 | NFR2  | Spine segments (serial, tendon-driven)           | ❓ TBD (e.g. 3–5)    |
 | NFR2b | DOF per spine segment                            | ❓ TBD (2: pitch+yaw)|
 | NFR2c | Total actuated DOF (12 legs + spine)             | ❓ TBD               |
+| NFR2d | Tail DOF (inertial reorientation; morphable?)    | ❓ TBD (e.g. 2–3 + length)|
 | NFR3  | Control loop rate (tension/position)             | ≥ 1 kHz             |
 | NFR4  | Gait / trajectory update rate                    | ≥ 100 Hz            |
 | NFR5  | Mass (total)                                     | ❓ TBD               |

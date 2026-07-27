@@ -169,5 +169,6 @@ milestone-planning report). In summary:
   tunable spine stiffness vs. speed, per lit-review Q2b).
 - Dynamics: leg mass in flight (~0.454 kg knee) driving trunk bending.
 - Leg actuator IMF trade study (ADR-0003) fed by the M1 budget.
-- Righting/tail investigation (lit-review Q4) — only if righting is confirmed
-  in scope.
+- **Righting milestone (in scope, [ADR-0007](DESIGN_DECISIONS.md)):** design the
+  inertial (morphable) tail, model flight-phase reorientation (tail + spine
+  twist), and a fall-detect → reorient control law (lit-review Q4).

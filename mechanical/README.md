@@ -9,6 +9,9 @@ Scope:
   and NFR1/NFR2 in [../docs/REQUIREMENTS.md](../docs/REQUIREMENTS.md).
 - **Spine:** serial segments allowing dorsoventral + lateral bend (and, ideally,
   axial twist for the righting reflex), with tendons routed to girdle motors.
+- **Tail:** an inertial, ideally **morphable (telescoping)** appendage for
+  mid-air righting (see [ADR-0007](../docs/DESIGN_DECISIONS.md)) — extends for
+  reorientation authority in flight, retracts before touchdown.
 - **Tendon routing:** cable paths from torso-mounted motors over pulleys to each
   joint; sheaths, anchor points, and moment arms.
 - **Compliance:** return springs and/or series-elastic elements per ADR-0002.
