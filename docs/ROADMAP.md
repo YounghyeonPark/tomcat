@@ -8,6 +8,11 @@ findings in the [Literature Review](LITERATURE_REVIEW.md).
 The single source of truth for *decisions* remains the ADR log; this roadmap
 sequences the work that implements them.
 
+> **Progress:** the decision phase is complete — all seven ADRs Accepted (0004's
+> tension-*method* sub-point aside). **M1 is done** (Phases 0–2): whole-body
+> static kinematics + tendon map with 66 passing tests, combined tendon/torque
+> budget, and first firmware/electronics/mechanical specs. **Next: M2 (gait).**
+
 ---
 
 ## Milestone M1 — Whole-Body Static Kinematics (Articulated Spine + Legs)
@@ -162,13 +167,37 @@ milestone-planning report). In summary:
 
 ---
 
-## After M1 (candidate M2+, not committed)
+## Milestone M2 — Gait generation on the whole-body model (ACTIVE)
+
+**Goal.** Turn the static M1 model into *motion*: a parameterized, periodic
+walk gait that produces per-leg joint-angle trajectories over a cycle via the
+existing IK, with the spine held neutral first, then a simple spine oscillation
+coupled to the gait (spine↔gait coupling, lit-review Q2b). Sagittal-plane,
+quasi-static (no dynamics yet).
+
+**Done when:** a gait module emits foot trajectories → per-leg IK → joint-angle
+sequences for a chosen gait (walk) at a commanded speed/stride; feet track the
+planned support/swing phases; a demo animates/prints a cycle; pytest covers
+phase timing, foot tracking, and joint-limit compliance.
+
+## Later milestones (candidate M3+, not committed)
 
 - 3D extension: frontal-plane leg abduction + spine lateral bend & axial twist.
-- Gait trajectory generation on the curving-base model (spine↔gait coupling;
-  tunable spine stiffness vs. speed, per lit-review Q2b).
 - Dynamics: leg mass in flight (~0.454 kg knee) driving trunk bending.
-- Leg actuator IMF trade study (ADR-0003) fed by the M1 budget.
-- **Righting milestone (in scope, [ADR-0007](DESIGN_DECISIONS.md)):** design the
-  inertial (morphable) tail, model flight-phase reorientation (tail + spine
-  twist), and a fall-detect → reorient control law (lit-review Q4).
+- **Righting milestone ([ADR-0007](DESIGN_DECISIONS.md)):** design the inertial
+  (morphable) tail, model flight-phase reorientation (tail + spine twist), and a
+  fall-detect → reorient control law (lit-review Q4).
+- Firmware/electronics build-out from the M1 interface specs (CAN-FD driver
+  firmware; KiCad smart-driver schematic/PCB).
+
+## Open reconciliation items (lead)
+
+- **Motor count 30 vs. ~25:** the whole-body budget assumes all-antagonistic
+  (24 legs + 6 spine); electronics notes ~25 if the **ankle is spring-return**
+  (already sanctioned by ADR-0002) and the **spine uses a variable-radius pulley**
+  (1 motor/antagonistic pair). Confirm before committing backplane channel count.
+- **ADR-0004 tension method** (load-cell vs. current estimate) still open — parks
+  tension scaling in both the firmware schema (`CFG_TENSION_SCALE`) and the
+  driver board (DNP load-cell path).
+- Motor `Kt` + bus voltage: blocked on a specific motor selection; blocks
+  detailed electrical sizing.
