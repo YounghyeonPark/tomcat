@@ -143,27 +143,30 @@ context, and consequences. Status is one of: **Proposed**, **Accepted**,
   base for the legs (whole-body kinematics), not a fixed frame. Adds a spine
   torque/tension budget alongside the leg budget.
 
-## ADR-0007: Mid-air righting via an inertial tail (+ spine twist)
-- **Status:** Accepted
-- **Context:** Mid-air righting (landing feet-first) is now an in-scope goal
-  (G6). Reorientation conserves angular momentum via shape change; the question
-  is which appendage provides it.
-- **Options:** (a) **spine axial twist** only — most cat-like, reuses the spine,
-  but limited authority; (b) **leg/limb shape-change** — no new hardware, proven
-  in sim for roll+pitch; (c) **dedicated inertial tail** — highest reorientation
-  authority.
-- **Decision:** Primary mechanism is a **dedicated inertial tail**, ideally
-  **morphable (telescoping)** to maximize authority during flight then retract
-  before touchdown; the spine's **axial-twist DOF is retained as a complementary
-  contributor**. Rationale: the "Inertial Reorientation template" analysis finds
-  **tails outperform limbs and spine/body-bending** for aerial reorientation, and
-  a 3-DoF morphable tail has self-righted a real quadruped in the flight phase
-  ([LITERATURE_REVIEW.md](LITERATURE_REVIEW.md) Q4). Rotary-actuator-only 180°
-  righting is proven, so no reaction wheels/thrusters are needed.
-- **Consequences:** Adds a **tail subsystem** (actuator(s), possibly a
-  length-change mechanism) to the architecture and BOM, a flight-phase
-  reorientation control law, and a later righting milestone. The spine must keep
-  its axial-twist DOF (ties back to ADR-0006's ~3-DOF-per-segment target).
+## ADR-0007: Mid-air righting — spine + legs primary, coarse tail assist
+- **Status:** Accepted (revised — tail simplified per project-owner)
+- **Context:** Mid-air righting (landing feet-first) is an in-scope goal (G6).
+  Reorientation conserves angular momentum via shape change; the question is
+  which appendage provides it. **Design directive:** the tail does not need
+  precise/accurate control — it is just a cable that **tensions up and loosens**.
+- **Options:** (a) **spine axial twist** — cat-like, reuses the spine; (b)
+  **leg/limb shape-change** — no new hardware, proven in sim for roll+pitch;
+  (c) **precise inertial (morphable) tail** — highest authority but needs
+  accurate multi-DOF control.
+- **Decision:** **Righting authority is primary in the spine axial-twist DOF +
+  leg shape-change** — rotary-actuator-only 180° reorientation is proven without
+  reaction wheels/thrusters ([LITERATURE_REVIEW.md](LITERATURE_REVIEW.md) Q4).
+  The **tail is a simple single-tendon appendage — tension to curl/raise, loosen
+  to relax (passive return); no precision required** — providing only a coarse
+  inertial assist, not controlled reorientation. This supersedes the earlier
+  "precise morphable tail" decision: the literature's tail-is-best result assumed
+  an *accurately controlled* tail, which we are deliberately not building.
+- **Consequences:** Tail subsystem shrinks to **~1 motor + a passive return** (no
+  telescoping, no accuracy budget) — cheaper, lighter, and P1-pure (cable pull).
+  Righting control now lives in the **spine + legs**, so ADR-0006's axial-twist
+  spine DOF becomes load-bearing for this goal (not merely complementary). The
+  righting milestone plans a spine/leg reorientation law with the tail as a
+  gross bias term.
 
 ---
 

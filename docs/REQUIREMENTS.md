@@ -44,7 +44,7 @@ curve.
 | NFR2  | Spine segments (serial, tendon-driven)           | ❓ TBD (e.g. 3–5)    |
 | NFR2b | DOF per spine segment                            | ❓ TBD (2: pitch+yaw)|
 | NFR2c | Total actuated DOF (12 legs + spine)             | ❓ TBD               |
-| NFR2d | Tail DOF (inertial reorientation; morphable?)    | ❓ TBD (e.g. 2–3 + length)|
+| NFR2d | Tail actuation (coarse assist, no accuracy)      | 1 tendon + passive return |
 | NFR3  | Control loop rate (tension/position)             | ≥ 1 kHz             |
 | NFR4  | Gait / trajectory update rate                    | ≥ 100 Hz            |
 | NFR5  | Mass (total)                                     | ❓ TBD               |
