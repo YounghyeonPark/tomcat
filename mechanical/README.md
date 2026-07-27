@@ -18,6 +18,11 @@ Scope:
 - **BOM:** motors, cables, pulleys, bearings, springs, fasteners.
 
 ## Specs
+- [LEG_TENDON_SPEC.md](LEG_TENDON_SPEC.md) — leg tendon-drive spec for the
+  pure-tendon legs (ADR-0003): moment-arm sizing that halves the ~1 kN cable
+  tension to a ~500 N land transient, UHMWPE cable spec, pulley/bearing/routing
+  and wrap angles (capstan friction), a static-hold brake, and the parameter
+  table for `LegParams` / `TendonParams`.
 - [SPINE_TAIL_SPEC.md](SPINE_TAIL_SPEC.md) — first-pass geometry & tendon-routing
   proposal for the 3-segment articulated spine (ADR-0006) and the inertial
   morphable tail (ADR-0007): segment lengths, girdle placement, routing paths,

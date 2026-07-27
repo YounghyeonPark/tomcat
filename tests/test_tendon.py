@@ -151,3 +151,91 @@ def test_spring_return_uses_single_motor_and_clamps():
     assert sol.n_motors == 3
     # Tension never drops below the pretension floor (cable can't push).
     assert np.all(sol.tension_flexor >= tmap.params.pretension - 1e-9)
+
+
+# ------------------------------------------------------- capstan friction (ADR-0003)
+def test_frictionless_default_motor_equals_joint_tension():
+    # mu=0 (default): motor-side tension == joint-side tension, factor == 1.
+    tmap = TendonMap(mode=ActuationMode.ANTAGONISTIC)
+    assert tmap.capstan_factor() == pytest.approx(1.0)
+    sol = tmap.resolve([0.4, -0.6, 0.1])
+    assert np.allclose(sol.motor_tension_flexor, sol.tension_flexor)
+    assert np.allclose(sol.motor_tension_extensor, sol.tension_extensor)
+
+
+def test_zero_wrap_reduces_to_frictionless():
+    # A non-zero mu with zero wrap still gives factor 1 (and vice versa).
+    a = TendonMap(params=TendonParams(friction_coeff=0.5, wrap_angle=0.0))
+    b = TendonMap(params=TendonParams(friction_coeff=0.0, wrap_angle=np.pi))
+    assert a.capstan_factor() == pytest.approx(1.0)
+    assert b.capstan_factor() == pytest.approx(1.0)
+    base = TendonMap(mode=ActuationMode.ANTAGONISTIC).resolve([0.3, -0.2, 0.05])
+    for tmap in (a, b):
+        sol = tmap.resolve([0.3, -0.2, 0.05])
+        assert np.allclose(sol.motor_tension_flexor, base.tension_flexor)
+        assert np.allclose(sol.motor_torque, base.motor_torque)
+
+
+def test_capstan_raises_motor_side_tension_and_torque():
+    tau = np.array([0.4, -0.6, 0.1])
+    frictionless = TendonMap(mode=ActuationMode.ANTAGONISTIC)
+    friction = TendonMap(
+        params=TendonParams(friction_coeff=0.3, wrap_angle=np.pi),
+        mode=ActuationMode.ANTAGONISTIC,
+    )
+    f0 = frictionless.resolve(tau)
+    f1 = friction.resolve(tau)
+    factor = friction.capstan_factor()
+    assert factor > 1.0
+    # Joint-side tension is unchanged by friction; motor-side is amplified.
+    assert np.allclose(f1.tension_flexor, f0.tension_flexor)
+    assert np.allclose(f1.motor_tension_flexor, f0.tension_flexor * factor)
+    # Motor torque is sized from the motor-side tension, so it rises too.
+    assert np.all(np.abs(f1.motor_torque) > np.abs(f0.motor_torque))
+
+
+def test_higher_wrap_or_mu_raises_motor_tension_monotonically():
+    tau = [0.5, -0.5, 0.2]
+    low = TendonMap(params=TendonParams(friction_coeff=0.2, wrap_angle=np.pi)).resolve(tau)
+    hi_mu = TendonMap(params=TendonParams(friction_coeff=0.4, wrap_angle=np.pi)).resolve(tau)
+    hi_wrap = TendonMap(params=TendonParams(friction_coeff=0.2, wrap_angle=2 * np.pi)).resolve(tau)
+    assert np.all(hi_mu.motor_tension_flexor > low.motor_tension_flexor)
+    assert np.all(hi_wrap.motor_tension_flexor > low.motor_tension_flexor)
+
+
+def test_pay_out_direction_reduces_tension():
+    tmap = TendonMap(params=TendonParams(friction_coeff=0.3, wrap_angle=np.pi))
+    assert tmap.capstan_factor(paying_out=True) < 1.0
+    assert tmap.capstan_factor(paying_out=True) == pytest.approx(
+        1.0 / tmap.capstan_factor()
+    )
+
+
+# --------------------------------------------------------- cable stretch (ADR-0003)
+def test_inextensible_default_has_no_stretch():
+    tmap = TendonMap(mode=ActuationMode.ANTAGONISTIC)  # k_cable=None
+    T = np.array([100.0, 200.0, 50.0])
+    assert np.allclose(tmap.cable_stretch(T), 0.0)
+    assert np.allclose(tmap.extra_motor_angle(T), 0.0)
+    assert np.allclose(tmap.joint_angle_error(T), 0.0)
+
+
+def test_infinite_stiffness_has_no_stretch():
+    tmap = TendonMap(params=TendonParams(k_cable=float("inf")))
+    assert np.allclose(tmap.cable_stretch([100.0, 200.0, 50.0]), 0.0)
+
+
+def test_stretch_scales_linearly_with_tension():
+    k = 5.0e4
+    tmap = TendonMap(params=TendonParams(k_cable=k))
+    T = np.array([100.0, 200.0, 400.0])
+    dl = tmap.cable_stretch(T)
+    assert np.allclose(dl, T / k)
+    # Doubling tension doubles both stretch and the extra motor angle.
+    assert dl[1] == pytest.approx(2.0 * dl[0])
+    assert np.allclose(
+        tmap.extra_motor_angle(T), (T / k) / tmap.params.motor_spool_radius
+    )
+    # Uncompensated joint-angle error = dL / r (per-joint moment arm).
+    r = np.asarray(tmap.params.joint_moment_arm)
+    assert np.allclose(tmap.joint_angle_error(T), (T / k) / r)

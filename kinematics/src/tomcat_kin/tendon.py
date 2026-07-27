@@ -38,6 +38,40 @@ tension setpoint, and the moment-to-moment choice of which side is agonist — i
 a firmware / real-time control concern, not part of this static kinematic map.
 This module only provides the tension split for a commanded (torque, T_bias)
 pair; it does not close a stiffness loop.
+
+Tendon non-idealities (ADR-0003): friction & stretch
+----------------------------------------------------
+Per ADR-0003 the legs are pure tendon-driven too, so Coulomb friction and cable
+stretch are first-class here, not spine-only.
+
+- FRICTION (capstan / Eytelwein). Tension differs between the two ends of the
+  routing because Coulomb friction acts over the total wrap angle `theta_wrap`
+  of the cable across pulleys/sheaths:
+
+      T_motor = T_joint * exp(+mu * theta_wrap)   (motor PULLING against the load)
+      T_motor = T_joint * exp(-mu * theta_wrap)   (motor PAYING OUT / releasing)
+
+  DIRECTION CONVENTION. `T_joint` is the tension at the JOINT end — the tension
+  that actually produces joint torque (`tau = r * (T_flex - T_ext)`). `T_motor`
+  is the tension the MOTOR/cable must supply at the spool. To DEVELOP or HOLD a
+  joint load the motor pulls the cable in against friction, so it must supply the
+  LARGER `exp(+mu*theta)` tension; this is the worst case for motor and cable
+  sizing and is what `resolve()` reports as the motor-side tension and uses to
+  size `motor_torque`. `mu = 0` OR `theta_wrap = 0` gives factor 1, so the map
+  reduces exactly to the previous frictionless behaviour.
+
+- STRETCH (series compliance). The cable is a linear spring of stiffness
+  `k_cable` (N/m): under tension `T` it lengthens `dL = T / k_cable`. To hold a
+  commanded joint angle the motor must wind that extra `dL` (an extra motor angle
+  `dL / r_spool`) beyond the geometric `r*q`; if the winding is NOT compensated
+  the joint under-rotates by `dL / r`. `k_cable = None` (or inf) => inextensible,
+  the previous behaviour. See `cable_stretch` / `extra_motor_angle` /
+  `joint_angle_error`.
+
+Both models assume rigid links and lumped, quasi-static cable behaviour; a real
+routed cable has a tension GRADIENT along its length under friction, so the true
+stretch lies between the joint-side and motor-side values — the lumped spring
+here takes the tension it is handed as representative.
 """
 
 from __future__ import annotations
@@ -62,11 +96,16 @@ class TendonSolution:
     All arrays are length-3 (hip, knee, ankle) unless noted.
     """
 
-    tension_flexor: np.ndarray     # N, >= 0
-    tension_extensor: np.ndarray   # N, >= 0 (zeros in spring-return mode)
-    motor_torque: np.ndarray       # N·m per driven motor
+    tension_flexor: np.ndarray     # N, >= 0, JOINT-side (produces joint torque)
+    tension_extensor: np.ndarray   # N, >= 0, JOINT-side (zeros in spring-return mode)
+    motor_torque: np.ndarray       # N·m per driven motor (from MOTOR-side tension)
     joint_torque: np.ndarray       # N·m actually realized (for cross-check)
     t_bias: np.ndarray | None = None  # N, co-contraction bias used (antagonistic)
+    # MOTOR-side tensions = joint-side * capstan factor exp(+mu*theta_wrap) — what
+    # the motor/cable must supply when pulling against the load (see module doc).
+    # Equal to the joint-side tensions when friction is off (mu=0 or wrap=0).
+    motor_tension_flexor: np.ndarray | None = None    # N, >= 0
+    motor_tension_extensor: np.ndarray | None = None  # N, >= 0 (zeros in spring-return)
 
     @property
     def n_motors(self) -> int:
@@ -111,6 +150,9 @@ class TendonMap:
             pretension=spine_params.pretension,
             spring_stiffness=tuple(spine_params.spring_stiffness),
             spring_rest_angle=tuple(spine_params.spring_rest_angle),
+            friction_coeff=spine_params.friction_coeff,
+            wrap_angle=spine_params.wrap_angle,
+            k_cable=spine_params.k_cable,
         )
         return cls(params=tp, mode=mode)
 
@@ -132,6 +174,52 @@ class TendonMap:
         """
         q = np.asarray(q, dtype=float)
         return self._r * q / self.params.motor_spool_radius
+
+    # ------------------------------------------------------- friction (capstan)
+    def capstan_factor(self, *, paying_out: bool = False) -> float:
+        """Capstan tension ratio T_motor / T_joint over the routing (dimensionless).
+
+        `exp(+mu*theta_wrap)` when the motor PULLS against the load (default, the
+        worst case for sizing); `exp(-mu*theta_wrap)` when PAYING OUT. Returns 1.0
+        when friction is off (mu = 0 or wrap = 0). See the module docstring for the
+        sign/direction convention.
+        """
+        mu = float(self.params.friction_coeff)
+        wrap = float(self.params.wrap_angle)
+        sign = -1.0 if paying_out else 1.0
+        return float(np.exp(sign * mu * wrap))
+
+    # -------------------------------------------------------- stretch (compliance)
+    def cable_stretch(self, tension) -> np.ndarray:
+        """Cable elongation dL (m) under `tension` (N): dL = |T| / k_cable.
+
+        Returns zeros when the cable is modelled as inextensible (`k_cable` is
+        None or non-finite). `tension` is taken as the representative cable
+        tension (see the module doc on the friction-induced tension gradient).
+        """
+        T = np.abs(np.asarray(tension, dtype=float))
+        k = self.params.k_cable
+        if k is None or not np.isfinite(k):
+            return np.zeros_like(T)
+        return T / float(k)
+
+    def extra_motor_angle(self, tension) -> np.ndarray:
+        """Extra motor rotation (rad) needed to take up cable stretch at `tension`.
+
+        The motor must wind dL = |T|/k_cable of extra cable off a spool of radius
+        r_spool, i.e. dL / r_spool beyond the geometric r*q, to hold the angle.
+        """
+        return self.cable_stretch(tension) / self.params.motor_spool_radius
+
+    def joint_angle_error(self, tension) -> np.ndarray:
+        """Joint-angle error (rad) if the cable stretch is NOT compensated.
+
+        If the motor winds only the geometric r*q and ignores stretch, the cable
+        elongation dL is not delivered to the joint pulley, so the joint
+        under-rotates by dL / r (per-joint moment arm). Sign is the magnitude of
+        the shortfall; the joint lags the commanded angle.
+        """
+        return self.cable_stretch(tension) / self._r
 
     # ------------------------------------------------ statics (torque <-> tension)
     def _bias_array(self, t_bias) -> np.ndarray:
@@ -173,15 +261,22 @@ class TendonMap:
         t_flex = np.where(dtension >= 0, active, bias)
         t_ext = np.where(dtension >= 0, bias, active)
         realized = self._r * (t_flex - t_ext)  # independent of bias
+        # Capstan: the motor pulls the loaded cable in against friction, so the
+        # motor-side tension is the joint-side tension amplified by exp(+mu*wrap).
+        factor = self.capstan_factor()
+        m_flex = t_flex * factor
+        m_ext = t_ext * factor
         # In antagonistic mode the driven motor is whichever tendon is pulling
-        # hardest; report the larger tension's motor torque.
-        peak = np.maximum(t_flex, t_ext)
+        # hardest; size the motor torque from the (motor-side) peak tension.
+        peak_motor = np.maximum(m_flex, m_ext)
         return TendonSolution(
             tension_flexor=t_flex,
             tension_extensor=t_ext,
-            motor_torque=peak * self.params.motor_spool_radius,
+            motor_torque=peak_motor * self.params.motor_spool_radius,
             joint_torque=realized,
             t_bias=bias,
+            motor_tension_flexor=m_flex,
+            motor_tension_extensor=m_ext,
         )
 
     def _resolve_spring(self, tau: np.ndarray, q=None) -> TendonSolution:
@@ -192,9 +287,13 @@ class TendonMap:
         # A cable cannot push: clamp to the pretension floor.
         t_flex = np.maximum(t_flex, self.params.pretension)
         realized = self._r * t_flex - spring_torque
+        factor = self.capstan_factor()
+        m_flex = t_flex * factor
         return TendonSolution(
             tension_flexor=t_flex,
             tension_extensor=np.zeros_like(t_flex),
-            motor_torque=t_flex * self.params.motor_spool_radius,
+            motor_torque=m_flex * self.params.motor_spool_radius,
             joint_torque=realized,
+            motor_tension_flexor=m_flex,
+            motor_tension_extensor=np.zeros_like(t_flex),
         )

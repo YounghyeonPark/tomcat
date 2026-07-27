@@ -57,6 +57,26 @@ class TendonParams:
     # In antagonistic mode this is the co-contraction floor on the "slack" side.
     pretension: float = 5.0
 
+    # --- Tendon non-idealities (ADR-0003: friction & stretch are now leg-side
+    #     concerns too, not spine-only). Defaults reduce EXACTLY to the previous
+    #     frictionless / inextensible behaviour, so existing budgets are unchanged.
+
+    # Capstan (Coulomb) friction over the routing pulleys / sheaths. The motor-side
+    # cable tension differs from the joint-side tension by exp(±mu * wrap_angle):
+    # PULLING against the load costs exp(+mu*wrap), PAYING OUT gains exp(-mu*wrap).
+    #   friction_coeff : mu, dimensionless Coulomb coefficient of the routing.  ❓ TBD
+    #   wrap_angle     : theta_wrap, TOTAL cable wrap over all guides (rad).      ❓ TBD
+    # mu = 0 OR wrap = 0  =>  factor = 1  =>  motor-side tension == joint-side.
+    friction_coeff: float = 0.0
+    wrap_angle: float = 0.0
+
+    # Series cable compliance: model the tendon as a linear spring of stiffness
+    # k_cable (N/m). Under tension T it stretches dL = T / k_cable, so the motor
+    # must wind extra travel (dL / r_spool) beyond the geometric r*q to hold a
+    # joint angle; if uncompensated the joint under-rotates by dL / r.  ❓ TBD.
+    #   None (or a non-finite value such as inf)  =>  inextensible, no stretch.
+    k_cable: float | None = None
+
     # Spring-return mode only: torsional spring stiffness (N·m/rad) and rest
     # angle (rad) per joint.  Unused in antagonistic mode.  ❓ TBD
     spring_stiffness: tuple[float, ...] = (0.5, 0.5, 0.3)
@@ -133,6 +153,14 @@ class SpineParams:
     # good to a factor of ~2-3; correct in ranking/scale, not a measured value.
     spring_stiffness: tuple[float, ...] = (1.0, 1.0, 1.0)
     spring_rest_angle: tuple[float, ...] = (0.0, 0.0, 0.0)
+
+    # Tendon non-idealities, same meaning as TendonParams (capstan friction +
+    # series cable stretch). Long spine tendons run over many vertebral guides,
+    # so wrap_angle is expected to be LARGER here than at a leg once sourced.
+    # Defaults reduce to the previous frictionless / inextensible behaviour.  ❓ TBD.
+    friction_coeff: float = 0.0
+    wrap_angle: float = 0.0
+    k_cable: float | None = None
 
     def __post_init__(self) -> None:
         for name in (

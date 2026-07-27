@@ -20,6 +20,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "src"))
 from tomcat_kin import (  # noqa: E402
     LegModel,
     TendonMap,
+    TendonParams,
     ActuationMode,
     SpineModel,
     WholeBody,
@@ -31,6 +32,8 @@ from tomcat_kin.params import (  # noqa: E402
     DEFAULT_WHOLE_BODY_LOADS,
 )
 from tomcat_kin import torque_budget, whole_body_budget  # noqa: E402
+from tomcat_kin.sensitivity import moment_arm_sweep  # noqa: E402
+from tomcat_kin.params import DEFAULT_TENDON  # noqa: E402
 
 
 def main() -> None:
@@ -102,15 +105,59 @@ def main() -> None:
     print(f"spine tendon tensions (extensor) N: {ssol.tension_extensor}")
     print(f"spine realized joint torque  N·m : {ssol.joint_torque}")
 
+    print("\n=== Tendon friction (capstan) + stretch (series compliance) ===")
+    # An illustrative routing: mu=0.3 over ~180 deg of total wrap, and a
+    # moderately stiff synthetic cable.  All still PLACEHOLDER (params default to
+    # the frictionless / inextensible case; these are passed here to show effect).
+    fric = TendonMap(
+        params=TendonParams(friction_coeff=0.3, wrap_angle=np.pi, k_cable=5.0e4),
+        mode=ActuationMode.ANTAGONISTIC,
+    )
+    fsol = fric.resolve([0.4, -0.6, 0.1])
+    print(f"capstan factor exp(mu*theta): {fric.capstan_factor():.3f} "
+          f"(pay-out {fric.capstan_factor(paying_out=True):.3f})")
+    print(f"joint-side tension (flexor) N: {fsol.tension_flexor}")
+    print(f"motor-side tension (flexor) N: {fsol.motor_tension_flexor}")
+    print(f"  -> motor must supply ~{fric.capstan_factor():.2f}x the joint tension")
+    active = np.maximum(fsol.tension_flexor, fsol.tension_extensor)
+    print(f"cable stretch at active tension mm : {fric.cable_stretch(active) * 1e3}")
+    print(f"extra motor angle to compensate deg: "
+          f"{np.rad2deg(fric.extra_motor_angle(active))}")
+    print(f"joint-angle error if uncompensated deg: "
+          f"{np.rad2deg(fric.joint_angle_error(active))}")
+
     print("\n=== Combined whole-body static budget (spine + 4 legs) ===")
     wb = WholeBody(spine=SpineModel())
     leg_tendons = TendonMap(mode=ActuationMode.ANTAGONISTIC)
+    land_result = None
     for wload in DEFAULT_WHOLE_BODY_LOADS:
         result = whole_body_budget.evaluate(
             wb, leg_tendons, spine_tendons, wload, grid=25
         )
         print(result.report())
         print()
+        if "land" in wload.name:
+            land_result = result
+
+    print("=== Moment-arm sensitivity for the worst leg joint (land case) ===")
+    # Worst-case leg joint torque from the whole-body land sweep drives the trade.
+    worst_tau = float(np.max(land_result.leg.peak_joint_torque))
+    worst_joint = ("hip", "knee", "ankle")[
+        int(np.argmax(land_result.leg.peak_joint_torque))
+    ]
+    arms = [0.010, 0.015, 0.020, 0.030, 0.050, 0.100, 0.150, 0.200]
+    print(f"driving torque: worst leg joint = {worst_joint}, |tau| = {worst_tau:.2f} N·m\n")
+    print("[frictionless]")
+    print(moment_arm_sweep(worst_tau, arms, t_bias=DEFAULT_TENDON.pretension).report())
+    print("\n[with routing friction mu=0.3, theta_wrap=180 deg]")
+    print(
+        moment_arm_sweep(
+            worst_tau, arms,
+            t_bias=DEFAULT_TENDON.pretension,
+            friction_coeff=0.3, wrap_angle=np.pi,
+        ).report()
+    )
+    print()
 
 
 if __name__ == "__main__":

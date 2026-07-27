@@ -13,6 +13,7 @@ tendon            Joint-angle <-> cable-length and joint-torque <-> tendon-tensi
                   with commandable co-contraction bias (T_bias / AIC, ADR-0002).
 torque_budget     Static worst-case per-leg joint-torque / motor-torque estimation.
 whole_body_budget Combined spine+legs static tendon/torque + motor-count budget.
+sensitivity       Moment-arm vs. joint/motor cable-tension trade sweep (ADR-0003).
 """
 
 from .params import (
@@ -30,8 +31,9 @@ from .params import (
 from .leg import LegModel, KneeConfig, UnreachableError
 from .spine import SpineModel, WholeBody, Girdle, LegMount, DEFAULT_MOUNTS
 from .tendon import TendonMap, ActuationMode, TendonSolution
-from . import torque_budget, whole_body_budget
+from . import torque_budget, whole_body_budget, sensitivity
 from .whole_body_budget import WholeBodyBudgetResult, spine_joint_torques
+from .sensitivity import moment_arm_sweep, MomentArmSweepResult, ROBOCAT_BAND_N
 
 __all__ = [
     "LegParams",
@@ -57,6 +59,10 @@ __all__ = [
     "TendonSolution",
     "torque_budget",
     "whole_body_budget",
+    "sensitivity",
     "WholeBodyBudgetResult",
     "spine_joint_torques",
+    "moment_arm_sweep",
+    "MomentArmSweepResult",
+    "ROBOCAT_BAND_N",
 ]
