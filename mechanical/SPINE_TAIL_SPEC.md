@@ -4,7 +4,7 @@ Owner: **tomcat-mechanical** · Milestone: **M1** (task M1: spine geometry & rou
 Status: **first-pass / all values placeholder** unless labelled `[sourced]`.
 
 This is the mechanical geometry & tendon-routing proposal for the articulated
-spine ([ADR-0006](../docs/DESIGN_DECISIONS.md)) and the inertial tail
+spine ([ADR-0006](../docs/DESIGN_DECISIONS.md)) and the single-tendon tail
 ([ADR-0007](../docs/DESIGN_DECISIONS.md)). It presents numbers as tables for
 **tomcat-kinematics** to fold into `kinematics/src/tomcat_kin/params.py`
 (`SpineParams` + a proposed `TailParams`). It does **not** edit `params.py`,
@@ -167,41 +167,28 @@ once R1 lands.
 
 ---
 
-## 2. Tail — inertial, morphable (concept level)
+## 2. Tail — single-tendon (concept level)
 
-Per ADR-0007 the tail is the primary mid-air righting mechanism, complemented by
-spine axial twist. Concept only; no geometry committed.
+Per **ADR-0007 (revised)** the tail needs **no precision** — it is a single cable
+that **tensions up (curls/raises the tail) and loosens (relaxes)**. Mid-air
+righting authority lives in the **spine axial-twist + legs**; the tail is only a
+**coarse inertial assist**, not a controlled reorientation instrument. Concept
+only; no geometry committed.
 
-- **DOF: 3** `[sourced: lit Q4 — 3-DoF morphable tail self-rights Unitree A1]` —
-  **2 revolute at the base** (pitch about +y, yaw about +z) + **1 prismatic**
-  (telescoping length change). Two revolute axes let the tail sweep a cone for
-  combined roll/pitch reorientation; the prismatic axis is the morphing DOF.
+- **Actuation: 1 tendon + passive return** `[sourced: ADR-0007]` — a dorsal cable
+  from a single girdle motor curls the passive multi-segment tail when tensioned;
+  a light spring (or gravity) relaxes it when loosened. **No telescoping, no
+  antagonist, no accuracy budget, no controlled DOF.**
 - **Mounting:** at the **pelvic girdle** (vertebra 0), base at `x=0`, tail
-  extending rearward (−x). Actuators live in the pelvic girdle alongside the
-  spine motors (P1 centralization). Concept-level: tendon-driven like the rest,
-  or a compact direct base joint — deferred to the tail milestone.
-- **Length envelope:** retracted **~0.10 m** → extended **~0.35 m** `[assumed]`.
-  Telescoping ratio ~3.5:1 (lit Q4 retracts to ~1/4 flight length before
-  touchdown).
-- **Mass envelope:** **~0.20 kg** (~7% of the ~3 kg body) `[assumed]` — a robotic
-  inertial tail is deliberately heavier than a biological cat tail to buy
-  reorientation authority.
-
-**Reorientation-authority sanity check** (order-of-magnitude, not a sim):
-- Body pitch inertia ≈ rod model `(1/12)·3·0.25² ≈ 0.016 kg·m²`.
-- Tail extended, as a rod pivoting at base: `(1/3)·0.20·0.35² ≈ 0.0082 kg·m²`;
-  retracted: `(1/3)·0.20·0.10² ≈ 0.0007 kg·m²`.
-- Extended tail inertia is ~half the body's → sweeping the tail through a large
-  angle counter-rotates the body a useful fraction of that sweep. Momentum
-  conservation gives body rotation ≈ `I_tail/(I_body+I_tail) × tail sweep`
-  ≈ 0.34 × sweep. Combined with spine twist this supports a righting maneuver;
-  **telescoping boosts I_tail ~12× vs. retracted**, which is the whole point of
-  the morphing DOF.
-- **Retract-before-touchdown:** collapsing to ~0.10 m before landing (a) removes
-  ~92% of the tail's rotational inertia so it stops fighting the landing, (b)
-  shifts tail CoM toward the body for a stable base of support, and (c) avoids
-  ground strike. This is a control-phase action but the mechanism must support
-  fast retraction.
+  extending rearward (−x); the single motor lives in the pelvic girdle (P1).
+- **Structure:** 3–4 short passive links so it curls smoothly; raised length
+  ~0.25–0.35 m `[assumed]`, mass ~0.15–0.20 kg (~5–7% body) `[assumed]`.
+- **Role check:** because the tail is coarse (essentially pull/release), it
+  cannot perform the *controlled* flight-phase reorientation the literature
+  attributes to a precise inertial tail (lit Q4). It contributes only a gross
+  inertial bias; the righting maneuver is planned on the **spine + legs**
+  (rotary-only 180°, lit Q4). This is a deliberate simplification for buildability
+  and P1 purity, accepting lower righting authority.
 
 ---
 
@@ -237,19 +224,19 @@ When `SpineParams` grows per-axis limits, seed them ordered by compliance rank:
 Per-axis `joint_moment_arm` when 3D lands: dorsal 0.030 / ventral 0.018 /
 lateral 0.015 / axial 0.020 m (all `[assumed]`, §1.5).
 
-### 3.3 Proposed new `TailParams` dataclass
+### 3.3 Proposed new `TailParams` dataclass (simplified — ADR-0007)
 
 | Field (proposed) | Proposed value | Unit | Source label |
 |---|---|---|---|
-| `n_dof` | `3` (2 revolute + 1 prismatic) | — | `[sourced: lit Q4]` |
-| `mass` | `0.20` | kg | `[assumed]` (~7% body) |
-| `length_retracted` | `0.10` | m | `[assumed]` |
-| `length_extended` | `0.35` | m | `[assumed]` |
-| `pitch_min` / `pitch_max` | `-1.57` / `+1.57` | rad | `[assumed]` (±90°) |
-| `yaw_min` / `yaw_max` | `-1.57` / `+1.57` | rad | `[assumed]` (±90°) |
+| `mode` | `single_tendon` (tension/loosen) | — | `[sourced: ADR-0007]` |
+| `n_motors` | `1` | — | `[sourced: ADR-0007]` |
+| `n_links` (passive) | `3` | — | `[assumed]` |
+| `length` (raised) | `0.30` | m | `[assumed]` |
+| `mass` | `0.15–0.20` | kg | `[assumed]` (~5–7% body) |
 | `mount_offset` (on pelvic girdle) | `(0.0, 0.0)` | m | `[assumed]` |
-| `joint_moment_arm` (if tendon-driven) | `0.015` | m | `[assumed]` |
+| `joint_moment_arm` | `0.015` | m | `[assumed]` |
 | `motor_spool_radius` | `0.008` | m | `[assumed]` |
+| `return` | passive spring / gravity | — | `[sourced: ADR-0007]` |
 
 ---
 
@@ -276,10 +263,9 @@ count and directly feeds electronics task E1 and ADR-0002.
 
 ### 4.2 Tail
 
-3 DOF. If tendon-driven antagonistic: **6 tendons / 6 motors** (or 3 with
-variable-radius pulley). The prismatic telescope may instead be a single
-lead-screw/cable-retract actuator. Concept-level: budget **2–3 tail motors** in
-the pelvic girdle.
+**1 motor.** A single dorsal tendon curls the passive tail (tension → curl,
+loosen → relax under a passive return, ADR-0007). No antagonist, no telescope
+actuator. Budget **1 tail motor** in the pelvic girdle.
 
 ### 4.3 BOM deltas this spec introduces
 
@@ -289,8 +275,8 @@ the pelvic girdle.
   station.
 - Cable-anchor hardware at vertebrae 1, 2, 3 (Option B).
 - Optional **variable-radius pulleys** at the motor spools (RoboCat economy).
-- Tail: telescoping tube set, base 2-axis gimbal, retract actuator.
-- Motors/drivers: **3–6 spine + 2–3 tail** added to the leg count, gating the
+- Tail: passive multi-link tube, one dorsal tendon + spool, light return spring.
+- Motors/drivers: **3–6 spine + 1 tail** added to the leg count, gating the
   electronics driver-channel count (E1) and the ADR-0002 antagonistic factor.
 
 ---
@@ -300,7 +286,7 @@ the pelvic girdle.
 - **→ tomcat-kinematics:** §3 tables (segment lengths, moment arms, ROM,
   pretension) for `params.py`; note the moment-arm increase 0.020→0.030 and the
   pretension 5→20 N recommendation; `spring_stiffness` remains `[owed:R1]`.
-- **→ tomcat-electronics:** §4 motor counts (3–6 spine + 2–3 tail; variable-radius
+- **→ tomcat-electronics:** §4 motor counts (3–6 spine + 1 tail; variable-radius
   pulley halves the spine bank) for the driver-channel note (E1).
 - **→ tomcat-research:** confirm the axial→rotational stiffness conversion
   (`[owed:R1]`) and validate the 2.5 N·m design-point torque assumption used in

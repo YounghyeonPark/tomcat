@@ -69,7 +69,7 @@ joints, foot contact sensors).
 | Motor drivers    | Power stage per motor (BLDC/DC), current sensing              |
 | Motors           | Rotary actuators pulling tendons (centralized in girdles)     |
 | Spine            | Serial chain of tendon-driven segments; curves the whole body (ADR-0006) |
-| Tail             | Inertial (ideally morphable) appendage for mid-air righting (ADR-0007)   |
+| Tail             | Single-tendon tail (tension/loosen); coarse righting assist (ADR-0007)  |
 | Tension sensors  | Per-tendon force feedback (load cell or current estimate)     |
 | Joint sensors    | Absolute/relative joint angle (or inferred from cable travel) |
 | Foot sensors     | Ground contact / force detection                             |

@@ -161,7 +161,7 @@ n×TELEM. Using a first-order CAN-FD frame-time estimate (arbitration/header
 - Cycle time ≈ 45 + n·(57 + 63) = **45 + 120·n µs**.
 - 1 kHz budget (1000 µs) → **n ≤ ~7.9 nodes/segment** before saturation.
 
-So ~33 motors at a comfortable **5–6 nodes/segment → 6–7 segments**, matching
+So ~31 motors at a comfortable **5–6 nodes/segment → 6–7 segments**, matching
 ADR-0005's ~6–8. **This is a paper estimate**: real arbitration bit timing, bit
 stuffing, controller/DMA latency, and margin must be **bench-verified at final
 axis count** (ADR-0005 explicitly flags the segment count as an extrapolation
@@ -180,10 +180,11 @@ values are known.
 
 ## 3. Logical motor map
 
-~33 motors: **24 leg** (4 legs × {hip, knee, ankle} × {flexor, extensor}) +
+~31 motors: **24 leg** (4 legs × {hip, knee, ankle} × {flexor, extensor}) +
 **6 spine** (3 sagittal segments × 2; grows with the lateral/axial DOF of
-ADR-0006) + **tail** (placeholder, ADR-0007). Each smart driver drives exactly
-one tendon (one side of an antagonistic pair). The RT tier holds the mapping:
+ADR-0006) + **1 tail** (single tendon, tension/loosen, ADR-0007). Each leg/spine
+smart driver drives one tendon (one side of an antagonistic pair). The RT tier
+holds the mapping:
 
 ```
 logical_id  ──▶  (girdle/tail cluster, CAN segment, node_id)  ──▶  physical driver

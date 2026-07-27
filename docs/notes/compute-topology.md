@@ -16,8 +16,8 @@ extrapolation).
 
 ## 0. The constraint envelope (from the ADRs + REQUIREMENTS)
 
-- **~30 tendon FOC axes now**, rising toward **~33+** with the tail: 24 leg
-  (antagonistic) + ~6 spine (ADR-0002/0003/0006), + tail (ADR-0007). Each axis
+- **~31 tendon FOC axes**: 24 leg
+  (antagonistic) + ~6 spine (ADR-0002/0003/0006) + 1 tail (ADR-0007). Each axis
   needs **FOC commutation + closed-loop tension + a rotor position sensor
   (ADR-0004) + a per-tendon tension signal** (load cell or current estimate).
 - **Two clocked layers** (REQUIREMENTS NFR3/NFR4): a **hard real-time motor loop
@@ -277,8 +277,8 @@ mass-centralization.
 
 > **ADR-0005: Compute topology**
 > **Status:** Accepted (supersedes the Proposed "undecided" placeholder)
-> **Context:** ~30 tendon FOC axes now (24 legs + ~6 spine), rising toward ~33+
-> with the tail (ADR-0007); each needs FOC, closed-loop tension, a rotor sensor
+> **Context:** ~31 tendon FOC axes (24 legs + ~6 spine + 1 tail, ADR-0007);
+> each needs FOC, closed-loop tension, a rotor sensor
 > (ADR-0004), and a tension signal. Two clocked layers are required: a hard
 > ≥1 kHz motor loop across many channels (NFR3) and ≥100 Hz planning/righting
 > (NFR4). P1 clusters motors in the girdles.

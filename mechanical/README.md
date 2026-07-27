@@ -9,9 +9,9 @@ Scope:
   and NFR1/NFR2 in [../docs/REQUIREMENTS.md](../docs/REQUIREMENTS.md).
 - **Spine:** serial segments allowing dorsoventral + lateral bend (and, ideally,
   axial twist for the righting reflex), with tendons routed to girdle motors.
-- **Tail:** an inertial, ideally **morphable (telescoping)** appendage for
-  mid-air righting (see [ADR-0007](../docs/DESIGN_DECISIONS.md)) — extends for
-  reorientation authority in flight, retracts before touchdown.
+- **Tail:** a **single-tendon** appendage — tension to curl/raise, loosen to
+  relax (passive return); no precision (see [ADR-0007](../docs/DESIGN_DECISIONS.md)).
+  Coarse inertial assist only — righting authority is in the spine + legs.
 - **Tendon routing:** cable paths from torso-mounted motors over pulleys to each
   joint; sheaths, anchor points, and moment arms.
 - **Compliance:** return springs and/or series-elastic elements per ADR-0002.
@@ -24,10 +24,10 @@ Scope:
   and wrap angles (capstan friction), a static-hold brake, and the parameter
   table for `LegParams` / `TendonParams`.
 - [SPINE_TAIL_SPEC.md](SPINE_TAIL_SPEC.md) — first-pass geometry & tendon-routing
-  proposal for the 3-segment articulated spine (ADR-0006) and the inertial
-  morphable tail (ADR-0007): segment lengths, girdle placement, routing paths,
-  moment arms, per-axis ROM, and the parameter table for `SpineParams` +
-  proposed `TailParams`, plus BOM/motor-count implications.
+  proposal for the 3-segment articulated spine (ADR-0006) and the single-tendon
+  tail (ADR-0007): segment lengths, girdle placement, routing paths, moment arms,
+  per-axis ROM, and the parameter table for `SpineParams` + `TailParams`, plus
+  BOM/motor-count implications.
 
 ## Status
 Stub — CAD files and routing diagrams to be added. Mechanical review is the

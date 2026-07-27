@@ -192,9 +192,10 @@ world/ground frame through the spine) is the natural next step.
   spine so spine bend and gait share one closed loop (the deferred M2 item).
 - 3D extension: frontal-plane leg abduction + spine lateral bend & axial twist.
 - Dynamics: leg mass in flight (~0.454 kg knee) driving trunk bending.
-- **Righting milestone ([ADR-0007](DESIGN_DECISIONS.md)):** design the inertial
-  (morphable) tail, model flight-phase reorientation (tail + spine twist), and a
-  fall-detect → reorient control law (lit-review Q4).
+- **Righting milestone ([ADR-0007](DESIGN_DECISIONS.md)):** model flight-phase
+  reorientation via **spine axial-twist + leg shape-change** (rotary-only 180°),
+  with the single-tendon tail as a coarse bias term, and a fall-detect → reorient
+  control law (lit-review Q4).
 - Firmware/electronics build-out from the M1 interface specs (CAN-FD driver
   firmware; KiCad smart-driver schematic/PCB).
 

@@ -17,8 +17,9 @@ curve.
 - G4. Energy-efficient movement compared with a direct-drive baseline.
 - G5. An articulated, tendon-driven spine so the body can arch, bend laterally,
   and twist like a real cat (P2).
-- G6. Mid-air righting: reorient during a fall to land feet-first, via an
-  inertial tail complemented by spine twist (see [ADR-0007](DESIGN_DECISIONS.md)).
+- G6. Mid-air righting: reorient during a fall to land feet-first, via spine
+  axial-twist + legs, with a coarse single-tendon tail assist
+  (see [ADR-0007](DESIGN_DECISIONS.md)).
 
 ## 2. Functional requirements
 

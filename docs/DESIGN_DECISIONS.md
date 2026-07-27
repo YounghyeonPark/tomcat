@@ -97,7 +97,7 @@ context, and consequences. Status is one of: **Proposed**, **Accepted**,
 
 ## ADR-0005: Compute & motor-drive topology
 - **Status:** Accepted
-- **Context:** ~30 tendon motors now (24 legs + 6 spine), ~33+ with the tail —
+- **Context:** ~31 tendon motors (24 legs + 6 spine + 1 tail) —
   each needing FOC, closed-loop tension, a rotor sensor, and a tension signal;
   plus ≥1 kHz motor loops (NFR3) and ≥100 Hz planning/righting (NFR4).
 - **Options:** single MCU (rejected — cannot host ~30 FOC loops *and* planning);

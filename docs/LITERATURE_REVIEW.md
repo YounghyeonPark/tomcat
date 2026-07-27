@@ -164,6 +164,12 @@ Reduced-order models show *how* to couple spine and gait:
 > reorientation literature says an **inertial tail is more effective**. If
 > righting is a real goal, budget for a tail (which is also very cat-like) rather
 > than relying on spine twist alone.
+>
+> **Project decision (ADR-0007):** we deliberately went the *simpler* way — a
+> coarse **single-tendon tail (tension/loosen)** with no precise control — and
+> put righting authority on the **spine + legs** (rotary-only 180° is proven).
+> This trades the tail's higher potential authority for buildability and P1
+> purity; noted as an accepted limitation, not an oversight of this finding.
 
 ## Q5 — Actuator architecture: tendon-drive vs. proprioceptive direct-drive ◐
 
@@ -227,7 +233,7 @@ cat-sized, biomimetic **elastic cable-driven quadruped**
 | **ADR-0004** tension sensing | **In-line load cells** for fidelity (Kengoro precedent); evaluate the **compact single-pulley + 3D-Hall** module to save space; use a **tension-based joint-space controller** for the spine (angles hard to sense). | ✅ High |
 | **ADR-0006** spine topology | Start with a **serial tendon-driven chain** (reuses our kinematics; easier control); keep **tensegrity** as a research alternative. | ✅/⚠️ Med-High |
 | **Spine DOF / segments** | **2–3 segments, ~3 DOF each** (pitch/yaw, + roll for the righting twist), per Laika (6 DOF) and the tensegrity-spine prototype. | ◐ Medium |
-| **Righting (if in scope)** | Spine twist alone is feasible (rotary-only 180° proven), but an **inertial (ideally morphable) tail** is the higher-performance, still-cat-like choice. | ◐ Medium |
+| **Righting** | Primary via **spine axial-twist + leg shape-change** (rotary-only 180° proven); the tail is a simple tension/loosen **coarse assist**, not a precise instrument — a deliberate simplification for buildability (ADR-0007). | ◐ Medium |
 
 ## Seed parameters for the model (all to be refined)
 

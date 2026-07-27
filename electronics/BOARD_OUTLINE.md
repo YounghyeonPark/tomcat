@@ -227,14 +227,14 @@ the mechanical specs offer two documented **reductions** noted below.
 |---|---|---|---|
 | **Legs** | 4 legs × 3 joints × 2 (antagonistic) | **24** | ADR-0002 / LEG_TENDON_SPEC reserve the **ankle as single-tendon + return spring** → 1 motor not 2 → **~20** (hip 2 + knee 2 + ankle 1 per leg × 4) |
 | **Spine** | 3 segments × dorsoventral pair (Option B, 6 tendons) | **6** | SPINE_TAIL_SPEC variable-radius pulley → 1 motor/DOF → **3** |
-| **Tail** | 3 DOF (2 revolute + 1 prismatic), concept-level | **2–3** | prismatic may be a single retract actuator |
-| **Total** | | **~32–33** | reductions → as low as **~25** |
+| **Tail** | single tendon (tension/loosen) + passive return | **1** | no antagonist / no telescope (ADR-0007) |
+| **Total** | | **~31** | reductions → as low as **~24** |
 
-**Recommendation to lead:** budget the **~32–33** upper bound for board fleet,
-power, and CAN loading (it is the stressing case), but track the ~25 reduced case
+**Recommendation to lead:** budget the **~31** upper bound for board fleet,
+power, and CAN loading (it is the stressing case), but track the ~24 reduced case
 for mass/cost. **The ankle spring-return and the spine variable-radius pulley are
 the two biggest levers on channel count** and both are still open — confirm before
-committing a backplane channel count.
+committing a backplane channel count. (The tail is now a single motor, ADR-0007.)
 
 ### 2.2 Physical clustering (ADR-0005: girdles + tail node)
 
@@ -243,8 +243,8 @@ Motors are centralized in the girdles/pelvis (P1), so drivers cluster with them:
 | Cluster | Motors it hosts | Driver count (headline / reduced) |
 |---|---|---|
 | **Shoulder-girdle cluster** | 2 forelegs | 12 / 10 |
-| **Pelvic-girdle cluster** | 2 hind legs + spine bank + tail | 12 + 6 + (2–3) = **20–21 / 15–16** |
-| *(Tail node)* | tail actuators (mounted at pelvic girdle per SPINE_TAIL_SPEC) | 2–3 — **electrically its own CAN segment / logical node**, physically inside the pelvic girdle |
+| **Pelvic-girdle cluster** | 2 hind legs + spine bank + tail | 12 + 6 + 1 = **19 / 14** |
+| *(Tail node)* | 1 tail motor (mounted at pelvic girdle per SPINE_TAIL_SPEC) | 1 — its own CAN **node ID**, sharing the pelvic segment; physically inside the pelvic girdle |
 
 The pelvic girdle is the density hot-spot (hind legs + all spine + tail motors
 live there per SPINE_TAIL_SPEC). Thermal path and power distribution there are the
@@ -254,7 +254,7 @@ tightest — flag to mechanical for airflow/heat-sinking.
 
 ADR-0005 fixes **~6–8 CAN-FD segments** (extrapolated from the mjbots 12-axis
 result; ADR-0005 flags **bench-verify ≥1 kHz per segment** at final axis count).
-At ~32 drivers that is **~4–6 drivers per segment** — comfortably under the
+At ~31 drivers that is **~4–6 drivers per segment** — comfortably under the
 12-axis-per-bus reference, giving margin for the ≥1 kHz aggregation (NFR3):
 
 | Segment (indicative) | Drivers | Notes |
@@ -363,7 +363,7 @@ winding R (G-Kt) this is an estimate, not a computed value:
 | Cluster | Continuous (trot, brakes released) | Peak note |
 |---|---|---|
 | Shoulder (12 drivers) | ~20–40 A @ 24 V `[assumed, G-Kt]` | Not all peak together |
-| Pelvic (20–21 drivers) | ~30–60 A @ 24 V `[assumed, G-Kt]` | densest cluster |
+| Pelvic (19 drivers) | ~30–60 A @ 24 V `[assumed, G-Kt]` | densest cluster |
 
 **Why the peak is not the sum of peaks:** the ~510 N land transient is a
 **single-leg** event (LEG_TENDON_SPEC) — only that leg's hip+knee agonists
@@ -443,10 +443,11 @@ Exact part numbers are `[owed]` until G-Kt (current) and G-Vbus (voltage) close.
    hardware e-stop** (motor-bus contactor, fail-open NC loop, logic/CAN stays live).
 
 **Driver channel count / clustering:** legs 24 (→~20 if ankle spring-return) +
-spine 6 (→3 with variable-radius pulley) + tail 2–3 = **~32–33** (down to ~25
-reduced). Clusters: shoulder girdle ~12, pelvic girdle ~20–21 (hind legs + spine +
-tail), tail as its own logical node. **~6–8 CAN-FD segments**, ~4–6 drivers each,
-grouped by limb; segment count is bench-verify-pending per ADR-0005.
+spine 6 (→3 with variable-radius pulley) + tail 1 = **~31** (down to ~24
+reduced). Clusters: shoulder girdle ~12, pelvic girdle ~19 (hind legs + spine +
+1 tail motor), tail as its own node ID on the pelvic segment. **~6–8 CAN-FD
+segments**, ~4–6 drivers each, grouped by limb; segment count is
+bench-verify-pending per ADR-0005.
 
 **Key electrical gaps blocking detailed sizing:** (1) **motor `Kt`** → no
 phase-current → no FET/shunt/thermal sizing; (2) **bus voltage** → no FET Vds
