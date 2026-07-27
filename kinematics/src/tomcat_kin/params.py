@@ -100,31 +100,38 @@ class SpineParams:
     # Number of inter-vertebral revolute segments.  Seed = 3 (ADR-0006).
     n_segments: int = 3
 
-    # Segment (link) lengths, base/rear -> front (m).  ❓ TBD placeholder.
-    # ~0.18 m total is a rough cat-torso scale; not a committed value.
-    segment_lengths: tuple[float, ...] = (0.060, 0.060, 0.060)
+    # Segment (link) lengths, base/rear -> front (m).  First-pass from
+    # mechanical/SPINE_TAIL_SPEC.md: tapered (rear lumbar longer/more mobile),
+    # 0.195 m total at ~3 kg cat-torso scale.  Still a placeholder, not committed.
+    segment_lengths: tuple[float, ...] = (0.075, 0.065, 0.055)
 
     # Per-segment sagittal joint-angle limits (rad), (min, max).  ❓ TBD.
     # ±25° per joint -> ~±75° whole-spine sagittal range.
     q_min: tuple[float, ...] = (-0.436, -0.436, -0.436)
     q_max: tuple[float, ...] = (0.436, 0.436, 0.436)
 
-    # Per-segment tendon moment arm about the vertebral joint (m).  ❓ TBD.
-    # Larger than the leg's because the spine tendons run further off-axis.
-    joint_moment_arm: tuple[float, ...] = (0.020, 0.020, 0.020)
+    # Per-segment tendon moment arm about the vertebral joint (m).
+    # Raised from the initial 0.020 m to 0.030 m per mechanical/SPINE_TAIL_SPEC.md:
+    # T = tau/r, so 0.020 m amplified peak cable tension well above the ~20-70 N
+    # RoboCat band; ~0.030 m brings it near the top of the band.  Still ❓ TBD.
+    joint_moment_arm: tuple[float, ...] = (0.030, 0.030, 0.030)
 
     # Motor spool radius for the spine tendons (m).  ❓ TBD.
     motor_spool_radius: float = 0.008
 
-    # Minimum cable tension / antagonistic co-contraction floor (N).  ❓ TBD.
-    # Lit. sanity band is ~20-70 N (RoboCat pretension ~50 N); kept at the leg's
-    # 5 N placeholder for now so the two budgets are comparable.
+    # Minimum cable tension / mechanical slack floor (N).  ❓ TBD.
+    # Kept at the leg's 5 N so the two budgets are comparable.  Note: the AIC
+    # *control* co-contraction bias is a separate, larger quantity — Kengoro's
+    # T_bias ≈ 19.6 N (LITERATURE_REVIEW.md Seed derivation B) — passed at runtime
+    # via TendonMap.resolve(..., t_bias=...), not baked in here.
     pretension: float = 5.0
 
     # Spring-return mode only: per-segment torsional stiffness (N·m/rad) and rest
-    # angle (rad).  ❓ PLACEHOLDER — NOT derived from the 53.62 N/mm axial value
-    # (see the stiffness caveat above); needs the axial->rotational conversion.
-    spring_stiffness: tuple[float, ...] = (2.0, 2.0, 2.0)
+    # angle (rad).  Seeded ~1.0 N·m/rad from the axial->rotational geometry bridge
+    # in LITERATURE_REVIEW.md (Seed derivation A): the sagittal (dorsoventral
+    # extension) axis this 2D model exercises.  ◐/⚠️ ORDER-OF-MAGNITUDE ONLY —
+    # good to a factor of ~2-3; correct in ranking/scale, not a measured value.
+    spring_stiffness: tuple[float, ...] = (1.0, 1.0, 1.0)
     spring_rest_angle: tuple[float, ...] = (0.0, 0.0, 0.0)
 
     def __post_init__(self) -> None:

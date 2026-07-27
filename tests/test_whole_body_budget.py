@@ -6,6 +6,7 @@ import pytest
 from tomcat_kin import (
     WholeBody,
     SpineModel,
+    SpineParams,
     TendonMap,
     ActuationMode,
     WholeBodyLoadCase,
@@ -51,9 +52,12 @@ def test_all_default_cases_run_and_report():
 
 # ------------------------------------------------------------------ spine model
 def test_straight_spine_base_joint_symmetric_zero():
-    # In the balanced straight stand the base joint torque works out to ~0
-    # (front reaction and distributed gravity balance about the base).
-    body = _body()
+    # The exact base-joint cancellation (front reaction vs. distributed gravity
+    # about the base) holds only for UNIFORM segment spacing with equal lumped
+    # masses; build a uniform spine so the balance physics is checked explicitly.
+    # (The default tapered geometry gives a small non-zero base torque.)
+    uniform = SpineParams(segment_lengths=(0.06, 0.06, 0.06))
+    body = WholeBody(spine=SpineModel(params=uniform))
     load = WholeBodyLoadCase(
         "stand", dynamic_factor=1.0, spine_q=(0.0, 0.0, 0.0),
         stance_legs=("LF", "RF", "LR", "RR"),
