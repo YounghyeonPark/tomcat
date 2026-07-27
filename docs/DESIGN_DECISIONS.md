@@ -39,25 +39,36 @@ context, and consequences. Status is one of: **Proposed**, **Accepted**,
   implement the AIC split (M1 task K1). Stiffness becomes commandable rather than
   fixed by hardware.
 
-## ADR-0003: Actuator technology  ❓ Proposed
-- **Status:** Proposed
-- **Context:** Need backdrivable, controllable rotary actuators.
+## ADR-0003: Actuator technology
+- **Status:** Accepted
+- **Context:** Need backdrivable, controllable rotary actuators, consistent with
+  Principle **P1** (tendon-driven, limbs *and* spine).
 - **Options:** BLDC + FOC (best backdrivability & control, most complex);
   geared DC (simpler, more friction/backlash); integrated servo modules
   (fastest to build, least tunable).
-- **Decision:** *Undecided, split by subsystem.* Tendon-drive is committed for
-  the **spine and for centralizing limb mass** (P1). For the **legs**, a blanket
-  "tendon everywhere" stance is not justified: the MIT Cheetah's backdrivable
-  proprioceptive direct-drive achieves an Impact Mitigation Factor comparable to
-  series-spring designs ([LITERATURE_REVIEW.md](LITERATURE_REVIEW.md) Q5).
-  **Add a required leg-actuator trade study — tendon-drive vs. compact
-  backdrivable direct-drive — scored on IMF, torque density, reflected inertia,
-  and control complexity, using the M1 leg torque budget as input, before
-  finalizing leg actuators.** Revisit BLDC+FOC vs. geared DC after that study.
-  **Not fully sensorless:** a static high-torque stance hold cannot be run
-  reliably encoderless — evaluate a **non-backdrivable reduction or a
-  brake/latch** to offload the electrical DC hold, and treat that hold as a
-  thermally-derated continuous-torque operating point ([sensorless-FOC note](notes/sensorless-foc-stance-hold.md)).
+- **Decision:** **Tendon-driven actuation at every joint — legs and spine alike
+  — honoring P1 (project-owner decision).** Motors are **BLDC + FOC**, chosen
+  for backdrivability and high-bandwidth current control (needed for tension
+  control; geared DC is ruled out because high gearing destroys backdrivability).
+  - *This decision knowingly diverges from the leg-actuator trade study*
+    ([leg-actuator-tradeoff.md](notes/leg-actuator-tradeoff.md)), which scored a
+    backdrivable quasi-direct-drive (QDD) leg higher (4.35 vs. 3.45) — mainly
+    because small leg moment arms drive very high cable tension. **P1 governs:**
+    tendon-drive is the project's defining identity, and the trade study's
+    numbers become the *engineering burden to manage*, not a reason to switch.
+  - **Not fully sensorless:** a static high-torque hold cannot run reliably
+    encoderless — baseline a rotor sensor per motor (ADR-0004) and evaluate a
+    non-backdrivable reduction or **brake/latch** to offload the electrical DC
+    hold, treated as a thermally-derated continuous-torque point
+    ([sensorless-FOC note](notes/sensorless-foc-stance-hold.md)).
+- **Consequences / burden accepted:**
+  - **High cable tension** (~400–1000 N at the high-torque hip/knee in the M1
+    land case). Mitigations to pursue: **maximize joint moment arms** within
+    packaging, high-strength low-stretch cable, and adequate pulley/bearing
+    sizing — follow-up for **tomcat-mechanical** / **tomcat-kinematics**.
+  - **Tendon friction & stretch** must be modeled and compensated in the tendon
+    map and control loop (no longer a spine-only concern).
+  - Per-tendon **tension sensing (ADR-0004) now applies to the legs too.**
 
 ## ADR-0004: Tension & position sensing method
 - **Status:** Accepted (rotor sensor); tension method still Proposed
