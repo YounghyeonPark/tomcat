@@ -54,13 +54,30 @@ context, and consequences. Status is one of: **Proposed**, **Accepted**,
   backdrivable direct-drive — scored on IMF, torque density, reflected inertia,
   and control complexity, using the M1 leg torque budget as input, before
   finalizing leg actuators.** Revisit BLDC+FOC vs. geared DC after that study.
+  **Not fully sensorless:** a static high-torque stance hold cannot be run
+  reliably encoderless — evaluate a **non-backdrivable reduction or a
+  brake/latch** to offload the electrical DC hold, and treat that hold as a
+  thermally-derated continuous-torque operating point ([sensorless-FOC note](notes/sensorless-foc-stance-hold.md)).
 
-## ADR-0004: Tension sensing method  ❓ Proposed
-- **Status:** Proposed
-- **Options:** in-line load cell per tendon (accurate, adds parts/space); motor
-  current estimate (cheap, no extra parts, but friction-corrupted); series
-  elastic element + displacement sensor (robust, adds compliance & size).
-- **Decision:** *Undecided.* Tied to FR2 accuracy needs.
+## ADR-0004: Tension & position sensing method
+- **Status:** Accepted (rotor sensor); tension method still Proposed
+- **Options (tension):** in-line load cell per tendon (accurate, adds
+  parts/space); motor current estimate (cheap, no extra parts, but
+  friction-corrupted); series elastic element + displacement sensor (robust,
+  adds compliance & size).
+- **Decision:**
+  - **Rotor position sensor on every motor is required — not sensorless.** A
+    quasi-static high-torque hold cannot be run reliably encoderless: back-EMF
+    sensorless loses observability below ~10–20 % of rated speed (no signal at
+    standstill), and the only standstill-capable method (HF injection) needs a
+    salient IPMSM and degrades under high load ([sensorless-FOC note](notes/sensorless-foc-stance-hold.md)).
+    Baseline: **absolute encoder preferred, Hall sensors as the floor.**
+  - Keep the **cable/joint-state sensor distinct from the rotor sensor** — they
+    serve different loops (commutation/position vs. tendon coordination).
+  - **Tension sensing method still undecided** (load cell vs. current estimate
+    vs. series-elastic), tied to FR2 accuracy needs — see the Q1b options in
+    [LITERATURE_REVIEW.md](LITERATURE_REVIEW.md) (Kengoro load cell; compact
+    single-pulley + 3D-Hall module).
 
 ## ADR-0005: Compute topology  ❓ Proposed
 - **Status:** Proposed
