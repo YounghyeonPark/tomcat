@@ -14,6 +14,8 @@ tendon            Joint-angle <-> cable-length and joint-torque <-> tendon-tensi
 torque_budget     Static worst-case per-leg joint-torque / motor-torque estimation.
 whole_body_budget Combined spine+legs static tendon/torque + motor-count budget.
 sensitivity       Moment-arm vs. joint/motor cable-tension trade sweep (ADR-0003).
+gait              Parameterized periodic WALK gait: foot trajectories -> per-leg IK
+                  -> joint-angle sequences (sagittal, quasi-static; M2).
 """
 
 from .params import (
@@ -34,6 +36,15 @@ from .tendon import TendonMap, ActuationMode, TendonSolution
 from . import torque_budget, whole_body_budget, sensitivity
 from .whole_body_budget import WholeBodyBudgetResult, spine_joint_torques
 from .sensitivity import moment_arm_sweep, MomentArmSweepResult, ROBOCAT_BAND_N
+from .gait import (
+    GaitParams,
+    GaitController,
+    GaitState,
+    LegState,
+    foot_target,
+    swing_height,
+    DEFAULT_PHASE_OFFSETS,
+)
 
 __all__ = [
     "LegParams",
@@ -65,4 +76,11 @@ __all__ = [
     "moment_arm_sweep",
     "MomentArmSweepResult",
     "ROBOCAT_BAND_N",
+    "GaitParams",
+    "GaitController",
+    "GaitState",
+    "LegState",
+    "foot_target",
+    "swing_height",
+    "DEFAULT_PHASE_OFFSETS",
 ]

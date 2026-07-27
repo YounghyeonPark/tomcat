@@ -25,6 +25,8 @@ from tomcat_kin import (  # noqa: E402
     SpineModel,
     WholeBody,
     Girdle,
+    GaitParams,
+    GaitController,
 )
 from tomcat_kin.params import (  # noqa: E402
     DEFAULT_LOADS,
@@ -158,6 +160,66 @@ def main() -> None:
         ).report()
     )
     print()
+
+    print("=== WALK gait (M2): one cycle, spine NEUTRAL ===")
+    gait = GaitParams()
+    ctrl = GaitController(params=gait)
+    print(
+        f"period={gait.period:.2f}s  stride={gait.stride_length*1e3:.0f}mm  "
+        f"step={gait.step_height*1e3:.0f}mm  duty={gait.duty_factor:.2f}  "
+        f"body_speed={gait.body_speed*1e3:.0f}mm/s  "
+        f"advance/cycle={gait.distance_per_cycle*1e3:.0f}mm"
+    )
+    order = ("LF", "RF", "RR", "LR")
+    print(f"phase  " + "  ".join(f"{n:>18}" for n in order))
+    for i in range(8):
+        phase = i / 8
+        st = ctrl.state(phase)
+        cells = []
+        for n in order:
+            lg = st.legs[n]
+            tag = "ST" if lg.in_stance else "sw"  # stance vs swing
+            deg = np.rad2deg(lg.q)
+            cells.append(f"{tag} [{deg[0]:+5.0f}{deg[1]:+5.0f}{deg[2]:+4.0f}]")
+        print(f"{phase:4.2f}   " + "  ".join(cells) + f"   stance={st.stance_count}")
+    print("  (ST=stance, sw=swing; brackets = hip/knee/ankle deg; exactly 3 feet down)")
+
+    # ASCII sketch of the swing foot's path (side view) for one leg over its cycle.
+    print("\n  LF swing-foot side view (x forward ->, z up; one cycle):")
+    _sketch_foot_path(ctrl, "LF")
+
+    print("\n=== WALK gait with OPTIONAL spine oscillation coupled to phase ===")
+    gait_s = GaitParams(spine_amplitude=np.deg2rad(8.0))
+    ctrl_s = GaitController(params=gait_s)
+    print(f"spine amplitude = {np.rad2deg(gait_s.spine_amplitude):.0f} deg/segment "
+          f"(dorsoventral, sin-coupled to gait phase)")
+    for i in range(8):
+        phase = i / 8
+        sq = ctrl_s.spine_q(phase)
+        print(f"  phase {phase:4.2f}  spine q (deg): {np.rad2deg(sq)}")
+    print("  (amplitude 0 by default => spine held NEUTRAL; see gait.py docstring)")
+
+
+def _sketch_foot_path(ctrl, leg_name: str, rows: int = 6, cols: int = 40) -> None:
+    """Print a tiny ASCII side-view of one foot's path over its own cycle."""
+    xs, zs = [], []
+    for i in range(cols):
+        s = ctrl.local_phase(i / cols, leg_name)
+        from tomcat_kin import foot_target as _ft
+        tgt = _ft(ctrl.params, s)
+        xs.append(tgt[0])
+        zs.append(tgt[1])
+    xs, zs = np.array(xs), np.array(zs)
+    grid = [[" "] * cols for _ in range(rows)]
+    zmin, zmax = zs.min(), zs.max()
+    xmin, xmax = xs.min(), xs.max()
+    for x, z in zip(xs, zs):
+        c = int((x - xmin) / (xmax - xmin + 1e-12) * (cols - 1))
+        r = int((zmax - z) / (zmax - zmin + 1e-12) * (rows - 1))
+        grid[r][c] = "*"
+    for row in grid:
+        print("    |" + "".join(row))
+    print("    +" + "-" * cols + "  (backward<-  ->forward)")
 
 
 if __name__ == "__main__":

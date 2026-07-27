@@ -9,9 +9,10 @@ The single source of truth for *decisions* remains the ADR log; this roadmap
 sequences the work that implements them.
 
 > **Progress:** the decision phase is complete — all seven ADRs Accepted (0004's
-> tension-*method* sub-point aside). **M1 is done** (Phases 0–2): whole-body
-> static kinematics + tendon map with 66 passing tests, combined tendon/torque
-> budget, and first firmware/electronics/mechanical specs. **Next: M2 (gait).**
+> tension-*method* sub-point aside). **M1 done** (Phases 0–2): whole-body static
+> kinematics + tendon map, combined budget, first firmware/electronics/mechanical
+> specs. **M2 done**: parameterized walk gait generator (133 passing tests).
+> **Next: M3** (whole-body foot placement / dynamics / righting).
 
 ---
 
@@ -167,21 +168,28 @@ milestone-planning report). In summary:
 
 ---
 
-## Milestone M2 — Gait generation on the whole-body model (ACTIVE)
+## Milestone M2 — Gait generation on the whole-body model  ✅ DONE
 
 **Goal.** Turn the static M1 model into *motion*: a parameterized, periodic
-walk gait that produces per-leg joint-angle trajectories over a cycle via the
-existing IK, with the spine held neutral first, then a simple spine oscillation
-coupled to the gait (spine↔gait coupling, lit-review Q2b). Sagittal-plane,
-quasi-static (no dynamics yet).
+walk gait producing per-leg joint-angle trajectories over a cycle via the
+existing IK, spine neutral first then an optional spine oscillation coupled to
+the gait (spine↔gait coupling, lit-review Q2b). Sagittal-plane, quasi-static.
 
-**Done when:** a gait module emits foot trajectories → per-leg IK → joint-angle
-sequences for a chosen gait (walk) at a commanded speed/stride; feet track the
-planned support/swing phases; a demo animates/prints a cycle; pytest covers
-phase timing, foot tracking, and joint-limit compliance.
+**Delivered:** `gait.py` (`GaitParams`, `foot_target` cycloid swing, `GaitController`,
+`GaitState`/`LegState`); a statically-stable lateral-sequence walk (offsets
+LF 0 / RF 0.25 / RR 0.5 / LR 0.75, duty 0.75 → exactly 3 feet down at all
+phases); optional dorsoventral spine oscillation (off by default). 67 tests
+(133 total). Default: period 1.2 s, stride 60 mm, step 30 mm, body speed
+67 mm/s, ~11° joint-limit margin across the cycle.
+
+**Deferred to M3:** the spine oscillation moves feet in the world but doesn't
+feed back into per-leg IK — true whole-body foot placement (feet in a
+world/ground frame through the spine) is the natural next step.
 
 ## Later milestones (candidate M3+, not committed)
 
+- **Whole-body foot placement:** place feet in a world/ground frame through the
+  spine so spine bend and gait share one closed loop (the deferred M2 item).
 - 3D extension: frontal-plane leg abduction + spine lateral bend & axial twist.
 - Dynamics: leg mass in flight (~0.454 kg knee) driving trunk bending.
 - **Righting milestone ([ADR-0007](DESIGN_DECISIONS.md)):** design the inertial
