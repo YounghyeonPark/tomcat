@@ -95,11 +95,34 @@ context, and consequences. Status is one of: **Proposed**, **Accepted**,
     [LITERATURE_REVIEW.md](LITERATURE_REVIEW.md) (Kengoro load cell; compact
     single-pulley + 3D-Hall module).
 
-## ADR-0005: Compute topology  ❓ Proposed
-- **Status:** Proposed
-- **Options:** single MCU (simple, must hit ≥1 kHz loops + planning); RT-MCU for
-  motor loops + SBC for planning (clean separation, adds a bus + comms).
-- **Decision:** *Undecided.* Depends on final DOF count and loop budget.
+## ADR-0005: Compute & motor-drive topology
+- **Status:** Accepted
+- **Context:** ~30 tendon motors now (24 legs + 6 spine), ~33+ with the tail —
+  each needing FOC, closed-loop tension, a rotor sensor, and a tension signal;
+  plus ≥1 kHz motor loops (NFR3) and ≥100 Hz planning/righting (NFR4).
+- **Options:** single MCU (rejected — cannot host ~30 FOC loops *and* planning);
+  centralized multi-axis controller; **distributed smart drivers on a real-time
+  bus** + a compute split.
+- **Decision:** **Distributed FOC smart drivers — one per tendon motor —
+  clustered in the shoulder & pelvic girdles and a tail node (falls out of P1),
+  on a CAN-FD real-time bus (~5 Mbit/s, split across ~6–8 segments), under a
+  two-tier compute split.** A real-time controller (PREEMPT_RT core or dedicated
+  MCU) owns the ≥1 kHz aggregation + tendon-map/AIC fast path + safety
+  supervision; a separate SBC (ROS 2) runs ≥100 Hz planning/righting + host
+  comms — hard control is never co-scheduled with planning. **Safety in three
+  independent tiers:** (A) per-driver over-current/over-tension/thermal latches;
+  (B) a **hardware e-stop** that cuts motor-bus power / forces zero-torque limp
+  independent of SBC and RT controller; (C) an RT-supervisor watchdog. The SBC is
+  never in the safety-critical path. Field-proven pattern (Kengoro's 116 per-muscle
+  modules; mjbots/moteus & Mini-Cheetah per-joint FOC drivers) — see
+  [compute-topology.md](notes/compute-topology.md). EtherCAT is the documented
+  upgrade path if CAN-FD determinism becomes limiting.
+- **Consequences:** electronics owns a per-motor FOC smart-driver board (rotor
+  sensor + CAN-FD + ADR-0004 tension front-end), two girdle backplanes + tail
+  stub, a multi-CAN-FD bridge, and the hardware e-stop; firmware owns driver FOC
+  + tension + Tier-A safety, RT-tier aggregation + Tier-C watchdog, and SBC ROS 2
+  nodes. ⚠️ The ~6–8 CAN-FD segment count is an extrapolation from the mjbots
+  12-axis result — **bench-verify ≥1 kHz per segment** at final axis count.
 
 ## ADR-0006: Articulated tendon-driven spine (whole-body curvature)
 - **Status:** Accepted

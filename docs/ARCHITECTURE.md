@@ -76,8 +76,10 @@ joints, foot contact sensors).
 | Power            | Battery, regulation, e-stop, power distribution               |
 | IMU              | Body orientation for balance and gait feedback                |
 
-❓ Compute split (single MCU vs. RT-MCU + SBC) is an open decision — see
-[DESIGN_DECISIONS.md](DESIGN_DECISIONS.md).
+Compute topology is decided ([ADR-0005](DESIGN_DECISIONS.md)): **distributed FOC
+smart drivers (one per tendon motor, clustered in the girdles + tail) on a
+CAN-FD bus**, under a **two-tier split** — a real-time controller for the ≥1 kHz
+loops + safety, and an SBC (ROS 2) for ≥100 Hz planning/righting.
 
 ## 4. Data flow summary
 
@@ -86,10 +88,16 @@ joints, foot contact sensors).
 3. Motor loops track setpoints and stream back current/tension/angle.
 4. Telemetry and faults propagate up; e-stop propagates down to limp state.
 
-## 5. Interfaces (to be specified)
+## 5. Interfaces
 
-- Host ↔ compute: ❓ protocol (USB CDC, custom serial, ROS 2, …).
-- Compute ↔ RT-MCU: ❓ bus (SPI, CAN, UART) and message schema.
-- Driver ↔ MCU: PWM + current/encoder feedback.
+- Host ↔ SBC: ROS 2 (topics/services); telemetry + operator e-stop.
+- SBC ↔ RT controller: setpoints down (per-motor position/tension/`T_bias`),
+  state up — schema TBD ([firmware](../firmware) F1 task).
+- RT controller ↔ smart drivers: **CAN-FD** (~5 Mbit/s, ~6–8 segments); message
+  schema TBD.
+- Driver ↔ motor: FOC phase currents; rotor sensor + tension front-end feedback
+  (ADR-0004). Per-driver safety latches (ADR-0005 Tier A).
+- Hardware e-stop: cuts motor-bus power / forces limp, independent of SBC and RT
+  controller (ADR-0005 Tier B).
 
 See [firmware/](../firmware) and [kinematics/](../kinematics) for module stubs.
