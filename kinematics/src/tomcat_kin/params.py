@@ -169,6 +169,53 @@ class LoadCase:
         )
 
 
+@dataclass(frozen=True)
+class WholeBodyLoadCase:
+    """A whole-body static loading scenario (spine posture + which legs bear load).
+
+    Extends `LoadCase` to the combined budget: the spine is posed at `spine_q`
+    (per-segment sagittal angles, rad) and only the legs in `stance_legs` are
+    planted and share the support force. Feeds `whole_body_budget.evaluate`.
+
+    The per-leg leg-workspace sweep reuses a plain `LoadCase` (see `.leg_load`);
+    the spine joint loads are derived from the girdle reactions + a distributed
+    body-weight gravity moment in the arched geometry (see whole_body_budget).
+    """
+
+    name: str
+    body_mass_kg: float = 3.0
+    dynamic_factor: float = 1.0
+    # Spine posture for this case (rad per segment).  Length must match the
+    # SpineParams used in the budget.  Straight = zeros; arch = uniform positive.
+    spine_q: tuple[float, ...] = (0.0, 0.0, 0.0)
+    # Which leg mounts are planted (bearing load) in this case.
+    stance_legs: tuple[str, ...] = ("LF", "RF", "LR", "RR")
+
+    @property
+    def n_stance_legs(self) -> int:
+        return len(self.stance_legs)
+
+    @property
+    def foot_support_force_N(self) -> float:
+        """Vertical force one stance leg must produce to support the body."""
+        return (
+            self.body_mass_kg
+            * GRAVITY
+            * self.dynamic_factor
+            / max(self.n_stance_legs, 1)
+        )
+
+    @property
+    def leg_load(self) -> LoadCase:
+        """A per-leg `LoadCase` so the existing leg budget sweep can be reused."""
+        return LoadCase(
+            name=self.name,
+            body_mass_kg=self.body_mass_kg,
+            n_stance_legs=self.n_stance_legs,
+            dynamic_factor=self.dynamic_factor,
+        )
+
+
 # Convenience singletons used by the demo and tests.
 DEFAULT_LEG = LegParams()
 DEFAULT_TENDON = TendonParams()
@@ -177,4 +224,34 @@ DEFAULT_LOADS: tuple[LoadCase, ...] = (
     LoadCase("stand (4-leg)", n_stance_legs=4, dynamic_factor=1.0),
     LoadCase("trot (2-leg)", n_stance_legs=2, dynamic_factor=1.5),
     LoadCase("land (1-leg)", n_stance_legs=1, dynamic_factor=2.5),
+)
+
+# Whole-body cases for the combined spine+legs budget. Spine postures assume the
+# 3-segment DEFAULT_SPINE (arch = uniform +20 deg dorsiflexion).
+_ARCH = (0.349, 0.349, 0.349)  # ~20 deg per segment
+DEFAULT_WHOLE_BODY_LOADS: tuple[WholeBodyLoadCase, ...] = (
+    # Quiet stand: straight spine, all four legs planted.
+    WholeBodyLoadCase(
+        "stand (4-leg, straight)",
+        dynamic_factor=1.0,
+        spine_q=(0.0, 0.0, 0.0),
+        stance_legs=("LF", "RF", "LR", "RR"),
+    ),
+    # Arched "Halloween cat": same support, but the dorsiflexed geometry
+    # redistributes the spine joint loads (curls the forequarters up and back
+    # over the pelvis, shifting where the gravity/reaction moments land).
+    WholeBodyLoadCase(
+        "arch (4-leg, dorsiflexed)",
+        dynamic_factor=1.0,
+        spine_q=_ARCH,
+        stance_legs=("LF", "RF", "LR", "RR"),
+    ),
+    # Single-leg front landing: one front leg takes the whole impact, so the
+    # front-girdle reaction is large and unbalanced by the rear.
+    WholeBodyLoadCase(
+        "land (1 front leg)",
+        dynamic_factor=2.5,
+        spine_q=(0.0, 0.0, 0.0),
+        stance_legs=("LF",),
+    ),
 )

@@ -17,6 +17,13 @@ Scope:
 - **Compliance:** return springs and/or series-elastic elements per ADR-0002.
 - **BOM:** motors, cables, pulleys, bearings, springs, fasteners.
 
+## Specs
+- [SPINE_TAIL_SPEC.md](SPINE_TAIL_SPEC.md) — first-pass geometry & tendon-routing
+  proposal for the 3-segment articulated spine (ADR-0006) and the inertial
+  morphable tail (ADR-0007): segment lengths, girdle placement, routing paths,
+  moment arms, per-axis ROM, and the parameter table for `SpineParams` +
+  proposed `TailParams`, plus BOM/motor-count implications.
+
 ## Status
 Stub — CAD files and routing diagrams to be added. Mechanical review is the
 gate for ADR-0002 (antagonistic vs. return spring) and torque budget feeding

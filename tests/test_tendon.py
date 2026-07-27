@@ -71,6 +71,75 @@ def test_cable_lengths_opposing_signs():
     assert np.allclose(lengths[:, 0], -lengths[:, 1])
 
 
+# --------------------------------------------------- commandable T_bias (AIC)
+def test_default_t_bias_reproduces_pretension_numbers():
+    # resolve(tau) and resolve(tau, t_bias=pretension) must be identical, and
+    # match the fixed-pretension formula the earlier tests pin down.
+    tmap = TendonMap(mode=ActuationMode.ANTAGONISTIC)
+    tau = np.array([0.4, -0.6, 0.1])
+    a = tmap.resolve(tau)
+    b = tmap.resolve(tau, t_bias=tmap.params.pretension)
+    assert np.allclose(a.tension_flexor, b.tension_flexor)
+    assert np.allclose(a.tension_extensor, b.tension_extensor)
+    r = np.asarray(tmap.params.joint_moment_arm)
+    pre = tmap.params.pretension
+    dt = tau / r
+    assert np.allclose(a.tension_flexor, np.where(dt >= 0, pre + dt, pre))
+
+
+def test_higher_t_bias_raises_both_tensions_same_torque():
+    tmap = TendonMap(mode=ActuationMode.ANTAGONISTIC)
+    tau = np.array([0.4, -0.6, 0.1])
+    low = tmap.resolve(tau, t_bias=5.0)
+    high = tmap.resolve(tau, t_bias=20.0)
+    # Both tendons rise on every joint when the co-contraction bias rises.
+    assert np.all(high.tension_flexor > low.tension_flexor)
+    assert np.all(high.tension_extensor > low.tension_extensor)
+    # ...both sides rise by exactly the bias increment (15 N).
+    assert np.allclose(high.tension_flexor - low.tension_flexor, 15.0)
+    assert np.allclose(high.tension_extensor - low.tension_extensor, 15.0)
+    # Net realized joint torque is UNCHANGED by co-contraction.
+    assert np.allclose(low.joint_torque, tau)
+    assert np.allclose(high.joint_torque, tau)
+
+
+def test_higher_t_bias_raises_peak_motor_torque():
+    tmap = TendonMap(mode=ActuationMode.ANTAGONISTIC)
+    tau = np.array([0.4, -0.6, 0.1])
+    low = tmap.resolve(tau, t_bias=5.0)
+    high = tmap.resolve(tau, t_bias=20.0)
+    assert np.all(np.abs(high.motor_torque) > np.abs(low.motor_torque))
+
+
+def test_active_side_equals_bias_plus_torque_over_r():
+    tmap = TendonMap(mode=ActuationMode.ANTAGONISTIC)
+    r = np.asarray(tmap.params.joint_moment_arm)
+    tau = np.array([0.3, -0.2, 0.06])
+    bias = 12.0
+    sol = tmap.resolve(tau, t_bias=bias)
+    active = np.maximum(sol.tension_flexor, sol.tension_extensor)
+    slack = np.minimum(sol.tension_flexor, sol.tension_extensor)
+    assert np.allclose(active, bias + np.abs(tau) / r)
+    assert np.allclose(slack, bias)
+
+
+def test_per_joint_t_bias_array():
+    tmap = TendonMap(mode=ActuationMode.ANTAGONISTIC)
+    tau = np.array([0.3, 0.3, 0.3])
+    bias = np.array([5.0, 10.0, 20.0])
+    sol = tmap.resolve(tau, t_bias=bias)
+    slack = np.minimum(sol.tension_flexor, sol.tension_extensor)
+    assert np.allclose(slack, bias)
+    # Torque still realized regardless of the per-joint bias.
+    assert np.allclose(sol.joint_torque, tau)
+
+
+def test_negative_t_bias_rejected():
+    tmap = TendonMap(mode=ActuationMode.ANTAGONISTIC)
+    with pytest.raises(ValueError):
+        tmap.resolve([0.1, 0.1, 0.1], t_bias=-1.0)
+
+
 def test_spring_return_uses_single_motor_and_clamps():
     tmap = TendonMap(
         params=TendonParams(pretension=2.0),

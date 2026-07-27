@@ -25,8 +25,12 @@ from tomcat_kin import (  # noqa: E402
     WholeBody,
     Girdle,
 )
-from tomcat_kin.params import DEFAULT_LOADS, DEFAULT_SPINE  # noqa: E402
-from tomcat_kin import torque_budget  # noqa: E402
+from tomcat_kin.params import (  # noqa: E402
+    DEFAULT_LOADS,
+    DEFAULT_SPINE,
+    DEFAULT_WHOLE_BODY_LOADS,
+)
+from tomcat_kin import torque_budget, whole_body_budget  # noqa: E402
 
 
 def main() -> None:
@@ -50,6 +54,17 @@ def main() -> None:
     print(f"motor torque  N·m : {sol.motor_torque}")
     print(f"realized tau  N·m : {sol.joint_torque}")
     print(f"motors required   : {sol.n_motors}")
+
+    print("\n=== Commandable co-contraction bias (T_bias / AIC, ADR-0002) ===")
+    tau = [0.4, -0.6, 0.1]
+    for tb in (None, 15.0):
+        s = tmap.resolve(tau, t_bias=tb)
+        label = "default (=pretension)" if tb is None else f"T_bias={tb} N"
+        print(f"[{label}]")
+        print(f"  flexor / extensor N: {s.tension_flexor} / {s.tension_extensor}")
+        print(f"  peak motor torque N·m: {np.abs(s.motor_torque)}")
+        print(f"  realized tau N·m    : {s.joint_torque}")
+    print("  (higher T_bias stiffens the joint: both tensions rise, tau unchanged)")
 
     print("\n=== Static torque budget (worst case over workspace) ===")
     for load in DEFAULT_LOADS:
@@ -86,6 +101,16 @@ def main() -> None:
     print(f"\nspine tendon tensions (flexor)  N: {ssol.tension_flexor}")
     print(f"spine tendon tensions (extensor) N: {ssol.tension_extensor}")
     print(f"spine realized joint torque  N·m : {ssol.joint_torque}")
+
+    print("\n=== Combined whole-body static budget (spine + 4 legs) ===")
+    wb = WholeBody(spine=SpineModel())
+    leg_tendons = TendonMap(mode=ActuationMode.ANTAGONISTIC)
+    for wload in DEFAULT_WHOLE_BODY_LOADS:
+        result = whole_body_budget.evaluate(
+            wb, leg_tendons, spine_tendons, wload, grid=25
+        )
+        print(result.report())
+        print()
 
 
 if __name__ == "__main__":

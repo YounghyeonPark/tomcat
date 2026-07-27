@@ -1,0 +1,307 @@
+# TomCat — Spine & Tail Geometry / Routing Spec (first pass)
+
+Owner: **tomcat-mechanical** · Milestone: **M1** (task M1: spine geometry & routing)
+Status: **first-pass / all values placeholder** unless labelled `[sourced]`.
+
+This is the mechanical geometry & tendon-routing proposal for the articulated
+spine ([ADR-0006](../docs/DESIGN_DECISIONS.md)) and the inertial tail
+([ADR-0007](../docs/DESIGN_DECISIONS.md)). It presents numbers as tables for
+**tomcat-kinematics** to fold into `kinematics/src/tomcat_kin/params.py`
+(`SpineParams` + a proposed `TailParams`). It does **not** edit `params.py`,
+`kinematics/`, or `docs/`.
+
+Conventions match the kinematics model (`params.py`, `spine.py`): **SI units**;
+sagittal plane; **rear/pelvic girdle at the origin, +x forward, +z up,
+CCW-positive**. A positive dorsoventral joint angle arches the back upward
+("Halloween cat"). The spine chain is indexed rear→front: vertebra 0 = rear
+(pelvic) girdle, vertebra N = front (shoulder) girdle.
+
+Label legend: `[sourced]` traceable to lit-review/ADR; `[assumed]` first-pass
+engineering guess; `[owed:R1]` must come from tomcat-research's axial→rotational
+stiffness conversion.
+
+---
+
+## 1. Spine — 3-segment serial chain
+
+### 1.1 Topology & girdle placement
+
+- **3 segments, revolute chain** `[sourced: ADR-0006, lit Q2 — 2–3 segments]`.
+  Full-3D target is 3 DOF/segment (dorsoventral pitch, lateral yaw, axial roll);
+  **M1 exercises only the dorsoventral DOF** and parameterizes the other two.
+- **Rear/pelvic girdle** = vertebra 0 at world origin `(x,z)=(0,0)`. Houses the
+  spine flexor/extensor motor bank **and** the tail actuators (centralized-motor
+  principle P1).
+- **Front/shoulder girdle** = vertebra 3 at `x = +Σ segment_lengths ≈ +0.195 m`
+  (straight spine). Houses forelimb motors; also serves as the distal anchor
+  point for the through-running spine tendons.
+- Girdle frames are exactly the `SpineModel.girdle_pose()` outputs
+  (`REAR = poses[0]`, `FRONT = poses[-1]`), so legs hang off these moving frames
+  per interface I4. Leg hip offsets stay at the `(0,0)` placeholder for now.
+
+### 1.2 Segment lengths (rear → front)
+
+Cat torso (T1→sacrum) scale for a ~3 kg body is ~0.20 m. Lumbar (rear) segments
+are longer and are the dorsoventral-mobile region, so lengths taper front-ward.
+
+| Segment | Region | Length (m) | Label |
+|---|---|---|---|
+| 1 (rear, vertebra 0→1) | lumbar | 0.075 | `[assumed]` |
+| 2 (mid, vertebra 1→2)  | thoraco-lumbar | 0.065 | `[assumed]` |
+| 3 (front, vertebra 2→3)| thoracic | 0.055 | `[assumed]` |
+| **Total** | | **0.195** | |
+
+(Compatible with the current `segment_lengths=(0.060,0.060,0.060)` seed; this
+proposal makes it a tapered 0.195 m instead of a uniform 0.180 m.)
+
+### 1.3 Per-axis range of motion
+
+ROM is ordered to respect the cat directional-**compliance rank** (most→least
+compliant: **axial-rotation > extension(dorsoventral) > lateral-bending**)
+`[sourced: lit Q3]`: the more-compliant axis is given the larger sweep. Values
+are **per segment**; whole-spine range ≈ 3× (three segments in series).
+
+| Axis | In M1? | Per-seg limit | Whole-spine (~3×) | Rank slot | Label |
+|---|---|---|---|---|---|
+| **Dorsoventral** (pitch, sagittal) | **yes** | ±0.436 rad (±25°) | ≈ ±75° | middle (extension) | `[assumed]` |
+| Axial rotation (roll, twist) | no (placeholder) | ±0.524 rad (±30°) | ≈ ±90° | most compliant → widest | `[assumed]` |
+| Lateral bending (yaw) | no (placeholder) | ±0.262 rad (±15°) | ≈ ±45° | stiffest → narrowest | `[assumed]` |
+
+Notes:
+- The dorsoventral ±25°/seg matches the current `SpineParams` seed and is the
+  only axis `spine.py` currently moves.
+- The ~±90° whole-spine axial range is deliberately generous because it is the
+  spine's contribution to the **righting-reflex twist** (ADR-0007) that
+  complements the tail.
+- The **magnitudes carry no stiffness meaning** — the compliance *rank* must be
+  carried by per-axis rotational stiffness from `[owed:R1]`, not by ROM. ROM is
+  merely ordered consistently with the rank as a first pass.
+
+### 1.4 Tendon routing along the column
+
+Tendons run as long cables from motor spools in the **pelvic girdle**, forward
+along the column, over a **dorsal and a ventral pulley at each vertebra**
+(setting the moment arm), to their anchor. Cable only pulls, so each
+dorsoventral DOF is an **antagonistic pair**: a **dorsal extensor** (arches up,
++q) and a **ventral flexor** (curls down, −q) — ADR-0002 baseline for a
+stiffness-tunable joint.
+
+Three routing options, in increasing motor cost / control authority:
+
+- **Option A — coupled through-cables (minimum motors).** One dorsal + one
+  ventral cable span **all 3 segments**, anchored at the front girdle, sharing
+  one tension across every vertebral pulley. Produces a single coupled bow
+  shape. 2 tendons total. Cheapest; least shape authority.
+- **Option B — per-segment independent (RECOMMENDED M1 baseline).** Nested
+  cables: dorsal+ventral pair anchoring at vertebra 1, another at vertebra 2,
+  another at the front girdle (vertebra 3). **6 tendons**, giving independent
+  per-segment sagittal control that the `spine.py` per-segment `q` vector
+  assumes. This is the routing the M1 tendon map should model.
+- **Option C — full 3D.** Option B plus left/right lateral pairs and an axial
+  twist pair per segment. Up to 18 tendons. Deferred with the 3D model.
+
+**Cable-path lengths** (motor spool in pelvic girdle → anchor, straight spine,
++ ~0.05 m routing slack to the spool):
+
+| Tendon | Anchor | Run length (m) | Label |
+|---|---|---|---|
+| segment-1 pair | vertebra 1 | ~0.075 + 0.05 ≈ 0.125 | `[assumed]` |
+| segment-2 pair | vertebra 2 | ~0.140 + 0.05 ≈ 0.19 | `[assumed]` |
+| segment-3 pair | vertebra 3 (front girdle) | ~0.195 + 0.05 ≈ 0.245 | `[assumed]` |
+
+Because a single cable's tension is common to every pulley it crosses, **peak
+tension is set by the most-loaded joint it spans** — this drives the moment-arm
+sizing below.
+
+### 1.5 Moment arms (pulley radii) and the tension-amplification justification
+
+Joint torque `τ = T · r`; for a required torque, cable tension `T = τ / r`, so a
+**small moment arm hugely amplifies required tension**. The RoboCat sanity band
+is **~20–70 N** (`[sourced: lit Q6]`). We therefore want `r` as **large** as the
+vertebral packaging allows, bounded by belly/back clearance and cable travel.
+
+Illustrative sensitivity at an assumed design-point joint torque
+`τ ≈ 2.5 N·m` (static forequarter hold ~1.5 N·m × ~1.5 dynamic — **to be
+replaced by K1's real budget**):
+
+| Moment arm r (m) | Cable tension T (N) at 2.5 N·m | vs. 20–70 N band |
+|---|---|---|
+| 0.020 (current seed) | 125 | far over |
+| 0.025 | 100 | over |
+| 0.030 | 83 | just over |
+| 0.035 | 71 | top of band |
+| 0.040 | 63 | in band |
+
+**Finding / flag to kinematics:** the current `joint_moment_arm=0.020` seed
+implies cable tensions well above the RoboCat band for any plausible arching
+torque. Proposed moment arms (below) raise the dorsal extensor arm toward the
+top of what a cat-scale vertebra can package (spinous-process height + a low
+pulley standoff). If K1's budget still exceeds ~70 N, the levers are: grow `r`
+further, cap co-contraction (AIC / low `T_bias`), or reduce ROM.
+
+| Tendon (per segment) | Moment arm r (m) | Bounded by | Label |
+|---|---|---|---|
+| Dorsal extensor (arch, +q) | **0.030** | spinous-process height + pulley standoff | `[assumed]` |
+| Ventral flexor (curl, −q) | **0.018** | belly clearance (smaller → higher tension, but gravity assists flexion so torque demand is lower) | `[assumed]` |
+| Lateral (per side, 3D) | 0.015 | transverse-process width | `[assumed]` |
+| Axial twist (3D) | 0.020 | vertebral-body periphery | `[assumed]` |
+
+For the single-value `SpineParams.joint_moment_arm` field (which today models one
+arm per segment) use the **dorsal extensor 0.030 m** as the representative
+value, i.e. `joint_moment_arm=(0.030, 0.030, 0.030)`.
+
+**Cable-travel check** at r=0.030, ±25° (0.436 rad): travel = 0.030×0.436 ≈
+**13 mm** each way. With `motor_spool_radius=0.008`, motor sweep = 13/8 ≈
+1.6 rad ≈ **94°** — modest, fine for a servo/BLDC spool.
+
+### 1.6 Compliance / return elements
+
+Per ADR-0002, spine joints are **antagonistic** (stiffness must be tunable to
+gait speed, lit Q2b) — no passive return spring on the spine baseline. The
+`spring_stiffness` / `spring_rest_angle` fields therefore stay as the
+spring-return-mode fallback only. **Do not** populate `spring_stiffness` from the
+53.62 N/mm axial value — that is `[owed:R1]` (axial N/mm + segment lever arms →
+per-joint N·m/rad, respecting the axial>extension>lateral rank). Elastic-cable
+back storage for landing energy absorption (G3) is a routing property to revisit
+once R1 lands.
+
+---
+
+## 2. Tail — inertial, morphable (concept level)
+
+Per ADR-0007 the tail is the primary mid-air righting mechanism, complemented by
+spine axial twist. Concept only; no geometry committed.
+
+- **DOF: 3** `[sourced: lit Q4 — 3-DoF morphable tail self-rights Unitree A1]` —
+  **2 revolute at the base** (pitch about +y, yaw about +z) + **1 prismatic**
+  (telescoping length change). Two revolute axes let the tail sweep a cone for
+  combined roll/pitch reorientation; the prismatic axis is the morphing DOF.
+- **Mounting:** at the **pelvic girdle** (vertebra 0), base at `x=0`, tail
+  extending rearward (−x). Actuators live in the pelvic girdle alongside the
+  spine motors (P1 centralization). Concept-level: tendon-driven like the rest,
+  or a compact direct base joint — deferred to the tail milestone.
+- **Length envelope:** retracted **~0.10 m** → extended **~0.35 m** `[assumed]`.
+  Telescoping ratio ~3.5:1 (lit Q4 retracts to ~1/4 flight length before
+  touchdown).
+- **Mass envelope:** **~0.20 kg** (~7% of the ~3 kg body) `[assumed]` — a robotic
+  inertial tail is deliberately heavier than a biological cat tail to buy
+  reorientation authority.
+
+**Reorientation-authority sanity check** (order-of-magnitude, not a sim):
+- Body pitch inertia ≈ rod model `(1/12)·3·0.25² ≈ 0.016 kg·m²`.
+- Tail extended, as a rod pivoting at base: `(1/3)·0.20·0.35² ≈ 0.0082 kg·m²`;
+  retracted: `(1/3)·0.20·0.10² ≈ 0.0007 kg·m²`.
+- Extended tail inertia is ~half the body's → sweeping the tail through a large
+  angle counter-rotates the body a useful fraction of that sweep. Momentum
+  conservation gives body rotation ≈ `I_tail/(I_body+I_tail) × tail sweep`
+  ≈ 0.34 × sweep. Combined with spine twist this supports a righting maneuver;
+  **telescoping boosts I_tail ~12× vs. retracted**, which is the whole point of
+  the morphing DOF.
+- **Retract-before-touchdown:** collapsing to ~0.10 m before landing (a) removes
+  ~92% of the tail's rotational inertia so it stops fighting the landing, (b)
+  shifts tail CoM toward the body for a stable base of support, and (c) avoids
+  ground strike. This is a control-phase action but the mechanism must support
+  fast retraction.
+
+---
+
+## 3. Parameter table (maps onto `SpineParams` + proposed `TailParams`)
+
+For tomcat-kinematics to adopt into `params.py`. Field names match the existing
+`SpineParams` dataclass.
+
+### 3.1 `SpineParams` (existing fields)
+
+| Field | Proposed value | Unit | Source label |
+|---|---|---|---|
+| `n_segments` | `3` | — | `[sourced: ADR-0006]` |
+| `segment_lengths` | `(0.075, 0.065, 0.055)` | m | `[assumed]` |
+| `q_min` (dorsoventral) | `(-0.436, -0.436, -0.436)` | rad | `[assumed]` |
+| `q_max` (dorsoventral) | `(0.436, 0.436, 0.436)` | rad | `[assumed]` |
+| `joint_moment_arm` | `(0.030, 0.030, 0.030)` | m | `[assumed]` — dorsal extensor arm; raised from 0.020 seed for tension budget (§1.5) |
+| `motor_spool_radius` | `0.008` | m | `[assumed]` |
+| `pretension` | `20.0` (recommend; band 20–70) | N | `[sourced: lit Q6]` — recommend raising from the 5 N comparator toward the band |
+| `spring_stiffness` | *defer* | N·m/rad | `[owed:R1]` — do NOT set from 53.62 N/mm |
+| `spring_rest_angle` | `(0.0, 0.0, 0.0)` | rad | `[assumed]` |
+
+### 3.2 Forward-looking per-axis ROM (for the 3D extension of `SpineParams`)
+
+When `SpineParams` grows per-axis limits, seed them ordered by compliance rank:
+
+| Axis field (proposed) | Per-seg `q_min` | Per-seg `q_max` | Unit | Source label |
+|---|---|---|---|---|
+| dorsoventral (M1) | −0.436 | +0.436 | rad | `[assumed]` |
+| axial (roll) | −0.524 | +0.524 | rad | `[assumed]` (widest — most compliant) |
+| lateral (yaw) | −0.262 | +0.262 | rad | `[assumed]` (narrowest — stiffest) |
+
+Per-axis `joint_moment_arm` when 3D lands: dorsal 0.030 / ventral 0.018 /
+lateral 0.015 / axial 0.020 m (all `[assumed]`, §1.5).
+
+### 3.3 Proposed new `TailParams` dataclass
+
+| Field (proposed) | Proposed value | Unit | Source label |
+|---|---|---|---|
+| `n_dof` | `3` (2 revolute + 1 prismatic) | — | `[sourced: lit Q4]` |
+| `mass` | `0.20` | kg | `[assumed]` (~7% body) |
+| `length_retracted` | `0.10` | m | `[assumed]` |
+| `length_extended` | `0.35` | m | `[assumed]` |
+| `pitch_min` / `pitch_max` | `-1.57` / `+1.57` | rad | `[assumed]` (±90°) |
+| `yaw_min` / `yaw_max` | `-1.57` / `+1.57` | rad | `[assumed]` (±90°) |
+| `mount_offset` (on pelvic girdle) | `(0.0, 0.0)` | m | `[assumed]` |
+| `joint_moment_arm` (if tendon-driven) | `0.015` | m | `[assumed]` |
+| `motor_spool_radius` | `0.008` | m | `[assumed]` |
+
+---
+
+## 4. BOM / motor-count implications
+
+Motor count follows directly from the routing choice and the ADR-0002
+antagonistic factor (~2 channels per stiffness-tunable DOF; ~1 for
+spring-return). The RoboCat **variable-radius pulley** trick (`[sourced: lit Q6]`)
+lets **one motor drive an antagonistic 2-cable joint**, turning an *n*-DOF joint
+from *2n* motors into *n* — worth adopting on the spine to cut the motor bank.
+
+### 4.1 Spine
+
+| Scope | Routing | Tendons | Motors (naïve 2/DOF) | Motors (variable-radius pulley, 1/DOF) |
+|---|---|---|---|---|
+| **M1 (dorsoventral only, 3 DOF)** | Option B (per-segment) | 6 | 6 | **3** |
+| M1 minimal | Option A (coupled through-cable) | 2 | 2 | **1** |
+| Full 3D (9 DOF) | Option C | up to 18 | 18 | **9** |
+
+**Recommendation:** build M1 as Option B (6 tendons). Evaluate the
+variable-radius pulley to halve the spine motor bank to **3 motors** before
+committing — this is the single biggest lever on spine motor/driver-channel
+count and directly feeds electronics task E1 and ADR-0002.
+
+### 4.2 Tail
+
+3 DOF. If tendon-driven antagonistic: **6 tendons / 6 motors** (or 3 with
+variable-radius pulley). The prismatic telescope may instead be a single
+lead-screw/cable-retract actuator. Concept-level: budget **2–3 tail motors** in
+the pelvic girdle.
+
+### 4.3 BOM deltas this spec introduces
+
+- Per-vertebra **dorsal + ventral pulleys** (moment-arm-setting), ×3 vertebrae
+  = 6 pulley stations for M1 sagittal; low-friction routing (sheaths / single
+  idler pulleys, cf. Kengoro maze-slot to cut friction) from girdle to each
+  station.
+- Cable-anchor hardware at vertebrae 1, 2, 3 (Option B).
+- Optional **variable-radius pulleys** at the motor spools (RoboCat economy).
+- Tail: telescoping tube set, base 2-axis gimbal, retract actuator.
+- Motors/drivers: **3–6 spine + 2–3 tail** added to the leg count, gating the
+  electronics driver-channel count (E1) and the ADR-0002 antagonistic factor.
+
+---
+
+## Handoffs
+
+- **→ tomcat-kinematics:** §3 tables (segment lengths, moment arms, ROM,
+  pretension) for `params.py`; note the moment-arm increase 0.020→0.030 and the
+  pretension 5→20 N recommendation; `spring_stiffness` remains `[owed:R1]`.
+- **→ tomcat-electronics:** §4 motor counts (3–6 spine + 2–3 tail; variable-radius
+  pulley halves the spine bank) for the driver-channel note (E1).
+- **→ tomcat-research:** confirm the axial→rotational stiffness conversion
+  (`[owed:R1]`) and validate the 2.5 N·m design-point torque assumption used in
+  §1.5 against a real forequarter-mass estimate.

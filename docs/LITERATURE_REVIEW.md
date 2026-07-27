@@ -235,18 +235,158 @@ cat-sized, biomimetic **elastic cable-driven quadruped**
 |-----------|-----------|--------|------|
 | Spine segments × DOF | 2–3 × 3 | Laika / MDPI tensegrity | ADR-0006 |
 | Spine per-axis stiffness rank | axial-rot < extension < lateral (compliant→stiff) | Cat FEA 2024 | Use rank, not absolute |
-| Whole-spine axial stiffness | 53.62 ± 4.68 N/mm | Cat FEA 2024 | ⚠️ needs N·m/rad conversion |
+| Whole-spine axial stiffness | 53.62 ± 4.68 N/mm | Cat FEA 2024 | converted below (Seed derivation A) |
+| Per-joint rotational stiffness (roll/pitch/yaw) | ~0.77 / ~1.0 / ~2.0 N·m/rad | Derived (Seed derivation A) | ◐/⚠️ order-of-mag, 3-joint spine |
 | Backbone torsion spring (model) | ~2000 N/m over 0.7 m | Sci. Reports 2022 | Reduced-order modeling |
 | Leg mass (knee) for dynamics | ~0.454 kg | Sci. Reports 2022 | Don't model legs as massless |
 | Cable pretension | ~50 N (can be lower) | RoboCat 2011 | vs our current placeholder 5 N |
 | Antagonistic tension range | ~20–70 N | RoboCat 2011 | sanity band |
 | Efficiency gain (tuned spine) | ~21% @ 0.9 m/s | SPARC 2025 | ⚠️ single-design, speed-dependent |
 
+---
+
+### Seed derivation A — axial N/mm → per-joint rotational N·m/rad (closes Gap #1) ◐/⚠️
+
+**Purpose.** Turn the one measured whole-spine number we have — axial compressive
+stiffness **53.62 ± 4.68 N/mm** ([Cat FEA 2024, Lu et al.](https://link.springer.com/article/10.1007/s42235-024-00594-4))
+— into per-joint **rotational** stiffness seeds (N·m/rad) for the ADR-0006 3-segment
+spine. **These are order-of-magnitude seeds, derived through several explicit
+assumptions, not measured values.** Hand the moment-arm → tendon-tension step to
+**tomcat-kinematics**; hand the disc/segment geometry to **tomcat-mechanical**.
+
+**The core problem.** Axial compressive stiffness (force per unit *length* change,
+N/mm) and joint rotational stiffness (moment per unit *angle*, N·m/rad) are
+different loading modes. There is **no rigorous unit conversion** between them; a
+geometry bridge is required, and its output inherits every geometric assumption.
+
+**Assumptions (all stated, all flagged):**
+
+- **A1 — Elastic-layer model of each joint.** Model each intervertebral joint as a
+  thin elastic disc of cross-sectional area `A`, thickness `h`, modulus `E`. For a
+  short elastic layer, axial stiffness `K_ax = E·A/h` and bending stiffness
+  `κ = E·I/h`. Dividing, **`κ = K_ax · (I/A) = K_ax · r_g²`**, where `r_g² = I/A` is
+  the radius of gyration squared of the load-bearing cross-section. Note `E` and `h`
+  **cancel** — the only geometric input is `r_g²`. ⚠️ Assumes the disc/soft tissue,
+  not the bony vertebra, is the compliant element and that compression and bending
+  share the same elastic layer.
+- **A2 — Series distribution across 3 joints.** The 3 modelled joints in series (with
+  rigid segments between) must reproduce the measured whole-spine stiffness. Springs
+  in series: `1/K_whole = Σ 1/k_joint`, so for 3 identical joints
+  **`k_joint = 3 · K_whole = 3 × 53.62 = 160.86 N/mm`** per joint. ⚠️ The real cat
+  spine has ~20 thoracolumbar vertebrae; lumping them into 3 equal joints is a
+  modelling choice, not anatomy. (The r_g² multiply is common to all joints, so the
+  whole-spine bending stiffness is identical whether you divide by 3 before or after
+  the multiply — see cross-check below.)
+- **A3 — Effective load-bearing radius `R ≈ 5 mm`, circular cross-section.** Cat
+  lumbar interpedicular (canal) diameters run **7.3–10.0 mm** (L1–L5, 50 cats,
+  [PMC11435567](https://pmc.ncbi.nlm.nih.gov/articles/PMC11435567/)); the vertebral
+  *body* is wider than the canal, so an effective load-bearing radius `R ≈ 5 mm`
+  (≈10 mm body diameter) is a mildly conservative central estimate. ⚠️ The cited
+  study reports canal, not body, dimensions — `R` is **inferred, not measured**. For
+  a circular section `r_g² = R²/4 = 25/4 = 6.25 mm² = 6.25×10⁻⁶ m²`.
+- **A4 — Axis ranking from the biological compliance rank.** Directional compliance
+  rank (most compliant → stiffest) is **axial rotation > extension > lateral bending**
+  ([Cat FEA 2024](https://link.springer.com/article/10.1007/s42235-024-00594-4)). The
+  source gives a **rank only, no ratios**, so the anchor (extension) is derived and
+  the other two axes are scaled (see below).
+
+**Arithmetic — anchor (dorsoventral extension / pitch):**
+
+```
+κ_ext(per joint) = k_joint · r_g²
+                 = 160.86 N/mm × 6.25 mm²
+                 = 1005 N·mm/rad
+                 ≈ 1.0 N·m/rad          (units: N/mm × mm² = N·mm/rad)
+```
+
+Whole-spine cross-check: `K_whole · r_g² = 53.62 × 6.25 = 335 N·mm/rad = 0.335
+N·m/rad = κ_ext/3` ✓ (self-consistent with A2).
+
+**Axis scaling (A4):**
+
+- **Axial rotation (roll / torsion) — most compliant.** For an isotropic circular
+  section, torsional vs. bending stiffness ratio is `(G/E)·(J/I) = (G/E)·2`. With
+  Poisson ν ≈ 0.3, `G/E = 1/(2(1+ν)) ≈ 0.385`, so the factor ≈ **0.77**. This
+  elasticity argument **independently reproduces axial rotation as the most compliant
+  axis**, agreeing with the biological rank. → `κ_axial ≈ 0.77 × 1.0 ≈ 0.77 N·m/rad`.
+- **Extension (dorsoventral pitch) — middle.** Anchor: **`κ_ext ≈ 1.0 N·m/rad`**.
+- **Lateral bending (yaw) — stiffest.** Pure circular-disc geometry gives lateral =
+  extension; the *extra* lateral stiffness is anatomical (facet joints, ribs,
+  transverse processes), which A1 does not capture. With **no measured ratio**
+  available, apply an **assumed factor ~2×** → `κ_lat ≈ 2.0 N·m/rad` (plausible band
+  1.5–2.5). ⚠️ This factor is a rank-only assumption, the weakest link in the chain.
+
+**Per-axis rotational stiffness seeds (per joint, 3-joint spine):**
+
+| Axis | DOF | Seed κ (N·m/rad) | Basis | Confidence |
+|------|-----|------------------|-------|------------|
+| Axial rotation | roll | **~0.77** | anchor × 0.77 (isotropic torsion, ν=0.3) | ◐/⚠️ derived |
+| Dorsoventral extension | pitch | **~1.0** | `160.86 N/mm × 6.25 mm²` (anchor) | ◐/⚠️ derived |
+| Lateral bending | yaw | **~2.0** (1.5–2.5) | anchor × assumed ~2 (rank only) | ⚠️ assumption-heavy |
+
+**Sensitivity & uncertainty (qualitative).** The seeds are dominated by *model*
+uncertainty, not measurement uncertainty:
+- The measured **±4.68 N/mm is ±8.7%**; it passes through A2 and A1 as a pure
+  multiplicative factor, so it moves each κ by only **±~9%** (±0.09 N·m/rad on the
+  1.0 anchor). Smallest source of error.
+- `r_g²` enters as `R²`, so the **radius estimate dominates**: `R = 4 mm →
+  κ_ext ≈ 0.64`, `R = 6 mm → κ_ext ≈ 1.45 N·m/rad` — the anchor lives in a
+  **~0.6–1.5 N·m/rad** band from radius alone.
+- The **series lumping (A2, ×3)** and the **lateral factor (A4, ~×2)** each add
+  factor-level uncertainty.
+- **Net:** treat these as order-of-magnitude seeds good to roughly a **factor of
+  2–3**, correct in *ranking and rough scale* only. Do not use for stability or
+  fatigue sizing without a bending/torsion bench test of a candidate joint.
+
+**Handoffs.** → **tomcat-kinematics:** convert each κ (N·m/rad) to commanded
+tendon differential via the joint moment arm `d` (`ΔT ≈ κ·Δθ / d`); the moment arm
+`d` and the segment length are still open inputs (see Gap follow-ups). →
+**tomcat-mechanical:** validate `R ≈ 5 mm` against the actual vertebra/disc mock-up
+and, ideally, bench-test one joint's bending/torsion stiffness to replace these
+seeds. Informs **ADR-0006** (per-axis spine stiffness targets).
+
+### Seed derivation B — antagonistic control seeds confirmed (ADR-0002) ✅/◐
+
+**AIC control law (Kengoro, Kawaharazuka et al., [arXiv:2409.00705](https://arxiv.org/pdf/2409.00705); ✅ verified in Q1):**
+
+```
+T_target = T_bias + max{0, K_stiffness · (l − l_target)}
+```
+Antagonist Inhibition Control: agonist gets `K_stiffness = k`; antagonist gets
+`K_stiffness = 0` and holds at `T_bias`.
+
+- **Kengoro experimental values: `T_bias = 2 kgf` (≈ 19.6 N), `k = 10`, `C = 0`.**
+  ⚠️ **Unit/scale caveat for the team:** `T_bias` is a force and ports directly as a
+  co-contraction bias (≈20 N is coincidentally near the RoboCat low end below). `k`
+  is a stiffness *gain* in Kengoro's muscle-length units (tension per unit
+  length-error) on a ~55 kgf-class humanoid tendon system — its **absolute value is
+  design-specific and must be re-tuned to our cable/pulley/joint scale, not copied
+  as-is.** Use the *form* of the law and `T_bias`'s role as first-class inputs; treat
+  `k = 10` as a starting order, not a target.
+- **AIC benefit (✅ verified):** peak tendon tension cut on Kengoro —
+  shoulder abduction **43 → 28 kgf**, whole-arm raise **55 → 45 kgf**, scapula
+  **44 → 37 kgf**; load-cell limit ~**55 kgf/module**.
+- *(Re-fetch note: the arXiv PDF is image-based and did not re-extract; these values
+  retain the ✅ from the original 3-0 adversarial vote in Q1, not a fresh read.)*
+
+**Antagonistic tension sanity band (RoboCat, ASME IMECE2011-63805; ◐ Q6):**
+pretension **50 N**; simulated antagonistic tensions **~20–70 N**
+([RoboCat](https://www.researchgate.net/publication/267593853_A_Biomimetic_Elastic_Cable_Driven_Quadruped_Robot_The_RoboCat)).
+**The tomcat-kinematics tension budget should sanity-check its per-tendon tensions
+against this ~20–70 N band (RoboCat pretension ~50 N).** ⚠️ RoboCat numbers are
+◐ single-source, from a simulation that assumed frictionless guides and no tension
+sensing; use as a scale check, not an absolute limit. Informs **ADR-0002**.
+
 ## Gaps & follow-ups
 
-1. **Unit conversion:** turn the cat's whole-spine axial 53.62 N/mm + directional
-   rank into per-joint **rotational** stiffness (N·m/rad) and joint-angle limits
-   per axis (dorsoventral / lateral / axial).
+1. **Unit conversion:** ~~turn the cat's whole-spine axial 53.62 N/mm + directional
+   rank into per-joint **rotational** stiffness (N·m/rad)~~ **— closed by
+   [Seed derivation A](#seed-derivation-a--axial-nmm--per-joint-rotational-nmrad-closes-gap-1)
+   above** (seeds: axial-rot ~0.77, extension ~1.0, lateral ~2.0 N·m/rad per joint,
+   ◐/⚠️ order-of-magnitude). **Still open:** joint-angle **ROM limits** per axis
+   (the FEA source gives a compliance rank, not angular limits), and the joint
+   **moment arm `d`** needed for the tension conversion — both required inputs for
+   tomcat-kinematics.
 2. **Leg actuator trade study:** quantitative tendon-vs-direct-drive comparison at
    the leg using IMF, torque density, reflected inertia, and control complexity.
 3. **RoboCat mechanics:** its actuation/spine numbers come from a design paper;
