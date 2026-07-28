@@ -42,7 +42,42 @@ This is a **skeleton massing model**, not a manufacturing model:
   is still the 2D sagittal model, so there is no true frontal-plane geometry yet.
 - Body width, bone/vertebra radii, girdle size, and tail shape are **placeholders**.
 
+## Packaging model — motors · tendons · joints
+
+`tomcat_packaging.py` extends the skeleton with the *internal* layout: it places
+**one motor per driven tendon**, clustered in the girdles (P1), routes **tendons**
+from each motor spool along the limb/spine to the joint it drives, and puts
+**pulleys** at every joint (hip/knee/ankle + vertebrae) at their real moment-arm
+radii. The girdle housings are **sized to enclose the motor banks** — so it is a
+genuine fit check, not a fixed box.
+
+![packaging render](tomcat_packaging.png)
+
+`python mechanical/cad/tomcat_packaging.py` → `tomcat_packaging.step` + `.png`.
+Render colours: bone = tan, **motor = slate**, **tendon = copper**, pulley = steel,
+girdle = translucent.
+
+### Fit findings (first pass, placeholder Ø16×28 mm motors)
+| Result | Value | Note |
+|--------|-------|------|
+| Motors placed | 24 | 4 legs × 5 (hip 2 + knee 2 + ankle 1) + 4 spine/tail |
+| Shoulder girdle (fits 10) | 70 × 142 × 51 mm | front-leg motors |
+| Pelvic girdle (fits 14) | 70 × **142** × **91 mm** | rear legs + spine + tail — the density hot-spot |
+| Overall envelope | 395 × 142 × 311 mm | |
+
+**What the study surfaces (honest):**
+- **The girdles must grow.** With motors oriented axis-laterally, each girdle is
+  ~142 mm wide — wider than the ~96 mm leg track — so the motor banks protrude
+  beyond the body sides. The pelvic girdle also grows to ~91 mm tall to hold 14
+  motors. **Options:** reorient motors (axis fore-aft or vertical), spread the
+  bank along the torso, or adopt the variable-radius-pulley motor reduction
+  (spine 6→3) to shrink the pelvic bank — this is exactly the packaging trade the
+  electronics/mechanical specs flagged.
+- This confirms the pelvic girdle as the **density & thermal hot-spot** the
+  electronics [BOARD_OUTLINE](../BOARD_OUTLINE.md) already called out.
+
 ## Next
-A real solid-modelling pass (in a full MCAD tool or a deeper build123d model)
-with actual joints, pulleys/moment-arm hardware, tendon routing paths, motor
-mounts, and a bill of materials — turning this massing model into parts.
+A real solid-modelling pass with actual motor part solids, bearing/pulley
+hardware, cable anchors, and mounts — plus resolving the girdle-width finding
+above (motor orientation / bank layout) — turning this layout study into parts
+and a BOM.
