@@ -331,7 +331,8 @@ class GaitController:
         The gait definition.
     body : WholeBody
         Source of the per-leg ``LegModel`` and the ``SpineModel``. Defaults to a
-        fresh ``WholeBody`` (default spine + four default legs).
+        fresh ``WholeBody`` (default spine + the asymmetric fore/hind legs: FORE
+        model on the front girdle, HIND on the rear).
     """
 
     params: GaitParams = field(default_factory=GaitParams)
@@ -378,7 +379,10 @@ class GaitController:
         s = self.local_phase(phase, leg_name)
         in_stance = s < self.params.duty_factor
         target = foot_target(self.params, s)
-        leg = self.body.legs[leg_name]
+        # Asymmetric: FORE model for front-girdle legs, HIND for rear (WholeBody
+        # picks per girdle). The same foot target thus solves to different joint
+        # angles on a front vs. a rear leg.
+        leg = self.body.leg_model_for(leg_name)
         try:
             q = leg.inverse(target, knee=self.params.knee)
             reachable = True

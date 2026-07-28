@@ -150,7 +150,7 @@ class WholeBodyBudgetResult:
             f"stance legs {self.load.stance_legs}",
             f"  spine posture (deg): "
             f"{np.round(np.rad2deg(self.load.spine_q), 1)}",
-            "  -- legs (worst case over workspace, one representative stance leg) --",
+            "  -- legs (worst case over workspace, HIND leg as representative) --",
             f"    per-leg support force: {self.load.foot_support_force_N:6.1f} N",
             f"    {'joint':<6}{'|tau| N·m':>12}{'tension N':>12}{'motor N·m':>12}",
         ]
@@ -198,7 +198,13 @@ def evaluate(
     the leg and spine tendon maps; `None` uses each map's pretension floor.
     """
     # Legs: reuse the per-leg worst-case sweep with the case's per-leg load.
-    a_leg = next(iter(body.legs.values()))
+    # The body is now fore/hind ASYMMETRIC (fore vs. hind link proportions differ;
+    # see WholeBody / params.py), but this budget still runs the sweep on ONE
+    # representative leg. We deliberately use the HIND leg (DEFAULT_LEG =
+    # DEFAULT_HINDLEG, the folded propulsion limb) as the worst case: it is the
+    # longer-shank limb that props the body, so it bounds the fore leg here. A
+    # per-leg-type split of the leg budget is deferred (noted for a later pass).
+    a_leg = body.hind_leg
     leg_result = torque_budget.evaluate(
         a_leg, leg_tendons, load.leg_load, grid=grid, knee=knee, t_bias=t_bias
     )

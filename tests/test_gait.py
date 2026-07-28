@@ -13,6 +13,7 @@ from tomcat_kin import (
     KneeConfig,
 )
 from tomcat_kin.gait import DEFAULT_PHASE_OFFSETS
+from tomcat_kin.params import DEFAULT_FORELEG, DEFAULT_HINDLEG
 
 
 ctrl = GaitController()
@@ -125,8 +126,36 @@ def test_default_gait_all_reachable_and_within_limits():
 def test_ik_solution_reproduces_foot_target():
     st = ctrl.state(0.3)
     for leg in st.legs.values():
-        fk = ctrl.body.legs[leg.name].forward(leg.q)
+        fk = ctrl.body.leg_model_for(leg.name).forward(leg.q)
         assert np.allclose(fk, leg.foot_target, atol=1e-9)
+
+
+# ------------------------------------------------- fore/hind ASYMMETRY in gait
+def test_gait_uses_fore_and_hind_models_per_girdle():
+    # The gait controller solves front-girdle legs with the FORE model and
+    # rear-girdle legs with the HIND model (via the WholeBody split).
+    for front in ("LF", "RF"):
+        assert ctrl.body.leg_model_for(front).params is DEFAULT_FORELEG
+    for rear in ("LR", "RR"):
+        assert ctrl.body.leg_model_for(rear).params is DEFAULT_HINDLEG
+
+
+def test_front_and_rear_gait_angles_differ_for_same_local_phase():
+    # At a phase where a front leg and a rear leg are at the SAME local phase they
+    # share an identical hip-frame foot target, but the fore vs. hind proportions
+    # make the solved joint angles differ -- and each leg's FK still lands its own
+    # foot on that shared target.
+    # LF offset 0.0, RR offset 0.5. Query each at the global phase that puts it at
+    # the SAME local phase 0.3: LF at 0.3, RR at 0.8 -> both local phase 0.3.
+    lf = ctrl.leg_state(0.3, "LF")   # front / fore, local phase 0.3
+    rr = ctrl.leg_state(0.8, "RR")   # rear / hind, local phase 0.3
+    assert lf.q is not None and rr.q is not None
+    assert lf.local_phase == pytest.approx(rr.local_phase)
+    assert np.allclose(lf.foot_target, rr.foot_target)  # same hip-frame target
+    assert not np.allclose(lf.q, rr.q, atol=1e-3)        # different joint angles
+    # FK check: each solved with its own model reproduces the shared target.
+    assert np.allclose(ctrl.body.leg_model_for("LF").forward(lf.q), lf.foot_target, atol=1e-9)
+    assert np.allclose(ctrl.body.leg_model_for("RR").forward(rr.q), rr.foot_target, atol=1e-9)
 
 
 def test_unreachable_target_flagged_not_raised():

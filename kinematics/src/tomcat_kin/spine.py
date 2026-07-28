@@ -57,7 +57,14 @@ from typing import Mapping
 
 import numpy as np
 
-from .params import SpineParams, LegParams, DEFAULT_SPINE, DEFAULT_LEG
+from .params import (
+    SpineParams,
+    LegParams,
+    DEFAULT_SPINE,
+    DEFAULT_LEG,
+    DEFAULT_FORELEG,
+    DEFAULT_HINDLEG,
+)
 from .leg import LegModel, KneeConfig, UnreachableError
 
 
@@ -223,22 +230,56 @@ class WholeBody:
     The spine sets each girdle pose; each leg then runs in its hip frame and its
     foot is expressed in the world. Call with the spine joint vector plus a
     per-leg joint vector to get every foot's world position.
+
+    Fore/hind ASYMMETRY (cats are NOT fore/hind symmetric; see params.py)
+    --------------------------------------------------------------------
+    Front-girdle legs (shoulder pair, e.g. LF/RF) use ``fore_leg`` -- the more
+    columnar limb (longer humerus, shorter metacarpus, smaller ~40 deg paw
+    toe-break, ``DEFAULT_FORELEG``). Rear-girdle legs (pelvic pair, e.g. LR/RR)
+    use ``hind_leg`` -- the folded propulsion limb (longer shank, ~55 deg
+    toe-break, ``DEFAULT_HINDLEG`` = ``DEFAULT_LEG``). Both models expose the same
+    3-joint actuated API; only the link proportions and paw offset differ, so the
+    SAME relative foot target lands at DIFFERENT joint angles on a front vs. rear
+    leg. Everything that touches leg kinematics (``foot_world_pose``, ``inverse``,
+    ``inverse_pose``, ``foot_positions``, gait) picks the correct model per leg
+    via the ``self.legs`` dict / ``leg_model_for``.
+
+    Attributes
+    ----------
+    fore_leg, hind_leg : LegModel
+        The front- and rear-girdle leg models. Constructor-overridable (tests may
+        inject their own) but default to ``LegModel(DEFAULT_FORELEG)`` /
+        ``LegModel(DEFAULT_HINDLEG)``.
+    legs : dict[str, LegModel]
+        Per-leg model, keyed by leg name. Built in ``__post_init__`` from
+        ``fore_leg`` / ``hind_leg`` by each mount's girdle unless explicitly
+        supplied (an explicit dict wins, e.g. for per-leg overrides in a test).
     """
 
     spine: SpineModel = field(default_factory=SpineModel)
     legs: dict[str, LegModel] = field(default_factory=dict)
     mounts: dict[str, LegMount] = field(default_factory=dict)
+    fore_leg: LegModel = field(default_factory=lambda: LegModel(DEFAULT_FORELEG))
+    hind_leg: LegModel = field(default_factory=lambda: LegModel(DEFAULT_HINDLEG))
 
     def __post_init__(self) -> None:
         if not self.mounts:
             self.mounts = {m.name: m for m in DEFAULT_MOUNTS}
         if not self.legs:
-            # One LegModel per mount, all sharing the default leg geometry.
-            self.legs = {name: LegModel() for name in self.mounts}
+            # Asymmetric: front-girdle legs get the FORE model, rear-girdle legs
+            # the HIND model (cats are not fore/hind symmetric; see params.py).
+            self.legs = {
+                name: (self.fore_leg if m.girdle is Girdle.FRONT else self.hind_leg)
+                for name, m in self.mounts.items()
+            }
 
     @property
     def leg_names(self) -> tuple[str, ...]:
         return tuple(self.mounts.keys())
+
+    def leg_model_for(self, name: str) -> LegModel:
+        """The ``LegModel`` for one leg (FORE for front girdle, HIND for rear)."""
+        return self.legs[name]
 
     def hip_world_pose(self, spine_q, leg_name: str) -> np.ndarray:
         """World pose (x, z, theta) of a leg's hip origin given the spine state."""
@@ -248,7 +289,7 @@ class WholeBody:
     def foot_world_position(self, spine_q, leg_name: str, leg_q) -> np.ndarray:
         """World (x, z) of one foot given spine angles and that leg's joint angles."""
         hx, hz, hth = self.hip_world_pose(spine_q, leg_name)
-        foot_hip = self.legs[leg_name].forward(leg_q)[:2]  # (x, z) in hip frame
+        foot_hip = self.leg_model_for(leg_name).forward(leg_q)[:2]  # (x, z) hip frame
         world = np.array([hx, hz]) + _rot(hth) @ foot_hip
         return world
 
@@ -263,7 +304,7 @@ class WholeBody:
         inverse(spine_q, leg, target).q) == target`` for a reachable target.
         """
         hx, hz, hth = self.hip_world_pose(spine_q, leg_name)
-        fx, fz, phi_hip = self.legs[leg_name].forward(leg_q)
+        fx, fz, phi_hip = self.leg_model_for(leg_name).forward(leg_q)
         world_xz = np.array([hx, hz]) + _rot(hth) @ np.array([fx, fz])
         return np.array([world_xz[0], world_xz[1], hth + phi_hip])
 
@@ -327,7 +368,7 @@ class WholeBody:
         phi_hip = foot_world[2] - hth
         hip_pose = np.array([hip_xz[0], hip_xz[1], phi_hip])
 
-        leg = self.legs[leg_name]
+        leg = self.leg_model_for(leg_name)
         try:
             q = leg.inverse(hip_pose, knee=knee)
             reachable = True

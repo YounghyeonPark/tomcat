@@ -14,7 +14,7 @@ from tomcat_kin import (
     TendonMap,
     ActuationMode,
 )
-from tomcat_kin.params import DEFAULT_SPINE
+from tomcat_kin.params import DEFAULT_SPINE, DEFAULT_FORELEG
 
 
 spine = SpineModel()
@@ -101,8 +101,8 @@ def test_straight_spine_front_foot_matches_standalone_leg():
     foot = body.foot_world_position(q_spine, "LF", leg_q)
     # Front girdle is at (total_length, 0, 0) with zero orientation, hip offset 0,
     # so the world foot is just the standalone leg foot shifted forward by the
-    # spine length.
-    leg_foot = LegModel().forward(leg_q)[:2]
+    # spine length. LF is a FRONT-girdle leg, so it uses the FORE model.
+    leg_foot = LegModel(DEFAULT_FORELEG).forward(leg_q)[:2]
     assert np.allclose(foot, leg_foot + np.array([DEFAULT_SPINE.total_length, 0.0]))
 
 
@@ -128,7 +128,7 @@ def test_front_foot_equals_girdle_composition():
     q_spine = np.full(DEFAULT_SPINE.n_segments, np.deg2rad(15.0))
     leg_q = np.deg2rad([-70.0, 50.0, 5.0])
     gx, gz, gth = body.spine.girdle_pose(q_spine, Girdle.FRONT)
-    foot_hip = LegModel().forward(leg_q)[:2]
+    foot_hip = LegModel(DEFAULT_FORELEG).forward(leg_q)[:2]  # LF -> FORE model
     c, s = math.cos(gth), math.sin(gth)
     R = np.array([[c, -s], [s, c]])
     expected = np.array([gx, gz]) + R @ foot_hip

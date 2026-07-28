@@ -19,7 +19,7 @@ from tomcat_kin import (
     GaitController,
     WholeBodyGaitController,
 )
-from tomcat_kin.params import DEFAULT_SPINE
+from tomcat_kin.params import DEFAULT_SPINE, DEFAULT_FORELEG, DEFAULT_HINDLEG
 
 
 N = DEFAULT_SPINE.n_segments
@@ -62,7 +62,11 @@ def test_neutral_spine_reduces_to_standalone_leg_ik():
     world = np.array([hip_pose[0] + hx, hip_pose[1] + hz, hip_pose[2] + hth])
 
     sol = body.inverse(STRAIGHT, "LF", world, knee=KneeConfig.FLEXED_POSITIVE)
-    q_standalone = LegModel().inverse(hip_pose, knee=KneeConfig.FLEXED_POSITIVE)
+    # LF is a FRONT-girdle leg -> it uses the FORE model, so the standalone check
+    # must use the same fore geometry (not the default/hind LegModel).
+    q_standalone = LegModel(DEFAULT_FORELEG).inverse(
+        hip_pose, knee=KneeConfig.FLEXED_POSITIVE
+    )
     assert np.allclose(sol.q, q_standalone)
 
 
@@ -97,6 +101,57 @@ def test_rear_leg_unaffected_by_spine_bend():
     bent = body.inverse(BEND, "LR", world)
     assert straight.reachable and bent.reachable
     assert np.allclose(straight.q, bent.q, atol=1e-12)
+
+
+# ---------------------------------------------------- fore/hind ASYMMETRY
+def test_wholebody_holds_distinct_fore_and_hind_models():
+    # Front-girdle legs use the FORE geometry, rear-girdle legs the HIND geometry.
+    body = WholeBody()
+    for front in ("LF", "RF"):
+        assert body.leg_model_for(front).params is DEFAULT_FORELEG
+    for rear in ("LR", "RR"):
+        assert body.leg_model_for(rear).params is DEFAULT_HINDLEG
+    # The two proportion sets really do differ (else the test below is vacuous).
+    assert DEFAULT_FORELEG != DEFAULT_HINDLEG
+
+
+def test_fore_and_hind_models_are_constructor_overridable():
+    # Tests can inject their own leg models; the girdle split still applies.
+    fore = LegModel(DEFAULT_HINDLEG)   # deliberately swapped for the check
+    hind = LegModel(DEFAULT_FORELEG)
+    body = WholeBody(fore_leg=fore, hind_leg=hind)
+    assert body.leg_model_for("LF") is fore
+    assert body.leg_model_for("RR") is hind
+    # An explicit legs dict still wins over the fore/hind fields.
+    custom = LegModel(DEFAULT_FORELEG)
+    body2 = WholeBody(legs={n: custom for n in ("LF", "RF", "LR", "RR")})
+    assert all(body2.leg_model_for(n) is custom for n in body2.leg_names)
+
+
+def test_same_relative_foot_target_gives_different_front_vs_rear_angles():
+    # THE asymmetry property. Give a FRONT leg and a REAR leg the SAME target in
+    # their own hip frame (neutral spine => both girdles are unrotated, so a fixed
+    # hip-frame pose maps to each leg's world target by a pure translation). The
+    # fore vs. hind proportions differ, so the solved joint angles MUST differ --
+    # yet each leg's FK still lands ITS OWN foot on ITS OWN world target.
+    body = WholeBody()
+    hip_pose = np.array([0.20, -0.12, math.radians(-10.0)])  # in the hip frame
+
+    fx, fz, fth = body.hip_world_pose(STRAIGHT, "LF")  # front hip (fore leg)
+    rx, rz, rth = body.hip_world_pose(STRAIGHT, "LR")  # rear hip (hind leg)
+    assert fth == pytest.approx(0.0) and rth == pytest.approx(0.0)
+    front_world = np.array([hip_pose[0] + fx, hip_pose[1] + fz, hip_pose[2] + fth])
+    rear_world = np.array([hip_pose[0] + rx, hip_pose[1] + rz, hip_pose[2] + rth])
+
+    front = body.inverse(STRAIGHT, "LF", front_world)
+    rear = body.inverse(STRAIGHT, "LR", rear_world)
+    assert front.reachable and rear.reachable
+    # Same relative target, DIFFERENT joint angles (fore vs. hind proportions).
+    assert front.foot_hip == pytest.approx(rear.foot_hip)  # identical hip-frame pose
+    assert not np.allclose(front.q, rear.q, atol=1e-3)
+    # ...and each leg's FK lands its own foot on its own world target.
+    assert np.allclose(body.foot_world_pose(STRAIGHT, "LF", front.q), front_world, atol=1e-9)
+    assert np.allclose(body.foot_world_pose(STRAIGHT, "LR", rear.q), rear_world, atol=1e-9)
 
 
 # ------------------------------------------------------- flags, not exceptions
