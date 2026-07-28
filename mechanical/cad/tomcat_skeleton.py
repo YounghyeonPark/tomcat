@@ -24,14 +24,14 @@ import sys
 
 import numpy as np
 from build123d import (
-    Box, Cylinder, Sphere, Compound, Vector, Plane, Pos,
+    Box, Cylinder, Sphere, Torus, Compound, Vector, Plane, Pos,
     export_step, export_stl,
 )
 
 # --- pull real dimensions from the kinematics model (single source of truth) ---
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", "kinematics", "src"))
 from tomcat_kin import LegModel, KneeConfig  # noqa: E402
-from tomcat_kin.params import DEFAULT_LEG, DEFAULT_SPINE  # noqa: E402
+from tomcat_kin.params import DEFAULT_LEG, DEFAULT_SPINE, DEFAULT_FORELEG  # noqa: E402
 
 MM = 1000.0  # model is in metres; CAD in millimetres
 
@@ -61,13 +61,14 @@ def bone(p0, p1, r):
                      Pos(*tuple(p1)) * Sphere(r)])
 
 
-def leg(mount, foot_x, knee, mirror=False):
+def leg(mount, foot_x, knee, mirror=False, leg_model=None):
     """One digitigrade 4-link leg at `mount` (x,y,z) mm; IK plants the paw.
 
     `mirror` reflects the leg fore/aft about the hip so front and rear legs fold
-    in opposite directions (the cat's fore-vs-hind limb geometry).
+    in opposite directions. `leg_model` selects fore- vs hind-leg proportions.
     """
-    leg_model = LegModel()
+    if leg_model is None:
+        leg_model = LegModel()
     q = leg_model.inverse((foot_x, FOOT_Z, FOOT_PITCH), knee=knee)
     pts2d = leg_model.joint_positions(q) * MM  # (5,2): hip,stifle,hock,paw-base,paw-tip
     if mirror:
@@ -106,6 +107,23 @@ def spine(z):
     return Compound(parts), float(xs[-1])
 
 
+def ribcage(z, x0, x1, n=8, radius=30.0):
+    """Thoracic ribcage: rings hung below the spine over the front (rigid) region.
+
+    The rear (lumbar) third stays ring-free — that is the flexible bending region
+    per ADR-0006 / the Felis silvestris reference (thorax stiff, lumbar mobile).
+    """
+    ribs = []
+    for x in np.linspace(x0, x1, n):
+        # ring in the y–z plane (axis along X), centred just below the spine so
+        # it hangs down to form the chest rather than looping above the backbone
+        ribs.append(
+            Plane(origin=(float(x), 0, z - radius * 0.55), z_dir=(1, 0, 0)).location
+            * Torus(radius, 2.4)
+        )
+    return Compound(ribs)
+
+
 def tail(z):
     """A passive multi-link tail curling up and back from the pelvic girdle."""
     # points going -x (rearward) and up, tapering
@@ -123,17 +141,20 @@ def build():
 
     spine_body, front_x = spine(H)
 
-    # Front legs mirror the rear so the limbs fold in opposite directions
-    # (cat fore- vs hind-limb geometry): rear stifle points forward, front
-    # elbow/carpus folds back.
+    # Front legs use the FORE-leg proportions and mirror the rear so the fore-
+    # and hind-limbs fold in opposite directions (cat geometry).
+    fore = LegModel(DEFAULT_FORELEG)
+    hind = LegModel()  # DEFAULT_LEG == hind
     legs = Compound([
-        leg((front_x, +TRACK / 2, H), FRONT_FOOT_X, kp, mirror=True),   # front-left
-        leg((front_x, -TRACK / 2, H), FRONT_FOOT_X, kp, mirror=True),   # front-right
-        leg((0.0, +TRACK / 2, H), REAR_FOOT_X, kp),                     # rear-left
-        leg((0.0, -TRACK / 2, H), REAR_FOOT_X, kp),                     # rear-right
+        leg((front_x, +TRACK / 2, H), FRONT_FOOT_X, kp, mirror=True, leg_model=fore),
+        leg((front_x, -TRACK / 2, H), FRONT_FOOT_X, kp, mirror=True, leg_model=fore),
+        leg((0.0, +TRACK / 2, H), REAR_FOOT_X, kp, leg_model=hind),
+        leg((0.0, -TRACK / 2, H), REAR_FOOT_X, kp, leg_model=hind),
     ])
     girdles = Compound([girdle(0.0, H), girdle(front_x, H)])
-    robot = Compound([spine_body, girdles, legs, tail(H)])
+    # Thoracic ribcage over the front region; rear third (lumbar) stays flexible.
+    ribs = ribcage(H, x0=0.45 * front_x, x1=0.92 * front_x)
+    robot = Compound([spine_body, girdles, legs, ribs, tail(H)])
     return robot, H, front_x
 
 

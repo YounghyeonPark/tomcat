@@ -30,7 +30,7 @@ from build123d import (
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", "kinematics", "src"))
 from tomcat_kin import LegModel, KneeConfig  # noqa: E402
-from tomcat_kin.params import DEFAULT_SPINE, DEFAULT_TENDON  # noqa: E402
+from tomcat_kin.params import DEFAULT_SPINE, DEFAULT_TENDON, DEFAULT_FORELEG  # noqa: E402
 
 MM = 1000.0
 
@@ -104,8 +104,8 @@ def girdle_box(center, cluster_compounds):
     return Pos(c.X, c.Y, c.Z) * Box(L, W, Hh), (L, W, Hh)
 
 
-def leg_points(mount, foot_x, knee, mirror=False):
-    lm = LegModel()
+def leg_points(mount, foot_x, knee, mirror=False, leg_model=None):
+    lm = leg_model if leg_model is not None else LegModel()
     q = lm.inverse((foot_x, FOOT_Z, FOOT_PITCH), knee=knee)
     pts = lm.joint_positions(q) * MM   # (5,2): hip, stifle, hock, paw-base, paw-tip
     if mirror:
@@ -183,18 +183,20 @@ def build():
     bones, motors, tendons, pulleys = [], [], [], []
 
     # ---- legs (4) ----
-    # (mount, foot_x, motor-side, mirror) — front legs mirror the rear so the
-    # fore/hind limbs fold oppositely (cat geometry).
+    # (mount, foot_x, motor-side, mirror, leg_model) — front legs use the FORE
+    # proportions and mirror the rear so the fore/hind limbs fold oppositely.
+    fore = LegModel(DEFAULT_FORELEG)
+    hind = LegModel()
     leg_defs = [
-        ((front_x, +TRACK / 2, H), FRONT_FOOT_X, +1, True),    # front-left
-        ((front_x, -TRACK / 2, H), FRONT_FOOT_X, -1, True),    # front-right
-        ((0.0, +TRACK / 2, H), REAR_FOOT_X, +1, False),        # rear-left
-        ((0.0, -TRACK / 2, H), REAR_FOOT_X, -1, False),        # rear-right
+        ((front_x, +TRACK / 2, H), FRONT_FOOT_X, +1, True, fore),    # front-left
+        ((front_x, -TRACK / 2, H), FRONT_FOOT_X, -1, True, fore),    # front-right
+        ((0.0, +TRACK / 2, H), REAR_FOOT_X, +1, False, hind),        # rear-left
+        ((0.0, -TRACK / 2, H), REAR_FOOT_X, -1, False, hind),        # rear-right
     ]
     girdles = []
     front_clusters, pelvic_clusters = [], []
-    for (mount, fx, side, mirror) in leg_defs:
-        p3 = leg_points(mount, fx, kp, mirror=mirror)
+    for (mount, fx, side, mirror, lm) in leg_defs:
+        p3 = leg_points(mount, fx, kp, mirror=mirror, leg_model=lm)
         bones.append(leg_bones(p3))
         pulleys.append(leg_pulleys(p3))
         # motor cluster for this leg, in its girdle, on its side

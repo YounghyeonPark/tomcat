@@ -289,6 +289,18 @@ class WholeBodyLoadCase:
 DEFAULT_LEG = LegParams()
 DEFAULT_TENDON = TendonParams()
 DEFAULT_SPINE = SpineParams()
+
+# Cats are NOT fore/hind symmetric. The nominal DEFAULT_LEG doubles as the
+# HIND leg (longer shank, bigger toe-break — the folded propulsion limb); the
+# FORE leg is a touch more columnar (longer proximal humerus, shorter distal
+# metacarpus, smaller paw toe-break). Reaches are kept ≈equal (~0.28 m) so the
+# body stays roughly level. Used by the CAD to distinguish front vs rear legs;
+# the actuated architecture (3 joints/leg) is identical.  ❓ placeholders.
+DEFAULT_HINDLEG = DEFAULT_LEG
+DEFAULT_FORELEG = LegParams(
+    l1=0.100, l2=0.090, l3=0.065, l4=0.025,   # humerus, radius, metacarpus, paw
+    paw_angle=math.radians(40.0),
+)
 DEFAULT_LOADS: tuple[LoadCase, ...] = (
     LoadCase("stand (4-leg)", n_stance_legs=4, dynamic_factor=1.0),
     LoadCase("trot (2-leg)", n_stance_legs=2, dynamic_factor=1.5),

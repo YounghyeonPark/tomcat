@@ -11,9 +11,13 @@ the simulation cannot drift apart — change a link length in
 The four legs are posed by solving the leg **IK** for feet planted on the ground.
 
 The legs are **digitigrade** (cats stand on their toes) — a 4-link chain
-(femur / tibia / metatarsus / paw) with 3 actuated joints + a passive paw, and
-the front legs mirror the rear so the fore- and hind-limbs fold in opposite
-directions. Proportions and posture follow a *Felis silvestris* skeleton plate
+(femur / tibia / metatarsus / paw) with 3 actuated joints + a passive paw. The
+model is **fore/hind asymmetric** like a real cat: the front legs use the more
+columnar **fore-leg** proportions (`DEFAULT_FORELEG`) and the rear the folded
+**hind-leg** (`DEFAULT_LEG`), and they mirror so the limbs fold in opposite
+directions. A **thoracic ribcage** hangs below the front spine while the rear
+(**lumbar**) third stays ring-free — the flexible bending region. Proportions,
+posture, and the thorax/lumbar split follow a *Felis silvestris* skeleton plate
 used as the anatomical reference.
 
 ## Files
@@ -34,7 +38,8 @@ python mechanical/cad/tomcat_skeleton.py
 ## Dimensions (from the model)
 | Item | Value | Source |
 |------|-------|--------|
-| Leg links (femur/tibia/metatarsus/paw) | 90 / 95 / 70 / 25 mm | `DEFAULT_LEG` (digitigrade) |
+| Hind-leg links (femur/tibia/metatarsus/paw) | 90 / 95 / 70 / 25 mm | `DEFAULT_LEG` (digitigrade) |
+| Fore-leg links (humerus/radius/metacarpus/paw) | 100 / 90 / 65 / 25 mm | `DEFAULT_FORELEG` (columnar) |
 | Actuated joints per leg | 3 (hip · stifle · hock) + passive paw | `LegParams` |
 | Spine segments (tapered) | 75 / 65 / 55 mm (195 total) | `DEFAULT_SPINE` |
 | Hip / body height (standing) | 200 mm | IK stance target |
