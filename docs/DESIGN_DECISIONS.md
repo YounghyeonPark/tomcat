@@ -76,7 +76,7 @@ context, and consequences. Status is one of: **Proposed**, **Accepted**,
   - Per-tendon **tension sensing (ADR-0004) now applies to the legs too.**
 
 ## ADR-0004: Tension & position sensing method
-- **Status:** Accepted (rotor sensor); tension method still Proposed
+- **Status:** Accepted
 - **Options (tension):** in-line load cell per tendon (accurate, adds
   parts/space); motor current estimate (cheap, no extra parts, but
   friction-corrupted); series elastic element + displacement sensor (robust,
@@ -90,10 +90,26 @@ context, and consequences. Status is one of: **Proposed**, **Accepted**,
     Baseline: **absolute encoder preferred, Hall sensors as the floor.**
   - Keep the **cable/joint-state sensor distinct from the rotor sensor** — they
     serve different loops (commutation/position vs. tendon coordination).
-  - **Tension sensing method still undecided** (load cell vs. current estimate
-    vs. series-elastic), tied to FR2 accuracy needs — see the Q1b options in
-    [LITERATURE_REVIEW.md](LITERATURE_REVIEW.md) (Kengoro load cell; compact
-    single-pulley + 3D-Hall module).
+  - **Tension sensing: hybrid dual front-end** ([tension-sensing note](notes/tension-sensing.md)).
+    (a) **Motor-current (`I_q`) estimate on every tendon** — always-on, kHz, no
+    added parts — for the Tier-A over-tension/over-current latch (ADR-0005),
+    slack/backdrive detection, and coarse feedforward. (b) **In-line load cell at
+    the JOINT (output) end** on the stiffness-critical antagonistic joints —
+    **spine joints + proximal leg joints (hip, knee)**; the spring-return ankle
+    (ADR-0002) gets current-estimate only.
+  - **Placement rule (the crux):** friction sits *between* motor and joint
+    (`T_motor = T_joint·exp(±μ·θ_wrap)` — ~1.9× developing / ~0.5× releasing at
+    the knee, μ≈0.10), so a girdle/motor-side sensor **cannot** read the tension
+    the joint feels, nor regulate the ~20 N `T_bias`/AIC co-contraction stiffness
+    (ADR-0002). MIT Cheetah's current-based force control does **not** transfer
+    (it is direct-drive with no friction path). Any tension sensor that must know
+    `T_joint` is placed at the **joint/output end**, downstream of the wrap.
+  - **SEA rejected as the sensing baseline** — its compliance is redundant with
+    ADR-0002 active co-contraction (and UHMWPE cable already gives some series
+    give), at worse size/bandwidth for the same joint-end placement need.
+- **Follow-up (blocks the error budget):** μ and per-tendon wrap are unmeasured
+  placeholders — **bench-identify routed μ** (tomcat-mechanical/kinematics)
+  before finalizing which joints truly need the load cell.
 
 ## ADR-0005: Compute & motor-drive topology
 - **Status:** Accepted

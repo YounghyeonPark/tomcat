@@ -31,14 +31,15 @@ inputs. They are called out here once and flagged again wherever they bite:
 |---|---|---|---|
 | G-Kt | **Motor torque constant `Kt` (N·m/A)** — no candidate motor chosen (ADR-0003 keeps actuator open) | `[owed: lead / actuator down-select]` | Phase-current sizing → FET/gate-driver rating, shunt value, thermal path |
 | G-Vbus | **Motor-bus voltage** — no battery/pack chosen | `[owed: lead / power budget]` | FET Vds class, gate-driver rating, bulk-cap voltage, regulation topology |
-| G-Tens | **ADR-0004 tension-sensing method** still open: in-line load cell vs. motor-current estimate vs. series-elastic + displacement | `[owed: ADR-0004 close-out]` | Whether the driver board carries an instrumentation-amp load-cell front-end, relies on phase-current estimation only, or exposes a displacement input |
+| G-Tens | **ADR-0004 tension method — CLOSED** (hybrid: current-estimate everywhere + joint-end load cell on stiffness-critical joints). Remaining: routed **μ** and load-cell scaling are unmeasured | `[owed: bench-measure μ; calibration]` | Which driver boards *populate* the load-cell front-end (spine + hip/knee) vs. current-estimate only (ankle/tail) |
 
 Until G-Kt and G-Vbus close, the driver stage is specified as a **parameterized
 power stage** (current/voltage *classes*, not part numbers), sized from the
-mechanical tension budget below. Until G-Tens closes, the driver board carries
-**both** a current-sense path (always present, needed for FOC anyway) **and** a
-populate-optional load-cell front-end, so either ADR-0004 outcome is buildable
-without a respin.
+mechanical tension budget below. Per **ADR-0004 (closed)** the driver board
+carries **both** a current-sense path (always present, needed for FOC anyway)
+**and** a load-cell front-end that is **populated on stiffness-critical joints
+(spine + hip/knee)** and DNP on current-only joints (ankle/tail) — the one board
+serves the whole hybrid without a respin.
 
 ### Sizing anchors taken from the mechanical specs
 
@@ -109,8 +110,8 @@ the driver.
    │   └───────────────────┘                                │        │            │
    │   ┌───────────────────┐  tension (mV)                  │        │            │
    │   │ TENSION FRONT-END  │────────────────────────────────┘        │            │
-   │   │ *POPULATE-OPTIONAL*│  (load-cell instrumentation amp;         │            │
-   │   │ (ADR-0004 open)    │   omit if current-estimate path chosen)  │            │
+   │   │ *POPULATE per joint*│ (load-cell in-amp; populated on          │            │
+   │   │ (ADR-0004 hybrid)  │  spine+hip/knee, DNP on ankle/tail)      │            │
    │   └───────────────────┘                                          │            │
    │   ┌───────────────────┐  temp (NTC x2: FET + motor)              │            │
    │   │ THERMAL SENSE      │──────────────────────────────────────────┘            │
@@ -160,17 +161,20 @@ the driver.
    Hall-only motor is still commutatable. Keep this rotor sensor **electrically
    distinct** from the tendon/joint-state sensor (ADR-0004: different loops).
 
-4. **Per-tendon tension front-end (ADR-0004, method OPEN — G-Tens).** Two paths on
-   the board, so either ADR-0004 outcome ships without a respin:
+4. **Per-tendon tension front-end (ADR-0004 CLOSED — hybrid).** Both paths on the
+   one board; population is per-joint:
    - **Current-estimate path (always populated):** the FOC phase-current sense is
-     reused to estimate tendon tension via motor torque. Cheap, no extra parts,
-     but friction-corrupted (LEG_TENDON_SPEC capstan factor up to ~1.87×).
-   - **Load-cell path (populate-optional):** an **instrumentation-amplifier
-     front-end** (in-amp + reference + filter into the MCU ADC, or a dedicated
-     bridge/load-cell AFE) for an in-line tendon load cell. Highest accuracy,
-     adds parts/space. Footprints laid but DNP until ADR-0004 chooses.
-   - Series-elastic + displacement (third ADR-0004 option) would instead consume
-     the rotor/aux sensor input; no dedicated analog front-end needed.
+     reused to estimate the *motor-side* tension. Cheap, no extra parts — used for
+     the Tier-A latch, slack detection, and coarse feedforward. It is
+     friction-corrupted vs. joint tension (capstan factor up to ~1.9×), so it does
+     **not** regulate joint stiffness by itself.
+   - **Load-cell path — populated on stiffness-critical joints (spine + hip/knee):**
+     an **instrumentation-amplifier front-end** (in-amp + reference + filter into
+     the MCU ADC, or a bridge/load-cell AFE) for an in-line tendon load cell at the
+     **joint/output end** (downstream of the wrap, so it reads `T_joint` directly —
+     the crux of ADR-0004). **DNP** on current-only joints (ankle spring-return,
+     tail).
+   - SEA was rejected as the sensing baseline (ADR-0004).
    - **Firmware handoff:** current-sense scaling (shunt Ω × in-amp gain → A/count)
      and, if fitted, load-cell scaling (mV/V × in-amp gain → N/count) are exported
      to firmware once component values are set (blocked on G-Kt / G-Tens).

@@ -63,11 +63,18 @@ curve.
 
 ## 5. Open questions
 
-- ❓ Actuator choice: BLDC + FOC, geared DC, or servo modules?
-- ❓ Tension sensing method: in-line load cell, motor-current estimate, or
-  series-elastic element with displacement sensing?
-- ❓ Compute split: single MCU vs. real-time MCU + higher-level SBC?
-- ❓ Number of tendons per DOF (1+spring vs. 2 antagonistic).
+The major architecture questions are **resolved** in the [ADR log](DESIGN_DECISIONS.md):
+- Actuator choice → tendon-drive, BLDC + FOC (ADR-0003).
+- Tension sensing → hybrid: motor-current estimate everywhere + joint-end load
+  cells on stiffness-critical joints (ADR-0004).
+- Compute split → distributed CAN-FD drivers + RT controller + SBC (ADR-0005).
+- Tendons per DOF → antagonistic pairs; spring-return for distal joints (ADR-0002).
+
+Remaining **calibration / measurement** items (not decisions):
+- ❓ Routed cable friction μ and per-tendon wrap — blocks the tension error budget
+  and the current-vs-load-cell placement split (ADR-0004 follow-up).
+- ❓ Specific motor selection → `Kt`, bus voltage — blocks detailed electrical sizing.
+- ❓ Mass / runtime / per-tendon force targets (NFR5–7).
 
 ## 6. Out of scope (for now)
 
