@@ -17,6 +17,11 @@ Scope:
 - **Compliance:** return springs and/or series-elastic elements per ADR-0002.
 - **BOM:** motors, cables, pulleys, bearings, springs, fasteners.
 
+## CAD
+- [cad/](cad/) — first **3D geometry**: a parametric build123d skeleton model
+  driven by the `tomcat_kin` dimensions, exported to STEP (`cad/tomcat_skeleton.step`)
+  with a rendered preview. A massing model, not yet a manufacturing model.
+
 ## Specs
 - [LEG_TENDON_SPEC.md](LEG_TENDON_SPEC.md) — leg tendon-drive spec for the
   pure-tendon legs (ADR-0003): moment-arm sizing that halves the ~1 kN cable

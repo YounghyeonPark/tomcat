@@ -6,6 +6,9 @@
 *.hex
 *.bin
 
+# CAD mesh export (large, regenerated from tomcat_skeleton.py; STEP is tracked)
+mechanical/cad/*.stl
+
 # KiCad backups / autosave
 *-backups/
 *.kicad_sch-bak
