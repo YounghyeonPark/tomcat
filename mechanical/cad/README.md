@@ -10,6 +10,12 @@ the simulation cannot drift apart — change a link length in
 `kinematics/src/tomcat_kin/params.py` and this model follows on the next run.
 The four legs are posed by solving the leg **IK** for feet planted on the ground.
 
+The legs are **digitigrade** (cats stand on their toes) — a 4-link chain
+(femur / tibia / metatarsus / paw) with 3 actuated joints + a passive paw, and
+the front legs mirror the rear so the fore- and hind-limbs fold in opposite
+directions. Proportions and posture follow a *Felis silvestris* skeleton plate
+used as the anatomical reference.
+
 ## Files
 - `tomcat_skeleton.py` — the parametric model (source of truth).
 - `tomcat_skeleton.step` — CAD interchange (open in any MCAD tool).
@@ -28,7 +34,8 @@ python mechanical/cad/tomcat_skeleton.py
 ## Dimensions (from the model)
 | Item | Value | Source |
 |------|-------|--------|
-| Leg links (thigh/shank/foot) | 120 / 120 / 50 mm | `DEFAULT_LEG` |
+| Leg links (femur/tibia/metatarsus/paw) | 90 / 95 / 70 / 25 mm | `DEFAULT_LEG` (digitigrade) |
+| Actuated joints per leg | 3 (hip · stifle · hock) + passive paw | `LegParams` |
 | Spine segments (tapered) | 75 / 65 / 55 mm (195 total) | `DEFAULT_SPINE` |
 | Hip / body height (standing) | 200 mm | IK stance target |
 | Track width (L/R legs) | 90 mm | ❓ placeholder |
@@ -63,7 +70,7 @@ girdle = translucent.
 | Motors placed | 24 | 4 legs × 5 (hip 2 + knee 2 + ankle 1) + 4 spine/tail |
 | Shoulder girdle (fits 10) | 70 × 142 × 51 mm | front-leg motors |
 | Pelvic girdle (fits 14) | 70 × **142** × **91 mm** | rear legs + spine + tail — the density hot-spot |
-| Overall envelope | 395 × 142 × 311 mm | |
+| Overall envelope | 459 × 142 × 311 mm | digitigrade splayed stance |
 
 **What the study surfaces (honest):**
 - **The girdles must grow.** With motors oriented axis-laterally, each girdle is

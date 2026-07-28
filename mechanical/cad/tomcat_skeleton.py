@@ -61,11 +61,17 @@ def bone(p0, p1, r):
                      Pos(*tuple(p1)) * Sphere(r)])
 
 
-def leg(mount, foot_x, knee):
-    """One 3-link leg at `mount` (x,y,z) mm; IK plants the foot at `foot_x`."""
+def leg(mount, foot_x, knee, mirror=False):
+    """One digitigrade 4-link leg at `mount` (x,y,z) mm; IK plants the paw.
+
+    `mirror` reflects the leg fore/aft about the hip so front and rear legs fold
+    in opposite directions (the cat's fore-vs-hind limb geometry).
+    """
     leg_model = LegModel()
     q = leg_model.inverse((foot_x, FOOT_Z, FOOT_PITCH), knee=knee)
-    pts2d = leg_model.joint_positions(q) * MM  # (4,2): hip,knee,ankle,foot (x,z)
+    pts2d = leg_model.joint_positions(q) * MM  # (5,2): hip,stifle,hock,paw-base,paw-tip
+    if mirror:
+        pts2d = pts2d * np.array([-1.0, 1.0])
     mx, my, mz = mount
     p3 = [(mx + x, my, mz + z) for (x, z) in pts2d]  # map sagittal x,z into world
     parts = []
@@ -117,11 +123,14 @@ def build():
 
     spine_body, front_x = spine(H)
 
+    # Front legs mirror the rear so the limbs fold in opposite directions
+    # (cat fore- vs hind-limb geometry): rear stifle points forward, front
+    # elbow/carpus folds back.
     legs = Compound([
-        leg((front_x, +TRACK / 2, H), FRONT_FOOT_X, kp),   # front-left
-        leg((front_x, -TRACK / 2, H), FRONT_FOOT_X, kp),   # front-right
-        leg((0.0, +TRACK / 2, H), REAR_FOOT_X, kp),        # rear-left
-        leg((0.0, -TRACK / 2, H), REAR_FOOT_X, kp),        # rear-right
+        leg((front_x, +TRACK / 2, H), FRONT_FOOT_X, kp, mirror=True),   # front-left
+        leg((front_x, -TRACK / 2, H), FRONT_FOOT_X, kp, mirror=True),   # front-right
+        leg((0.0, +TRACK / 2, H), REAR_FOOT_X, kp),                     # rear-left
+        leg((0.0, -TRACK / 2, H), REAR_FOOT_X, kp),                     # rear-right
     ])
     girdles = Compound([girdle(0.0, H), girdle(front_x, H)])
     robot = Compound([spine_body, girdles, legs, tail(H)])
