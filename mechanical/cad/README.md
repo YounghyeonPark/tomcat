@@ -17,8 +17,10 @@ columnar **fore-leg** proportions (`DEFAULT_FORELEG`) and the rear the folded
 **hind-leg** (`DEFAULT_LEG`), and they mirror so the limbs fold in opposite
 directions. A **thoracic ribcage** hangs below the front spine while the rear
 (**lumbar**) third stays ring-free — the flexible bending region. Proportions,
-posture, and the thorax/lumbar split follow a *Felis silvestris* skeleton plate
-used as the anatomical reference.
+posture, and the thorax/lumbar split are informed by the public-domain
+**Reighard & Jennings (1901), *Anatomy of the Cat*** and the cat vertebral
+formula — see [../reference/ANATOMY.md](../reference/ANATOMY.md) for full,
+openly-licensed citations.
 
 ## Files
 - `tomcat_skeleton.py` — the parametric model (source of truth).

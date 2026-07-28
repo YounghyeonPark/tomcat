@@ -17,6 +17,12 @@ Scope:
 - **Compliance:** return springs and/or series-elastic elements per ADR-0002.
 - **BOM:** motors, cables, pulleys, bearings, springs, fasteners.
 
+## Reference
+- [reference/ANATOMY.md](reference/ANATOMY.md) — feline anatomy basis for the
+  biomimetic geometry, citing **public-domain** sources (Reighard & Jennings,
+  *Anatomy of the Cat*, 1901) — vertebral formula, digitigrade limbs, fore/hind
+  asymmetry, thorax vs lumbar.
+
 ## CAD
 - [cad/](cad/) — first **3D geometry**: a parametric build123d skeleton model
   driven by the `tomcat_kin` dimensions, exported to STEP (`cad/tomcat_skeleton.step`)
