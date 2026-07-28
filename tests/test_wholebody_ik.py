@@ -69,7 +69,9 @@ def test_spine_bend_changes_front_leg_angles_but_holds_world_foot():
     # compensates), yet forward kinematics still lands the foot on that world
     # pose in both cases.
     body = WholeBody()
-    world = np.array([0.42, -0.10, math.radians(-15.0)])
+    # Reachable by the digitigrade leg both straight and bent (the shorter
+    # 4-link reach ~0.28 m puts the old 0.42 m target just outside the bent hip).
+    world = np.array([0.40, -0.11, math.radians(-10.0)])
 
     straight = body.inverse(STRAIGHT, "LF", world)
     bent = body.inverse(BEND, "LF", world)

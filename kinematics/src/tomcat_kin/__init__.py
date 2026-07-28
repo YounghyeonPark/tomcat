@@ -7,7 +7,8 @@ tendon map) and docs/DESIGN_DECISIONS.md (ADR-0002).
 Modules
 -------
 params            Placeholder geometry / mass parameters (all values are TBD).
-leg               Planar 3R leg: forward/inverse kinematics and Jacobian.
+leg               Digitigrade 4-link leg (3 actuated joints + passive paw):
+                  paw-tip forward/inverse kinematics and Jacobian.
 spine             Serial tendon-driven spine + whole-body (spine + 4 legs) kinematics,
                   incl. whole-body INVERSE kinematics (world foot pose -> leg angles
                   through the moving girdle; M3).

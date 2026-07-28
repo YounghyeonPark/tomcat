@@ -121,7 +121,10 @@ class GaitParams:
 
     All lengths are metres, angles radians, times seconds (SI). Defaults are
     ILLUSTRATIVE and tuned to stay inside the placeholder leg joint limits with a
-    ~11 deg margin over the whole cycle (see module docstring / demo).
+    ~8 deg margin over the whole cycle for the digitigrade 4-link leg (see module
+    docstring / demo). NOTE: the placeholder +/-60 deg hock (ankle) limit is the
+    binding constraint on a DEEPER digitigrade stance -- a real high-hock cat leg
+    wants a larger hock range; revisit with the mechanical joint-limit spec.
 
     Attributes
     ----------
@@ -139,7 +142,8 @@ class GaitParams:
         (x, z) of the mid-stride foot position in the hip frame (m). z is
         negative (foot below the hip).
     foot_pitch : float
-        Constant foot pitch phi (rad) held over the trajectory.
+        Constant PAW-TIP pitch phi (rad) held over the trajectory (the passive
+        paw rides at a fixed offset off the metatarsus; see leg.py).
     phase_offsets : Mapping[str, float]
         Per-leg touchdown phase in [0, 1). Keys are leg names ("LF" etc.).
     knee : KneeConfig
@@ -157,8 +161,8 @@ class GaitParams:
     stride_length: float = 0.06
     step_height: float = 0.03
     duty_factor: float = 0.75
-    nominal_foot: tuple[float, float] = (0.22, -0.13)
-    foot_pitch: float = -math.radians(20.0)
+    nominal_foot: tuple[float, float] = (0.225, -0.10)
+    foot_pitch: float = math.radians(5.0)
     phase_offsets: Mapping[str, float] = field(
         default_factory=lambda: dict(DEFAULT_PHASE_OFFSETS)
     )

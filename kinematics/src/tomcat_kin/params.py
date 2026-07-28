@@ -8,7 +8,11 @@ Conventions
 -----------
 - SI units throughout: metres, radians, kilograms, newtons, newton-metres.
 - Sagittal-plane (2D) model: x forward, z up, hip at the origin.
-- A planar 3R chain: hip -> thigh -> knee -> shank -> ankle -> foot.
+- A DIGITIGRADE 4-link chain (cats stand on their toes):
+      hip -> femur -> stifle/knee -> tibia -> hock/ankle -> metatarsus -> paw.
+  The first THREE joints (hip, stifle, hock) are ACTUATED; the paw is a PASSIVE
+  distal link held at a fixed rest angle relative to the metatarsus. There is NO
+  fourth motor: the actuated joint vector stays q = (q1, q2, q3) (see LegParams).
 """
 
 from __future__ import annotations
@@ -21,21 +25,42 @@ GRAVITY = 9.81  # m/s^2
 
 @dataclass(frozen=True)
 class LegParams:
-    """Geometry and mass of one leg (sagittal-plane 3R chain)."""
+    """Geometry of one DIGITIGRADE leg (sagittal-plane 4-link chain).
 
-    # Link lengths (m): thigh, shank, foot.  ❓ TBD
-    l1: float = 0.120
-    l2: float = 0.120
-    l3: float = 0.050
+    Four links -- femur, tibia, metatarsus, paw -- but only THREE ACTUATED
+    joints (hip, stifle/knee, hock/ankle). The paw is a PASSIVE distal link held
+    rigidly at `paw_angle` relative to the metatarsus, modelling the largely
+    passive toes / ground contact of a digitigrade stance (long near-vertical
+    metatarsus, hock held high). No fourth motor exists: the actuated joint
+    vector stays q = (q1, q2, q3).
+    """
 
-    # Joint angle limits (rad), (min, max) per joint: hip, knee, ankle.  ❓ TBD
+    # Link lengths (m): femur, tibia, metatarsus, paw.  Digitigrade cat-scale
+    # placeholders; total reach ~0.28 m keeps the previous ground clearance so
+    # standing/gait still reach the floor.  ❓ TBD
+    l1: float = 0.090   # femur
+    l2: float = 0.095   # tibia
+    l3: float = 0.070   # metatarsus (long, near-vertical in stance)
+    l4: float = 0.025   # paw / toes (PASSIVE distal link)
+
+    # Fixed rest angle of the PASSIVE paw relative to the metatarsus (rad). The
+    # paw direction is the metatarsus cumulative angle (q1+q2+q3) PLUS paw_angle,
+    # so the paw pitch never has its own actuator. Positive = the paw rotates CCW
+    # (toes lift toward horizontal) away from a downward-pointing metatarsus, i.e.
+    # the digitigrade "standing on the toes" pose. Kept modest so the placeholder
+    # standing/gait poses stay reachable; a larger (~60 deg) toe break is more
+    # anatomical.  ❓ TBD
+    paw_angle: float = math.radians(30.0)
+
+    # Joint angle limits (rad), (min, max) per ACTUATED joint: hip, knee, ankle.
+    # ❓ TBD
     q_min: tuple[float, float, float] = (-math.pi / 2, 0.0, -math.pi / 3)
     q_max: tuple[float, float, float] = (math.pi / 2, math.pi * 0.8, math.pi / 3)
 
     @property
     def reach(self) -> float:
-        """Maximum straight-leg distance from hip to foot tip."""
-        return self.l1 + self.l2 + self.l3
+        """Maximum straight-leg distance from hip to paw tip (all four links)."""
+        return self.l1 + self.l2 + self.l3 + self.l4
 
 
 @dataclass(frozen=True)
