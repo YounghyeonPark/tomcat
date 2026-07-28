@@ -43,7 +43,7 @@ GIRDLE = (70.0, 120.0, 46.0)   # girdle housing L×W×H (mm)
 
 # Standing stance: solve IK so each foot plants on the ground under its hip.
 FOOT_Z = -0.20        # foot height below the hip (m) -> hip/body height
-FOOT_PITCH = -0.25    # foot pitch (rad)
+FOOT_PITCH = 0.0      # paw-tip pitch (rad) — paw flat on the ground (digitigrade)
 FRONT_FOOT_X = 0.02   # front feet slightly forward (m)
 REAR_FOOT_X = -0.02   # rear feet slightly back (m)
 

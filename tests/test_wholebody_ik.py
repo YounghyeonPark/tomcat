@@ -55,7 +55,10 @@ def test_neutral_spine_reduces_to_standalone_leg_ik():
     body = WholeBody()
     hx, hz, hth = body.hip_world_pose(STRAIGHT, "LF")
     assert hth == pytest.approx(0.0)
-    hip_pose = np.array([0.22, -0.13, math.radians(-20.0)])
+    # Reachable hip-frame pose at the new digitigrade geometry (paw_angle 55 deg,
+    # reach ~0.28 m): the old (0.22, -0.13, -20 deg) target fell outside the
+    # 2R femur/tibia sub-workspace once the steep metatarsus was backed out.
+    hip_pose = np.array([0.20, -0.12, math.radians(-10.0)])
     world = np.array([hip_pose[0] + hx, hip_pose[1] + hz, hip_pose[2] + hth])
 
     sol = body.inverse(STRAIGHT, "LF", world, knee=KneeConfig.FLEXED_POSITIVE)

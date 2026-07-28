@@ -47,15 +47,16 @@ class LegParams:
     # paw direction is the metatarsus cumulative angle (q1+q2+q3) PLUS paw_angle,
     # so the paw pitch never has its own actuator. Positive = the paw rotates CCW
     # (toes lift toward horizontal) away from a downward-pointing metatarsus, i.e.
-    # the digitigrade "standing on the toes" pose. Kept modest so the placeholder
-    # standing/gait poses stay reachable; a larger (~60 deg) toe break is more
-    # anatomical.  ❓ TBD
-    paw_angle: float = math.radians(30.0)
+    # the digitigrade "standing on the toes" pose. Set to ~55 deg, an anatomical
+    # toe-break for a proper digitigrade crouch (up from an earlier modest 30).  ❓ TBD
+    paw_angle: float = math.radians(55.0)
 
     # Joint angle limits (rad), (min, max) per ACTUATED joint: hip, knee, ankle.
-    # ❓ TBD
-    q_min: tuple[float, float, float] = (-math.pi / 2, 0.0, -math.pi / 3)
-    q_max: tuple[float, float, float] = (math.pi / 2, math.pi * 0.8, math.pi / 3)
+    # The hock (ankle) range is widened to ±90° so a real cat crouch (hock held
+    # high, metatarsus folded steeply) is reachable — the ±60° placeholder was the
+    # binding constraint on stance depth.  ❓ TBD
+    q_min: tuple[float, float, float] = (-math.pi / 2, 0.0, -math.pi / 2)
+    q_max: tuple[float, float, float] = (math.pi / 2, math.pi * 0.8, math.pi / 2)
 
     @property
     def reach(self) -> float:
