@@ -29,6 +29,14 @@ foot position is rotated/translated into the world by the girdle pose. Front
 legs (shoulder pair) hang off the front girdle, rear legs (pelvic pair) off the
 rear girdle.
 
+Whole-body inverse kinematics (M3)
+----------------------------------
+``WholeBody.inverse`` runs that composition BACKWARDS: given a foot pose in the
+WORLD frame and the spine angles, it undoes the girdle/hip transform and solves
+the per-leg IK, so a foot can be commanded to a fixed world position and the leg
+angles absorb the spine bend (feet placed "through" the moving spine). See its
+docstring for the frame chain and the 2D transform math.
+
 Modelling assumptions / limitations
 -----------------------------------
 - 2D sagittal only: the four legs' left/right lateral (y) offset is out of plane
@@ -45,11 +53,12 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from enum import Enum
 import math
+from typing import Mapping
 
 import numpy as np
 
 from .params import SpineParams, LegParams, DEFAULT_SPINE, DEFAULT_LEG
-from .leg import LegModel
+from .leg import LegModel, KneeConfig, UnreachableError
 
 
 def _rot(theta: float) -> np.ndarray:
@@ -171,6 +180,42 @@ DEFAULT_MOUNTS: tuple[LegMount, ...] = (
 )
 
 
+@dataclass(frozen=True)
+class LegIKSolution:
+    """Result of a single whole-body inverse-kinematics solve for one leg.
+
+    Attributes
+    ----------
+    name : str
+        Leg label.
+    q : np.ndarray | None
+        Solved joint angles (q1, q2, q3) in rad, or None if the WORLD foot pose
+        was UNREACHABLE (per-leg IK failed).
+    reachable : bool
+        Whether per-leg IK produced a solution at all.
+    within_limits : bool
+        Whether the solved q lies inside the leg's configured joint limits.
+        False when unreachable.
+    foot_world : np.ndarray
+        The requested foot pose (x, z, phi) in the WORLD (body-ground) frame.
+    foot_hip : np.ndarray
+        That same target expressed in the leg's hip frame (x, z, phi) after
+        undoing the girdle/hip transform -- the pose handed to LegModel.inverse.
+    """
+
+    name: str
+    q: np.ndarray | None
+    reachable: bool
+    within_limits: bool
+    foot_world: np.ndarray
+    foot_hip: np.ndarray
+
+    @property
+    def ok(self) -> bool:
+        """True only if reachable AND within joint limits."""
+        return self.reachable and self.within_limits
+
+
 @dataclass
 class WholeBody:
     """Composition of the spine and four legs into one kinematic body.
@@ -207,6 +252,21 @@ class WholeBody:
         world = np.array([hx, hz]) + _rot(hth) @ foot_hip
         return world
 
+    def foot_world_pose(self, spine_q, leg_name: str, leg_q) -> np.ndarray:
+        """World foot POSE (x, z, phi) given spine angles and that leg's joints.
+
+        Extends ``foot_world_position`` with the foot pitch. The leg's foot pitch
+        ``phi_hip`` is measured in the (rotated) hip frame; the girdle the hip
+        rides on is itself tilted by ``hth`` (the girdle orientation set by the
+        spine), so the WORLD foot pitch is ``hth + phi_hip``. This is the exact
+        forward map that ``inverse`` inverts, so ``foot_world_pose(spine_q, leg,
+        inverse(spine_q, leg, target).q) == target`` for a reachable target.
+        """
+        hx, hz, hth = self.hip_world_pose(spine_q, leg_name)
+        fx, fz, phi_hip = self.legs[leg_name].forward(leg_q)
+        world_xz = np.array([hx, hz]) + _rot(hth) @ np.array([fx, fz])
+        return np.array([world_xz[0], world_xz[1], hth + phi_hip])
+
     def foot_positions(self, spine_q, leg_q: dict[str, np.ndarray]) -> dict[str, np.ndarray]:
         """World (x, z) of every foot.
 
@@ -215,4 +275,90 @@ class WholeBody:
         return {
             name: self.foot_world_position(spine_q, name, leg_q[name])
             for name in self.mounts
+        }
+
+    # ---------------------------------------------------------- inverse (IK)
+    def inverse(
+        self,
+        spine_q,
+        leg_name: str,
+        foot_world,
+        knee: KneeConfig = KneeConfig.FLEXED_POSITIVE,
+    ) -> "LegIKSolution":
+        """Whole-body INVERSE kinematics for one leg through the moving girdle.
+
+        Given the spine joint angles and a desired foot POSE ``foot_world =
+        (x, z, phi)`` in the WORLD (body-ground) frame, place the leg's joint
+        angles so the foot lands on that world pose. The spine has already
+        decided where the leg's hip frame is in the world, so this simply undoes
+        that girdle/hip transform and hands the residual hip-frame pose to the
+        per-leg ``LegModel.inverse``.
+
+        Frame chain (world <- girdle(spine_q) <- hip <- foot)
+        -----------------------------------------------------
+        The forward chain is ``world = girdle(spine_q) . hip . foot``. The spine
+        FK gives the hip origin's world pose ``(hx, hz, hth)`` (position + the
+        girdle orientation the hip inherits). Inverting the 2D rigid transform:
+
+            hip_xz  = R(-hth) . (world_xz - [hx, hz])      # rotate/translate back
+            phi_hip = phi_world - hth                        # de-tilt foot pitch
+
+        ``LegModel.inverse`` then solves ``(hip_xz, phi_hip)`` in the leg's own
+        hip frame. Because a spine bend changes ``(hx, hz, hth)``, holding a
+        WORLD foot pose FIXED while the spine moves forces the leg angles to
+        change -- that is the closed spine<->foot loop M2 lacked.
+
+        Reachability / limits are FLAGGED on the returned ``LegIKSolution`` (q is
+        None, reachable=False when the pose is outside the leg workspace; a
+        solved pose outside the joint limits sets within_limits=False). This
+        never raises so a whole gait/posture sweep can always be sampled.
+
+        Assumptions (2D sagittal, quasi-static, massless, point contact, no ZMP)
+        are inherited from the spine + leg models; see the module docstring.
+        """
+        foot_world = np.asarray(foot_world, dtype=float)
+        if foot_world.shape != (3,):
+            raise ValueError(
+                f"foot_world must be a (x, z, phi) pose; got shape {foot_world.shape}"
+            )
+        hx, hz, hth = self.hip_world_pose(spine_q, leg_name)
+        rel = foot_world[:2] - np.array([hx, hz])
+        hip_xz = _rot(-hth) @ rel
+        phi_hip = foot_world[2] - hth
+        hip_pose = np.array([hip_xz[0], hip_xz[1], phi_hip])
+
+        leg = self.legs[leg_name]
+        try:
+            q = leg.inverse(hip_pose, knee=knee)
+            reachable = True
+            within = bool(leg.in_limits(q))
+        except UnreachableError:
+            q = None
+            reachable = False
+            within = False
+        return LegIKSolution(
+            name=leg_name,
+            q=q,
+            reachable=reachable,
+            within_limits=within,
+            foot_world=foot_world,
+            foot_hip=hip_pose,
+        )
+
+    def inverse_pose(
+        self,
+        spine_q,
+        foot_world_targets: Mapping[str, np.ndarray],
+        knee: KneeConfig = KneeConfig.FLEXED_POSITIVE,
+    ) -> dict[str, "LegIKSolution"]:
+        """Solve every leg for a dict of WORLD foot poses at a spine posture.
+
+        ``foot_world_targets`` maps leg name -> desired ``(x, z, phi)`` world foot
+        pose. Returns leg name -> ``LegIKSolution`` (reachability / joint-limit
+        flags per leg; never raises). This is the whole-body counterpart of a
+        single ``inverse`` call: one spine posture, four legs solved through it.
+        """
+        return {
+            name: self.inverse(spine_q, name, target, knee=knee)
+            for name, target in foot_world_targets.items()
         }

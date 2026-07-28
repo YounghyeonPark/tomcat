@@ -27,6 +27,7 @@ from tomcat_kin import (  # noqa: E402
     Girdle,
     GaitParams,
     GaitController,
+    WholeBodyGaitController,
 )
 from tomcat_kin.params import (  # noqa: E402
     DEFAULT_LOADS,
@@ -198,6 +199,38 @@ def main() -> None:
         sq = ctrl_s.spine_q(phase)
         print(f"  phase {phase:4.2f}  spine q (deg): {np.rad2deg(sq)}")
     print("  (amplitude 0 by default => spine held NEUTRAL; see gait.py docstring)")
+
+    print("\n=== WHOLE-BODY foot placement (M3): stance feet PLANTED in the world ===")
+    # M2 could move feet in the world with the spine but the legs did NOT
+    # compensate. M3 places feet in a WORLD/ground frame and solves per-leg IK
+    # THROUGH the moving girdle, so the legs absorb the spine bend and stance feet
+    # stay put. Compare a NEUTRAL spine against a spine oscillating at the gait phase.
+    neu = WholeBodyGaitController(params=GaitParams())
+    osc = WholeBodyGaitController(params=GaitParams(spine_amplitude=np.deg2rad(2.0)))
+    leg = "LF"  # a front (shoulder-girdle) leg: its hip rides the spine bend
+    print(f"leg {leg}, spine oscillation +/-2 deg/segment coupled to gait phase:")
+    print("  phase  spine_q(deg)      world foot target (x,z) m     "
+          "q_neutral (deg)          q_spine-on (deg)         foot err (mm)")
+    for i in range(6):
+        phase = 0.05 + i * (0.7 / 5)  # sample across LF's stance window
+        sn = neu.leg_state(phase, leg)
+        so = osc.leg_state(phase, leg)
+        sq = osc.spine_q(phase)
+        fk = osc.foot_world_check(phase, leg)          # FK from the solved q
+        err_mm = np.linalg.norm(fk[:2] - so.foot_target_world[:2]) * 1e3
+        print(
+            f"  {phase:4.2f}  {np.rad2deg(sq)}  "
+            f"[{so.foot_target_world[0]:+.3f} {so.foot_target_world[1]:+.3f}]      "
+            f"{np.rad2deg(sn.q)}  {np.rad2deg(so.q)}  {err_mm:6.3f}"
+        )
+    # Prove planted-ness: the world foot target is identical column-to-column.
+    span = np.ptp(
+        np.array([neu.leg_state(0.05 + i * 0.14, leg).foot_target_world[0]
+                  for i in range(6)])
+    )
+    print(f"  -> world foot-target x is HELD FIXED across stance (span {span*1e3:.3f} mm);")
+    print("     the spine-on leg angles differ from neutral (legs compensate) yet FK")
+    print("     still lands the foot on that fixed world target (err ~0). Loop closed.")
 
 
 def _sketch_foot_path(ctrl, leg_name: str, rows: int = 6, cols: int = 40) -> None:

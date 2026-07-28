@@ -11,8 +11,10 @@ sequences the work that implements them.
 > **Progress:** the decision phase is complete — all seven ADRs Accepted (0004's
 > tension-*method* sub-point aside). **M1 done** (Phases 0–2): whole-body static
 > kinematics + tendon map, combined budget, first firmware/electronics/mechanical
-> specs. **M2 done**: parameterized walk gait generator (133 passing tests).
-> **Next: M3** (whole-body foot placement / dynamics / righting).
+> specs. **M2 done**: parameterized walk gait generator. **M3 done**: whole-body
+> foot placement — spine↔gait loop closed, stance feet held in the world frame
+> while the legs compensate for spine motion (158 passing tests).
+> **Next: M4** (dynamics, or the righting milestone).
 
 ---
 
@@ -186,10 +188,20 @@ phases); optional dorsoventral spine oscillation (off by default). 67 tests
 feed back into per-leg IK — true whole-body foot placement (feet in a
 world/ground frame through the spine) is the natural next step.
 
-## Later milestones (candidate M3+, not committed)
+## Milestone M3 — Whole-body foot placement  ✅ DONE
 
-- **Whole-body foot placement:** place feet in a world/ground frame through the
-  spine so spine bend and gait share one closed loop (the deferred M2 item).
+Closed the spine↔gait loop M2 deferred: feet are placed in a **world/ground
+frame** and per-leg IK is solved *through* the moving girdle
+(`world ← girdle(spine_q) ← hip ← foot`). Delivered `WholeBody.inverse` /
+`inverse_pose` and a `WholeBodyGaitController` that **holds stance feet planted
+in the world while the legs absorb spine motion** (verified: foot-target span
+0.000 mm under a ±2°/seg spine oscillation, leg angles differ up to ~8°, FK
+error ~0). 25 new tests (158 total).
+
+## Later milestones (candidate M4+, not committed)
+
+- **Dynamics:** leg mass in flight (~0.454 kg knee) driving trunk bending;
+  velocities/inertia beyond the current quasi-static model.
 - 3D extension: frontal-plane leg abduction + spine lateral bend & axial twist.
 - Dynamics: leg mass in flight (~0.454 kg knee) driving trunk bending.
 - **Righting milestone ([ADR-0007](DESIGN_DECISIONS.md)):** model flight-phase

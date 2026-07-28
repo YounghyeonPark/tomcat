@@ -102,7 +102,7 @@ from typing import Mapping
 import numpy as np
 
 from .leg import LegModel, KneeConfig, UnreachableError
-from .spine import WholeBody, SpineModel
+from .spine import WholeBody, SpineModel, LegIKSolution
 
 
 # Default lateral-sequence walk offsets (touchdown phase per leg). The offset SET
@@ -403,3 +403,262 @@ class GaitController:
     def sample_cycle(self, n: int = 12) -> list[GaitState]:
         """``n`` evenly spaced states over one cycle, phase in [0, 1)."""
         return [self.state(i / n) for i in range(n)]
+
+
+# ===================================================================
+# Whole-body (world-frame) gait: the closed spine<->foot loop (M3)
+# ===================================================================
+#
+# The default GaitController above places each foot target in that leg's own
+# (moving) HIP frame, so a spine bend carries the feet through the world WITHOUT
+# the legs compensating -- the coupling M2 could demonstrate but not CLOSE. The
+# controller below closes it: foot targets live in a WORLD / body-ground frame,
+# STANCE feet are held at FIXED world positions, and whole-body IK
+# (``WholeBody.inverse``) is run THROUGH the moving girdle so the LEG joint
+# angles absorb the spine motion and keep the planted feet put.
+#
+# Two frames (both x forward, z up, sagittal only)
+# ------------------------------------------------
+# - BODY-GROUND frame: the spine base (rear girdle, vertebra 0) sits at the
+#   origin. This is the frame ``WholeBody`` FK/IK work in. It advances forward
+#   with the body, so a planted foot sweeps BACKWARD in it during stance.
+# - WORLD / ground frame: fixed to the ground. It is the body-ground frame
+#   translated forward by ``body_offset(phase) = distance_per_cycle * phase``
+#   (the body advances ``distance_per_cycle`` per cycle at ``body_speed``). A
+#   foot planted on the ground is FIXED in this frame during its stance.
+#
+# The per-leg targets are built from the NEUTRAL-spine whole-body foot pose so
+# that, at spine-neutral, this controller reproduces the hip-frame gait exactly
+# (plus the body translation). Turning the spine ON then leaves the world target
+# unchanged but moves the girdle, so the IK returns DIFFERENT leg angles -- the
+# closed loop.
+
+
+@dataclass(frozen=True)
+class WholeBodyLegState:
+    """Kinematic state of one leg at a queried phase, solved in the WORLD frame.
+
+    Attributes
+    ----------
+    name : str
+        Leg label.
+    in_stance : bool
+        True if the leg is planted (stance), False if swinging.
+    local_phase : float
+        The leg's own phase in [0, 1) after applying its offset.
+    foot_target_world : np.ndarray
+        Target foot pose (x, z, phi) in the fixed WORLD / ground frame (m, m,
+        rad). For a stance leg this is HELD CONSTANT over the leg's stance.
+    foot_target_body : np.ndarray
+        The same target expressed in the body-ground frame (spine base at the
+        origin), i.e. ``foot_target_world`` minus the body advance. This is the
+        pose actually handed to ``WholeBody.inverse``.
+    q : np.ndarray | None
+        Solved joint angles (q1, q2, q3) in rad, or None if UNREACHABLE.
+    reachable : bool
+        Whether whole-body IK produced a solution at all.
+    within_limits : bool
+        Whether the solved q is inside the leg's configured joint limits.
+    """
+
+    name: str
+    in_stance: bool
+    local_phase: float
+    foot_target_world: np.ndarray
+    foot_target_body: np.ndarray
+    q: np.ndarray | None
+    reachable: bool
+    within_limits: bool
+
+    @property
+    def ok(self) -> bool:
+        """True only if reachable AND within joint limits."""
+        return self.reachable and self.within_limits
+
+
+@dataclass(frozen=True)
+class WholeBodyGaitState:
+    """Whole-body kinematic state at a queried phase, solved in the WORLD frame.
+
+    Attributes
+    ----------
+    phase : float
+        Wrapped gait phase in [0, 1).
+    legs : dict[str, WholeBodyLegState]
+        Per-leg state keyed by leg name.
+    spine_q : np.ndarray
+        Spine joint angles (rad) at this phase; all-zero unless spine coupling is
+        enabled.
+    body_offset : float
+        Forward advance (m) of the body-ground origin in the world frame at this
+        phase (= ``distance_per_cycle * phase``). Added to a leg's body-frame
+        target to recover its world target.
+    """
+
+    phase: float
+    legs: dict[str, WholeBodyLegState]
+    spine_q: np.ndarray
+    body_offset: float
+
+    @property
+    def stance_legs(self) -> tuple[str, ...]:
+        return tuple(n for n, s in self.legs.items() if s.in_stance)
+
+    @property
+    def swing_legs(self) -> tuple[str, ...]:
+        return tuple(n for n, s in self.legs.items() if not s.in_stance)
+
+    @property
+    def stance_count(self) -> int:
+        return len(self.stance_legs)
+
+    @property
+    def all_ok(self) -> bool:
+        """True if every leg's pose is reachable and within limits."""
+        return all(s.ok for s in self.legs.values())
+
+
+@dataclass
+class WholeBodyGaitController:
+    """Walk gait that closes the spine<->foot loop via whole-body IK (M3).
+
+    Same gait definition and phase math as ``GaitController``, but foot targets
+    are expressed in the WORLD / ground frame and solved with
+    ``WholeBody.inverse`` THROUGH the (possibly bent) spine, so STANCE feet stay
+    planted at fixed world positions while the spine oscillates -- the leg joint
+    angles compensate. See the section banner above for the two-frame model.
+
+    With the spine held NEUTRAL (``spine_amplitude == 0``) this reproduces the
+    hip-frame ``GaitController`` per-leg angles exactly (the world target for a
+    leg is its neutral-spine whole-body foot pose, so the residual hip-frame pose
+    handed to the leg IK is identical). Turning the spine ON changes the girdle
+    poses and hence the solved leg angles, but NOT the world foot targets.
+
+    Assumptions (flagged): 2D sagittal, quasi-static (no dynamics / GRF), massless
+    links, point foot contact, NO ZMP / support-polygon margin check -- inherited
+    from ``gait``/``spine``/``leg``. Only stance-leg COUNT is a stability proxy.
+
+    Attributes
+    ----------
+    params : GaitParams
+        The gait definition (shared with the hip-frame controller).
+    body : WholeBody
+        Source of the four ``LegModel``s and the ``SpineModel``.
+    """
+
+    params: GaitParams = field(default_factory=GaitParams)
+    body: WholeBody = field(default_factory=WholeBody)
+
+    def __post_init__(self) -> None:
+        # Reuse the hip-frame controller for phase math + the spine oscillation.
+        self._hip = GaitController(params=self.params, body=self.body)
+        # Cache each leg's neutral-spine hip world pose (x, z, theta). With the
+        # spine neutral the girdle orientation is 0, so these are fixed anchors
+        # the world targets are built on.
+        n = self.body.spine.params.n_segments
+        self._neutral = np.zeros(n)
+        self._hip_anchor = {
+            name: self.body.hip_world_pose(self._neutral, name)
+            for name in self.params.phase_offsets
+        }
+
+    # -------------------------------------------------------------- phase math
+    def local_phase(self, phase: float, leg_name: str) -> float:
+        """The leg's own phase in [0, 1) (global phase minus its offset)."""
+        return self._hip.local_phase(phase, leg_name)
+
+    def is_stance(self, phase: float, leg_name: str) -> bool:
+        """True if the leg is planted at ``phase`` (half-open [0, duty))."""
+        return self._hip.is_stance(phase, leg_name)
+
+    def stance_count(self, phase: float) -> int:
+        """Number of planted legs at ``phase``."""
+        return self._hip.stance_count(phase)
+
+    def spine_q(self, phase: float) -> np.ndarray:
+        """Spine joint angles (rad) at ``phase`` (NEUTRAL unless coupled)."""
+        return self._hip.spine_q(phase)
+
+    def body_offset(self, phase: float) -> float:
+        """Forward advance (m) of the body-ground origin in the world frame.
+
+        ``distance_per_cycle * phase`` -- the (unwrapped) phase is used so the
+        advance is continuous across cycles for time-based queries.
+        """
+        return self.params.distance_per_cycle * float(phase)
+
+    # -------------------------------------------------------------- targets
+    def foot_target_world(self, phase: float, leg_name: str) -> np.ndarray:
+        """Foot target pose (x, z, phi) in the fixed WORLD / ground frame.
+
+        Built from the NEUTRAL-spine whole-body foot pose plus the body advance:
+        the neutral hip anchor (fixed) + the hip-frame gait trajectory + the
+        forward ``body_offset``. For a stance leg the backward hip-frame sweep
+        exactly cancels the forward body advance, so this is CONSTANT over the
+        leg's stance -- the foot is planted in the world.
+        """
+        s = self.local_phase(phase, leg_name)
+        ax, az, ath = self._hip_anchor[leg_name]  # ath == 0 (neutral spine)
+        fx, fz, fphi = foot_target(self.params, s)  # hip-frame pose
+        # Neutral girdle orientation is 0, so R = I; add the body advance in +x.
+        return np.array(
+            [ax + fx + self.body_offset(phase), az + fz, ath + fphi]
+        )
+
+    # -------------------------------------------------------------- leg solving
+    def leg_state(self, phase: float, leg_name: str) -> WholeBodyLegState:
+        """Solve one leg at ``phase`` in the world frame through the spine."""
+        s = self.local_phase(phase, leg_name)
+        in_stance = s < self.params.duty_factor
+        world = self.foot_target_world(phase, leg_name)
+        # Express in the body-ground frame (spine base at origin) for the IK.
+        offset = self.body_offset(phase)
+        body_target = world - np.array([offset, 0.0, 0.0])
+        sol: LegIKSolution = self.body.inverse(
+            self.spine_q(phase), leg_name, body_target, knee=self.params.knee
+        )
+        return WholeBodyLegState(
+            name=leg_name,
+            in_stance=in_stance,
+            local_phase=s,
+            foot_target_world=world,
+            foot_target_body=body_target,
+            q=sol.q,
+            reachable=sol.reachable,
+            within_limits=sol.within_limits,
+        )
+
+    def state(self, phase: float) -> WholeBodyGaitState:
+        """Whole-body world-frame state at gait ``phase``.
+
+        The gait PATTERN (which legs are in stance, the spine oscillation) uses
+        the wrapped phase; the body ADVANCE uses the phase as passed so it stays
+        continuous across cycles for time-based queries.
+        """
+        p_wrapped = float(phase) % 1.0
+        legs = {
+            name: self.leg_state(phase, name) for name in self.params.phase_offsets
+        }
+        return WholeBodyGaitState(
+            phase=p_wrapped,
+            legs=legs,
+            spine_q=self.spine_q(phase),
+            body_offset=self.body_offset(phase),
+        )
+
+    def state_at_time(self, t: float) -> WholeBodyGaitState:
+        """Whole-body world-frame state at time ``t`` seconds (phase = t/period)."""
+        return self.state(t / self.params.period)
+
+    def foot_world_check(self, phase: float, leg_name: str) -> np.ndarray:
+        """FK-verify a leg: world foot pose from the solved q (or NaNs if unsolved).
+
+        Runs ``WholeBody.foot_world_pose`` on the IK solution and adds the body
+        advance, so it should reproduce ``foot_target_world`` for a reachable leg.
+        Handy for tests/plots that want to confirm the loop actually closed.
+        """
+        st = self.leg_state(phase, leg_name)
+        if st.q is None:
+            return np.full(3, np.nan)
+        body_pose = self.body.foot_world_pose(self.spine_q(phase), leg_name, st.q)
+        return body_pose + np.array([self.body_offset(phase), 0.0, 0.0])

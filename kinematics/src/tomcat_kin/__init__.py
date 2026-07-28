@@ -8,14 +8,18 @@ Modules
 -------
 params            Placeholder geometry / mass parameters (all values are TBD).
 leg               Planar 3R leg: forward/inverse kinematics and Jacobian.
-spine             Serial tendon-driven spine + whole-body (spine + 4 legs) kinematics.
+spine             Serial tendon-driven spine + whole-body (spine + 4 legs) kinematics,
+                  incl. whole-body INVERSE kinematics (world foot pose -> leg angles
+                  through the moving girdle; M3).
 tendon            Joint-angle <-> cable-length and joint-torque <-> tendon-tension,
                   with commandable co-contraction bias (T_bias / AIC, ADR-0002).
 torque_budget     Static worst-case per-leg joint-torque / motor-torque estimation.
 whole_body_budget Combined spine+legs static tendon/torque + motor-count budget.
 sensitivity       Moment-arm vs. joint/motor cable-tension trade sweep (ADR-0003).
 gait              Parameterized periodic WALK gait: foot trajectories -> per-leg IK
-                  -> joint-angle sequences (sagittal, quasi-static; M2).
+                  -> joint-angle sequences (sagittal, quasi-static; M2). Adds the
+                  world-frame WholeBodyGaitController that holds stance feet planted
+                  in the world while the spine moves (closed spine<->foot loop; M3).
 """
 
 from .params import (
@@ -31,7 +35,14 @@ from .params import (
     DEFAULT_WHOLE_BODY_LOADS,
 )
 from .leg import LegModel, KneeConfig, UnreachableError
-from .spine import SpineModel, WholeBody, Girdle, LegMount, DEFAULT_MOUNTS
+from .spine import (
+    SpineModel,
+    WholeBody,
+    Girdle,
+    LegMount,
+    LegIKSolution,
+    DEFAULT_MOUNTS,
+)
 from .tendon import TendonMap, ActuationMode, TendonSolution
 from . import torque_budget, whole_body_budget, sensitivity
 from .whole_body_budget import WholeBodyBudgetResult, spine_joint_torques
@@ -41,6 +52,9 @@ from .gait import (
     GaitController,
     GaitState,
     LegState,
+    WholeBodyGaitController,
+    WholeBodyGaitState,
+    WholeBodyLegState,
     foot_target,
     swing_height,
     DEFAULT_PHASE_OFFSETS,
@@ -64,6 +78,7 @@ __all__ = [
     "WholeBody",
     "Girdle",
     "LegMount",
+    "LegIKSolution",
     "DEFAULT_MOUNTS",
     "TendonMap",
     "ActuationMode",
@@ -80,6 +95,9 @@ __all__ = [
     "GaitController",
     "GaitState",
     "LegState",
+    "WholeBodyGaitController",
+    "WholeBodyGaitState",
+    "WholeBodyLegState",
     "foot_target",
     "swing_height",
     "DEFAULT_PHASE_OFFSETS",
