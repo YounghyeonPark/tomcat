@@ -7,17 +7,44 @@ from tomcat_kin import (
     WholeBody,
     SpineModel,
     SpineParams,
+    LegModel,
+    LegParams,
     TendonMap,
     ActuationMode,
     WholeBodyLoadCase,
     whole_body_budget,
     spine_joint_torques,
+    gravity_loads,
 )
-from tomcat_kin.params import DEFAULT_SPINE, DEFAULT_WHOLE_BODY_LOADS
+from tomcat_kin.params import (
+    DEFAULT_SPINE,
+    DEFAULT_WHOLE_BODY_LOADS,
+    GRAVITY,
+)
 
 
 def _body():
     return WholeBody(spine=SpineModel())
+
+
+def _symmetric_body():
+    """A deliberately fore/aft-SYMMETRIC body (uniform spine, equal masses).
+
+    Used to check the balance physics of the cantilever model in isolation: with
+    a symmetric mass distribution and a symmetric 4-leg stance the base joint
+    torque must cancel EXACTLY. The real default body is ~60% front-heavy.
+    """
+    uniform = SpineParams(
+        segment_lengths=(0.06, 0.06, 0.06),
+        segment_mass=(0.4, 0.4, 0.4),
+        segment_com_frac=(0.5, 0.5, 0.5),
+        front_girdle_mass=0.5,
+        rear_girdle_mass=0.5,
+    )
+    sym_leg = LegModel(LegParams(link_mass=(0.05, 0.05, 0.05, 0.05)))
+    return WholeBody(
+        spine=SpineModel(params=uniform), fore_leg=sym_leg, hind_leg=sym_leg
+    )
 
 
 def _tendons():
@@ -53,11 +80,12 @@ def test_all_default_cases_run_and_report():
 # ------------------------------------------------------------------ spine model
 def test_straight_spine_base_joint_symmetric_zero():
     # The exact base-joint cancellation (front reaction vs. distributed gravity
-    # about the base) holds only for UNIFORM segment spacing with equal lumped
-    # masses; build a uniform spine so the balance physics is checked explicitly.
-    # (The default tapered geometry gives a small non-zero base torque.)
-    uniform = SpineParams(segment_lengths=(0.06, 0.06, 0.06))
-    body = WholeBody(spine=SpineModel(params=uniform))
+    # about the base) holds only for a body that is symmetric fore/aft: UNIFORM
+    # segment spacing, EQUAL segment masses, EQUAL girdle masses and EQUAL
+    # fore/hind leg masses. Build exactly that so the balance physics is checked
+    # explicitly. (Since M4 the DEFAULT body is deliberately ~60% front-heavy and
+    # therefore gives a decidedly non-zero base torque -- see the next test.)
+    body = _symmetric_body()
     load = WholeBodyLoadCase(
         "stand", dynamic_factor=1.0, spine_q=(0.0, 0.0, 0.0),
         stance_legs=("LF", "RF", "LR", "RR"),
@@ -128,6 +156,84 @@ def test_t_bias_raises_spine_tension_not_torque():
     assert high.peak_spine_tension > low.peak_spine_tension
     # The underlying static joint torques are unchanged by co-contraction.
     assert np.allclose(low.spine_joint_torque, high.spine_joint_torque)
+
+
+# ------------------------------------------------- M4: real distributed mass
+def test_gravity_loads_total_the_case_body_weight():
+    body = _body()
+    load = DEFAULT_WHOLE_BODY_LOADS[0]
+    loads = gravity_loads(body, load)
+    total = -sum(fz for _, _, fz in loads)
+    assert total == pytest.approx(load.body_mass_kg * GRAVITY, rel=1e-12)
+    # Every gravity load points DOWN and carries no dynamic factor.
+    assert all(fz < 0.0 for _, _, fz in loads)
+
+
+def test_gravity_load_total_scales_with_case_body_mass():
+    body = _body()
+    heavy = WholeBodyLoadCase("heavy", body_mass_kg=6.0, spine_q=(0.0, 0.0, 0.0))
+    total = -sum(fz for _, _, fz in gravity_loads(body, heavy))
+    assert total == pytest.approx(6.0 * GRAVITY, rel=1e-12)
+
+
+def test_front_heavy_mass_loads_the_base_joint_harder_than_an_equal_split():
+    # The whole point of M4 assumption A2: a ~60/40 front-heavy body hangs more
+    # weight ahead of the rear joints than the old equal-lumped placeholder did.
+    load = WholeBodyLoadCase(
+        "stand", dynamic_factor=1.0, spine_q=(0.0, 0.0, 0.0),
+        stance_legs=("LF", "RF", "LR", "RR"),
+    )
+    front_heavy = abs(spine_joint_torques(_body(), load)[0])
+    symmetric = abs(spine_joint_torques(_symmetric_body(), load)[0])
+    assert symmetric == pytest.approx(0.0, abs=1e-9)
+    assert front_heavy > 0.3        # N·m; the front-heavy body really loads it
+
+
+def test_quiet_stand_base_joint_is_the_worst_spine_joint():
+    # With real mass the gravity moment is largest about the REARMOST joint (the
+    # whole front half of the animal cantilevers off it), which is the opposite
+    # of what the equal-lumped placeholder reported.
+    load = DEFAULT_WHOLE_BODY_LOADS[0]
+    tau = np.abs(spine_joint_torques(_body(), load))
+    assert np.argmax(tau) == 0
+
+
+def test_leg_q_places_leg_weight_at_the_posed_com():
+    body = _body()
+    load = DEFAULT_WHOLE_BODY_LOADS[0]
+    stand = np.deg2rad([-80.0, 60.0, 10.0])
+    lumped = spine_joint_torques(body, load)
+    posed = spine_joint_torques(body, load, leg_q={n: stand for n in body.leg_names})
+    # The placeholder stance rakes each leg FORWARD of its hip, so putting the
+    # leg mass at its true CoM adds a nose-down moment at every joint.
+    assert not np.allclose(lumped, posed)
+    assert np.all(posed <= lumped + 1e-12)
+    # Total weight is unchanged -- only its lever arms moved.
+    assert -sum(fz for _, _, fz in gravity_loads(body, load)) == pytest.approx(
+        -sum(fz for _, _, fz in gravity_loads(
+            body, load, leg_q={n: stand for n in body.leg_names})),
+        rel=1e-12,
+    )
+
+
+def test_report_states_the_mass_model_and_the_split():
+    body = _body()
+    leg_t, spine_t = _tendons()
+    res = whole_body_budget.evaluate(body, leg_t, spine_t, DEFAULT_WHOLE_BODY_LOADS[0])
+    txt = res.report()
+    assert "REAL distributed" in txt
+    assert res.mass_total_kg == pytest.approx(3.0)
+    assert res.mass_fore_fraction == pytest.approx(0.60, abs=0.02)
+
+
+def test_stand_case_spine_tension_stays_inside_the_robocat_band():
+    # Sanity-check against the ~20-70 N band from RoboCat: the quiet-stand case
+    # rose from ~18.5 N (equal-mass placeholder) to ~24 N with real mass, i.e.
+    # into the band rather than out of it.
+    body = _body()
+    leg_t, spine_t = _tendons()
+    res = whole_body_budget.evaluate(body, leg_t, spine_t, DEFAULT_WHOLE_BODY_LOADS[0])
+    assert 20.0 <= res.peak_spine_tension <= 70.0
 
 
 def test_wrong_spine_q_length_raises():

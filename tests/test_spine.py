@@ -180,6 +180,8 @@ def test_from_spine_generalizes_to_two_segments():
         joint_moment_arm=(0.02, 0.02),
         spring_stiffness=(1.0, 1.0),
         spring_rest_angle=(0.0, 0.0),
+        segment_mass=(0.5, 0.5),
+        segment_com_frac=(0.5, 0.5),
     )
     stm = TendonMap.from_spine(sp)
     sol = stm.resolve([0.1, 0.1])

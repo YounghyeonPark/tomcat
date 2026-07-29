@@ -43,9 +43,14 @@ Modelling assumptions / limitations
   and ignored, so in this projection the two front legs share a mount pose (and
   likewise the two rear legs). This is a real limitation for anything involving
   roll, yaw, lateral bend, or the righting-reflex twist.
-- Rigid links, frictionless idealisation inherited from the leg/tendon models;
-  the literature shows leg mass materially bends a compliant trunk, so this
-  static, massless model will not capture spine-leg energy exchange.
+- Rigid links and a frictionless idealisation are inherited from the leg/tendon
+  models.
+- MASS (M4): the kinematics themselves are mass-free, but the body now carries a
+  real distributed mass budget (params.py) and ``WholeBody.center_of_mass``
+  reports the posed whole-body / sub-assembly CoMs. That is QUASI-STATIC ONLY —
+  gravity and CoM geometry, no velocities, accelerations or inertia tensors. The
+  literature's Mass-Mass-Spring result (leg mass bends a compliant trunk) is
+  therefore still NOT captured: that needs the dynamics milestone.
 """
 
 from __future__ import annotations
@@ -66,6 +71,14 @@ from .params import (
     DEFAULT_HINDLEG,
 )
 from .leg import LegModel, KneeConfig, UnreachableError
+from .mass import (
+    ComResult,
+    QuarterMasses,
+    combine,
+    leg_com,
+    quarter_masses,
+    spine_chain_com,
+)
 
 
 def _rot(theta: float) -> np.ndarray:
@@ -223,6 +236,82 @@ class LegIKSolution:
         return self.reachable and self.within_limits
 
 
+@dataclass(frozen=True)
+class BodyCoM:
+    """Whole-body and per-sub-assembly centres of mass at one posture (M4).
+
+    Every CoM is in the BODY-GROUND frame: the spine base (vertebra 0 = the rear
+    / pelvic girdle) at the origin, x forward, z up. Because gravity acts along
+    -z, the "ground projection" used by the stability check is simply ``.x``.
+
+    QUASI-STATIC: this is a gravity/geometry quantity only -- no velocities,
+    accelerations or inertia tensors (full Newton-Euler is a later milestone).
+
+    Attributes
+    ----------
+    total : ComResult
+        Whole-body mass and CoM.
+    legs : dict[str, ComResult]
+        Per-leg mass and CoM, keyed by leg name, already transformed out of the
+        hip frame into the body frame (so a spine bend moves the front legs).
+    spine : ComResult
+        The spine SEGMENTS (trunk chain) alone -- girdle masses excluded.
+    girdles : dict[Girdle, ComResult]
+        The two girdle lumps (the front one also carries the head/neck mass; see
+        params.py).
+    """
+
+    total: ComResult
+    legs: dict[str, ComResult]
+    spine: ComResult
+    girdles: dict[Girdle, ComResult]
+
+    @property
+    def mass(self) -> float:
+        """Whole-body mass (kg)."""
+        return self.total.mass
+
+    @property
+    def com(self) -> np.ndarray:
+        """Whole-body CoM (x, z) in the body-ground frame (m)."""
+        return self.total.com
+
+    @property
+    def x(self) -> float:
+        """Whole-body CoM ground projection (m)."""
+        return self.total.x
+
+    @property
+    def z(self) -> float:
+        """Whole-body CoM height above the spine base (m)."""
+        return self.total.z
+
+    def legs_com(self) -> ComResult:
+        """Combined CoM of all four legs."""
+        return combine(self.legs.values())
+
+    def report(self) -> str:
+        lines = [
+            f"whole body : {self.mass:.3f} kg at "
+            f"(x {self.x * 1e3:+7.1f}, z {self.z * 1e3:+7.1f}) mm",
+            f"  spine chain : {self.spine.mass:.3f} kg at "
+            f"({self.spine.x * 1e3:+7.1f}, {self.spine.z * 1e3:+7.1f}) mm",
+        ]
+        for g in (Girdle.REAR, Girdle.FRONT):
+            c = self.girdles[g]
+            lines.append(
+                f"  {g.value + ' girdle':<12}: {c.mass:.3f} kg at "
+                f"({c.x * 1e3:+7.1f}, {c.z * 1e3:+7.1f}) mm"
+            )
+        for name in sorted(self.legs):
+            c = self.legs[name]
+            lines.append(
+                f"  leg {name:<8}: {c.mass:.3f} kg at "
+                f"({c.x * 1e3:+7.1f}, {c.z * 1e3:+7.1f}) mm"
+            )
+        return "\n".join(lines)
+
+
 @dataclass
 class WholeBody:
     """Composition of the spine and four legs into one kinematic body.
@@ -317,6 +406,128 @@ class WholeBody:
             name: self.foot_world_position(spine_q, name, leg_q[name])
             for name in self.mounts
         }
+
+    # ------------------------------------------------------------ mass (M4)
+    @property
+    def total_mass(self) -> float:
+        """Whole-body mass (kg): spine segments + both girdles + every leg.
+
+        Summed from the PLACEHOLDER params (params.py). By construction the
+        default body totals ``LoadCase.body_mass_kg`` = 3.0 kg.
+        """
+        legs = sum(self.legs[name].params.mass for name in self.mounts)
+        return float(self.spine.params.trunk_mass + legs)
+
+    def mass_budget(self) -> QuarterMasses:
+        """Fore/hind weight split of the body (the "~60% front-heavy" number).
+
+        Posture-INDEPENDENT bookkeeping on the straight spine, using the lever
+        rule described in ``mass.QuarterMasses``: trunk mass is apportioned to
+        the two girdles the way a simply-supported beam splits a distributed
+        load, and each leg is charged to the girdle it hangs from. Use
+        ``center_of_mass`` instead when you want the actual posed CoM.
+        """
+        fore = [
+            self.legs[n].params.mass
+            for n, m in self.mounts.items()
+            if m.girdle is Girdle.FRONT
+        ]
+        hind = [
+            self.legs[n].params.mass
+            for n, m in self.mounts.items()
+            if m.girdle is Girdle.REAR
+        ]
+        return quarter_masses(self.spine.params, fore, hind)
+
+    def girdle_com(self, spine_q, girdle: Girdle) -> ComResult:
+        """Mass + CoM of one girdle lump, in the BODY-GROUND frame.
+
+        The girdle mass acts at ``front/rear_girdle_com`` in the girdle's own
+        frame, so a spine bend both translates AND rotates it.
+        """
+        p = self.spine.params
+        gx, gz, gth = self.spine.girdle_pose(spine_q, girdle)
+        if girdle is Girdle.FRONT:
+            m, local = p.front_girdle_mass, p.front_girdle_com
+        else:
+            m, local = p.rear_girdle_mass, p.rear_girdle_com
+        xz = np.array([gx, gz]) + _rot(gth) @ np.asarray(local, dtype=float)
+        return ComResult(float(m), xz)
+
+    def spine_com(self, spine_q) -> ComResult:
+        """Mass + CoM of the spine SEGMENTS alone (girdles excluded), body frame.
+
+        Uses the ACTUAL bent geometry from spine FK, so arching the back moves
+        this CoM up and rearward.
+        """
+        p = self.spine.params
+        return spine_chain_com(
+            self.spine.vertebra_positions(spine_q), p.segment_mass, p.segment_com_frac
+        )
+
+    def leg_com_world(self, spine_q, leg_name: str, leg_q) -> ComResult:
+        """Mass + CoM of one leg in the BODY-GROUND frame.
+
+        The leg's CoM is computed in its own hip frame (``mass.leg_com``) and
+        then pushed through the same girdle/hip transform the feet use, so it
+        respects the fore/hind asymmetry AND the spine posture.
+        """
+        hx, hz, hth = self.hip_world_pose(spine_q, leg_name)
+        local = leg_com(self.leg_model_for(leg_name), leg_q)
+        xz = np.array([hx, hz]) + _rot(hth) @ local.com
+        return ComResult(local.mass, xz)
+
+    def center_of_mass(self, spine_q, leg_q=None) -> BodyCoM:
+        """Whole-body centre of mass for a spine posture + per-leg joint angles.
+
+        Parameters
+        ----------
+        spine_q : array-like
+            Spine joint angles (rad), length ``n_segments``.
+        leg_q : Mapping[str, array-like] | array-like | None
+            Per-leg actuated joint vector ``(q1, q2, q3)``. A single length-3
+            vector is broadcast to EVERY leg (note this gives the fore and hind
+            legs different geometry, since their link lengths differ). ``None``
+            means all-zero angles -- a degenerate, straight-out-forward pose that
+            is only useful as a reference, not a stance.
+
+        Returns
+        -------
+        BodyCoM
+            Whole-body CoM plus the per-leg, spine-chain and girdle
+            sub-assembly CoMs, all in the BODY-GROUND frame (spine base at the
+            origin, x forward, z up).
+
+        Notes
+        -----
+        QUASI-STATIC: gravity/geometry only. The 2D sagittal collapse means both
+        legs of a girdle sit at the SAME x, so this CoM carries no lateral (y)
+        information and cannot be used for roll balance.
+        """
+        if leg_q is None:
+            per_leg = {name: np.zeros(3) for name in self.mounts}
+        elif isinstance(leg_q, Mapping):
+            missing = set(self.mounts) - set(leg_q)
+            if missing:
+                raise ValueError(f"leg_q is missing joint angles for {sorted(missing)}")
+            per_leg = {name: np.asarray(leg_q[name], dtype=float) for name in self.mounts}
+        else:
+            shared = np.asarray(leg_q, dtype=float)
+            if shared.shape != (3,):
+                raise ValueError(
+                    "leg_q must be a per-leg mapping or a single (3,) vector; "
+                    f"got shape {shared.shape}"
+                )
+            per_leg = {name: shared for name in self.mounts}
+
+        legs = {
+            name: self.leg_com_world(spine_q, name, per_leg[name])
+            for name in self.mounts
+        }
+        spine_part = self.spine_com(spine_q)
+        girdles = {g: self.girdle_com(spine_q, g) for g in Girdle}
+        total = combine([spine_part, *girdles.values(), *legs.values()])
+        return BodyCoM(total=total, legs=legs, spine=spine_part, girdles=girdles)
 
     # ---------------------------------------------------------- inverse (IK)
     def inverse(

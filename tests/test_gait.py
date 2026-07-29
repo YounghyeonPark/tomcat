@@ -1,4 +1,4 @@
-"""Tests for the periodic WALK gait generator (M2)."""
+"""Tests for the periodic WALK gait generator (M2) + its M4 stability reporting."""
 
 import math
 
@@ -8,6 +8,14 @@ import pytest
 from tomcat_kin import (
     GaitParams,
     GaitController,
+    WholeBodyGaitController,
+    WholeBody,
+    SpineModel,
+    LegModel,
+    LegMount,
+    Girdle,
+    UnreachableError,
+    centering_shift,
     foot_target,
     swing_height,
     KneeConfig,
@@ -212,3 +220,142 @@ def test_spine_oscillation_when_enabled():
     lo = np.asarray(c.body.spine.params.q_min)
     hi = np.asarray(c.body.spine.params.q_max)
     assert np.all(samples >= lo - 1e-12) and np.all(samples <= hi + 1e-12)
+
+
+# ===================================================================
+# M4 — real mass: CoM + static stability margin per gait phase
+# ===================================================================
+#
+# HONEST FINDING (do not "fix" by retuning the gait). Adding the CoM/support
+# check exposes a defect in the PLACEHOLDER LEG GEOMETRY, not in the gait timing:
+# with the current link lengths, joint limits and paw offset, a leg CANNOT put
+# its foot under its own hip at stance height -- the reachable, in-limit foot x
+# at z = -0.13 m is roughly +0.16..+0.24 m FORWARD of the hip. Every foot is
+# therefore ~0.2 m ahead of its own hip, the whole support interval sits ahead of
+# the body, and the CoM (which lives between the two girdles) can never be inside
+# it. The tests below pin that finding down AND prove the machinery reports a
+# healthy margin once the support base actually straddles the CoM.
+
+# Mount offset that moves the hips (and hence the feet) rearward enough for the
+# support base to straddle the CoM. Derived from `centering_shift` on the default
+# body; used ONLY as a diagnostic what-if, it is not a committed design value.
+_CONSISTENT_HIP_OFFSET = (-0.22, 0.0)
+
+
+def _consistent_body():
+    """WholeBody whose feet actually land under the trunk (diagnostic what-if)."""
+    mounts = {
+        name: LegMount(name, girdle, _CONSISTENT_HIP_OFFSET)
+        for name, girdle in (
+            ("LF", Girdle.FRONT), ("RF", Girdle.FRONT),
+            ("LR", Girdle.REAR), ("RR", Girdle.REAR),
+        )
+    }
+    return WholeBody(spine=SpineModel(), mounts=mounts)
+
+
+def test_gait_state_reports_com_and_stability():
+    st = ctrl.state(0.3)
+    assert st.com is not None and st.stability is not None
+    assert st.com.mass == pytest.approx(ctrl.body.total_mass)
+    assert st.com.mass == pytest.approx(3.0)
+    # The state's convenience flag agrees with the margin object.
+    assert st.is_statically_stable == st.stability.is_stable
+    assert ctrl.stability(0.3).margin == pytest.approx(st.stability.margin)
+    assert np.allclose(ctrl.center_of_mass(0.3).com, st.com.com)
+
+
+def test_support_interval_uses_only_the_three_stance_feet():
+    st = ctrl.state(0.3)
+    assert st.stability.support.n_feet == 3
+    assert set(st.stability.support.feet) == set(st.stance_legs)
+    assert st.swing_legs[0] not in st.stability.support.feet
+
+
+def test_placeholder_leg_cannot_place_a_foot_under_its_own_hip():
+    # Root cause of the finding above, checked directly on the leg model.
+    z = ctrl.params.nominal_foot[1]
+    for p in (DEFAULT_FORELEG, DEFAULT_HINDLEG):
+        leg = LegModel(p)
+        reachable_x = []
+        for x in np.arange(-0.10, 0.30, 0.005):
+            for knee in KneeConfig:
+                try:
+                    q = leg.inverse((x, z, ctrl.params.foot_pitch), knee=knee)
+                except UnreachableError:
+                    continue
+                if leg.in_limits(q):
+                    reachable_x.append(x)
+                    break
+        assert reachable_x, "leg has no in-limit stance pose at all"
+        # Everything reachable is well FORWARD of the hip -- that is the defect.
+        assert min(reachable_x) > 0.12
+
+
+def test_default_walk_is_fore_aft_UNSTABLE_and_always_tips_rearward():
+    # Reported honestly rather than fudged: the default walk's CoM falls BEHIND
+    # the rear edge of the support interval at every phase, by 40-100 mm.
+    margins = ctrl.stability_sweep(60)
+    assert len(margins) == 60
+    assert all(not m.is_stable for m in margins)
+    assert all(m.tipping_edge == "rear" for m in margins)
+    worst = min(m.margin for m in margins)
+    best = max(m.margin for m in margins)
+    assert -0.10 < worst < best < -0.03
+    # The support base is entirely ahead of the whole body.
+    st = ctrl.state(0.0)
+    assert st.stability.support.rear > st.com.x
+
+
+def test_centering_shift_quantifies_the_geometry_error():
+    # ~170 mm of fore-aft correction is needed; that is the number to hand to
+    # tomcat-mechanical, not something the gait should paper over.
+    d = centering_shift(ctrl.stability(0.0))
+    assert 0.12 < d < 0.25
+
+
+def test_duty_075_walk_IS_statically_stable_once_the_geometry_is_consistent():
+    # The gait PATTERN is fine: with the support base straddling the CoM the
+    # duty-0.75, three-feet-down walk keeps a comfortable positive margin for the
+    # whole cycle. This proves the stability wiring, and isolates the defect to
+    # the placeholder leg/mount geometry.
+    c = GaitController(body=_consistent_body())
+    margins = c.stability_sweep(120)
+    assert all(m.is_stable for m in margins)
+    assert all(m.support.n_feet == 3 for m in margins)
+    assert min(m.margin for m in margins) > 0.05     # > 50 mm at every phase
+    assert all(m.normalized_margin > 0.0 for m in margins)
+
+
+def test_stability_margin_agrees_between_hip_frame_and_world_frame_controllers():
+    # The margin is translation-invariant, and both controllers solve the same
+    # posture at spine-neutral, so they must agree exactly.
+    world = WholeBodyGaitController(params=GaitParams())
+    for i in range(13):
+        phase = i / 13
+        assert world.stability(phase).margin == pytest.approx(
+            ctrl.stability(phase).margin, abs=1e-12
+        )
+    st = world.state(0.4)
+    assert st.com is not None
+    assert st.is_statically_stable == st.stability.is_stable
+
+
+def test_arching_the_spine_moves_the_gait_com_rearward():
+    # Spine coupling must show up in the CoM (and therefore in the margin).
+    flat = GaitController(params=GaitParams(spine_amplitude=0.0))
+    arch = GaitController(params=GaitParams(spine_amplitude=math.radians(15.0)))
+    p = 0.25   # sine peak => maximum dorsiflexion
+    assert np.abs(arch.state(p).spine_q).max() > 0.0
+    assert arch.state(p).com.x < flat.state(p).com.x
+    assert arch.state(p).com.z > flat.state(p).com.z
+
+
+def test_unsolvable_legs_still_conserve_mass_and_are_excluded_from_support():
+    bad = GaitController(params=GaitParams(nominal_foot=(5.0, -0.13)))
+    st = bad.state(0.1)
+    assert not st.all_ok
+    assert st.com.mass == pytest.approx(bad.body.total_mass)
+    # No trustworthy contacts -> no support interval -> not stable.
+    assert st.stability.support.n_feet == 0
+    assert not st.is_statically_stable

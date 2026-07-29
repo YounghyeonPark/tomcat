@@ -75,17 +75,23 @@ spine) is future work.
 
 Modelling assumptions / limitations (flagged per engineering standards)
 -----------------------------------------------------------------------
-- QUASI-STATIC: no dynamics. No velocities, accelerations, inertias, or
-  ground-reaction forces are modelled; the trajectory is a pure geometric
-  sequence of postures. Leg mass (the literature shows it materially bends a
-  compliant trunk) is ignored, so this will not capture spine-leg energy exchange
-  or momentum effects.
+- QUASI-STATIC WITH REAL MASS (M4): still no dynamics. No velocities,
+  accelerations, inertias or ground-reaction forces are modelled; the trajectory
+  is a pure geometric sequence of postures. Link MASS is now real (params.py) and
+  is used for gravity/CoM/stability, but the literature's Mass-Mass-Spring result
+  (leg mass in flight bending a compliant trunk, and the resulting spine-leg
+  elastic energy exchange) still requires full Newton-Euler and is NOT captured.
 - SAGITTAL-ONLY: no frontal-plane (roll/abduction) or yaw motion; left/right legs
   on a girdle share a mount pose in this 2D projection (inherited from spine.py).
-- STABILITY: the only stability notion checked is the stance-leg COUNT (>=3 feet
-  down for the default walk). There is NO ground-reaction / ZMP / support-polygon
-  margin computation — a 3-foot count does not by itself guarantee the CoM lies
-  inside the support triangle.
+- STABILITY (updated in M4): the gait now reports a real fore-aft STATIC
+  STABILITY MARGIN — the whole-body CoM ground projection against the fore-aft
+  interval spanned by the STANCE feet (``GaitState.stability`` /
+  ``*GaitController.stability(phase)``, see ``stability.py``). Stance-leg COUNT
+  is no longer the only check. Two honest limits remain: (a) a 2D sagittal
+  support "polygon" is really a fore-aft INTERVAL, so a positive margin is
+  necessary but NOT sufficient — lateral/roll tipping over the edges of the real
+  3-foot support triangle needs the 3D model; and (b) it is still quasi-static:
+  no ZMP, no inertia, no friction cone.
 - Foot targets are in the HIP frame (see above); ground contact is idealized as
   a point at the nominal foot height with no friction/slip model.
 - Rigid links, frictionless idealization inherited from leg.py / spine.py.
@@ -102,7 +108,8 @@ from typing import Mapping
 import numpy as np
 
 from .leg import LegModel, KneeConfig, UnreachableError
-from .spine import WholeBody, SpineModel, LegIKSolution
+from .spine import WholeBody, SpineModel, LegIKSolution, BodyCoM
+from .stability import StabilityMargin, sagittal_stability_margin
 
 
 # Default lateral-sequence walk offsets (touchdown phase per leg). The offset SET
@@ -253,11 +260,26 @@ class GaitState:
     spine_q : np.ndarray
         Spine joint angles (rad) at this phase; all-zero unless spine coupling is
         enabled.
+    com : BodyCoM | None
+        Whole-body + sub-assembly centres of mass at this posture, in the
+        BODY-GROUND frame (M4). ``None`` only if constructed by hand.
+    stability : StabilityMargin | None
+        Fore-aft STATIC stability margin at this phase: the CoM ground
+        projection against the interval spanned by the STANCE feet (M4). See
+        ``stability.py`` — a 2D sagittal support "polygon" is a fore-aft
+        interval, so a positive margin is necessary but not sufficient.
     """
 
     phase: float
     legs: dict[str, LegState]
     spine_q: np.ndarray
+    com: BodyCoM | None = None
+    stability: StabilityMargin | None = None
+
+    @property
+    def is_statically_stable(self) -> bool:
+        """True if the CoM projects inside the fore-aft support interval."""
+        return self.stability is not None and self.stability.is_stable
 
     @property
     def stance_legs(self) -> tuple[str, ...]:
@@ -311,6 +333,40 @@ def swing_height(params: GaitParams, local_phase: float) -> float:
     0 during stance and at swing liftoff/touchdown; peaks at ``step_height``.
     """
     return float(foot_target(params, local_phase)[1] - params.nominal_foot[1])
+
+
+# ------------------------------------------------------------------- stability
+def _posture_stability(
+    body: WholeBody, spine_q, leg_states
+) -> tuple[BodyCoM, StabilityMargin]:
+    """CoM + fore-aft static stability margin for one solved gait posture.
+
+    ``leg_states`` maps leg name -> any object exposing ``.q`` (the solved joint
+    vector, or None) and ``.in_stance``. Works for both ``LegState`` (hip-frame
+    controller) and ``WholeBodyLegState`` (world-frame controller).
+
+    Both the CoM and the stance-foot positions are evaluated by FORWARD
+    kinematics from the SAME solved joint angles, in the BODY-GROUND frame
+    (spine base at the origin). The margin is translation-invariant, so it is
+    identical whether you work in the body-ground or the advancing world frame.
+
+    A leg whose IK FAILED (``q is None``) is placed at all-zero joint angles so
+    its mass is still counted (mass must be conserved) and is EXCLUDED from the
+    support interval even if nominally in stance -- an unsolvable leg is not a
+    trustworthy contact. The default gait solves every leg, so this only bites on
+    deliberately broken configurations.
+    """
+    leg_q = {
+        name: (np.zeros(3) if st.q is None else np.asarray(st.q, dtype=float))
+        for name, st in leg_states.items()
+    }
+    com = body.center_of_mass(spine_q, leg_q)
+    feet = {
+        name: float(body.foot_world_position(spine_q, name, leg_q[name])[0])
+        for name, st in leg_states.items()
+        if st.in_stance and st.q is not None
+    }
+    return com, sagittal_stability_margin(com.x, feet)
 
 
 # ------------------------------------------------------------------ controller
@@ -402,10 +458,31 @@ class GaitController:
         )
 
     def state(self, phase: float) -> GaitState:
-        """Whole-body state at gait ``phase`` (phase wraps at 1.0)."""
+        """Whole-body state at gait ``phase`` (phase wraps at 1.0).
+
+        Also evaluates the M4 whole-body CoM and the fore-aft static stability
+        margin for the solved posture (``.com`` / ``.stability``).
+        """
         p = float(phase) % 1.0
         legs = {name: self.leg_state(p, name) for name in self.params.phase_offsets}
-        return GaitState(phase=p, legs=legs, spine_q=self.spine_q(p))
+        sq = self.spine_q(p)
+        com, margin = _posture_stability(self.body, sq, legs)
+        return GaitState(
+            phase=p, legs=legs, spine_q=sq, com=com, stability=margin
+        )
+
+    # ------------------------------------------------------------- mass (M4)
+    def center_of_mass(self, phase: float) -> BodyCoM:
+        """Whole-body CoM (body-ground frame) at ``phase``, from the solved pose."""
+        return self.state(phase).com
+
+    def stability(self, phase: float) -> StabilityMargin:
+        """Fore-aft static stability margin at ``phase`` (see ``stability.py``)."""
+        return self.state(phase).stability
+
+    def stability_sweep(self, n: int = 48) -> list[StabilityMargin]:
+        """``n`` evenly spaced stability margins over one cycle, phase in [0, 1)."""
+        return [self.stability(i / n) for i in range(n)]
 
     def state_at_time(self, t: float) -> GaitState:
         """Whole-body state at time ``t`` seconds (phase = (t/period) % 1)."""
@@ -504,12 +581,25 @@ class WholeBodyGaitState:
         Forward advance (m) of the body-ground origin in the world frame at this
         phase (= ``distance_per_cycle * phase``). Added to a leg's body-frame
         target to recover its world target.
+    com : BodyCoM | None
+        Whole-body + sub-assembly CoMs (M4) in the BODY-GROUND frame; add
+        ``body_offset`` to x for the world frame.
+    stability : StabilityMargin | None
+        Fore-aft STATIC stability margin (M4), computed in the body-ground frame
+        (it is translation-invariant, so it equals the world-frame value).
     """
 
     phase: float
     legs: dict[str, WholeBodyLegState]
     spine_q: np.ndarray
     body_offset: float
+    com: BodyCoM | None = None
+    stability: StabilityMargin | None = None
+
+    @property
+    def is_statically_stable(self) -> bool:
+        """True if the CoM projects inside the fore-aft support interval."""
+        return self.stability is not None and self.stability.is_stable
 
     @property
     def stance_legs(self) -> tuple[str, ...]:
@@ -650,16 +740,37 @@ class WholeBodyGaitController:
         legs = {
             name: self.leg_state(phase, name) for name in self.params.phase_offsets
         }
+        sq = self.spine_q(phase)
+        com, margin = _posture_stability(self.body, sq, legs)
         return WholeBodyGaitState(
             phase=p_wrapped,
             legs=legs,
-            spine_q=self.spine_q(phase),
+            spine_q=sq,
             body_offset=self.body_offset(phase),
+            com=com,
+            stability=margin,
         )
 
     def state_at_time(self, t: float) -> WholeBodyGaitState:
         """Whole-body world-frame state at time ``t`` seconds (phase = t/period)."""
         return self.state(t / self.params.period)
+
+    # ------------------------------------------------------------- mass (M4)
+    def center_of_mass(self, phase: float) -> BodyCoM:
+        """Whole-body CoM (body-ground frame) at ``phase``, from the solved pose."""
+        return self.state(phase).com
+
+    def stability(self, phase: float) -> StabilityMargin:
+        """Fore-aft static stability margin at ``phase`` (see ``stability.py``).
+
+        Computed in the body-ground frame; the margin is translation-invariant so
+        it is the same number in the advancing world frame.
+        """
+        return self.state(phase).stability
+
+    def stability_sweep(self, n: int = 48) -> list[StabilityMargin]:
+        """``n`` evenly spaced stability margins over one cycle, phase in [0, 1)."""
+        return [self.stability(i / n) for i in range(n)]
 
     def foot_world_check(self, phase: float, leg_name: str) -> np.ndarray:
         """FK-verify a leg: world foot pose from the solved q (or NaNs if unsolved).

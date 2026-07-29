@@ -3,8 +3,9 @@
     python kinematics/demo.py
 
 Prints an FK/IK round-trip check, the tendon resolution for a sample torque,
-and the static torque budget across the default load cases. All numbers use the
-PLACEHOLDER parameters in tomcat_kin.params.
+the static torque budget across the default load cases, the walk gait, and (M4)
+the whole-body mass budget, centre of mass and static stability margin. All
+numbers use the PLACEHOLDER parameters in tomcat_kin.params.
 """
 
 from __future__ import annotations
@@ -28,10 +29,14 @@ from tomcat_kin import (  # noqa: E402
     GaitParams,
     GaitController,
     WholeBodyGaitController,
+    LegMount,
+    centering_shift,
 )
 from tomcat_kin.params import (  # noqa: E402
     DEFAULT_LOADS,
     DEFAULT_SPINE,
+    DEFAULT_FORELEG,
+    DEFAULT_HINDLEG,
     DEFAULT_WHOLE_BODY_LOADS,
 )
 from tomcat_kin import torque_budget, whole_body_budget  # noqa: E402
@@ -231,6 +236,92 @@ def main() -> None:
     print(f"  -> world foot-target x is HELD FIXED across stance (span {span*1e3:.3f} mm);")
     print("     the spine-on leg angles differ from neutral (legs compensate) yet FK")
     print("     still lands the foot on that fixed world target (err ~0). Loop closed.")
+
+    _mass_and_stability_demo()
+
+
+def _mass_and_stability_demo() -> None:
+    """M4: real mass -> whole-body CoM -> static stability margin."""
+    print("\n=== REAL MASS (M4): the 3 kg budget, ~60% on the forequarters ===")
+    body = WholeBody(spine=SpineModel())
+    budget = body.mass_budget()
+    print(f"  {budget.report()}")
+    print(f"  {'part':<22}{'mass kg':>10}")
+    for label, m in (
+        ("fore leg (x2)", DEFAULT_FORELEG.mass),
+        ("hind leg (x2)", DEFAULT_HINDLEG.mass),
+        ("spine seg 0 (lumbar)", DEFAULT_SPINE.segment_mass[0]),
+        ("spine seg 1 (mid)", DEFAULT_SPINE.segment_mass[1]),
+        ("spine seg 2 (thoracic)", DEFAULT_SPINE.segment_mass[2]),
+        ("front girdle +head", DEFAULT_SPINE.front_girdle_mass),
+        ("rear girdle (pelvis)", DEFAULT_SPINE.rear_girdle_mass),
+    ):
+        print(f"  {label:<24}{m:>10.3f}")
+    print(f"  {'TOTAL':<24}{body.total_mass:>10.3f}")
+    print("  per-leg link split (proximal-heavy, 47.5/30/15/7.5%):")
+    print(f"    fore {np.array(DEFAULT_FORELEG.link_mass)} kg")
+    print(f"    hind {np.array(DEFAULT_HINDLEG.link_mass)} kg")
+    print("  NOTE: the lit review's 0.454 kg 'knee mass' is from a MUCH larger")
+    print("        robot -- ~15% of our whole body at one joint. Not copied; the")
+    print("        scaled analogue is the 0.200 kg hind leg. All values TBD/placeholder.")
+
+    print("\n=== WHOLE-BODY CENTRE OF MASS (body-ground frame, spine base at 0) ===")
+    stand = np.deg2rad([-80.0, 60.0, 10.0])
+    for label, q_spine in (
+        ("straight", np.zeros(DEFAULT_SPINE.n_segments)),
+        ("arched +20 deg/seg", np.full(DEFAULT_SPINE.n_segments, np.deg2rad(20.0))),
+    ):
+        com = body.center_of_mass(q_spine, stand)
+        print(f"[{label}]")
+        print("  " + com.report().replace("\n", "\n  "))
+    print("  (arching curls the forequarters up and back: CoM moves +z and -x)")
+
+    print("\n=== STATIC STABILITY MARGIN across the walk cycle (M4) ===")
+    print("  2D sagittal: the 'support polygon' is really a FORE-AFT INTERVAL, so a")
+    print("  positive margin is NECESSARY BUT NOT SUFFICIENT -- lateral/roll tipping")
+    print("  over the real 3-foot triangle needs the 3D model.")
+    ctrl = GaitController(params=GaitParams())
+    print("  phase  " + "stance  " + "CoM x mm  support [rear, front] mm   margin mm  ")
+    for i in range(8):
+        phase = i / 8
+        st = ctrl.state(phase)
+        m = st.stability
+        print(
+            f"  {phase:4.2f}   {st.stance_count:^6d}  {st.com.x * 1e3:+8.1f}  "
+            f"[{m.support.rear * 1e3:+7.1f}, {m.support.front * 1e3:+7.1f}]      "
+            f"{m.margin * 1e3:+8.1f}  {'STABLE' if m.is_stable else 'UNSTABLE'}"
+            f" ({m.tipping_edge} edge)"
+        )
+    margins = [m.margin for m in ctrl.stability_sweep(120)]
+    print(f"  margin over the cycle: {min(margins)*1e3:+.1f} .. {max(margins)*1e3:+.1f} mm")
+
+    print("\n  >>> HONEST FINDING: the default walk is fore-aft UNSTABLE, and it is")
+    print("      NOT the gait's fault. With the PLACEHOLDER leg geometry a leg cannot")
+    print("      put its foot under its own hip at stance height -- the reachable,")
+    print("      in-limit foot x at z=-130 mm is ~+160..+240 mm FORWARD of the hip.")
+    print("      Every foot therefore lands ~0.2 m ahead of its hip, the support")
+    print("      interval sits entirely ahead of the trunk, and the CoM cannot be")
+    print("      inside it. Fore-aft correction needed: "
+          f"{centering_shift(ctrl.stability(0.0))*1e3:.0f} mm.")
+    print("      -> HANDOFF to tomcat-mechanical: leg link proportions, the hip/hock")
+    print("         joint limits, the +55 deg passive paw offset, and the girdle hip")
+    print("         offsets need to be reconciled so a foot can plant under its hip.")
+
+    # Diagnostic what-if: move the hips back so the support base straddles the
+    # CoM. NOT a committed design value -- it just isolates the defect.
+    mounts = {
+        n: LegMount(n, g, (-0.22, 0.0))
+        for n, g in (("LF", Girdle.FRONT), ("RF", Girdle.FRONT),
+                     ("LR", Girdle.REAR), ("RR", Girdle.REAR))
+    }
+    fixed = GaitController(body=WholeBody(spine=SpineModel(), mounts=mounts))
+    fm = [m.margin for m in fixed.stability_sweep(120)]
+    print("\n  Diagnostic what-if (hip mounts moved -220 mm so the feet land under")
+    print("  the trunk; NOT a design value): the SAME duty-0.75 walk becomes")
+    print(f"  statically stable at every phase, margin {min(fm)*1e3:+.1f} .. "
+          f"{max(fm)*1e3:+.1f} mm.")
+    print("  => the gait PATTERN (3 feet down, duty 0.75) is sound; the placeholder")
+    print("     leg/mount geometry is what breaks static stability.")
 
 
 def _sketch_foot_path(ctrl, leg_name: str, rows: int = 6, cols: int = 40) -> None:
