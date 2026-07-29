@@ -297,7 +297,7 @@ def evaluate(
     load: WholeBodyLoadCase,
     *,
     grid: int = 25,
-    knee: KneeConfig = KneeConfig.FLEXED_NEGATIVE,
+    knee: KneeConfig | None = None,   # None -> each leg's own anatomical fold
     t_bias=None,
     leg_q=None,
 ) -> WholeBodyBudgetResult:

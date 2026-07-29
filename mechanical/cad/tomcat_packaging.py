@@ -117,12 +117,10 @@ def girdle_box(center, cluster_compounds):
     return Pos(c.X, c.Y, c.Z) * Box(L, W, Hh), (L, W, Hh)
 
 
-def leg_points(mount, foot_x, knee, mirror=False, leg_model=None):
+def leg_points(mount, foot_x, knee, leg_model=None):
     lm = leg_model if leg_model is not None else LegModel()
     q = lm.inverse((foot_x, FOOT_Z, FOOT_PITCH), knee=knee)
     pts = lm.joint_positions(q) * MM   # (5,2): hip, stifle, hock, paw-base, paw-tip
-    if mirror:
-        pts = pts * np.array([-1.0, 1.0])   # fore/hind opposite fold
     mx, my, mz = mount
     return [(mx + x, my, mz + z) for (x, z) in pts]
 
@@ -188,27 +186,27 @@ def tail(z, spool):
 
 def build():
     H = -FOOT_Z * MM
-    kp = KneeConfig.FLEXED_NEGATIVE
+    kp = None   # each leg uses its own anatomical fold
     spine_body, spine_pulleys, xs = spine_chain(H)
     front_x = float(xs[-1])
 
     bones, motors, tendons, pulleys = [], [], [], []
 
     # ---- legs (4) ----
-    # (mount, foot_x, motor-side, mirror, leg_model) — front legs use the FORE
-    # proportions and mirror the rear so the fore/hind limbs fold oppositely.
+    # (mount, foot_x, motor-side, leg_model) — the fore/hind fold difference now
+    # comes from each leg's own joint limits, not from mirroring.
     fore = LegModel(DEFAULT_FORELEG)
     hind = LegModel()
     leg_defs = [
-        ((front_x, +TRACK / 2, H), FRONT_FOOT_X, +1, True, fore),    # front-left
-        ((front_x, -TRACK / 2, H), FRONT_FOOT_X, -1, True, fore),    # front-right
-        ((0.0, +TRACK / 2, H), REAR_FOOT_X, +1, False, hind),        # rear-left
-        ((0.0, -TRACK / 2, H), REAR_FOOT_X, -1, False, hind),        # rear-right
+        ((front_x, +TRACK / 2, H), FRONT_FOOT_X, +1, fore),    # front-left
+        ((front_x, -TRACK / 2, H), FRONT_FOOT_X, -1, fore),    # front-right
+        ((0.0, +TRACK / 2, H), REAR_FOOT_X, +1, hind),        # rear-left
+        ((0.0, -TRACK / 2, H), REAR_FOOT_X, -1, hind),        # rear-right
     ]
     girdles = []
     front_clusters, pelvic_clusters = [], []
-    for (mount, fx, side, mirror, lm) in leg_defs:
-        p3 = leg_points(mount, fx, kp, mirror=mirror, leg_model=lm)
+    for (mount, fx, side, lm) in leg_defs:
+        p3 = leg_points(mount, fx, kp, leg_model=lm)
         bones.append(leg_bones(p3))
         pulleys.append(leg_pulleys(p3))
         # motor cluster for this leg, in its girdle, on its side

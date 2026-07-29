@@ -64,6 +64,19 @@ class LegModel:
 
     params: LegParams = DEFAULT_LEG
 
+    @property
+    def default_knee(self) -> "KneeConfig":
+        """The fold direction implied by this leg's OWN middle-joint limits.
+
+        A cat's stifle and elbow bend in OPPOSITE directions, so the hind leg
+        carries a negative stifle range and the fore leg a positive elbow range
+        (see `DEFAULT_FORELEG`). Deriving the IK branch from the limits keeps the
+        anatomy and the solver from drifting apart — there is no separate switch
+        to set wrongly.
+        """
+        return (KneeConfig.FLEXED_POSITIVE if self.params.q_max[1] > 0.0
+                else KneeConfig.FLEXED_NEGATIVE)
+
     # ------------------------------------------------------------------ FK
     def forward(self, q) -> np.ndarray:
         """Paw-tip pose (x, z, phi) for actuated joint angles q = (q1, q2, q3).
@@ -106,7 +119,7 @@ class LegModel:
     def inverse(
         self,
         pose,
-        knee: KneeConfig = KneeConfig.FLEXED_NEGATIVE,
+        knee: KneeConfig | None = None,
     ) -> np.ndarray:
         """Actuated joint angles (q1, q2, q3) for a PAW-TIP pose (x, z, phi).
 
@@ -122,6 +135,8 @@ class LegModel:
         a3. Both knee branches are kept. Raises UnreachableError if the pose is
         outside the workspace.
         """
+        if knee is None:
+            knee = self.default_knee
         x, z, phi = (float(v) for v in pose)
         p = self.params
         l1, l2, l3, l4 = p.l1, p.l2, p.l3, p.l4

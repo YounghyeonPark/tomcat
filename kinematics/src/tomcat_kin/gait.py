@@ -157,11 +157,12 @@ class GaitParams:
     phase_offsets : Mapping[str, float]
         Per-leg touchdown phase in [0, 1). Keys are leg names ("LF" etc.).
     knee : KneeConfig
-        Which 2R IK branch each leg uses. FLEXED_NEGATIVE (the default) keeps the
-        stifle angle q2 <= 0 — the anatomical digitigrade fold, matching the
-        negative stifle range in ``LegParams``. The positive branch cannot place
-        a paw under its own hip (it demands a ~+167 deg hip), which is what made
-        the pre-M4 walk fore/aft unstable.
+        Which 2R IK branch each leg uses. **None (the default) means each leg
+        uses its OWN anatomical fold** (`LegModel.default_knee`): the hind leg
+        folds its stifle forward (negative range) and the fore leg its elbow
+        backward (positive range), exactly as in a cat. Set explicitly only to
+        override. The pre-M4 walk forced the positive branch on every leg, which
+        cannot place a paw under its own hip and made the gait fore/aft unstable.
     spine_amplitude : float
         Amplitude (rad, per segment) of the OPTIONAL dorsoventral spine
         oscillation coupled to the gait. 0.0 (default) => spine held NEUTRAL.
@@ -183,7 +184,7 @@ class GaitParams:
     phase_offsets: Mapping[str, float] = field(
         default_factory=lambda: dict(DEFAULT_PHASE_OFFSETS)
     )
-    knee: KneeConfig = KneeConfig.FLEXED_NEGATIVE
+    knee: KneeConfig | None = None
     spine_amplitude: float = 0.0
     spine_phase: float = 0.0
 

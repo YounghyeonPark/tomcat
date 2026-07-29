@@ -61,18 +61,17 @@ def bone(p0, p1, r):
                      Pos(*tuple(p1)) * Sphere(r)])
 
 
-def leg(mount, foot_x, knee, mirror=False, leg_model=None):
+def leg(mount, foot_x, knee, leg_model=None):
     """One digitigrade 4-link leg at `mount` (x,y,z) mm; IK plants the paw.
 
-    `mirror` reflects the leg fore/aft about the hip so front and rear legs fold
-    in opposite directions. `leg_model` selects fore- vs hind-leg proportions.
+    `leg_model` selects fore- vs hind-leg proportions; each solves with its OWN
+    anatomical fold (elbow back on the fore leg, stifle forward on the hind),
+    so both paws point forward — no mirroring.
     """
     if leg_model is None:
         leg_model = LegModel()
     q = leg_model.inverse((foot_x, FOOT_Z, FOOT_PITCH), knee=knee)
     pts2d = leg_model.joint_positions(q) * MM  # (5,2): hip,stifle,hock,paw-base,paw-tip
-    if mirror:
-        pts2d = pts2d * np.array([-1.0, 1.0])
     mx, my, mz = mount
     p3 = [(mx + x, my, mz + z) for (x, z) in pts2d]  # map sagittal x,z into world
     parts = []
@@ -137,17 +136,17 @@ def tail(z):
 
 def build():
     H = -FOOT_Z * MM  # hip/body height so feet touch z=0 (ground)
-    kp = KneeConfig.FLEXED_NEGATIVE
+    kp = None   # each leg uses its own anatomical fold
 
     spine_body, front_x = spine(H)
 
-    # Front legs use the FORE-leg proportions and mirror the rear so the fore-
-    # and hind-limbs fold in opposite directions (cat geometry).
+    # Front legs use FORE proportions; the opposite fold now comes from their
+    # own (positive-elbow) joint limits rather than a mirror.
     fore = LegModel(DEFAULT_FORELEG)
     hind = LegModel()  # DEFAULT_LEG == hind
     legs = Compound([
-        leg((front_x, +TRACK / 2, H), FRONT_FOOT_X, kp, mirror=True, leg_model=fore),
-        leg((front_x, -TRACK / 2, H), FRONT_FOOT_X, kp, mirror=True, leg_model=fore),
+        leg((front_x, +TRACK / 2, H), FRONT_FOOT_X, kp, leg_model=fore),
+        leg((front_x, -TRACK / 2, H), FRONT_FOOT_X, kp, leg_model=fore),
         leg((0.0, +TRACK / 2, H), REAR_FOOT_X, kp, leg_model=hind),
         leg((0.0, -TRACK / 2, H), REAR_FOOT_X, kp, leg_model=hind),
     ])

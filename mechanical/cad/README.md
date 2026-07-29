@@ -12,10 +12,14 @@ The four legs are posed by solving the leg **IK** for feet planted on the ground
 
 The legs are **digitigrade** (cats stand on their toes) — a 4-link chain
 (femur / tibia / metatarsus / paw) with 3 actuated joints + a passive paw. The
-model is **fore/hind asymmetric** like a real cat: the front legs use the more
-columnar **fore-leg** proportions (`DEFAULT_FORELEG`) and the rear the folded
-**hind-leg** (`DEFAULT_LEG`), and they mirror so the limbs fold in opposite
-directions. A **thoracic ribcage** hangs below the front spine while the rear
+model is **fore/hind asymmetric** like a real cat: the front legs use the
+**fore-leg** proportions (`DEFAULT_FORELEG`) and the rear the **hind-leg**
+(`DEFAULT_LEG`). The limbs fold in *opposite* directions because each carries its
+own middle-joint limits — the hind **stifle bends forward** (negative range), the
+fore **elbow bends backward** (positive range) — and `LegModel.default_knee`
+derives the IK branch from those limits. **Both paws point forward**, as in a
+cat; an earlier version mirrored the whole front limb, which pointed the front
+paws at the tail. A **thoracic ribcage** hangs below the front spine while the rear
 (**lumbar**) third stays ring-free — the flexible bending region. Proportions,
 posture, and the thorax/lumbar split are informed by the public-domain
 **Reighard & Jennings (1901), *Anatomy of the Cat*** and the cat vertebral

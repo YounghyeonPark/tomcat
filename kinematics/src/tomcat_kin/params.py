@@ -459,6 +459,15 @@ DEFAULT_HINDLEG = DEFAULT_LEG
 DEFAULT_FORELEG = LegParams(
     l1=0.100, l2=0.090, l3=0.065, l4=0.025,   # humerus, radius, metacarpus, paw
     paw_angle=math.radians(40.0),
+    # The forelimb folds the OPPOSITE way to the hindlimb: a cat's ELBOW points
+    # backward while the STIFLE points forward, so the middle joint's range is
+    # POSITIVE here and negative on the hind leg. Both paws still point FORWARD —
+    # the fore/hind difference is the fold direction, NOT a mirror of the whole
+    # limb (mirroring would point the front paws at the tail).
+    # Demanded working set over the gait cycle: shoulder -157..-126,
+    # elbow +69..+103, carpus -6..+32 deg.  ❓ TBD placeholders with margin.
+    q_min=(math.radians(-170.0), 0.0, math.radians(-30.0)),
+    q_max=(math.radians(30.0), math.radians(150.0), math.radians(150.0)),
     # 0.160 kg total vs. the hind leg's 0.200 kg: the fore limb is the lighter,
     # more columnar limb; the hind limb carries the propulsion musculature. Same
     # proximal-heavy 47.5 / 30 / 15 / 7.5 % split.  ❓ TBD
