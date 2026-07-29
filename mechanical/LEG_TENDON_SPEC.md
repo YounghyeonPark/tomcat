@@ -114,20 +114,49 @@ Driving joint torques (single-leg land, ×2.5): hip **12.36 N·m**, stifle
 - **Irreducibly remains:** a **~450 N hip land transient.** No packageable arm
   removes it. This residual is the *structural design load* for
   cable/pulley/bearing (§2, §3) — a rare peak, not a duty.
-- **⚠ Action item from the M4 posture change:** the digitigrade stance loads the
-  **hock much harder than before** (270 → 347 N) while it carries the *smallest*
-  arm (14 mm), because the folded metatarsus now bears more of the landing
-  moment. **The 14 mm hock arm should be revisited** — it is now the least
-  favourable tension-per-millimetre on the leg. Note ADR-0002 reserves the ankle
-  for spring-return, which changes its tendon count but not this force.
+- **Hock arm — reviewed, KEEP 14 mm.** See §1.3a below.
 
 **Recommended moment-arm set → `TendonParams.joint_moment_arm = (0.028, 0.025,
-0.014) m`** *(hock pending the review above)*. Structural design load is now
+0.014) m`** *(hock confirmed by §1.3a)*. Structural design load is now
 **~465 N per tendon** (hip land + `T_bias`), down from ~525 N under the old
 posture. **Hardware sizing in §2–§3 is deliberately RETAINED at the 525 N
 basis** — an 11 % load drop is not a reason to downsize a structural margin,
 and the placeholder inputs could still move. Components remain sized to
 **~1 kN**.
+
+### 1.3a Hock moment-arm review — **verdict: keep 14 mm**
+
+M4's posture change raised the hock land peak 29 % (270 → 347 N) on the leg's
+smallest arm, so the arm was reviewed. Because M4 also added real mass
+properties, the P1 inertia cost could be *priced* rather than asserted. Leg
+swing inertia is taken about the hip in the stance pose (per-link point masses at
+their CoMs); the hock sits **134 mm** out on a 280 mm leg, so mass added there is
+expensive. Pulley+bracket mass is estimated at 6 g at 14 mm scaling as `r²`
+`[assumed]`.
+
+| r (mm) | Land T (N) | Stand T (N) | added mass (g) | leg swing-inertia penalty |
+|---|---|---|---|---|
+| **14 (current)** | **347** | **39** | 6.0 | **5.1 %** |
+| 18 | 271 | 32 | 9.9 | 8.4 % |
+| 20 | 245 | 29 | 12.2 | 10.3 % |
+| 25 | 197 | 24 | 19.1 | 16.1 % |
+
+**Keep 14 mm.** Growing the arm buys nothing the design needs, and costs the one
+thing tendon-drive exists to protect:
+
+1. **Continuous load is already in band.** Stand tension is **39 N** at 14 mm —
+   inside the RoboCat 20–70 N band. The 347 N is a *rare landing transient*.
+2. **The transient is already covered.** With `T_bias`, the hock peaks at 367 N →
+   **SF 6.0** on the specified 2.2 kN cable, comfortably past the SF ≥ 4 target,
+   and only **37 %** of the ~1 kN hardware rating. It is *not* the governing
+   tendon — the **hip** is, at 467 N / SF 4.7.
+3. **It would attack P1.** Going to 25 mm adds **+11 percentage points** of leg
+   swing inertia. Low limb inertia is the entire reason ADR-0003 accepted the
+   tendon-drive tension burden ([trade study](../docs/notes/leg-actuator-tradeoff.md)
+   Axis 3) — spending it to relieve a transient already carrying SF 6 is a bad trade.
+
+**Revisit if** the impact factor rises above ×2.5, the body mass grows, or a
+measured pulley mass comes in far below the `r²` estimate.
 
 ### 1.4 Cable-travel / spool sanity check
 
