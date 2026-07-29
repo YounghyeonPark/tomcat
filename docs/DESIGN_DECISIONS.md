@@ -34,10 +34,15 @@ context, and consequences. Status is one of: **Proposed**, **Accepted**,
   Grounded in Kengoro AIC, which cut peak tendon tension 43→28 kgf, and in the
   efficiency data showing spine stiffness should be *tunable* to gait speed
   ([LITERATURE_REVIEW.md](LITERATURE_REVIEW.md) Q1, Q2b).
-- **Consequences:** Sets motor/driver-channel count (~2 channels per antagonistic
-  DOF, ~1 for spring-return). The tendon map must accept a per-joint `T_bias` and
-  implement the AIC split (M1 task K1). Stiffness becomes commandable rather than
-  fixed by hardware.
+- **Consequences:** The tendon map must accept a per-joint `T_bias` and implement
+  the AIC split (M1 task K1). Stiffness becomes commandable rather than fixed by
+  hardware.
+  - **Amended by [ADR-0008](#adr-0008-actuator-sizing-basis-and-motor-count-the-mass-closure-decision):**
+    the naive "~2 channels per antagonistic DOF" is **no longer affordable** — the
+    mass budget forced the RoboCat **variable-radius pulley**, so one motor now
+    drives *both* sides of a pair (**1 channel per DOF**, 16 total). The pair is
+    still antagonistic and `T_bias` still applies, but co-contraction range is set
+    by the pulley profile rather than commanded freely between two motors.
 
 ## ADR-0003: Actuator technology
 - **Status:** Accepted
@@ -113,8 +118,10 @@ context, and consequences. Status is one of: **Proposed**, **Accepted**,
 
 ## ADR-0005: Compute & motor-drive topology
 - **Status:** Accepted
-- **Context:** ~31 tendon motors (24 legs + 6 spine + 1 tail) —
-  each needing FOC, closed-loop tension, a rotor sensor, and a tension signal;
+- **Context:** **16 tendon motors** (12 leg DOF + 3 spine + 1 tail — one per
+  antagonistic pair via the variable-radius pulley, [ADR-0008](#adr-0008-actuator-sizing-basis-and-motor-count-the-mass-closure-decision);
+  was ~31 before that decision) — each needing FOC, closed-loop tension, a rotor
+  sensor, and a tension signal;
   plus ≥1 kHz motor loops (NFR3) and ≥100 Hz planning/righting (NFR4).
 - **Options:** single MCU (rejected — cannot host ~30 FOC loops *and* planning);
   centralized multi-axis controller; **distributed smart drivers on a real-time
@@ -183,6 +190,53 @@ context, and consequences. Status is one of: **Proposed**, **Accepted**,
   spine DOF becomes load-bearing for this goal (not merely complementary). The
   righting milestone plans a spine/leg reorientation law with the tail as a
   gross bias term.
+
+## ADR-0008: Actuator sizing basis and motor count (the mass-closure decision)
+- **Status:** Accepted
+- **Context:** The [motor down-select](notes/motor-downselect.md) replaced the
+  assumed ~31 g/motor with a real QDD module (~132 g). At the counts the
+  architecture called for, **the motors alone exceeded the whole 3 kg body**
+  (24 motors = 105 %, 31 = 136 %). Review finding F6. The design did not close.
+- **Options considered:**
+  - **A. Scale the robot up** to 6–9 kg so motors are a smaller fraction.
+  - **B. Size actuators to a lesser load case** than the ×2.5 single-leg landing.
+  - **C. Cut motor count** via the RoboCat variable-radius pulley (one motor per
+    antagonistic pair) and/or more spring-return joints.
+  - **D. Cut torque demand** with a thinner cable → smaller spool.
+- **Decision: B + C. Keep the 3 kg body; size actuators to TROT; adopt the
+  variable-radius pulley to run 16 motors.**
+  - **Option A is rejected on physics, not preference.** At fixed geometry,
+    body mass and required motor mass scale *together*, so the motor-mass
+    **fraction is invariant with scale** (191 % at 1.5 kg, at 3 kg and at 9 kg
+    alike); and under geometric scaling torque grows as `m^{4/3}` while mass
+    grows as `m`, so scaling up is *actively worse*. A bigger robot does not buy
+    its way out of this.
+  - **Sizing basis = trot (2-leg, ×1.5).** This is the single biggest lever
+    (24 motors: 191 % → 57 % of body). The ×2.5 single-leg landing is explicitly
+    **outside the v1 actuator envelope**; it remains the *structural* design case
+    for cable/pulley/bearing (unchanged), but not the *actuator* case.
+  - **16 motors** = 12 leg DOF + 3 spine + 1 tail, one per antagonistic pair via
+    the variable-radius pulley. **Full articulation is retained** — this is a
+    change of transmission, not of DOF.
+  - **Resulting motor spec: ~1.1 N·m peak, ≤80 g, ~24 V.** The surveyed
+    GIM3505-9 (1.95 N·m, 132 g) is ~1.8× larger — a headroom option, not the
+    target part.
+- **Consequences:**
+  - Budget closes at 3.0 kg: motors 38 %, drivers 3 %, legs 14 %, battery 10 %,
+    leaving **~35 % for structure**.
+  - **Hard landings are out of scope for v1**, which touches ADR-0007 (righting
+    is a *flight-phase* behaviour; the landing that follows it is now
+    envelope-limited). Revisit if righting becomes a near-term goal.
+  - The variable-radius pulley moves from "nice reduction" to **required**, which
+    firms up an ADR-0002 option that was previously optional. Independent
+    stiffness control is preserved (the pair still opposes), but both sides of a
+    pair now share one motor, so co-contraction range is set by the pulley
+    profile rather than commanded freely.
+  - Motor count drops 24 → 16, which **invalidates the F4 girdle packing** (done
+    for 24) — it should re-pack easily with fewer, though the real motor envelope
+    differs from the Ø16 × 28 mm placeholder and must be re-checked.
+  - ⚠️ Torque density (14.8 N·m/kg peak) is extrapolated from one datasheet; the
+    whole closure rides on it. Confirm against a real candidate before committing.
 
 ---
 

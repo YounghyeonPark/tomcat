@@ -5,10 +5,15 @@ Closes the long-standing `G-Kt` / `G-Vbus` gaps in
 the ~31 g/motor assumption behind review finding
 [F1](../../mechanical/DESIGN_REVIEW.md).
 
-**Headline:** a suitable motor exists and is recommended below — but plugging its
-real mass into the design shows that **a 3 kg body cannot carry 24 tendon
-motors**. The blocker is no longer "which motor", it is **how many, on what size
-machine**.
+**Headline:** a suitable motor *class* was found, but its real mass shows that
+**24 tendon motors sized for a ×2.5 landing cannot fit any body, at any scale.**
+The fix is not a bigger robot (§3 shows that provably does not help) — it is
+**sizing to trot and halving the motor count**, which closes the budget at the
+existing 3 kg with full articulation. See [ADR-0008](../DESIGN_DECISIONS.md).
+
+The concrete motor spec that follows: **~1.1 N·m peak, ≤80 g**. The surveyed
+GIM3505-9 (1.95 N·m, 132 g) is ~1.8× larger than that — useful as a reference
+point and headroom option, but not the target part.
 
 ---
 
@@ -76,21 +81,48 @@ This is the direct, quantitative consequence of P1: relocating 24–31 "muscles"
 into the torso means the torso must actually *carry* 24–31 motors. The tendons
 buy light limbs, but they do not make the actuators disappear.
 
-### The three ways out (a real decision, not a calculation)
+### ⚠️ Correction: scaling the robot UP does not help
 
-1. **Scale the machine up.** Holding motors ≤35 % of body mass:
-   16 motors → **≥6 kg body**; 24 motors → **≥9 kg body**. A 9 kg
-   T.O.M.C.A.T. is a large-Maine-Coon-sized robot — perfectly reasonable, but 3×
-   the current NFR target.
-2. **Cut the motor count hard.** The variable-radius pulley (RoboCat trick, one
-   motor per antagonistic pair) takes 24 → 16; more spring-return joints take it
-   lower. Costs independent stiffness control on those joints (ADR-0002).
-3. **Cut the torque requirement**, allowing a smaller motor: thinner cable → a
-   smaller spool → less motor torque. A 1.0 mm cable (~1.1 kN break) would allow
-   `r_spool ≈ 5 mm`, cutting τ_motor by ~37 %, at SF ≈ 2.4 instead of ≥4.
+My first instinct — "make the body 6–9 kg so the motors are a sane fraction" —
+is **wrong**, and worth recording because it is the intuitive answer.
 
-Most likely a combination of 1 and 2. **This should become an ADR** — it changes
-NFR5 (mass) and possibly ADR-0002.
+At fixed geometry, tripling body mass triples the ground reaction, hence joint
+torque, hence tendon tension, hence motor torque, hence motor mass. Motor mass
+and body mass scale **together**, so the *fraction is invariant*:
+
+| Body mass | Motors as % of body (24, sized to land) |
+|---|---|
+| 1.5 kg | 191 % |
+| 3.0 kg | 191 % |
+| 9.0 kg | 191 % |
+
+And if the geometry scales too, torque grows as `m^{4/3}` while mass grows as
+`m`, so the fraction grows as `m^{1/3}` — scaling up is **actively worse**.
+
+### The two levers that do work
+
+Both are about *demand*, not size: **which load case you size to**, and **how
+many motors there are**.
+
+| Motors | sized to LAND (×2.5) | sized to TROT (×1.5) |
+|---|---|---|
+| 31 | 246 % | 74 % |
+| 24 | 191 % | 57 % |
+| **16** | 127 % | **38 %** ✅ |
+| 12 | 95 % | 29 % |
+
+**Sizing to trot instead of the aggressive landing is the single biggest lever**
+(24 motors: 191 % → 57 %). Combined with the variable-radius pulley (24 → 16,
+one motor per antagonistic pair), the budget closes comfortably at the existing
+3 kg — with **full articulation retained** (12 leg DOF + 3 spine + 1 tail = 16):
+
+| Item | Mass | % of 3 kg |
+|---|---|---|
+| 16 motors @ ~72 g | 1145 g | 38.2 % |
+| 16 driver boards | 80 g | 2.7 % |
+| 4 legs (bottom-up) | 410 g | 13.7 % |
+| Battery | 300 g | 10.0 % |
+| **Remaining for structure** | **1065 g** | **35.5 %** |
 
 ## 4. What this unblocks now
 

@@ -44,19 +44,20 @@ curve.
 | NFR1  | Degrees of freedom per leg                       | 3 (hip, knee, ankle)|
 | NFR2  | Spine segments (serial, tendon-driven)           | ❓ TBD (e.g. 3–5)    |
 | NFR2b | DOF per spine segment                            | ❓ TBD (2: pitch+yaw)|
-| NFR2c | Total actuated DOF (12 legs + spine)             | ❓ TBD               |
+| NFR2c | Total actuated DOF (12 legs + 3 spine + 1 tail)  | **16** (= 16 motors, ADR-0008) |
 | NFR2d | Tail actuation (coarse assist, no accuracy)      | 1 tendon + passive return |
 | NFR3  | Control loop rate (tension/position)             | ≥ 1 kHz             |
 | NFR4  | Gait / trajectory update rate                    | ≥ 100 Hz            |
-| NFR5  | Mass (total)                                     | ❓ TBD               |
+| NFR5  | Mass (total)                                     | **3.0 kg** (ADR-0008 closes the budget at this) |
 | NFR6  | Runtime on one battery charge                    | ❓ TBD               |
 | NFR7  | Max cable tension per tendon                     | ❓ TBD (N)           |
 
 ## 4. Constraints & assumptions
 
-- Antagonistic tendon pairs (or tendon + return spring) are needed because a
-  cable can only pull. ❓ Decide per joint: **2 motors (antagonistic)** vs.
-  **1 motor + passive return spring**.
+- Antagonistic tendon pairs are needed because a cable can only pull. Settled by
+  [ADR-0008](DESIGN_DECISIONS.md): **one motor per DOF**, driving both sides of
+  the pair through a **variable-radius pulley** — the mass budget does not permit
+  two motors per DOF.
 - Cables are inextensible enough that motor rotation maps predictably to joint
   angle, but tendon stretch and friction must be modeled/compensated.
 - Motors, drivers, battery, and main compute live in the torso.
@@ -73,8 +74,11 @@ The major architecture questions are **resolved** in the [ADR log](DESIGN_DECISI
 Remaining **calibration / measurement** items (not decisions):
 - ❓ Routed cable friction μ and per-tendon wrap — blocks the tension error budget
   and the current-vs-load-cell placement split (ADR-0004 follow-up).
-- ❓ Specific motor selection → `Kt`, bus voltage — blocks detailed electrical sizing.
-- ❓ Mass / runtime / per-tendon force targets (NFR5–7).
+- ❓ Specific motor **part** — the *class* is now specified (~1.1 N·m peak, ≤80 g,
+  24 V; `Kt` ≈ 0.44 N·m/A) by the [down-select](notes/motor-downselect.md), but a
+  real part must be surveyed and its torque density confirmed — ADR-0008's mass
+  closure rides on it.
+- ❓ Runtime (NFR6) and per-tendon force target (NFR7).
 
 ## 6. Out of scope (for now)
 

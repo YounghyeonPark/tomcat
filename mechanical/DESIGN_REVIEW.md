@@ -162,7 +162,7 @@ they are also bulkier than drawn.
 > the same height. Upright spools also pay cable off in the fore-aft/vertical
 > plane, which is the direction the tendons actually run.
 
-## F6 — Motor mass makes the 3 kg body infeasible (BLOCKING, new)
+## F6 — Motor mass makes the 3 kg body infeasible (BLOCKING) — ✅ RESOLVED by ADR-0008
 
 Raised by the [motor down-select](../docs/notes/motor-downselect.md). F1 assumed
 ~31 g/motor; a real QDD module meeting the torque requirement (SteadyWin
@@ -179,9 +179,17 @@ P1: relocating 24–31 muscles into the torso means the torso must carry 24–31
 motors. Ways out — scale the body to ~6–9 kg, cut motor count, or cut the torque
 requirement (thinner cable → smaller spool). Most likely a combination.
 
-> **This outranks F5 and should become an ADR** — it changes NFR5 (mass) and
-> possibly ADR-0002. It also invalidates the F1 girdle mass figures and the F4
-> girdle fit, both of which used the 31 g / Ø16×28 mm placeholder.
+> **Resolved by [ADR-0008](../docs/DESIGN_DECISIONS.md).** Scaling the body up
+> was rejected *on physics*: the motor-mass fraction is **invariant with scale**
+> (191 % at 1.5, 3 and 9 kg alike) and gets worse under geometric scaling. The
+> two levers that work are **sizing basis** and **motor count**: sizing to trot
+> instead of the ×2.5 landing takes 24 motors from 191 % → 57 %, and the
+> variable-radius pulley takes 24 → 16, closing the budget at **38 %** on the
+> existing 3 kg body with **full articulation retained**. Target motor spec:
+> ~1.1 N·m peak, ≤80 g. Hard landings become out-of-envelope for v1.
+>
+> Still open: motor count 24 → 16 invalidates the **F4 girdle packing**, and the
+> real motor envelope differs from the Ø16 × 28 mm placeholder — re-pack needed.
 
 ## F5 — No assembly / manufacturing pass (gap)
 
@@ -233,8 +241,8 @@ would firm up the whole budget — and it also gates `Kt` and bus voltage.
    are coupled and can invalidate a published M4 result.
 2. ~~**F3**~~ — **done**: graded tube sections, see above.
 3. ~~**F4**~~ — **done**: motors stood upright, see above.
-4. **F6 (new, blocking)** — resolve the motor-mass / body-scale contradiction;
-   raise it as an ADR. Everything downstream of mass and packaging depends on it.
+4. ~~**F6**~~ — **done**: ADR-0008 (size to trot + 16 motors). Follow-up: re-pack
+   the girdles for 16 real motors (re-opens part of F4).
 5. **F5** — assembly pass, once the above settle.
 
 ## Does the hock verdict still hold?
