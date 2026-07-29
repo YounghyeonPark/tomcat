@@ -120,24 +120,31 @@ Joint torque `τ = T · r`; for a required torque, cable tension `T = τ / r`, s
 is **~20–70 N** (`[sourced: lit Q6]`). We therefore want `r` as **large** as the
 vertebral packaging allows, bounded by belly/back clearance and cable travel.
 
-Illustrative sensitivity at an assumed design-point joint torque
-`τ ≈ 2.5 N·m` (static forequarter hold ~1.5 N·m × ~1.5 dynamic — **to be
-replaced by K1's real budget**):
+> ✅ **Superseded by the real M4 budget.** This section previously used an
+> *assumed* `τ ≈ 2.5 N·m`. The whole-body budget now computes spine torques from
+> the **real distributed, front-heavy mass** (3.00 kg, 59.9 % fore), so the
+> numbers below are measured from the model, not guessed.
 
-| Moment arm r (m) | Cable tension T (N) at 2.5 N·m | vs. 20–70 N band |
-|---|---|---|
-| 0.020 (current seed) | 125 | far over |
-| 0.025 | 100 | over |
-| 0.030 | 83 | just over |
-| 0.035 | 71 | top of band |
-| 0.040 | 63 | in band |
+**Real spine loads at the adopted `r = 0.030 m`** `[sourced: whole_body_budget]`:
 
-**Finding / flag to kinematics:** the current `joint_moment_arm=0.020` seed
-implies cable tensions well above the RoboCat band for any plausible arching
-torque. Proposed moment arms (below) raise the dorsal extensor arm toward the
-top of what a cat-scale vertebra can package (spinous-process height + a low
-pulley standoff). If K1's budget still exceeds ~70 N, the levers are: grow `r`
-further, cap co-contraction (AIC / low `T_bias`), or reduce ROM.
+| Case | seg0 (base) τ | Cable tension | Verdict |
+|---|---|---|---|
+| Quiet stand | **0.570 N·m** | **24.0 N** | ✅ **inside** the 20–70 N band |
+| Arch (+20°/seg) | 0.552 N·m | 23.4 N | ✅ inside the band |
+| Land (1 front leg, ×2.5) | **10.91 N·m** | **368.6 N** | structural transient |
+
+**Two findings from M4:**
+1. **The 0.030 m arm works.** Raising it from the 0.020 seed put *continuous*
+   spine tension (23–24 N) inside the RoboCat band — the goal this section set.
+   No further growth in `r` is needed for quiet operation.
+2. **The base (rearmost) joint is now the worst spine joint** — its torque grew
+   **~3.9×** versus the old equal-lumped-mass placeholder, because the entire
+   front half of the animal (head, ribcage, forequarters ≈ 60 % of mass) now
+   correctly cantilevers off it. Design the **seg0 pulley, anchor and bearing
+   for roughly 4× the mid-segment loads**, not uniformly across the three joints.
+
+The ~369 N land figure is a rare impact transient (structural sizing), not a
+duty — the same distinction drawn in [LEG_TENDON_SPEC.md](LEG_TENDON_SPEC.md) §0.
 
 | Tendon (per segment) | Moment arm r (m) | Bounded by | Label |
 |---|---|---|---|

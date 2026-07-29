@@ -15,8 +15,9 @@ routing, and static-hold hardware that follow. It presents numbers as tables for
 It does **not** edit `params.py`, `kinematics/`, or `docs/`.
 
 Conventions match the kinematics model and
-[SPINE_TAIL_SPEC.md](SPINE_TAIL_SPEC.md): **SI units**; sagittal-plane 3R leg
-(hip → thigh → knee → shank → ankle → foot); joint torque `τ = T·r`, so cable
+[SPINE_TAIL_SPEC.md](SPINE_TAIL_SPEC.md): **SI units**; sagittal-plane
+**digitigrade 4-link leg** (hip → femur → stifle → tibia → hock → metatarsus →
+*passive* paw) with **3 actuated joints**; joint torque `τ = T·r`, so cable
 tension `T = τ / r` (+ a pretension / co-contraction floor).
 
 Label legend: `[sourced]` traceable to lit-review / ADR / M1 budget;
@@ -27,9 +28,9 @@ Label legend: `[sourced]` traceable to lit-review / ADR / M1 budget;
 ## 0. The tension problem, stated
 
 `T = τ / r`. A **small moment arm hugely amplifies required cable tension** —
-this is the entire burden ADR-0003 accepted. The M1 worst case (single-leg
-**land**, 73.6 N foot force × 2.5 impact) drives **~12–13 N·m** at hip and knee.
-At the current placeholder arms (hip 15 mm, knee 12 mm) this yields **~870 N
+this is the entire burden ADR-0003 accepted. The worst case (single-leg
+**land**, 73.6 N foot force × 2.5 impact) drives **~12.4 N·m at the hip**. At
+the original placeholder arms (hip 15 mm, knee 12 mm) this yielded **~870 N
 (hip) / ~1050 N (knee)** — **15–50× the RoboCat ~20–70 N sanity band**
 `[sourced: M1 budget; lit Q6]`.
 
@@ -37,12 +38,12 @@ Two things must be said honestly up front:
 
 1. **Geometry alone roughly halves the peak, no more.** The largest pulley a
    cat-scale leg joint can package is ~25–28 mm; that cuts the land peak from
-   ~1000 N to ~500 N (§1). It **cannot** reach the RoboCat 20–70 N band, because
+   ~1050 N to ~450 N (§1). It **cannot** reach the RoboCat 20–70 N band, because
    that band is a lighter, non-impact demonstrator — our peak is a deliberate
    ×2.5 single-leg *landing transient*, not a continuous load.
 2. **The residual is a transient, not a duty.** Under **stand and trot** the same
    arms give 50–150 N cable tension — near the RoboCat band. The irreducible
-   ~500 N lives **only** in the rare land impact, and it sets **structural**
+   ~450 N lives **only** in the rare land impact, and it sets **structural**
    sizing (cable break strength, pulley/bearing static rating), not continuous
    thermal/fatigue sizing. That distinction is what makes the design buildable.
 
@@ -52,18 +53,21 @@ Two things must be said honestly up front:
 
 ### 1.1 Joint torques by load case
 
-Torque scales linearly with foot support force. Anchored on the M1 land figures
-(hip 13.0 N·m, knee 12.6 N·m at 73.6 N) `[sourced: M1 budget]` and scaled to the
-other two `DEFAULT_LOADS` foot forces (stand 7.36 N, trot 22.08 N). Ankle torque
-is estimated as ground-reaction × foot lever (`l3 = 0.05 m`): `73.6 × 0.05 ≈
-3.68 N·m` worst `[assumed]` — ADR-0002 reserves the ankle as spring-return
-(Option B), so its tendon demand is the lightest and may not be antagonistic.
+Torque scales linearly with foot support force. All three columns are now taken
+directly from the **post-M4 whole-body budget** in the digitigrade posture
+`[sourced: whole_body_budget]` (trot scaled from the same sweep at 22.08 N).
 
 | Joint | Stand (4-leg, ×1.0) | Trot (2-leg, ×1.5) | **Land (1-leg, ×2.5)** | Source |
 |---|---|---|---|---|
-| Hip   | 1.30 N·m | 3.90 N·m | **13.0 N·m** | `[sourced: M1 budget]` |
-| Knee  | 1.26 N·m | 3.78 N·m | **12.6 N·m** | `[sourced: M1 budget]` |
-| Ankle | 0.37 N·m | 1.10 N·m | **3.68 N·m** | `[assumed]` (foot lever) |
+| **Hip** | 1.24 N·m | 3.71 N·m | **12.36 N·m** ← worst | `[sourced: budget]` |
+| Stifle (knee) | 0.75 N·m | 2.25 N·m | **7.49 N·m** | `[sourced: budget]` |
+| Hock (ankle) | 0.48 N·m | 1.44 N·m | **4.79 N·m** | `[sourced: budget]` |
+
+The digitigrade fold **redistributed** these versus the old flat-footed posture:
+the stifle dropped sharply (12.6 → 7.49 N·m) while the hock rose (3.68 → 4.79),
+because the folded metatarsus now carries more of the landing moment. ADR-0002
+still reserves the hock as spring-return (Option B), so its tendon *count* is
+lightest — but not its *force*.
 
 ### 1.2 Packageable arm at each joint
 
@@ -88,38 +92,66 @@ exactly.
 Pretension floor 5 N (matches current `TendonParams`); the AIC co-contraction
 bias `T_bias` (Kengoro ≈ 19.6 N, applied at runtime) would add a few % more.
 
-| Joint | r | Stand | Trot | **Land (peak)** | Placeholder land peak | Reduction |
-|---|---|---|---|---|---|---|
-| Hip   | 0.028 m | 51 N | 144 N | **~470 N** | ~870 N | **−46 %** |
-| Knee  | 0.025 m | 55 N | 156 N | **~510 N** | ~1050 N | **−51 %** |
-| Ankle | 0.014 m | 31 N | 84 N  | **~270 N** | (n/a) | — |
+> ⚠️ **Recomputed after the M4 posture fix.** The figures below are from the
+> current model (digitigrade negative-knee fold, stance `(0.05, −0.19)`, real
+> distributed mass). The *earlier* revision of this table was computed under the
+> old positive-knee posture with feet ~0.2 m ahead of the hips — a posture since
+> shown to be statically unstable. **The worst joint changed: it is now the HIP,
+> not the knee, and the ankle load rose sharply.**
+
+| Joint | r | Stand | **Land (peak)** | Old-posture land peak | Change |
+|---|---|---|---|---|---|
+| **Hip**   | 0.028 m | 49 N | **~447 N** ← worst | ~470 N | −5 % |
+| Knee (stifle) | 0.025 m | 35 N | **~305 N** | ~510 N | **−40 %** |
+| **Ankle (hock)** | 0.014 m | 39 N | **~347 N** | ~270 N | **+29 %** ⚠ |
+
+Driving joint torques (single-leg land, ×2.5): hip **12.36 N·m**, stifle
+7.49 N·m, hock 4.79 N·m.
 
 **What geometry solved / what remains:**
-- **Solved:** all continuous operation (stand/trot) now sits at **30–160 N** —
-  within a factor of ~2 of the RoboCat band, i.e. an ordinary cable-drive regime.
-  Geometry removes ~half of the land peak.
-- **Irreducibly remains:** a **~500 N knee / ~470 N hip land transient.** No
-  packageable arm removes it (a 40 mm knee pulley would reach ~320 N but is
-  bulky/heavy distally and fights ROM). This residual is the *structural design
-  load* for cable/pulley/bearing (§2, §3), handled as a rare peak, not a duty.
+- **Solved:** continuous operation (stand) now sits at **35–49 N** — inside the
+  RoboCat ~20–70 N band, an ordinary cable-drive regime.
+- **Irreducibly remains:** a **~450 N hip land transient.** No packageable arm
+  removes it. This residual is the *structural design load* for
+  cable/pulley/bearing (§2, §3) — a rare peak, not a duty.
+- **⚠ Action item from the M4 posture change:** the digitigrade stance loads the
+  **hock much harder than before** (270 → 347 N) while it carries the *smallest*
+  arm (14 mm), because the folded metatarsus now bears more of the landing
+  moment. **The 14 mm hock arm should be revisited** — it is now the least
+  favourable tension-per-millimetre on the leg. Note ADR-0002 reserves the ankle
+  for spring-return, which changes its tendon count but not this force.
 
 **Recommended moment-arm set → `TendonParams.joint_moment_arm = (0.028, 0.025,
-0.014) m`.** Structural design load for hardware: **~525 N per tendon**
-(knee land + T_bias), size components to **~1 kN** for margin.
+0.014) m`** *(hock pending the review above)*. Structural design load is now
+**~465 N per tendon** (hip land + `T_bias`), down from ~525 N under the old
+posture. **Hardware sizing in §2–§3 is deliberately RETAINED at the 525 N
+basis** — an 11 % load drop is not a reason to downsize a structural margin,
+and the placeholder inputs could still move. Components remain sized to
+**~1 kN**.
 
 ### 1.4 Cable-travel / spool sanity check
 
-At `motor_spool_radius = 0.008 m`: knee ROM (0 → 0.8π = 2.51 rad) → travel
-`0.025 × 2.51 = 63 mm` → motor sweep `63/8 = 7.9 rad ≈ 1.25 rev`. Hip (±π/2 =
-3.14 rad) → travel `88 mm` → `≈ 1.75 rev`. Both fit a small multi-wrap spool.
+At `motor_spool_radius = 0.008 m`, using the **post-M4 negative-fold limits**
+(hip ±120°, stifle −150…0°, hock −30…+150°):
+
+| Joint | ROM | travel = r·ROM | motor sweep |
+|---|---|---|---|
+| Hip | 240° = 4.19 rad | `0.028 × 4.19 =` **117 mm** | 14.6 rad ≈ **2.3 rev** |
+| Stifle | 150° = 2.62 rad | `0.025 × 2.62 =` **65 mm** | 8.2 rad ≈ 1.3 rev |
+| Hock | 180° = 3.14 rad | `0.014 × 3.14 =` **44 mm** | 5.5 rad ≈ 0.9 rev |
+
+⚠ The widened hip range pushes hip cable travel to **117 mm / ~2.3 rev** (was
+88 mm at the old ±90°). Still fine for a multi-wrap spool, but it is now the
+sizing case — check spool width and wrap stacking against it.
 
 ---
 
 ## 2. Cable spec
 
-Structural design tension **~525 N**; target **safety factor ≥ 4** on peak
-(covers knot/splice strength loss ~30–50 %, abrasion, and fatigue) →
-**breaking strength ≥ ~2.2 kN.**
+Structural design tension **~525 N** (retained basis — the post-M4 recomputed
+peak is ~465 N at the hip, but the margin is kept, see §1.3); target **safety
+factor ≥ 4** on peak (covers knot/splice strength loss ~30–50 %, abrasion, and
+fatigue) → **breaking strength ≥ ~2.2 kN.**
 
 **Recommendation: 1.5 mm braided UHMWPE (Dyneema SK78 / SK99, 12-strand).**
 
@@ -220,9 +252,9 @@ per-pulley wrap to model the tension the **motor** must supply vs. what the
 | Pulley station | Wrap angle θ | Note | Label |
 |---|---|---|---|
 | Motor spool | ~180° (π) | 0.5–1 wrap on the spool | `[assumed]` |
-| Hip sheave (hip tendon) | up to ~150° | = hip ROM + anchor seat | `[assumed]` |
+| Hip sheave (hip tendon) | up to ~240° | = hip ROM (±120°) + anchor seat | `[assumed]` |
 | Hip idler (knee/ankle pass-through) | ~30–45° | redirect only | `[assumed]` |
-| Knee sheave (knee tendon) | up to ~145° | large knee ROM (0→0.8π) | `[assumed]` |
+| Stifle sheave (knee tendon) | up to ~150° | stifle ROM (−150…0°) | `[assumed]` |
 | Knee idler (ankle pass-through) | ~30–45° | redirect only | `[assumed]` |
 | Ankle sheave | ~60–90° | `[assumed]` |
 
@@ -306,7 +338,7 @@ dataclasses; proposed **new** fields are flagged.
 | Field | Value | Unit | Note |
 |---|---|---|---|
 | `l1, l2, l3` | `0.120, 0.120, 0.050` | m | unchanged; moment arms above assume this scale |
-| `q_min / q_max` | as-is | rad | knee ROM 0→0.8π drives the 63 mm knee travel (§1.4) |
+| `q_min / q_max` | post-M4 negative fold: hip ±120°, stifle −150…0°, hock −30…+150° | rad | hip ROM now drives the 117 mm worst-case travel (§1.4) |
 
 ### 5.4 Derived design loads (for reference, not a param)
 
