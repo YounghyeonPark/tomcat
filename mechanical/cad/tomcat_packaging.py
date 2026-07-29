@@ -39,8 +39,8 @@ TRACK = 96.0
 BONE_R = 6.0
 MOTOR_D, MOTOR_L = 16.0, 28.0        # small cat-scale BLDC (❓ placeholder)
 SPOOL_D, SPOOL_L = 9.0, 7.0
-FOOT_Z, FOOT_PITCH = -0.20, 0.0     # paw flat on the ground (digitigrade)
-FRONT_FOOT_X, REAR_FOOT_X = 0.02, -0.02
+FOOT_Z, FOOT_PITCH = -0.19, 0.0     # paw flat on the ground (digitigrade)
+FRONT_FOOT_X, REAR_FOOT_X = 0.06, 0.04
 TENDON_R = 1.6
 LEG_ARMS = np.asarray(DEFAULT_TENDON.joint_moment_arm) * MM   # hip,knee,ankle pulley radii (mm)
 SPINE_ARM = float(DEFAULT_SPINE.joint_moment_arm[0]) * MM     # 30 mm
@@ -176,7 +176,7 @@ def tail(z, spool):
 
 def build():
     H = -FOOT_Z * MM
-    kp = KneeConfig.FLEXED_POSITIVE
+    kp = KneeConfig.FLEXED_NEGATIVE
     spine_body, spine_pulleys, xs = spine_chain(H)
     front_x = float(xs[-1])
 

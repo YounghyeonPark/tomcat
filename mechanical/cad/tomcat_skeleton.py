@@ -42,10 +42,10 @@ BONE_R = 7.0          # leg bone radius (mm)
 GIRDLE = (70.0, 120.0, 46.0)   # girdle housing L×W×H (mm)
 
 # Standing stance: solve IK so each foot plants on the ground under its hip.
-FOOT_Z = -0.20        # foot height below the hip (m) -> hip/body height
+FOOT_Z = -0.19        # paw height below hip (m) -> hip/body height
 FOOT_PITCH = 0.0      # paw-tip pitch (rad) — paw flat on the ground (digitigrade)
-FRONT_FOOT_X = 0.02   # front feet slightly forward (m)
-REAR_FOOT_X = -0.02   # rear feet slightly back (m)
+FRONT_FOOT_X = 0.06   # front paws just ahead of the shoulder (m)
+REAR_FOOT_X = 0.04    # rear paws just ahead of the hip (m)
 
 
 def bone(p0, p1, r):
@@ -137,7 +137,7 @@ def tail(z):
 
 def build():
     H = -FOOT_Z * MM  # hip/body height so feet touch z=0 (ground)
-    kp = KneeConfig.FLEXED_POSITIVE
+    kp = KneeConfig.FLEXED_NEGATIVE
 
     spine_body, front_x = spine(H)
 

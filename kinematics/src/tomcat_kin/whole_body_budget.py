@@ -297,7 +297,7 @@ def evaluate(
     load: WholeBodyLoadCase,
     *,
     grid: int = 25,
-    knee: KneeConfig = KneeConfig.FLEXED_POSITIVE,
+    knee: KneeConfig = KneeConfig.FLEXED_NEGATIVE,
     t_bias=None,
     leg_q=None,
 ) -> WholeBodyBudgetResult:

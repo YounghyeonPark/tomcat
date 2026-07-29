@@ -98,12 +98,31 @@ class LegParams:
     # toe-break for a proper digitigrade crouch (up from an earlier modest 30).  ❓ TBD
     paw_angle: float = math.radians(55.0)
 
-    # Joint angle limits (rad), (min, max) per ACTUATED joint: hip, knee, ankle.
-    # The hock (ankle) range is widened to ±90° so a real cat crouch (hock held
-    # high, metatarsus folded steeply) is reachable — the ±60° placeholder was the
-    # binding constraint on stance depth.  ❓ TBD
-    q_min: tuple[float, float, float] = (-math.pi / 2, 0.0, -math.pi / 2)
-    q_max: tuple[float, float, float] = (math.pi / 2, math.pi * 0.8, math.pi / 2)
+    # Joint angle limits (rad), (min, max) per ACTUATED joint: hip, stifle, hock.
+    #
+    # NEGATIVE-KNEE (anatomical fold) convention — see `KneeConfig` in leg.py.
+    # M4's stability check exposed that the earlier POSITIVE-knee limits
+    # (`stifle >= 0`) made it geometrically impossible to plant a paw under its
+    # own hip: doing so demanded a hip angle of ~+167 deg, so every foot landed
+    # ~0.2 m ahead of its hip and the whole machine was fore/aft unstable. On the
+    # negative branch the same pose is ordinary (hip ~-71 deg), so the stifle is
+    # now restricted to a NEGATIVE range, which encodes the fold direction
+    # structurally: femur angles down-and-forward, tibia folds back under it,
+    # metatarsus rises to a high hock — the digitigrade Z.
+    #
+    # Ranges are generous placeholders around the demanded working set (at the
+    # default stance both fore and hind need only hip -76..-26, stifle -113..-69,
+    # hock +73..+124 deg), leaving margin for swing and deeper crouches.  ❓ TBD
+    q_min: tuple[float, float, float] = (
+        math.radians(-120.0),   # hip
+        math.radians(-150.0),   # stifle (knee) — negative fold only
+        math.radians(-30.0),    # hock (ankle)
+    )
+    q_max: tuple[float, float, float] = (
+        math.radians(120.0),    # hip
+        0.0,                    # stifle — never crosses into positive fold
+        math.radians(150.0),    # hock
+    )
 
     # --- MASS PROPERTIES (M4).  ❓ ALL PLACEHOLDER; see the module docstring for
     #     how the 3.0 kg body was apportioned.

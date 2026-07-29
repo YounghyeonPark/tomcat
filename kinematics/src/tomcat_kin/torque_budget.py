@@ -55,14 +55,15 @@ def evaluate(
     *,
     grid: int = 25,
     foot_pitch: float = 0.0,
-    knee: KneeConfig = KneeConfig.FLEXED_POSITIVE,
+    knee: KneeConfig = KneeConfig.FLEXED_NEGATIVE,
     t_bias=None,
 ) -> BudgetResult:
     """Sweep a grid of foot positions and return the worst-case budget.
 
     The workspace box is derived from the leg reach; poses that are unreachable
-    or violate joint limits are skipped. `knee` defaults to the positive-flexion
-    branch to match the (placeholder) knee limit sign in LegParams. `t_bias` is
+    or violate joint limits are skipped. `knee` defaults to the NEGATIVE-flexion
+    branch — the anatomical digitigrade fold, matching the negative stifle range
+    in LegParams (see the limits note there). `t_bias` is
     the antagonistic co-contraction bias passed through to the tendon map (see
     ADR-0002); `None` uses the default pretension floor.
     """

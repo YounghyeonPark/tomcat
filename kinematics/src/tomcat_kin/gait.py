@@ -157,8 +157,11 @@ class GaitParams:
     phase_offsets : Mapping[str, float]
         Per-leg touchdown phase in [0, 1). Keys are leg names ("LF" etc.).
     knee : KneeConfig
-        Which 2R IK branch each leg uses. FLEXED_POSITIVE keeps the knee angle
-        q2 >= 0, matching the placeholder ``LegParams`` knee limit [0, 144 deg].
+        Which 2R IK branch each leg uses. FLEXED_NEGATIVE (the default) keeps the
+        stifle angle q2 <= 0 — the anatomical digitigrade fold, matching the
+        negative stifle range in ``LegParams``. The positive branch cannot place
+        a paw under its own hip (it demands a ~+167 deg hip), which is what made
+        the pre-M4 walk fore/aft unstable.
     spine_amplitude : float
         Amplitude (rad, per segment) of the OPTIONAL dorsoventral spine
         oscillation coupled to the gait. 0.0 (default) => spine held NEUTRAL.
@@ -171,12 +174,16 @@ class GaitParams:
     stride_length: float = 0.05
     step_height: float = 0.03
     duty_factor: float = 0.75
-    nominal_foot: tuple[float, float] = (0.20, -0.13)
+    # Feet planted just ahead of / under the hips at a moderately extended
+    # digitigrade stance. Pre-M4 this was (0.20, -0.13): the positive-knee branch
+    # could not reach under the hip, so every paw landed ~0.2 m forward and the
+    # support interval sat entirely ahead of the trunk (statically unstable).
+    nominal_foot: tuple[float, float] = (0.05, -0.19)
     foot_pitch: float = 0.0
     phase_offsets: Mapping[str, float] = field(
         default_factory=lambda: dict(DEFAULT_PHASE_OFFSETS)
     )
-    knee: KneeConfig = KneeConfig.FLEXED_POSITIVE
+    knee: KneeConfig = KneeConfig.FLEXED_NEGATIVE
     spine_amplitude: float = 0.0
     spine_phase: float = 0.0
 

@@ -535,7 +535,7 @@ class WholeBody:
         spine_q,
         leg_name: str,
         foot_world,
-        knee: KneeConfig = KneeConfig.FLEXED_POSITIVE,
+        knee: KneeConfig = KneeConfig.FLEXED_NEGATIVE,
     ) -> "LegIKSolution":
         """Whole-body INVERSE kinematics for one leg through the moving girdle.
 
@@ -601,7 +601,7 @@ class WholeBody:
         self,
         spine_q,
         foot_world_targets: Mapping[str, np.ndarray],
-        knee: KneeConfig = KneeConfig.FLEXED_POSITIVE,
+        knee: KneeConfig = KneeConfig.FLEXED_NEGATIVE,
     ) -> dict[str, "LegIKSolution"]:
         """Solve every leg for a dict of WORLD foot poses at a spine posture.
 

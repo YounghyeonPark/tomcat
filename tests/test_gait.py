@@ -239,13 +239,14 @@ def test_spine_oscillation_when_enabled():
 # Mount offset that moves the hips (and hence the feet) rearward enough for the
 # support base to straddle the CoM. Derived from `centering_shift` on the default
 # body; used ONLY as a diagnostic what-if, it is not a committed design value.
-_CONSISTENT_HIP_OFFSET = (-0.22, 0.0)
+_MISPLACED_HIP_OFFSET = (-0.22, 0.0)
 
 
-def _consistent_body():
-    """WholeBody whose feet actually land under the trunk (diagnostic what-if)."""
+def _misplaced_body():
+    """WholeBody with deliberately shoved hips, so the feet do NOT land under the
+    trunk. Used only to prove the stability check can still detect instability."""
     mounts = {
-        name: LegMount(name, girdle, _CONSISTENT_HIP_OFFSET)
+        name: LegMount(name, girdle, _MISPLACED_HIP_OFFSET)
         for name, girdle in (
             ("LF", Girdle.FRONT), ("RF", Girdle.FRONT),
             ("LR", Girdle.REAR), ("RR", Girdle.REAR),
@@ -272,13 +273,16 @@ def test_support_interval_uses_only_the_three_stance_feet():
     assert st.swing_legs[0] not in st.stability.support.feet
 
 
-def test_placeholder_leg_cannot_place_a_foot_under_its_own_hip():
-    # Root cause of the finding above, checked directly on the leg model.
+def test_leg_can_place_a_foot_under_its_own_hip():
+    # REGRESSION GUARD for the M4 finding. On the old POSITIVE-knee branch a leg
+    # could not plant a paw under its own hip (it demanded a ~+167 deg hip), so
+    # every foot landed ~0.2 m forward and the walk was fore/aft unstable. On the
+    # anatomical NEGATIVE-knee fold the paw reaches back to / behind the hip.
     z = ctrl.params.nominal_foot[1]
     for p in (DEFAULT_FORELEG, DEFAULT_HINDLEG):
         leg = LegModel(p)
         reachable_x = []
-        for x in np.arange(-0.10, 0.30, 0.005):
+        for x in np.arange(-0.12, 0.30, 0.005):
             for knee in KneeConfig:
                 try:
                     q = leg.inverse((x, z, ctrl.params.foot_pitch), knee=knee)
@@ -288,43 +292,40 @@ def test_placeholder_leg_cannot_place_a_foot_under_its_own_hip():
                     reachable_x.append(x)
                     break
         assert reachable_x, "leg has no in-limit stance pose at all"
-        # Everything reachable is well FORWARD of the hip -- that is the defect.
-        assert min(reachable_x) > 0.12
+        # The stance workspace now straddles the hip (x = 0), not just ahead of it.
+        assert min(reachable_x) <= 0.0
+        assert max(reachable_x) > 0.10
 
 
-def test_default_walk_is_fore_aft_UNSTABLE_and_always_tips_rearward():
-    # Reported honestly rather than fudged: the default walk's CoM falls BEHIND
-    # the rear edge of the support interval at every phase, by 40-100 mm.
+def test_default_walk_is_fore_aft_STATICALLY_STABLE():
+    # The payoff of the negative-knee fix: with the paws under the trunk the CoM
+    # stays inside the support interval for the whole cycle.
     margins = ctrl.stability_sweep(60)
     assert len(margins) == 60
-    assert all(not m.is_stable for m in margins)
-    assert all(m.tipping_edge == "rear" for m in margins)
-    worst = min(m.margin for m in margins)
-    best = max(m.margin for m in margins)
-    assert -0.10 < worst < best < -0.03
-    # The support base is entirely ahead of the whole body.
-    st = ctrl.state(0.0)
-    assert st.stability.support.rear > st.com.x
-
-
-def test_centering_shift_quantifies_the_geometry_error():
-    # ~170 mm of fore-aft correction is needed; that is the number to hand to
-    # tomcat-mechanical, not something the gait should paper over.
-    d = centering_shift(ctrl.stability(0.0))
-    assert 0.12 < d < 0.25
-
-
-def test_duty_075_walk_IS_statically_stable_once_the_geometry_is_consistent():
-    # The gait PATTERN is fine: with the support base straddling the CoM the
-    # duty-0.75, three-feet-down walk keeps a comfortable positive margin for the
-    # whole cycle. This proves the stability wiring, and isolates the defect to
-    # the placeholder leg/mount geometry.
-    c = GaitController(body=_consistent_body())
-    margins = c.stability_sweep(120)
     assert all(m.is_stable for m in margins)
     assert all(m.support.n_feet == 3 for m in margins)
-    assert min(m.margin for m in margins) > 0.05     # > 50 mm at every phase
     assert all(m.normalized_margin > 0.0 for m in margins)
+    worst = min(m.margin for m in margins)
+    assert worst > 0.02                     # > 20 mm of margin at every phase
+    # The support base now STRADDLES the body centre of mass.
+    st = ctrl.state(0.0)
+    assert st.stability.support.rear < st.com.x < st.stability.support.front
+
+
+def test_centering_shift_is_small_now_that_the_geometry_is_consistent():
+    # centering_shift reports the fore-aft correction still needed. Pre-fix it was
+    # ~170 mm (a real geometry defect); it should now be a small trim, not a
+    # structural error.
+    d = centering_shift(ctrl.stability(0.0))
+    assert d < 0.06
+
+
+def test_stability_check_still_detects_a_deliberately_misplaced_body():
+    # Guard that the margin is measuring something real: shove the hips far off
+    # so the feet no longer sit under the trunk and the SAME gait must go unstable.
+    c = GaitController(body=_misplaced_body())
+    margins = c.stability_sweep(120)
+    assert any(not m.is_stable for m in margins)
 
 
 def test_stability_margin_agrees_between_hip_frame_and_world_frame_controllers():
