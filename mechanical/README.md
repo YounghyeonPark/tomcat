@@ -17,6 +17,15 @@ Scope:
 - **Compliance:** return springs and/or series-elastic elements per ADR-0002.
 - **BOM:** motors, cables, pulleys, bearings, springs, fasteners.
 
+## Review
+- [DESIGN_REVIEW.md](DESIGN_REVIEW.md) — **first critical pass** over the whole
+  mechanical design. Five findings, three major: the mass apportionment
+  contradicts P1 (limbs over-budgeted, girdles under-budgeted), the 60/40
+  front-heavy split is likely wrong once motors sit in their real clusters
+  (which would move the M4 stability margins), and the **links are never
+  structurally sized** — the femur sits at SF ≈ 1.0 in bending from its own
+  offset tendon.
+
 ## Reference
 - [reference/ANATOMY.md](reference/ANATOMY.md) — feline anatomy basis for the
   biomimetic geometry, citing **public-domain** sources (Reighard & Jennings,

@@ -1,0 +1,162 @@
+# Mechanical Design Review — first critical pass
+
+Reviewer: **lead** · Date basis: post-M4 (real mass, static stability) ·
+Status of findings: **first-pass calculations, not verified hardware**
+
+This reviews the mechanical design as a whole — [LEG_TENDON_SPEC](LEG_TENDON_SPEC.md),
+[SPINE_TAIL_SPEC](SPINE_TAIL_SPEC.md), the [CAD models](cad/), and the M4 mass
+model — looking for gaps and cross-artifact contradictions rather than
+summarising what is already written.
+
+**Estimate quality warning.** Every number below is a first-pass calculation from
+placeholder geometry with assumed material properties (CF tube E ≈ 70 GPa
+quasi-iso, σ_allow ≈ 400 MPa; motors ≈ 5.5 g/cm³). They are strong enough to
+*direct attention*, not to size hardware. Each finding states what would confirm
+or dismiss it.
+
+---
+
+## What is in good shape
+
+- **The tendon hardware chain is coherent** — cable → pulley → bearing → routing
+  → static-hold brake all trace from one design load with stated assumptions.
+- **The static/dynamic bearing split** (§3.2) is the strongest single call in the
+  specs: sizing fatigue life to the *continuous trot* and brinelling to the *rare
+  land transient* is what keeps the bearings small. Correct reasoning.
+- **The transient-vs-duty distinction** is what makes a ~450 N peak buildable.
+- **Moment arms are now validated by the real budget**, not guessed: the spine's
+  0.030 m arm puts continuous tension at 23–24 N, inside the RoboCat band.
+
+---
+
+## F1 — Mass apportionment contradicts P1 (major)
+
+The M4 budget allocates **24 % of body mass to the limbs**, justified from feline
+biology. But a biological limb's mass is largely **muscle**, and P1/ADR-0003
+*deliberately relocate the muscle (motors) into the girdles*. Applying a
+biological limb fraction to a tendon-driven robot double-counts the actuator.
+
+A bottom-up count of the specced hardware disagrees by more than 2×:
+
+| Per leg | Estimate |
+|---|---|
+| Sheaves (Ø56/50/28 Al, 45 % lightened) | 44 g |
+| Bones (8 mm × 1 mm CF tube ×4) | 10 g |
+| 6 miniature bearings, 3 shafts | 15 g |
+| Cable + terminations, brackets | 11 g |
+| **Total** | **≈ 80 g** |
+
+vs **200 g budgeted** (hind). Even doubling my estimate for unmodelled parts
+(sheaths, foot pad, fasteners) the legs land near **~120 g**, i.e. limbs ≈ **15 %**
+of body, not 24 %.
+
+Meanwhile the **girdles are under-budgeted**. They must contain the motors:
+
+| Girdle contents | Estimate |
+|---|---|
+| 31 motors @ Ø16×28 mm ≈ 31 g | 960 g |
+| 31 driver boards @ ~5 g | 155 g |
+| Battery `[assumed]` | 300 g |
+| **Subtotal** | **≈ 1415 g** |
+
+vs **980 g budgeted** — a **~435 g shortfall**, before girdle structure.
+
+The *total* still lands near 3.0 kg (the errors cancel), which is why this was
+invisible: **the total is right and the distribution is wrong.**
+
+> **Consequence:** the real machine is *more* mass-centralised than modelled —
+> which is what P1 predicts and is good for agility — but CoM, the fore/hind
+> split, and swing inertia are all computed from the wrong distribution.
+>
+> **To confirm:** pick a candidate motor (also gates `Kt`/bus voltage) and weigh
+> or source-datasheet it; then re-derive the budget bottom-up instead of from the
+> biological 24 %.
+
+## F2 — The 60/40 front-heavy split is probably wrong (major)
+
+M4 solved the girdle masses to hit a **59.9 % fore** split, making the *front*
+girdle heavy (700 g) to absorb head + neck. But per ADR-0005 / the board outline,
+the motors are **not** distributed that way:
+
+| Cluster | Motors |
+|---|---|
+| Shoulder girdle | 12 (fore legs) |
+| **Pelvic girdle** | **19** (hind legs + 6 spine + 1 tail) |
+
+At ~31 g each that is **589 g in the pelvis vs 372 g in the shoulder** — the
+motor mass leans *rearward*, partly cancelling the head/neck. The true split may
+be near-balanced or even rear-heavy, not 60/40 fore.
+
+> **Why it matters:** M4's static stability margin is a CoM-vs-support
+> calculation. Move the CoM rearward and the margins change directly — and the
+> current gait already tips toward the **rear** edge (every phase is
+> "STABLE (rear edge)"). This is the finding most likely to alter a result we
+> have already published.
+>
+> **To confirm:** recompute `quarter_masses` with motors placed in their actual
+> clusters rather than folded into girdle lumps, then re-run the stability sweep.
+
+## F3 — The links are never structurally sized (major)
+
+The specs size the *cable, pulleys and bearings* to ~1 kN but never size **the
+bones themselves**. That matters because an offset tendon does not merely
+compress a link — it **bends** it: a cable running at radius `r` applies
+`M = T·r` about the section.
+
+First-pass 8 mm OD × 1 mm wall CF tube (I = 137 mm⁴):
+
+| Link | T (N) | r (mm) | M (N·m) | bending σ | total σ | SF vs ~400 MPa |
+|---|---|---|---|---|---|---|
+| **Femur (hip)** | 447 | 28 | **12.5** | 364 MPa | **385 MPa** | **≈ 1.0** ⚠ |
+| Tibia (stifle) | 305 | 25 | 7.6 | 222 MPa | 236 MPa | 1.7 |
+| Metatarsus (hock) | 347 | 14 | 4.9 | 141 MPa | 157 MPa | 2.5 |
+
+**The femur is at the material limit (SF ≈ 1.0)** in the land transient.
+Note the irony: the *large* hip moment arm that §1.2 chose to reduce cable
+tension is exactly what maximises the bending moment on the femur. The two
+objectives are in direct conflict and were never traded against each other.
+
+Euler buckling is **not** the issue (tibia P_cr ≈ 10.5 kN, SF ≈ 34) — bending is.
+
+> **To confirm / fix:** proper section design (larger OD, thicker wall, or a
+> non-circular section), routing the tendon closer to the neutral axis over the
+> link span, or reacting the offset with an idler so the moment does not travel
+> the whole link. Any of these is cheap now and expensive later.
+
+## F4 — Girdle width unresolved (moderate, previously flagged)
+
+The packaging study sizes each girdle at **142 mm wide** against a **96 mm leg
+track**, so the motor banks protrude past the body sides, and the pelvic girdle
+grows to 91 mm tall. Documented in [cad/README](cad/README.md) but never
+resolved. Options already noted: reorient motors, spread the bank along the
+torso, or take the variable-radius-pulley reduction (spine 6 → 3).
+
+F1 makes this *more* urgent: if girdle contents are ~435 g heavier than budgeted,
+they are also bulkier than drawn.
+
+## F5 — No assembly / manufacturing pass (gap)
+
+Across all mechanical docs there is essentially **one** mention of
+manufacturability (the CAD README stating it is not a manufacturing model). Not
+yet addressed: fabrication method per part, tolerances and fits, fastener
+strategy, cable **termination** and **re-tensioning** access, and how a joint is
+physically assembled around its pulley and bearings. This is expected at this
+stage — recording it so it is not mistaken for completeness.
+
+---
+
+## Recommended order
+
+1. **F1 + F2 together** — pick a motor, rebuild the mass budget bottom-up with
+   motors in their real clusters, re-run CoM and the stability sweep. These two
+   are coupled and can invalidate a published M4 result.
+2. **F3** — section design for the femur; cheap now.
+3. **F4** — resolve girdle packaging (informed by F1's real motor mass).
+4. **F5** — assembly pass, once the above settle.
+
+## Does the hock verdict still hold?
+
+Yes, and more strongly. [§1.3a](LEG_TENDON_SPEC.md) priced the hock arm against
+*leg swing inertia*. If F1 is right and the legs are lighter than modelled, a
+given pulley is a **larger** fraction of the leg's inertia, so growing the hock
+arm is *more* costly than the review calculated. **Keep 14 mm.**
