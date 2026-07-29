@@ -13,8 +13,10 @@ sequences the work that implements them.
 > kinematics + tendon map, combined budget, first firmware/electronics/mechanical
 > specs. **M2 done**: parameterized walk gait generator. **M3 done**: whole-body
 > foot placement — spine↔gait loop closed, stance feet held in the world frame
-> while the legs compensate for spine motion (158 passing tests).
-> **Next: M4** (dynamics, or the righting milestone).
+> while the legs compensate for spine motion. Plus a biomimetic pass: digitigrade
+> 4-link legs, fore/hind asymmetry (model *and* CAD), thoracic ribcage, and 3D
+> CAD/packaging studies (168 passing tests).
+> **M4 (active):** real mass — CoM & static stability.
 
 ---
 
@@ -198,9 +200,32 @@ in the world while the legs absorb spine motion** (verified: foot-target span
 0.000 mm under a ±2°/seg spine oscillation, leg angles differ up to ~8°, FK
 error ~0). 25 new tests (158 total).
 
-## Later milestones (candidate M4+, not committed)
+## Milestone M4 — Real mass: CoM & static stability (ACTIVE)
 
-- **Dynamics:** leg mass in flight (~0.454 kg knee) driving trunk bending;
+**Goal.** Put actual **mass** into the model. Today everything is massless and
+`whole_body_budget` lumps *equal* masses at the vertebrae — its own assumption
+A2 concedes a real cat is ~**60 % front-heavy**. M4 fixes that and adds the
+stability check the gait has never had (it currently validates stance *count*
+only, with no support-polygon margin).
+
+**Scope — quasi-static WITH real mass** (velocities/accelerations stay out;
+full Newton–Euler is M5):
+1. Per-link masses + CoM fractions on both leg variants, spine segments, and
+   girdles, apportioned to the ~3 kg body with the ~60/40 fore/hind split.
+2. Whole-body **centre of mass** as a function of spine + leg posture.
+3. **Static stability margin** — CoM ground projection vs. the fore-aft support
+   interval, reported per gait phase.
+4. Spine gravity loads driven by the **real distributed mass**, replacing the
+   equal-lumped placeholder in the whole-body budget.
+
+**Honest bound:** a 2D sagittal "support polygon" is really a fore-aft interval —
+true lateral/roll stability needs the 3D extension.
+
+## Later milestones (candidate M5+, not committed)
+
+- **Full dynamics:** velocities/accelerations, Newton–Euler; leg mass in flight
+  driving trunk bending (the lit-review MMS result — note its ~0.454 kg knee is
+  from a far larger robot and must be rescaled);
   velocities/inertia beyond the current quasi-static model.
 - 3D extension: frontal-plane leg abduction + spine lateral bend & axial twist.
 - Dynamics: leg mass in flight (~0.454 kg knee) driving trunk bending.
