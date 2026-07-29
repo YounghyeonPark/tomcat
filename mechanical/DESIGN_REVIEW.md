@@ -162,6 +162,27 @@ they are also bulkier than drawn.
 > the same height. Upright spools also pay cable off in the fore-aft/vertical
 > plane, which is the direction the tendons actually run.
 
+## F6 — Motor mass makes the 3 kg body infeasible (BLOCKING, new)
+
+Raised by the [motor down-select](../docs/notes/motor-downselect.md). F1 assumed
+~31 g/motor; a real QDD module meeting the torque requirement (SteadyWin
+GIM3505-9 class) is **131.7 g — 4.2× heavier**.
+
+| Configuration | Motors | Motor mass | % of 3 kg body |
+|---|---|---|---|
+| Full antagonistic (ADR-0002) | 31 | 4083 g | **136 %** |
+| CAD reduced (ankle spring) | 24 | 3161 g | **105 %** |
+| + variable-radius pulley | 16 | 2107 g | 70 % |
+
+**The motors alone exceed the whole body budget.** This is the honest cost of
+P1: relocating 24–31 muscles into the torso means the torso must carry 24–31
+motors. Ways out — scale the body to ~6–9 kg, cut motor count, or cut the torque
+requirement (thinner cable → smaller spool). Most likely a combination.
+
+> **This outranks F5 and should become an ADR** — it changes NFR5 (mass) and
+> possibly ADR-0002. It also invalidates the F1 girdle mass figures and the F4
+> girdle fit, both of which used the 31 g / Ø16×28 mm placeholder.
+
 ## F5 — No assembly / manufacturing pass (gap)
 
 Across all mechanical docs there is essentially **one** mention of
@@ -212,7 +233,9 @@ would firm up the whole budget — and it also gates `Kt` and bus voltage.
    are coupled and can invalidate a published M4 result.
 2. ~~**F3**~~ — **done**: graded tube sections, see above.
 3. ~~**F4**~~ — **done**: motors stood upright, see above.
-4. **F5** — assembly pass, once the above settle.
+4. **F6 (new, blocking)** — resolve the motor-mass / body-scale contradiction;
+   raise it as an ADR. Everything downstream of mass and packaging depends on it.
+5. **F5** — assembly pass, once the above settle.
 
 ## Does the hock verdict still hold?
 
