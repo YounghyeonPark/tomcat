@@ -97,7 +97,7 @@ be near-balanced or even rear-heavy, not 60/40 fore.
 > **To confirm:** recompute `quarter_masses` with motors placed in their actual
 > clusters rather than folded into girdle lumps, then re-run the stability sweep.
 
-## F3 — The links are never structurally sized (major)
+## F3 — The links are never structurally sized (major) — ✅ RESOLVED
 
 The specs size the *cable, pulleys and bearings* to ~1 kN but never size **the
 bones themselves**. That matters because an offset tendon does not merely
@@ -113,16 +113,25 @@ First-pass 8 mm OD × 1 mm wall CF tube (I = 137 mm⁴):
 | Metatarsus (hock) | 347 | 14 | 4.9 | 141 MPa | 157 MPa | 2.5 |
 
 **The femur is at the material limit (SF ≈ 1.0)** in the land transient.
-Note the irony: the *large* hip moment arm that §1.2 chose to reduce cable
-tension is exactly what maximises the bending moment on the femur. The two
-objectives are in direct conflict and were never traded against each other.
-
 Euler buckling is **not** the issue (tibia P_cr ≈ 10.5 kN, SF ≈ 34) — bending is.
 
-> **To confirm / fix:** proper section design (larger OD, thicker wall, or a
-> non-circular section), routing the tendon closer to the neutral axis over the
-> link span, or reacting the offset with an idler so the moment does not travel
-> the whole link. Any of these is cheap now and expensive later.
+> ### ⚠️ Correction to this finding
+> The first version of F3 claimed an "irony": that the *large hip moment arm
+> chosen to cut cable tension* was what maximised femur bending, so the two
+> objectives conflicted. **That was wrong.** Since `T = τ/r`, the moment is
+> `M = T·r = (τ/r)·r = τ` **identically** — the link's bending moment is simply
+> the joint torque, and is *independent of the moment arm*. Growing `r` reduces
+> cable tension and leaves link stress untouched. There is **no trade** between
+> the two; they are independent levers. The understrength finding itself stands —
+> only the explanation was wrong.
+
+> **Resolved:** purely a section problem. A **graded tube set** (femur Ø12×1,
+> tibia Ø10×1, metatarsus/paw Ø8×1) lifts every link to **SF ≈ 2.8–3.1** for
+> **+2.7 g per leg** and **+0.9 % swing inertia** — the added material sits
+> proximally, where the inertia lever is short. Specified in
+> [LEG_TENDON_SPEC §3.5](LEG_TENDON_SPEC.md).
+> Still owed: combined bending **+ torsion**, and local crushing where a pulley
+> or clevis clamps the tube — both need real joint detail (F5).
 
 ## F4 — Girdle width unresolved (moderate, previously flagged)
 
@@ -183,7 +192,7 @@ would firm up the whole budget — and it also gates `Kt` and bus voltage.
 1. ~~**F1 + F2 together**~~ — **done**, see above. — pick a motor, rebuild the mass budget bottom-up with
    motors in their real clusters, re-run CoM and the stability sweep. These two
    are coupled and can invalidate a published M4 result.
-2. **F3** — section design for the femur; cheap now.
+2. ~~**F3**~~ — **done**: graded tube sections, see above.
 3. **F4** — resolve girdle packaging (informed by F1's real motor mass).
 4. **F5** — assembly pass, once the above settle.
 

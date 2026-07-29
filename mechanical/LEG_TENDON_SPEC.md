@@ -300,6 +300,44 @@ wrap and use open pulleys**: friction directly inflates the motor-side tension
 
 ---
 
+### 3.5 Link (bone) structural sizing — closes review F3
+
+The specs sized the cable, pulleys and bearings but never **the links
+themselves**. A link must transmit its joint's torque, so it carries a bending
+moment equal to that torque.
+
+**Key identity — the moment arm does NOT affect this.** It is tempting to say a
+big pulley "levers" the bone harder, but `M = T·r` and `T = τ/r`, so
+`M = (τ/r)·r = τ` **identically**. The link's bending moment is just the joint
+torque, set by the ground reaction and leg geometry. Growing `r` cuts *cable
+tension* and leaves *link stress untouched* — the two design levers are
+independent, and there is no trade between them. (An earlier revision of the
+design review claimed such a trade; that was an error.)
+
+Bending stress `σ = M / Z`, tube `Z = I/r_o`. Allowable **σ ≈ 400 MPa** for a
+CF tube in bending `[assumed — conservative; confirm against a real tube
+datasheet, and check local wall crushing/buckling, not just material strength]`.
+
+At the original uniform **8 × 1 mm** tube the femur reached **364 MPa → SF ≈ 1.1**
+— effectively no margin on the landing transient. Adopt a **graded set, thickest
+proximally**, which equalises the safety factor and keeps added mass off the
+distal links (P1):
+
+| Link | Torque | **Section** | Z (mm³) | σ (MPa) | **SF** | mass |
+|---|---|---|---|---|---|---|
+| Femur | 12.36 N·m | **Ø12 × 1.0** | 87.8 | 141 | **2.84** | 4.8 g |
+| Tibia | 7.49 N·m | **Ø10 × 1.0** | 58.0 | 129 | **3.10** | 4.2 g |
+| Metatarsus | 4.79 N·m | **Ø8 × 1.0** | 34.4 | 139 | **2.87** | 2.4 g |
+| Paw (passive) | — | Ø8 × 1.0 | — | — | — | 0.9 g |
+
+**Cost: +2.7 g per leg** (9.5 → 12.2 g of bone) and **+0.9 % leg swing inertia** —
+negligible, because the added material sits proximally where the inertia lever is
+short. Buckling is not the failure mode (tibia Euler `P_cr ≈ 10.5 kN`, SF ≈ 34).
+
+> Remaining check `[owed]`: joints see combined bending **and torsion**, and the
+> tube must also survive the local contact/crushing load where a pulley or clevis
+> clamps it. Both need a real section and joint detail (F5).
+
 ## 4. Static-hold offload
 
 The [sensorless-FOC note](../docs/notes/sensorless-foc-stance-hold.md) establishes
