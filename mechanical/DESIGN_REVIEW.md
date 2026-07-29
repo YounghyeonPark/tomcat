@@ -133,7 +133,7 @@ Euler buckling is **not** the issue (tibia P_cr ≈ 10.5 kN, SF ≈ 34) — bend
 > Still owed: combined bending **+ torsion**, and local crushing where a pulley
 > or clevis clamps the tube — both need real joint detail (F5).
 
-## F4 — Girdle width unresolved (moderate, previously flagged)
+## F4 — Girdle width unresolved (moderate) — ✅ RESOLVED
 
 The packaging study sizes each girdle at **142 mm wide** against a **96 mm leg
 track**, so the motor banks protrude past the body sides, and the pelvic girdle
@@ -143,6 +143,24 @@ torso, or take the variable-radius-pulley reduction (spine 6 → 3).
 
 F1 makes this *more* urgent: if girdle contents are ~435 g heavier than budgeted,
 they are also bulkier than drawn.
+
+> **Resolved by re-orienting the motors, not by shrinking the bank.** The banks
+> were laid **axis-along-Y**, so each motor's 28 mm length projected *sideways*.
+> Standing them **upright (axis-along-Z)** puts that length into girdle height —
+> where there is room — and reduces the footprint to a grid of Ø16 circles.
+> With compact 3 × 2 banks at y = ±21 and the spine/tail bank offset rearward:
+>
+> | | before | after |
+> |---|---|---|
+> | Girdle width | 142 mm (> 96 mm track) | **87 mm — fits** |
+> | Pelvic girdle height | 91 mm | **52 mm** |
+> | Girdle collision on the 195 mm spine | 108 + 108 → overlap | **64 + 88, ~119 mm clear** |
+>
+> Note this did **not** require the variable-radius-pulley motor reduction or a
+> wider body — the motor count is unchanged. It also relieves the pelvic
+> density/thermal hot-spot the electronics outline flagged: both girdles are now
+> the same height. Upright spools also pay cable off in the fore-aft/vertical
+> plane, which is the direction the tendons actually run.
 
 ## F5 — No assembly / manufacturing pass (gap)
 
@@ -193,7 +211,7 @@ would firm up the whole budget — and it also gates `Kt` and bus voltage.
    motors in their real clusters, re-run CoM and the stability sweep. These two
    are coupled and can invalidate a published M4 result.
 2. ~~**F3**~~ — **done**: graded tube sections, see above.
-3. **F4** — resolve girdle packaging (informed by F1's real motor mass).
+3. ~~**F4**~~ — **done**: motors stood upright, see above.
 4. **F5** — assembly pass, once the above settle.
 
 ## Does the hock verdict still hold?

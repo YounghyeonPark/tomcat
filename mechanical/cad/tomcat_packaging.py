@@ -69,27 +69,47 @@ def tube(points, r=TENDON_R):
     return Compound([bone(a, b, r) for a, b in zip(points[:-1], points[1:])])
 
 
-def motor(pos, spool_side=+1):
-    """A motor (axis along Y) with a spool on the +/-Y output end."""
+def motor(pos, spool_side=+1, axis="z"):
+    """A motor with a spool on its output end.
+
+    `axis="z"` (default, review F4) stands the motor UPRIGHT: its 28 mm length
+    goes into girdle HEIGHT, where there is room, instead of girdle WIDTH, where
+    there is not. `axis="y"` is the original lateral layout, kept for comparison.
+    """
     x, y, z = pos
-    body = yaxis((x, y, z)) * Cylinder(MOTOR_D / 2, MOTOR_L)
-    sy = y + spool_side * (MOTOR_L / 2 + SPOOL_L / 2)
-    spool = yaxis((x, sy, z)) * Cylinder(SPOOL_D / 2, SPOOL_L)
-    return Compound([body, spool]), (x, sy, z)
+    if axis == "y":
+        body = yaxis((x, y, z)) * Cylinder(MOTOR_D / 2, MOTOR_L)
+        sy = y + spool_side * (MOTOR_L / 2 + SPOOL_L / 2)
+        return Compound([body, yaxis((x, sy, z)) * Cylinder(SPOOL_D / 2, SPOOL_L)]), (x, sy, z)
+    body = Pos(x, y, z) * Cylinder(MOTOR_D / 2, MOTOR_L)          # axis along +Z
+    sz = z + spool_side * (MOTOR_L / 2 + SPOOL_L / 2)
+    return Compound([body, Pos(x, y, sz) * Cylinder(SPOOL_D / 2, SPOOL_L)]), (x, y, sz)
 
 
-def pack_cluster(center, n, spool_side):
-    """Pack n motors in an x–z grid at `center`; return (motors, spool_points)."""
+def pack_cluster(center, n, spool_side, axis="z", y_rows=1):
+    """Pack n motors around `center`; return (motors, spool_points).
+
+    Upright (axis="z") motors are laid out in an x-y grid -- `y_rows` deep across
+    the body, the rest along the body length. Keeping `y_rows=1` is what holds
+    the girdle inside the leg track (F4).
+    """
     cx, cy, cz = center
-    cols = int(np.ceil(np.sqrt(n)))
     pitch = MOTOR_D + 3
     motors, spools = [], []
+    if axis == "y":
+        cols = int(np.ceil(np.sqrt(n)))
+        rows = int(np.ceil(n / cols))
+        for i in range(n):
+            r, c = divmod(i, cols)
+            m, sp = motor((cx + (c - (cols - 1) / 2) * pitch, cy,
+                           cz + (r - (rows - 1) / 2) * pitch), spool_side, axis="y")
+            motors.append(m); spools.append(sp)
+        return Compound(motors), spools
+    cols = int(np.ceil(n / y_rows))
     for i in range(n):
         r, c = divmod(i, cols)
-        rows = int(np.ceil(n / cols))
-        x = cx + (c - (cols - 1) / 2) * pitch
-        z = cz + (r - (rows - 1) / 2) * pitch
-        m, sp = motor((x, cy, z), spool_side)
+        m, sp = motor((cx + (c - (cols - 1) / 2) * pitch,
+                       cy + (r - (y_rows - 1) / 2) * pitch, cz), spool_side, axis="z")
         motors.append(m); spools.append(sp)
     return Compound(motors), spools
 
@@ -98,7 +118,7 @@ def girdle_box(center, cluster_compounds):
     """A translucent housing sized to enclose its motor clusters + margin."""
     comp = Compound(cluster_compounds)
     bb = comp.bounding_box()
-    m = 8.0
+    m = 5.0
     L, W, Hh = bb.size.X + 2 * m, bb.size.Y + 2 * m, bb.size.Z + 2 * m
     c = bb.center()
     return Pos(c.X, c.Y, c.Z) * Box(L, W, Hh), (L, W, Hh)
@@ -201,14 +221,14 @@ def build():
         pulleys.append(leg_pulleys(p3))
         # motor cluster for this leg, in its girdle, on its side
         gx = mount[0]
-        cluster_c = (gx, side * (TRACK / 2 - 6), H)
-        cl, spools = pack_cluster(cluster_c, 5, side)   # 5 tendons/leg
+        cluster_c = (gx, side * 21.0, H)
+        cl, spools = pack_cluster(cluster_c, 5, side, y_rows=2)  # 5 tendons/leg
         motors.append(cl)
         tendons.append(leg_tendons(p3, spools))
         (front_clusters if gx == front_x else pelvic_clusters).append(cl)
 
     # ---- spine + tail motor bank in the pelvic girdle (centre) ----
-    spine_bank, spine_spools = pack_cluster((0.0, 0.0, H + 40), 4, +1)  # 3 spine + 1 tail
+    spine_bank, spine_spools = pack_cluster((-34.0, 0.0, H), 4, +1, y_rows=2)  # 3 spine + 1 tail
     motors.append(spine_bank)
     pelvic_clusters.append(spine_bank)
     tendons.append(spine_tendons(H, xs, [spine_spools[0], spine_spools[1]]))

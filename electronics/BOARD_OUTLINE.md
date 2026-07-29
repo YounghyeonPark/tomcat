@@ -45,19 +45,19 @@ serves the whole hybrid without a respin.
 
 | Quantity | Value | Source |
 |---|---|---|
-| Leg continuous tendon tension (stand/trot) | ~30–160 N (headline ~55 N) | `[sourced: LEG_TENDON_SPEC §1.3]` |
-| Leg **land transient** tendon tension (rare, structural) | ~470 N hip / ~510 N knee (~525 N design) | `[sourced: LEG_TENDON_SPEC §1.3]` |
+| Leg continuous tendon tension (stand) | ~35–49 N | `[sourced: LEG_TENDON_SPEC §1.3]` |
+| Leg **land transient** tendon tension (rare, structural) | **~447 N hip** (worst) / 305 N stifle / 347 N hock; ~465 N design, 525 N basis retained | `[sourced: LEG_TENDON_SPEC §1.3]` |
 | Motor spool radius `r_spool` | 0.008 m | `[sourced: LEG_TENDON_SPEC §5]` |
-| Spine continuous tendon tension | ~20–70 N band target | `[sourced: SPINE_TAIL_SPEC §1.5]` |
+| Spine continuous tendon tension | **~12 N** (below the 20–70 N band after the F1/F2 mass rebuild) | `[sourced: SPINE_TAIL_SPEC §1.5]` |
 | Per-leg static-hold **brake** (power-off, spring-engaged) | ~1.3 N·m spool torque, needs a driver channel + fail-safe | `[owed→me: LEG_TENDON_SPEC §4 handoff]` |
 
 **Derived motor-shaft torque** (τ_motor = T · r_spool), the real driver-sizing input:
 
 | Regime | Tendon T | τ_motor = T·0.008 | Note |
 |---|---|---|---|
-| Continuous (trot) | ~55–160 N | **~0.44–1.28 N·m** | thermal / continuous-current duty |
-| Land transient (leg) | ~510 N | **~4.1 N·m** | brief peak; sets peak (pulse) current, not thermal |
-| Spine continuous | ~20–70 N | ~0.16–0.56 N·m | lighter than legs |
+| Continuous (stand) | ~35–49 N | **~0.28–0.39 N·m** | thermal / continuous-current duty |
+| Land transient (leg) | ~447 N | **~3.6 N·m** | brief peak; sets peak (pulse) current, not thermal |
+| Spine continuous | ~12 N | ~0.10 N·m | much lighter than legs |
 
 Phase current is `I_phase ≈ τ_motor / Kt`. **Without `Kt` (G-Kt) this cannot be
 turned into amps**, so the power stage is specified by *class* (see §1.2, §5) and
@@ -250,9 +250,13 @@ Motors are centralized in the girdles/pelvis (P1), so drivers cluster with them:
 | **Pelvic-girdle cluster** | 2 hind legs + spine bank + tail | 12 + 6 + 1 = **19 / 14** |
 | *(Tail node)* | 1 tail motor (mounted at pelvic girdle per SPINE_TAIL_SPEC) | 1 — its own CAN **node ID**, sharing the pelvic segment; physically inside the pelvic girdle |
 
-The pelvic girdle is the density hot-spot (hind legs + all spine + tail motors
-live there per SPINE_TAIL_SPEC). Thermal path and power distribution there are the
-tightest — flag to mechanical for airflow/heat-sinking.
+The pelvic girdle carries the most channels (hind legs + all spine + tail
+motors per SPINE_TAIL_SPEC), so power distribution there is the tightest.
+**Update (review F4):** standing the motors upright in the CAD packaging study
+levelled the two girdles — both are now 87 × 52 mm in section, and the pelvic
+girdle is no longer taller/denser than the shoulder. The thermal concern is
+reduced but not gone: it still hosts ~19 channels in the same volume, so
+airflow/heat-sinking remains a mechanical action item.
 
 ### 2.3 CAN-FD segmentation (~6–8 segments, ADR-0005)
 
