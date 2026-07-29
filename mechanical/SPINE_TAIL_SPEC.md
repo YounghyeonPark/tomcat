@@ -120,30 +120,34 @@ Joint torque `τ = T · r`; for a required torque, cable tension `T = τ / r`, s
 is **~20–70 N** (`[sourced: lit Q6]`). We therefore want `r` as **large** as the
 vertebral packaging allows, bounded by belly/back clearance and cable travel.
 
-> ✅ **Superseded by the real M4 budget.** This section previously used an
-> *assumed* `τ ≈ 2.5 N·m`. The whole-body budget now computes spine torques from
-> the **real distributed, front-heavy mass** (3.00 kg, 59.9 % fore), so the
-> numbers below are measured from the model, not guessed.
+> ✅ **Superseded by the real budget.** This section previously used an *assumed*
+> `τ ≈ 2.5 N·m`. The whole-body budget now computes spine torques from the
+> **real distributed mass**, rebuilt bottom-up per review F1/F2 (3.00 kg,
+> **51.2 % fore** — near-balanced, not the tuned 60/40), so the numbers below are
+> measured from the model, not guessed.
 
 **Real spine loads at the adopted `r = 0.030 m`** `[sourced: whole_body_budget]`:
 
-| Case | seg0 (base) τ | Cable tension | Verdict |
-|---|---|---|---|
-| Quiet stand | **0.570 N·m** | **24.0 N** | ✅ **inside** the 20–70 N band |
-| Arch (+20°/seg) | 0.552 N·m | 23.4 N | ✅ inside the band |
-| Land (1 front leg, ×2.5) | **10.91 N·m** | **368.6 N** | structural transient |
+| Case | seg0 (base) τ | worst-joint τ | Cable tension | Verdict |
+|---|---|---|---|---|
+| Quiet stand | 0.07 N·m | 0.22 N·m (seg2) | **12.2 N** | ✅ low — *below* the band |
+| Arch (+20°/seg) | 0.16 N·m | 0.16 N·m (seg0) | ~13 N | ✅ low |
+| Land (1 front leg, ×2.5) | **11.41 N·m** | 11.41 N·m (seg0) | **~385 N** | structural transient |
 
-**Two findings from M4:**
-1. **The 0.030 m arm works.** Raising it from the 0.020 seed put *continuous*
-   spine tension (23–24 N) inside the RoboCat band — the goal this section set.
-   No further growth in `r` is needed for quiet operation.
-2. **The base (rearmost) joint is now the worst spine joint** — its torque grew
-   **~3.9×** versus the old equal-lumped-mass placeholder, because the entire
-   front half of the animal (head, ribcage, forequarters ≈ 60 % of mass) now
-   correctly cantilevers off it. Design the **seg0 pulley, anchor and bearing
-   for roughly 4× the mid-segment loads**, not uniformly across the three joints.
+**Findings (updated after review F1/F2 rebalanced the mass model):**
+1. **The 0.030 m arm is more than sufficient.** Continuous spine tension is only
+   **~12 N** — comfortably *below* the RoboCat 20–70 N band. (An earlier revision
+   of this section reported 23–24 N "inside the band"; that was computed with a
+   tuned 60/40 front-heavy mass model. Rebalancing the body roughly halved the
+   continuous spine load.) No growth in `r` is needed; if anything there is now
+   headroom to trade arm size back for packaging.
+2. **The base joint is the worst only under asymmetric load.** With a
+   near-balanced body (51/49) quiet standing barely loads the base joint at all —
+   the small residual peaks at the *front* joint. But a **single-front-leg
+   landing** hangs the whole body off the base joint (11.4 N·m, >3× the front
+   joint). **Size seg0 hardware for the landing case**, not for standing.
 
-The ~369 N land figure is a rare impact transient (structural sizing), not a
+The ~385 N land figure is a rare impact transient (structural sizing), not a
 duty — the same distinction drawn in [LEG_TENDON_SPEC.md](LEG_TENDON_SPEC.md) §0.
 
 | Tendon (per segment) | Moment arm r (m) | Bounded by | Label |

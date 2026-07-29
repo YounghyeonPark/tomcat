@@ -22,29 +22,47 @@ masses at the vertebrae (its own assumption A2 conceded real cats are ~60%
 front-heavy). The numbers below replace that with a distributed, front-heavy
 budget. They are apportioned, NOT measured — every one is ❓ TBD.
 
-Apportionment rule (documented so it can be re-derived / re-tuned):
+Apportionment rule — REBUILT BOTTOM-UP (review findings F1 + F2, see
+mechanical/DESIGN_REVIEW.md). The first version of this budget copied feline
+biology (limbs ~24% of body mass) and then TUNED the girdle masses to hit a
+60/40 front-heavy split. Both were wrong for this machine:
+
+  * F1 — a biological limb's mass is mostly MUSCLE, and P1/ADR-0003 deliberately
+    relocate the muscle (motors) into the girdles. Charging the limbs a
+    biological fraction DOUBLE-COUNTS the actuator. A bottom-up count of the
+    specced hardware (Al sheaves + CF-tube bones + miniature bearings + cable)
+    gives ~80 g/leg bare, ~110 g with margin -- not 200 g.
+  * F2 — the 60/40 split was an INPUT tuned into the girdle masses. It is
+    properly an OUTPUT of where the hardware actually sits, and the motors do
+    NOT sit forward: per ADR-0005 the pelvis carries 19 of them and the shoulder
+    only 12.
 
 1. TOTAL = ``LoadCase.body_mass_kg`` = **3.00 kg** (unchanged).
-2. LIMBS ≈ 24% of body mass = **0.72 kg** for all four legs. Hind limbs are
-   HEAVIER than fore limbs in a cat (propulsion musculature): 0.20 kg per hind
-   leg, 0.16 kg per fore leg -> 2(0.20) + 2(0.16) = 0.72 kg.
-3. Within a leg the mass is PROXIMAL-heavy (biology, and the ADR-0003 tendon
-   drive deliberately centralises mass): femur/humerus 47.5%, tibia/radius 30%,
-   metatarsus/metacarpus 15%, paw 7.5%.
-4. TRUNK = 3.00 - 0.72 = **2.28 kg**, split into three spine segments
-   (0.30 / 0.45 / 0.55 kg, rear->front: lumbar lighter, thoracic + ribcage +
-   viscera heavier, per mechanical/reference/ANATOMY.md's 13-thoracic /
-   7-lumbar formula) plus two girdles. The FRONT girdle mass (0.70 kg)
-   deliberately absorbs the HEAD + NECK, which are not separate bodies in this
-   model and are a large part of why a cat is front-heavy; the REAR girdle
-   (pelvis, 0.28 kg) is much lighter.
-5. The girdle masses were then SOLVED so the fore/hind weight split lands at
-   ~60/40. "Fore share" of a distributed trunk is defined by the LEVER RULE
-   (the reaction split of a straight, simply-supported trunk): a spine segment
-   whose CoM sits a fraction s of the way from the rear to the front girdle
-   contributes s of its mass to the forequarters and (1-s) to the hindquarters.
-   See ``mass.quarter_masses``. Result: forequarters 1.798 kg (59.9%),
-   hindquarters 1.202 kg (40.1%).
+2. LEGS, bottom-up: **0.110 kg** hind / **0.095 kg** fore -> 0.410 kg for all
+   four = **13.7%** of body (was 24%). Still proximal-heavy within the leg
+   (47.5 / 30 / 15 / 7.5 %) because tendon drive centralises mass.
+3. GIRDLES now carry their real contents -- motors (~31 g each) + one driver
+   board (~5 g) each, clustered per ADR-0005:
+       front  = 12 ch x 36 g + head/neck 0.240 + structure 0.090 = **0.762 kg**
+       rear   = 19 ch x 36 g + structure 0.110                   = **0.794 kg**
+   The rear girdle is now the HEAVIER one -- it holds the hind-leg, spine and
+   tail motors.
+4. SPINE segments = the remaining 1.034 kg: 0.220 / 0.514 / 0.300 kg rear->front.
+   The mid segment carries the ~0.300 kg battery (physically it sits mid-body,
+   under the spine).
+5. The fore/hind split is now a RESULT, not a target: **forequarters 1.535 kg
+   (51.2%) / hindquarters 1.465 kg (48.8%)** -- near-balanced, only just
+   fore-biased by the head/neck. See ``mass.quarter_masses``.
+
+Consequences of the rebuild (all verified in the model): body CoM moved REARWARD
+from +130 mm to +102 mm; the walk stays statically stable but the worst-case
+margin fell from +46.5 mm to **+27.4 mm**; and quiet-stand spine load collapsed
+(the base joint no longer cantilevers a front-heavy body), though an asymmetric
+single-leg LANDING still makes the base joint the worst spine joint.
+
+Estimate quality: the motor mass (~31 g from a Ø16x28 mm envelope at ~5.5 g/cm^3)
+and the 0.300 kg battery are ❓ ASSUMED. Selecting a real motor is the single
+input that would firm up this whole budget -- it also gates Kt and bus voltage.
 
 Why NOT the literature's 0.454 kg knee mass
 -------------------------------------------
@@ -52,8 +70,8 @@ docs/LITERATURE_REVIEW.md (Q2b) records a Mass-Mass-Spring leg model with
 **~0.454 kg at the knee** that produces realistic trunk bending where a massless
 SLIP model gives a null bending moment. That number is from a MUCH LARGER robot
 and must NOT be copied literally: 0.454 kg is ~15% of our entire 3 kg body at a
-single joint. The scaled analogue here is the whole 0.20 kg hind leg (6.7% of
-body mass) with 0.095 kg at the femur. What we DO take from that result is the
+single joint. The scaled analogue here is the whole 0.110 kg hind leg (3.7% of
+body mass) with 0.052 kg at the femur. What we DO take from that result is the
 qualitative lesson — leg mass is not negligible and materially bends a compliant
 trunk — which is why M4 distributes mass over the links instead of lumping it.
 
@@ -132,7 +150,7 @@ class LegParams:
     # a 3 kg body); ``DEFAULT_FORELEG`` overrides them with a lighter 0.160 kg
     # columnar limb.  Proximal-heavy (47.5 / 30 / 15 / 7.5 %) because both feline
     # anatomy and the ADR-0003 tendon drive push mass toward the body.
-    link_mass: tuple[float, float, float, float] = (0.095, 0.060, 0.030, 0.015)
+    link_mass: tuple[float, float, float, float] = (0.052, 0.033, 0.017, 0.008)
 
     # Fraction of each link's LENGTH, measured from that link's PROXIMAL joint,
     # at which its centre of mass sits (dimensionless, 0 = proximal joint,
@@ -306,7 +324,7 @@ class SpineParams:
     # mobile bending region); front = thoracic/ribcage + viscera (heavier). Sums
     # to 1.30 kg.  Matches the 13-thoracic / 7-lumbar formula in
     # mechanical/reference/ANATOMY.md qualitatively, not quantitatively.
-    segment_mass: tuple[float, ...] = (0.30, 0.45, 0.55)
+    segment_mass: tuple[float, ...] = (0.220, 0.514, 0.300)
 
     # Fraction along each segment (from its INBOARD/rear vertebra) at which that
     # segment's mass acts. 0.5 = uniform rod.  ❓ TBD
@@ -317,8 +335,8 @@ class SpineParams:
     # not separate bodies in this model and are a big part of why a cat is
     # front-heavy. REAR = pelvic girdle (much lighter). These two values were the
     # free variables solved to land the fore/hind weight split at ~60/40.  ❓ TBD
-    front_girdle_mass: float = 0.70
-    rear_girdle_mass: float = 0.28
+    front_girdle_mass: float = 0.762
+    rear_girdle_mass: float = 0.794
 
     # Girdle CoM offset (x, z) in the girdle's own frame (m). (0, 0) = the mass
     # acts exactly at the girdle mount vertebra.  ❓ TBD
@@ -444,7 +462,7 @@ DEFAULT_FORELEG = LegParams(
     # 0.160 kg total vs. the hind leg's 0.200 kg: the fore limb is the lighter,
     # more columnar limb; the hind limb carries the propulsion musculature. Same
     # proximal-heavy 47.5 / 30 / 15 / 7.5 % split.  ❓ TBD
-    link_mass=(0.076, 0.048, 0.024, 0.012),
+    link_mass=(0.045, 0.029, 0.014, 0.007),
 )
 
 # Total mass of the default body, for cross-checking against LoadCase.body_mass_kg.

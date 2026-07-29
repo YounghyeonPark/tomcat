@@ -78,16 +78,22 @@ def test_leg_link_masses_sum_to_leg_mass_and_are_proximal_heavy():
 
 
 def test_hind_leg_is_heavier_than_fore_leg():
-    # Cats carry the propulsion musculature on the hind limb.
+    # The hind limb still carries more, but both are now sized BOTTOM-UP from the
+    # specced hardware (review F1), not from a biological limb fraction.
     assert DEFAULT_HINDLEG.mass > DEFAULT_FORELEG.mass
-    assert DEFAULT_HINDLEG.mass == pytest.approx(0.200)
-    assert DEFAULT_FORELEG.mass == pytest.approx(0.160)
+    assert DEFAULT_HINDLEG.mass == pytest.approx(0.110)
+    assert DEFAULT_FORELEG.mass == pytest.approx(0.095)
 
 
-def test_all_four_legs_are_about_a_quarter_of_body_mass():
+def test_limbs_are_light_because_the_motors_are_not_in_them():
+    # REGRESSION GUARD for review finding F1. The old budget gave the limbs ~24%
+    # of body mass, copied from feline biology -- but a biological limb is mostly
+    # MUSCLE, and P1/ADR-0003 deliberately relocate the muscle (motors) into the
+    # girdles. Applying the biological fraction double-counted the actuator.
+    # A tendon-driven limb is just structure, so it must be much lighter.
     body = _body()
     legs = sum(body.legs[n].params.mass for n in body.mounts)
-    assert 0.18 < legs / body.total_mass < 0.28
+    assert 0.10 < legs / body.total_mass < 0.18
 
 
 def test_trunk_plus_legs_equals_total():
@@ -101,12 +107,18 @@ def test_trunk_plus_legs_equals_total():
     )
 
 
-def test_fore_hind_split_is_about_sixty_forty():
+def test_fore_hind_split_is_near_balanced_not_sixty_forty():
+    # REGRESSION GUARD for review finding F2. The old model TUNED the girdle
+    # masses to hit a 60/40 front-heavy split. Once the motors sit in their real
+    # clusters the pelvis carries MORE of them (19 vs 12), which largely cancels
+    # the head/neck: the machine is near-balanced, not front-heavy like a cat.
     q = _body().mass_budget()
     assert q.total == pytest.approx(3.0, abs=1e-9)
     assert q.fore + q.hind == pytest.approx(q.total, abs=1e-12)
-    assert q.fore_fraction == pytest.approx(0.60, abs=0.02)   # front-heavy cat
-    assert q.hind_fraction == pytest.approx(0.40, abs=0.02)
+    assert q.fore_fraction == pytest.approx(0.51, abs=0.02)
+    assert q.hind_fraction == pytest.approx(0.49, abs=0.02)
+    # Still fore-biased, just barely -- the head/neck edges it forward.
+    assert q.fore > q.hind
     assert "forequarters" in q.report()
 
 

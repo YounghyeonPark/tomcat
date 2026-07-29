@@ -24,12 +24,13 @@ or dismiss it.
   specs: sizing fatigue life to the *continuous trot* and brinelling to the *rare
   land transient* is what keeps the bearings small. Correct reasoning.
 - **The transient-vs-duty distinction** is what makes a ~450 N peak buildable.
-- **Moment arms are now validated by the real budget**, not guessed: the spine's
-  0.030 m arm puts continuous tension at 23–24 N, inside the RoboCat band.
+- **Moment arms are now validated by the real budget**, not guessed: after the
+  F1/F2 rebuild the spine's 0.030 m arm puts continuous tension at ~12 N, safely
+  below the RoboCat band — it has margin to spare.
 
 ---
 
-## F1 — Mass apportionment contradicts P1 (major)
+## F1 — Mass apportionment contradicts P1 (major) — ✅ RESOLVED
 
 The M4 budget allocates **24 % of body mass to the limbs**, justified from feline
 biology. But a biological limb's mass is largely **muscle**, and P1/ADR-0003
@@ -72,7 +73,7 @@ invisible: **the total is right and the distribution is wrong.**
 > or source-datasheet it; then re-derive the budget bottom-up instead of from the
 > biological 24 %.
 
-## F2 — The 60/40 front-heavy split is probably wrong (major)
+## F2 — The 60/40 front-heavy split is probably wrong (major) — ✅ CONFIRMED & FIXED
 
 M4 solved the girdle masses to hit a **59.9 % fore** split, making the *front*
 girdle heavy (700 g) to absorb head + neck. But per ADR-0005 / the board outline,
@@ -145,9 +146,41 @@ stage — recording it so it is not mistaken for completeness.
 
 ---
 
-## Recommended order
+## Resolution of F1 + F2 (done)
 
-1. **F1 + F2 together** — pick a motor, rebuild the mass budget bottom-up with
+The budget was rebuilt bottom-up with the motors in their real ADR-0005 clusters
+(front girdle 12 channels, rear girdle 19) and the legs sized from the specced
+hardware. It still totals exactly 3.000 kg, but the distribution changed a lot:
+
+| | Before (tuned) | After (bottom-up) |
+|---|---|---|
+| All four legs | 720 g (24 %) | **410 g (13.7 %)** |
+| Front girdle | 700 g | 762 g |
+| **Rear girdle** | 280 g | **794 g** ← now the heavier one |
+| Fore/hind split | 59.9 / 40.1 | **51.2 / 48.8** (near-balanced) |
+| Body CoM (x) | +130 mm | **+102 mm** (19 mm rearward) |
+| Worst stability margin | +46.5 mm | **+27.4 mm** |
+| Quiet-stand spine tension | 24 N | **12 N** |
+
+**The walk remains statically stable at every phase** — F2 did not break the
+design — but the worst-case margin lost ~41 % of its value, so the machine now
+sits closer to its rear tipping edge. Two published conclusions reversed:
+
+- The spine's "23–24 N, inside the RoboCat band" became **~12 N, below it**.
+- "The base joint is the worst spine joint" is now true **only for the
+  asymmetric landing case**; in quiet standing a balanced body barely loads it.
+
+Both specs and the `params.py` apportionment docstring were updated, and the
+tests that encoded the old model now assert the new behaviour (with comments
+explaining why it changed). 229 tests pass.
+
+**Still assumed, and worth firming up:** motor mass (~31 g from a Ø16×28 mm
+envelope) and the 300 g battery. Selecting a real motor is the single input that
+would firm up the whole budget — and it also gates `Kt` and bus voltage.
+
+## Recommended order (remaining)
+
+1. ~~**F1 + F2 together**~~ — **done**, see above. — pick a motor, rebuild the mass budget bottom-up with
    motors in their real clusters, re-run CoM and the stability sweep. These two
    are coupled and can invalidate a published M4 result.
 2. **F3** — section design for the femur; cheap now.
