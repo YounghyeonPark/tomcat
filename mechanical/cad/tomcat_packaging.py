@@ -37,8 +37,8 @@ MM = 1000.0
 # --- placeholders ---
 TRACK = 96.0
 BONE_R = 6.0
-MOTOR_D, MOTOR_L = 16.0, 28.0        # small cat-scale BLDC (❓ placeholder)
-SPOOL_D, SPOOL_L = 9.0, 7.0
+MOTOR_D, MOTOR_L = 36.0, 26.0        # ~74 g pancake QDD module (ADR-0008 class)
+SPOOL_D, SPOOL_L = 16.0, 8.0   # variable-radius pulley (ADR-0008)
 FOOT_Z, FOOT_PITCH = -0.19, 0.0     # paw flat on the ground (digitigrade)
 FRONT_FOOT_X, REAR_FOOT_X = 0.06, 0.04
 TENDON_R = 1.6
@@ -86,30 +86,23 @@ def motor(pos, spool_side=+1, axis="z"):
     return Compound([body, Pos(x, y, sz) * Cylinder(SPOOL_D / 2, SPOOL_L)]), (x, y, sz)
 
 
-def pack_cluster(center, n, spool_side, axis="z", y_rows=1):
-    """Pack n motors around `center`; return (motors, spool_points).
+def pack_cluster(center, n, spool_side, axis="z", per_layer=(2, 1)):
+    """Pack n upright motors around `center`; return (motors, spool_points).
 
-    Upright (axis="z") motors are laid out in an x-y grid -- `y_rows` deep across
-    the body, the rest along the body length. Keeping `y_rows=1` is what holds
-    the girdle inside the leg track (F4).
+    Ø36 pancake modules (ADR-0008) only fit ~2x2 per layer inside a cat torso, so
+    the bank STACKS in z once a layer is full. `per_layer` is (nx, ny).
     """
     cx, cy, cz = center
+    nx, ny = per_layer
     pitch = MOTOR_D + 3
+    zpitch = MOTOR_L + SPOOL_L + 2
     motors, spools = [], []
-    if axis == "y":
-        cols = int(np.ceil(np.sqrt(n)))
-        rows = int(np.ceil(n / cols))
-        for i in range(n):
-            r, c = divmod(i, cols)
-            m, sp = motor((cx + (c - (cols - 1) / 2) * pitch, cy,
-                           cz + (r - (rows - 1) / 2) * pitch), spool_side, axis="y")
-            motors.append(m); spools.append(sp)
-        return Compound(motors), spools
-    cols = int(np.ceil(n / y_rows))
     for i in range(n):
-        r, c = divmod(i, cols)
-        m, sp = motor((cx + (c - (cols - 1) / 2) * pitch,
-                       cy + (r - (y_rows - 1) / 2) * pitch, cz), spool_side, axis="z")
+        layer, rem = divmod(i, nx * ny)
+        r, c = divmod(rem, nx)
+        m, sp = motor((cx + (c - (nx - 1) / 2) * pitch,
+                       cy + (r - (ny - 1) / 2) * pitch,
+                       cz + layer * zpitch), spool_side, axis="z")
         motors.append(m); spools.append(sp)
     return Compound(motors), spools
 
@@ -152,17 +145,16 @@ def leg_pulleys(p3):
 
 
 def leg_tendons(p3, spools):
-    """Antagonistic hip & knee pairs + single ankle tendon, girdle→joint."""
+    """Six cables from THREE motors: per ADR-0008 one variable-radius-pulley motor
+    drives both sides of each antagonistic pair (hip, stifle, hock)."""
     hip, knee, ankle = p3[0], p3[1], p3[2]
     off = np.array([0, 0, 1.0])
     t = []
-    # spools: expect >=5 (hip a/b, knee a/b, ankle)
-    s = spools
-    t.append(tube([s[0], tuple(np.array(hip) + 6 * off)]))        # hip flexor
-    t.append(tube([s[1], tuple(np.array(hip) - 6 * off)]))        # hip extensor
-    t.append(tube([s[2], hip, tuple(np.array(knee) + 6 * off)]))  # knee flexor
-    t.append(tube([s[3], hip, tuple(np.array(knee) - 6 * off)]))  # knee extensor
-    t.append(tube([s[4], hip, knee, ankle]))                      # ankle (single)
+    for spool, joint, via in ((spools[0], hip, []),
+                              (spools[1], knee, [hip]),
+                              (spools[2], ankle, [hip, knee])):
+        for sgn in (+1, -1):
+            t.append(tube([spool] + via + [tuple(np.array(joint) + sgn * 6 * off)]))
     return Compound(t)
 
 
@@ -221,16 +213,18 @@ def build():
         pulleys.append(leg_pulleys(p3))
         # motor cluster for this leg, in its girdle, on its side
         gx = mount[0]
-        cluster_c = (gx, side * 21.0, H)
-        cl, spools = pack_cluster(cluster_c, 5, side, y_rows=2)  # 5 tendons/leg
+        cluster_c = (gx, side * 21.0, H)   # one bank per leg, inboard
+        cl, spools = pack_cluster(cluster_c, 3, side)   # 3 DOF/leg (VRP), stacked 2/layer
         motors.append(cl)
         tendons.append(leg_tendons(p3, spools))
         (front_clusters if gx == front_x else pelvic_clusters).append(cl)
 
     # ---- spine + tail motor bank in the pelvic girdle (centre) ----
-    spine_bank, spine_spools = pack_cluster((-34.0, 0.0, H), 4, +1, y_rows=2)  # 3 spine + 1 tail
+    # Spine + tail bank lives in the BELLY between the girdles (still
+    # centralized per P1), which is otherwise empty volume.
+    spine_bank, spine_spools = pack_cluster((0.5 * front_x, 0.0, H - 26.0), 4, +1)  # 3 spine + 1 tail
     motors.append(spine_bank)
-    pelvic_clusters.append(spine_bank)
+    mid_clusters = [spine_bank]
     tendons.append(spine_tendons(H, xs, [spine_spools[0], spine_spools[1]]))
     tail_body, tail_tendon = tail(H, spine_spools[3])
     bones.append(tail_body)
@@ -239,7 +233,10 @@ def build():
     # ---- girdle housings sized to fit their clusters ----
     fg, fg_dims = girdle_box((front_x, 0, H), front_clusters)
     pg, pg_dims = girdle_box((0, 0, H), pelvic_clusters)
-    girdles = [fg, pg]
+    mb, mb_dims = girdle_box((0.5 * front_x, 0, H), mid_clusters)
+    girdles = [fg, pg, mb]
+    print(f"mid-body (spine+tail) bay:     "
+          f"{mb_dims[0]:.0f} x {mb_dims[1]:.0f} x {mb_dims[2]:.0f} mm")
 
     groups = {
         "bone": Compound(bones + [spine_body]),

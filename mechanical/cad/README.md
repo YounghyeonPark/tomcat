@@ -71,35 +71,54 @@ genuine fit check, not a fixed box.
 Render colours: bone = tan, **motor = slate**, **tendon = copper**, pulley = steel,
 girdle = translucent.
 
-### Fit findings — ✅ F4 resolved (motors stood upright)
+### Multi-view renders
+
+`render_views.py` produces legible three-view figures (side elevation · top plan ·
+isometric) for both models — clearer than the single iso the build scripts emit:
+
+![skeleton views](views_skeleton.png)
+
+![packaging views](views_packaging.png)
+
+### Fit findings — re-packed for **16 motors** (ADR-0008)
+
+[ADR-0008](../../docs/DESIGN_DECISIONS.md) cut the count 24 → **16** (one
+variable-radius-pulley motor per DOF) and the
+[down-select](../../docs/notes/motor-downselect.md) replaced the Ø16 × 28 mm
+placeholder with a realistic **Ø36 × 26 mm, ~74 g pancake QDD** module. Both
+changes invalidated the earlier F4 packing, so it was redone.
 
 | Result | Value |
 |--------|-------|
-| Motors placed | 24 (4 legs × 5 + 4 spine/tail — the ADR-0002 reduced case) |
-| Shoulder girdle | **64 × 87 × 52 mm** |
-| Pelvic girdle | **88 × 87 × 52 mm** |
-| Girdle width vs 96 mm leg track | **87 mm — fits** |
-| Girdle lengths on the 195 mm spine | 64 + 88, centred at x=195 / x=0 → **~119 mm clear** |
+| Motors | **16** — 12 leg DOF (3/leg) + 3 spine + 1 tail |
+| Motor envelope | Ø36 × 26 mm, ~74 g `[assumed, ADR-0008 class]` |
+| Shoulder girdle | **85 × 88 × 88 mm** (6 motors, 2 per layer) |
+| Pelvic girdle | **85 × 88 × 88 mm** (6 motors) |
+| Mid-body bay | **85 × 46 × 80 mm** (3 spine + 1 tail) |
+| Width vs 96 mm leg track | **88 mm — fits** |
+| Overall | 402 × 113 × 301 mm |
 
-**What fixed it.** The first layout laid every motor **axis-along-Y**, so each
-28 mm body + 7 mm spool projected *sideways* from banks already sitting at
-y = ±42 — giving a 142 mm-wide girdle against a 96 mm track, and a pelvic girdle
-91 mm tall. Standing the motors **upright (axis-along-Z)** puts that 28 mm length
-into girdle *height*, where there is room, and turns the footprint into a grid of
-Ø16 circles. With compact 3 × 2 banks pulled inboard to y = ±21 and the spine/tail
-bank offset rearward in x:
+**Two layout decisions this forced:**
 
-- width **142 → 87 mm** (now inside the leg track),
-- pelvic height **91 → 52 mm** (the density/thermal hot-spot is relieved — both
-  girdles are now the same height),
-- and the two girdles no longer collide along the 195 mm spine.
+1. **Upright, stacked motors.** Real Ø36 pancakes only fit ~2 per layer inside a
+   cat torso, so each bank stacks in z. Girdles are now 88 mm tall — the torso is
+   frankly a motor box, which is the honest consequence of P1 centralization.
+2. **A third, mid-body bay.** The spine + tail bank no longer fits in the pelvic
+   girdle without stretching it to 173 mm (over half the 195 mm spine). It moved
+   to the **belly between the girdles** — otherwise empty volume, still
+   "centralized" per P1, and a natural spot for the battery too.
 
-Upright motors also suit the tendons: a vertical-axis spool pays cable off
-tangentially in the fore-aft/vertical plane, which is the direction the tendons
-actually run.
+> ⚠️ **This third cluster is not in [ADR-0005](../../docs/DESIGN_DECISIONS.md)**,
+> which specifies shoulder + pelvic girdle clusters and a tail node on the CAN-FD
+> bus. A mid-body node is a small topology change that should be reflected there.
 
-> Still `[assumed]`: the Ø16 × 28 mm motor envelope. A real motor changes these
-> numbers — and also gates `Kt`, bus voltage and the mass budget.
+<details><summary>Superseded: the original 24-motor F4 finding</summary>
+
+The first layout laid motors **axis-along-Y**, so each body + spool projected
+sideways from banks at y = ±42 — a **142 mm** girdle against a 96 mm track, and a
+91 mm-tall pelvis. Standing them upright fixed it (142 → 87 mm) at 24 motors of
+the old small placeholder. The numbers above supersede that pass.
+</details>
 
 ## Next
 A real solid-modelling pass with actual motor part solids, bearing/pulley
