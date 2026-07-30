@@ -118,7 +118,9 @@ context, and consequences. Status is one of: **Proposed**, **Accepted**,
 
 ## ADR-0005: Compute & motor-drive topology
 - **Status:** Accepted
-- **Context:** **16 tendon motors** (12 leg DOF + 3 spine + 1 tail — one per
+- **Context:** **19 tendon motors** (12 leg DOF + 6 spine + 1 tail — was 16
+  before [ADR-0009](#adr-0009-add-spine-lateral-bend--the-lateral-dof-static-stability-requires)
+  added the lateral spine DOF; one per
   antagonistic pair via the variable-radius pulley, [ADR-0008](#adr-0008-actuator-sizing-basis-and-motor-count-the-mass-closure-decision);
   was ~31 before that decision) — each needing FOC, closed-loop tension, a rotor
   sensor, and a tension signal;
@@ -205,6 +207,10 @@ context, and consequences. Status is one of: **Proposed**, **Accepted**,
   - **D. Cut torque demand** with a thinner cable → smaller spool.
 - **Decision: B + C. Keep the 3 kg body; size actuators to TROT; adopt the
   variable-radius pulley to run 16 motors.**
+  > ⚠️ **Amended by [ADR-0009](#adr-0009-add-spine-lateral-bend--the-lateral-dof-static-stability-requires):**
+  > 3D geometry later showed static stability requires a lateral DOF, taking the
+  > count to **19 motors (45.6 % of body, 19.6 % left for structure)**. The
+  > sizing basis (trot) and the variable-radius pulley are unchanged.
   - **Option A is rejected on physics, not preference.** At fixed geometry,
     body mass and required motor mass scale *together*, so the motor-mass
     **fraction is invariant with scale** (191 % at 1.5 kg, at 3 kg and at 9 kg
@@ -237,6 +243,55 @@ context, and consequences. Status is one of: **Proposed**, **Accepted**,
     differs from the Ø16 × 28 mm placeholder and must be re-checked.
   - ⚠️ Torque density (14.8 N·m/kg peak) is extrapolated from one datasheet; the
     whole closure rides on it. Confirm against a real candidate before committing.
+
+## ADR-0009: Add spine LATERAL bend — the lateral DOF static stability requires
+- **Status:** Accepted
+- **Context:** 3D geometry (real lateral foot positions) exposed that the walk is
+  **not statically stable** — the true support polygon gives a worst margin of
+  **−28.7 mm** where the 2D sagittal interval had claimed +24.6 mm
+  ([review F7](../mechanical/DESIGN_REVIEW.md)). With three feet down the support
+  triangle is skewed while the CoM sits mid-sagittal, so it falls outside for
+  about half the cycle. Recovering static stability needs **lateral body sway**,
+  which the 16-motor sagittal-only build cannot produce.
+- **Options considered** (all measured, see F7):
+  - **A. Re-order the leg sequence** — all 24 permutations tried, best −22.7 mm.
+    **Does not work.**
+  - **B. Widen the track** — 96 → 260 mm makes it **worse** (−47.7 mm): the
+    critical edge is the far-front-to-near-rear *diagonal*, and widening only
+    rotates it further from the CoM. **Does not work.**
+  - **C. Forward mass bias alone** — best −8.3 mm at +40 mm. **Not sufficient**,
+    and a +30 mm shift is hard to realise anyway (moving the battery front-ward
+    buys ~10 mm, moving the spine/tail motor bank ~10 mm).
+  - **D. Leg abduction** (+4 motors) — 1:1 sway authority, but puts mass in the
+    LIMBS, fighting P1's low-limb-inertia rationale, and leaves only 17 % for
+    structure.
+  - **E. Accept dynamic walking** (0 motors) — drop static stability, as many
+    quadrupeds do. Cheapest in hardware, most expensive in control.
+  - **F. Spine lateral bend** (+3 motors).
+- **Decision: F — add one LATERAL bend DOF per spine segment (16 → 19 motors).**
+  - **This is not scope creep; it is finally implementing P2.** Principle P2 says
+    *all curvature of the body is allowed*, and [ADR-0006](#adr-0006-articulated-tendon-driven-spine-whole-body-curvature)
+    already specifies lateral yaw as one of the ~3 DOF per segment. What we built
+    was the sagittal subset. This closes the gap the founding principle assumed.
+  - **Authority is ample and was checked, not assumed.** At ADR-0006's specified
+    ±15°/segment lateral ROM the CoM sways **42.8 mm** — more than the ~40 mm
+    needed by sway alone; even ±10°/segment gives 29.4 mm.
+  - **Static stability is preserved**, so the controller stays quasi-static. That
+    matters because the dynamics milestone (M5) does not exist yet — option E
+    would move the entire burden onto an unbuilt controller.
+  - **The motors are dual-use**: the same lateral/axial spine authority serves
+    ADR-0007 righting, so they are not single-purpose mass.
+- **Consequences:**
+  - **Motor count 16 → 19**, amending [ADR-0008](#adr-0008-actuator-sizing-basis-and-motor-count-the-mass-closure-decision).
+    Motors go 38.4 % → **45.6 %** of body; structure margin falls
+    **27.3 % → 19.6 % (587 g)**. It still closes, but ⚠️ **tightly** — the
+    structure budget should be re-checked against real printed-part masses
+    before this is treated as settled.
+  - `SpineModel` must gain a lateral DOF (the model is sagittal-only today), and
+    with it a genuinely 3D `WholeBody`. That is the next milestone, not a patch.
+  - Forward mass bias is retained as a **free secondary trim** — it reduces the
+    lateral ROM the gait must command, buying margin.
+  - NFR2c total actuated DOF **16 → 19**.
 
 ---
 

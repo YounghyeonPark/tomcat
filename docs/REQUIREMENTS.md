@@ -44,7 +44,7 @@ curve.
 | NFR1  | Degrees of freedom per leg                       | 3 (hip, knee, ankle)|
 | NFR2  | Spine segments (serial, tendon-driven)           | ❓ TBD (e.g. 3–5)    |
 | NFR2b | DOF per spine segment                            | ❓ TBD (2: pitch+yaw)|
-| NFR2c | Total actuated DOF (12 legs + 3 spine + 1 tail)  | **16** (= 16 motors, ADR-0008) |
+| NFR2c | Total actuated DOF (12 legs + 6 spine + 1 tail)  | **19** (= 19 motors, ADR-0008 + **ADR-0009** lateral) |
 | NFR2d | Tail actuation (coarse assist, no accuracy)      | 1 tendon + passive return |
 | NFR3  | Control loop rate (tension/position)             | ≥ 1 kHz             |
 | NFR4  | Gait / trajectory update rate                    | ≥ 100 Hz            |

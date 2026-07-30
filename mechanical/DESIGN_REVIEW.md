@@ -219,7 +219,7 @@ stage — recording it so it is not mistaken for completeness.
 > without de-mounting a limb, and that re-tensioning must be followed by the FR7
 > calibration routine.
 
-## F7 — The walk is LATERALLY unstable (3D geometry) — OPEN, needs a decision
+## F7 — The walk is LATERALLY unstable (3D geometry) — ✅ RESOLVED by ADR-0009
 
 Every stability result so far came from the 2D-sagittal support *interval*, which
 each document correctly flagged as **necessary but not sufficient**. Giving the
@@ -262,8 +262,18 @@ ADR-0006 already specifies spine lateral bend as a target, but
 3. **Bias mass forward + a smaller lateral DOF** — the +30 mm/25 mm combination
    above needs less sway authority than 40 mm alone.
 
-Not resolved here: it changes ADR-0008 and possibly the control strategy, so it
-is the project owner's call.
+**Resolved: [ADR-0009](../docs/DESIGN_DECISIONS.md) adds the spine LATERAL DOF
+(16 → 19 motors).** Chosen because it is the only option that both *works* and
+*was already in the design*: P2 says the whole body may curve and ADR-0006
+already specifies lateral yaw — we had built only the sagittal subset. Authority
+was checked, not assumed: at ADR-0006's ±15°/segment lateral ROM the CoM sways
+**42.8 mm**, against the ~40 mm needed. Leg abduction was rejected (more motors,
+and it puts mass in the limbs, fighting P1); dynamic walking was rejected for now
+because the dynamics milestone does not exist yet, so it would move the whole
+burden onto an unbuilt controller.
+
+⚠️ The cost is real: structure margin falls **27.3 % → 19.6 % (587 g)**. It still
+closes, but should be re-checked against real printed-part masses.
 
 ---
 
