@@ -148,6 +148,55 @@ DEFAULT_PHASE_OFFSETS: dict[str, float] = {
 }
 
 
+# Diagonal-pair TROT offsets (M7). LF+RR strike together, then RF+LR.
+TROT_PHASE_OFFSETS: dict[str, float] = {
+    "LF": 0.00,
+    "RR": 0.00,
+    "RF": 0.50,
+    "LR": 0.50,
+}
+
+
+def trot_params(period: float = 0.3, stride_length: float = 0.10,
+                **overrides) -> "GaitParams":
+    """A balanced diagonal TROT — the project's first DYNAMIC gait (M7).
+
+    The crawl defaults are wrong for a trot in three specific ways, and this
+    preset fixes all three:
+
+    1. ``phase_offsets`` — diagonal pairs, so the support is a LINE, not a
+       polygon. Static-stability checks do not apply; use
+       ``dynamics.trot_sweep`` / ``line_balance`` instead of ``support_polygon``.
+    2. ``nominal_foot`` x = **0.005**, not the crawl's 0.05. The crawl plants its
+       feet 50 mm ahead of the hips, which puts the diagonal support line ~42 mm
+       forward of the CoM. That gives a one-signed topple moment, and the roll
+       rate then GROWS every cycle (−4.1 rad/s per cycle — the robot falls over
+       in one stride). At 0.005 the CoM rocks symmetrically ±11 mm about the
+       line, the moment integrates to ~zero, and the roll stays a bounded ±0.4°.
+    3. ``step_height`` 0.02, not 0.03 — the fore hip cannot retract far enough to
+       lift 30 mm at this foot placement (it overshoots its −170° limit by ~2°).
+
+    ``swing_profile`` stays at the "matched" default, which a trot REQUIRES: on
+    the legacy cycloid the foot velocity steps at liftoff and touchdown, making
+    swing-leg torque impulsive (9x over-stated) and landing the paw with a
+    forward scuff at the full stance speed.
+
+    Defaults give **~67 cm/s**. Feasible and thermally sustainable to ~96 cm/s;
+    at ~120 cm/s the RMS motor torque reaches the continuous rating.
+    """
+    kw = dict(
+        period=period,
+        stride_length=stride_length,
+        duty_factor=0.50,
+        phase_offsets=dict(TROT_PHASE_OFFSETS),
+        nominal_foot=(0.005, -0.17),
+        step_height=0.02,
+        lateral_amplitude=0.0,     # a trot does not sway; the diagonal does the work
+    )
+    kw.update(overrides)
+    return GaitParams(**kw)
+
+
 @dataclass(frozen=True)
 class GaitParams:
     """Parameters of a periodic walk (sagittal legs + lateral spine sway).
@@ -262,6 +311,12 @@ class GaitParams:
     # per-segment ROM, so the ROM is adequate but has ~1 deg to spare -- the
     # lateral DOF is sized almost exactly right, with no slack for error.
     lateral_amplitude: float = math.radians(11.0)
+    # Swing-return profile: "matched" (default, C1/C2 -- end velocities equal the
+    # stance sweep so the foot lands without scuffing and the transition carries
+    # no acceleration impulse) or "cycloid" (the legacy M2 profile, C0 only).
+    # See ``foot_target``. The M7 dynamics showed the cycloid cannot support a
+    # trot: its velocity step makes swing-leg torque impulsive.
+    swing_profile: str = "matched"
     spine_amplitude: float = 0.0
     spine_phase: float = 0.0
 
@@ -270,6 +325,10 @@ class GaitParams:
             raise ValueError(f"duty_factor must be in (0, 1); got {self.duty_factor}")
         if self.period <= 0.0:
             raise ValueError(f"period must be > 0; got {self.period}")
+        if self.swing_profile not in ("matched", "cycloid"):
+            raise ValueError(
+                f"swing_profile must be 'matched' or 'cycloid'; got {self.swing_profile!r}"
+            )
         for name, off in self.phase_offsets.items():
             if not 0.0 <= off < 1.0:
                 raise ValueError(
@@ -403,11 +462,33 @@ def foot_target(params: GaitParams, local_phase: float) -> np.ndarray:
         x = x_nom + half * (1.0 - 2.0 * u)
         z = z_nom
     else:
-        # Swing: cycloid forward-and-up return.
+        # Swing: forward-and-up return.
         v = (s - d) / (1.0 - d)
-        x = x_nom - half + params.stride_length * (
-            v - math.sin(2.0 * math.pi * v) / (2.0 * math.pi)
-        )
+        if params.swing_profile == "cycloid":
+            # LEGACY C0 profile. Starts and ends at ZERO hip-frame velocity while
+            # stance sweeps at -stride/(duty*period), so the foot velocity STEPS at
+            # both liftoff and touchdown. Two consequences the M7 dynamics exposed:
+            # the implied acceleration is impulsive (so swing-leg torque is not
+            # computable), and the foot touches down moving FORWARD at the stance
+            # speed, i.e. it scuffs. Harmless at the 5 s crawl, fatal in a trot.
+            x = x_nom - half + params.stride_length * (
+                v - math.sin(2.0 * math.pi * v) / (2.0 * math.pi)
+            )
+        else:
+            # MATCHED C1 profile (default). Quintic Hermite whose end velocities
+            # equal the stance sweep, so the foot is already travelling backward at
+            # the stance rate when it touches down -- zero velocity relative to the
+            # GROUND, no scuff -- and the transition carries no acceleration
+            # impulse. Zero end acceleration too, so it is C2 at the joins.
+            #
+            #   x(v) = x0 + vs*v + (stride - vs) * S(v),  S = 10v^3 - 15v^4 + 6v^5
+            #
+            # where vs is the stance sweep expressed over the swing duration. The
+            # price is real: the foot continues BACKWARD briefly before swinging
+            # forward, so it travels further and faster than a cycloid would.
+            vs = -params.stride_length * (1.0 - d) / d
+            S = v * v * v * (10.0 - 15.0 * v + 6.0 * v * v)
+            x = x_nom - half + vs * v + (params.stride_length - vs) * S
         z = z_nom + params.step_height * (1.0 - math.cos(2.0 * math.pi * v)) / 2.0
     return np.array([x, z, params.foot_pitch])
 

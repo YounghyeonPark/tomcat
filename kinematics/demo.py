@@ -41,6 +41,9 @@ from tomcat_kin.params import (  # noqa: E402
 )
 from tomcat_kin import torque_budget, whole_body_budget  # noqa: E402
 from tomcat_kin import dynamics as dyn  # noqa: E402
+from tomcat_kin.params import DEFAULT_TENDON as _DT  # noqa: E402
+LEG_ARMS_M = np.asarray(_DT.joint_moment_arm)
+SPOOL_M = _DT.motor_spool_radius
 from tomcat_kin.sensitivity import moment_arm_sweep  # noqa: E402
 from tomcat_kin.params import DEFAULT_TENDON  # noqa: E402
 
@@ -433,6 +436,70 @@ def _mass_and_stability_demo() -> None:
     print("      shift scales with leg acceleration, so it would NOT hold for a fast")
     print("      or dynamic gait; that needs real rigid-body dynamics.")
 
+
+
+    # ------------------------------------------------------- M7: THE TROT
+    print()
+    print("=== THE TROT (M7) -- a DYNAMIC gait at cat-like speed ===")
+    from tomcat_kin.gait import trot_params
+    tr = GaitController(params=trot_params())
+    n = 96
+    tcyc = dyn.cycle(tr, n)
+    print("  The crawl above is statically stable and %.2f cm/s. A trot puts DIAGONAL"
+          % (on.params.body_speed * 100))
+    print("  pairs down, so the support is a LINE -- no interior, no polygon, no ZMP")
+    print("  margin. The governing physics becomes the inverted pendulum.")
+    print()
+    print("    speed            %.1f cm/s   (%.0fx the crawl)"
+          % (tr.params.body_speed * 100, tr.params.body_speed / on.params.body_speed))
+    ts = dyn.trot_sweep(tr, n)
+    print("    support          LINE, %.0f%% of the cycle" % (100 * ts["line_support_fraction"]))
+    print("    CoM offset       %+.1f .. %+.1f mm about the diagonal (rocks THROUGH it)"
+          % (ts["offset_min"] * 1e3, ts["offset_max"] * 1e3))
+    print("    capture point    %.1f mm  (vs %.0f mm stride -- easily caught)"
+          % (ts["dcm_abs_max"] * 1e3, tr.params.stride_length * 1e3))
+
+    def _drift(c):
+        cy = dyn.cycle(c, n)
+        sg = [(lambda b: np.sign(b.offset) * b.unbalanced_moment if b else 0.0)(
+            dyn.line_balance(c, i / n, n, cyc=cy)) for i in range(n)]
+        h = float(np.mean(cy.com[:, 2] - cy.ground_z))
+        return float(np.sum(np.array(sg) / (c.body.total_mass * h * h)) * (c.params.period / n))
+
+    print()
+    print("  >>> Two contacts CANNOT make a moment about the line joining them, so the")
+    print("      CoM's offset from that line is an unbalanceable topple. Whether it")
+    print("      averages to zero over a cycle is the whole ballgame:")
+    print()
+    print("        nominal foot x    roll-rate drift per cycle    verdict")
+    for xn, tag in ((0.05, "the CRAWL's placement"), (0.02, ""), (0.005, "trot_params")):
+        d = _drift(GaitController(params=trot_params(nominal_foot=(xn, -0.17))))
+        v = ("FALLS OVER" if abs(d) > 1.0
+             else ("drifts" if abs(d) > 0.15 else "BOUNDED"))
+        print("          %+.3f m        %+8.3f rad/s          %-10s %s" % (xn, d, v, tag))
+    print()
+    print("  >>> And the swing trajectory had the SAME C1 defect as the M5 sway law:")
+    print("      the cycloid starts/ends swing at zero hip-frame velocity while stance")
+    print("      sweeps backward, so foot velocity STEPS -- the paw scuffs on landing")
+    print("      and swing torque is impulsive. Peak swing motor torque vs grid:")
+    for prof in ("cycloid", "matched"):
+        vals = []
+        for nn in (48, 96, 192):
+            cc = GaitController(params=trot_params(swing_profile=prof))
+            out = 0.0
+            for i in range(nn):
+                for nm in ("LF", "RF", "LR", "RR"):
+                    if cc.is_stance(i / nn, nm):
+                        continue
+                    t = np.abs(dyn.swing_joint_torque(cc, nm, i / nn, nn))
+                    out = max(out, float((t / LEG_ARMS_M * SPOOL_M).max()))
+            vals.append(out)
+        print("        %-8s n=48,96,192 -> %s %s" % (prof, ["%.3f" % v for v in vals],
+              "(DIVERGES: not a number)" if prof == "cycloid" else "(converged)"))
+    print()
+    print("  >>> P1 gets its first hard number: swing-leg torque caps trot speed, and")
+    print("      it is only %.3f N.m because tendon drive keeps the legs at 95-110 g."
+          % vals[-1])
 
 
 def _sketch_foot_path(ctrl, leg_name: str, rows: int = 6, cols: int = 40) -> None:

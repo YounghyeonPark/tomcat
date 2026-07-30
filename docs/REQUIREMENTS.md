@@ -29,6 +29,7 @@ curve.
 | FR2  | Measure and closed-loop control cable **tension** per driven tendon.        | Must     |
 | FR3  | Sense joint angle (directly or inferred from cable displacement).           | Must     |
 | FR4  | Execute a parameterized gait to produce forward walking.                    | Must     |
+| FR4b | Execute a diagonal **TROT** (dynamic gait) — the primary locomotion mode.   | Must     |
 | FR9  | Actuate the spine to bend (dorsoventral + lateral) via tendons.             | Must     |
 | FR9b | Command lateral spine sway toward the support side, in phase with the gait. | Must     |
 | FR10 | Coordinate spine curvature with leg motion (whole-body posture).            | Should   |
@@ -51,7 +52,9 @@ curve.
 | NFR2f | Spine lateral **slew rate** (per segment)         | **≥ 119 °/s** — sized to a FAST reference manoeuvre (righting / future dynamic gait), **not** the 5 s crawl, which needs only ~29 °/s (ADR-0010) |
 | ~~NFR2g~~ | ~~Paw–ground friction μ ≥ 0.70~~ | **WITHDRAWN (ADR-0010).** The resolved per-foot demand is **μ ≈ 0.055**; friction was never the binding constraint. Any sane pad meets it. |
 | NFR2h | Statically stable walk speed                      | **~1.1 cm/s** (crawl), limited by **TIPPING** (ZMP), not friction. Faster requires a *dynamic* gait — ADR-0010 |
-| NFR2i | Dynamic (ZMP) stability margin                    | **> 0** at every phase; currently **+6.4 mm** ⚠️ small |
+| NFR2i | Dynamic (ZMP) stability margin, CRAWL             | **> 0** at every phase; currently **+6.4 mm** ⚠️ small |
+| NFR2j | **TROT** speed (the locomotion mode, ADR-0011)     | **~67 cm/s** default; sustainable to **~96 cm/s** (RMS motor torque hits the continuous rating at ~120 cm/s) |
+| NFR2k | Trot roll oscillation                             | **bounded** — roll-rate drift ≈ 0 per cycle, ±0.4° peak. Requires `nominal_foot` x ≈ 0.005 m; the crawl's 0.05 m falls in one stride |
 | NFR3  | Control loop rate (tension/position)             | ≥ 1 kHz             |
 | NFR4  | Gait / trajectory update rate                    | ≥ 100 Hz            |
 | NFR5  | Mass (total)                                     | **4.05 kg** — raised from 3.0 kg (ADR-0010) once a real motor was sourced: the lightest purchasable part is 120 g, not the 72 g class target. A domestic cat is 4–5 kg. |

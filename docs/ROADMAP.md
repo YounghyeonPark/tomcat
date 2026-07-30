@@ -20,7 +20,9 @@ sequences the work that implements them.
 > **M5 done:** the **lateral spine DOF** ([ADR-0009](DESIGN_DECISIONS.md)) — a true
 > 3D support polygon, commanded lateral sway, and with it the first walk that is
 > genuinely statically stable in 3D (**+10.1 mm**, up from **−21.6 mm**).
-> **M6 done:** whole-body **dynamics** — and it overturned M5's headline. 264 tests.
+> **M6 done:** whole-body **dynamics** — and it overturned M5's headline.
+> **M7 done:** the **trot** ([ADR-0011](DESIGN_DECISIONS.md)) — the first dynamic
+> gait, **67 cm/s** (60× the crawl) inside the actuator envelope. 276 tests.
 
 ---
 
@@ -359,11 +361,60 @@ cat-like by any measure. Static stability is now clearly a *demonstration mode*;
 the operating mode has to be **dynamic**. That is the next milestone, and it is no
 longer optional.
 
-## Later milestones (candidate M7+, not committed)
+## Milestone M7 — The trot: a dynamic gait at cat-like speed (DONE)
 
-- **A dynamic gait (trot)** with ZMP / capture-point control — the only route to
-  cat-like speed, and ADR-0008 already sized the motors for it. Now the critical
-  path: M6 showed the quasi-static crawl cannot be made fast by tuning.
+**Goal.** M6 left the statically stable crawl capped at 1.1 cm/s and concluded a
+dynamic gait was no longer optional. This is that gait.
+
+**Delivered.** `gait.trot_params()` — diagonal pairs at duty 0.50 — plus the
+physics a line support needs, in `dynamics.py`: `line_balance` (inverted-pendulum
+offset, capture point/DCM, unbalanceable moment), `trot_sweep`,
+`swing_joint_torque`, and `TROT_PHASE_OFFSETS`. **Default ~67 cm/s**, feasible and
+thermally sustainable to **~96 cm/s**.
+
+**Three things it took, and what each revealed:**
+
+1. **Foot placement is a balance condition.** Two contacts cannot produce a
+   moment about the line joining them, so the CoM's perpendicular offset from
+   that line is an *unbalanceable* topple moment. The crawl's placement (feet
+   50 mm ahead of the hips) puts the diagonal ~42 mm forward of the CoM — a
+   one-signed moment, and roll rate accumulates **−4.1 rad/s per cycle: a fall
+   inside one stride.** At `nominal_foot x = 0.005` the CoM rocks symmetrically
+   ±11 mm *through* the line, the moment integrates to zero, and the roll is a
+   **bounded ±0.4°**. The rocking is the gait, not a defect.
+2. ⚠️ **A second C¹ defect — this time in the M2 foot trajectory.** The cycloidal
+   swing begins and ends at zero hip-frame velocity while stance sweeps at
+   `-stride/(duty·period)`, so foot velocity **steps** at liftoff and touchdown.
+   Swing-leg torque was therefore impulsive — it *doubled with every grid
+   refinement*, so it was never a number — and the paw landed scuffing forward at
+   full stance speed. Replaced with a velocity-**matched** quintic. Same class of
+   error as the M5 sway law, found the same way: by differentiating something only
+   static checks had ever examined. It survived five milestones because at crawl
+   speed it is invisible.
+3. **P1 gets its first hard number.** Swing-leg torque is what caps trot speed,
+   and it is only **0.11 N·m** at 67 cm/s — because tendon drive keeps the legs at
+   95–110 g. Motors at the joints would pay this many times over.
+
+**It also corrected M6.** ADR-0010 called sustained trot a *2.1× thermal
+overload*; that compared a quasi-static **peak** against a **continuous** rating.
+The right measure is RMS over the cycle: peak 1.26 N·m (0.65× the part's peak),
+**RMS 0.40 N·m = 0.56× continuous**. Sustained trot is thermally fine.
+
+**Honest bounds.** Touchdown **impact** is still unmodelled — the matched profile
+removes the tangential scuff but not the vertical impulse. No contact compliance.
+`swing_joint_torque` treats links as point masses (ignores spin inertia), so it
+under-estimates. Flight phases (duty < 0.5) generate but are not analysed. And
+this is an **open-loop trajectory check**: it shows the prescribed motion is
+dynamically consistent, not that a controller can stabilise it against
+disturbances.
+
+## Later milestones (candidate M8+, not committed)
+
+- **Closed-loop balance control** — the natural sequel: state estimation plus
+  foot-placement/DCM feedback, so the trot survives disturbance rather than merely
+  being consistent on paper.
+
+
 - **Full rigid-body dynamics** — M6 models the CoM and the contacts, but not
   per-link inertia tensors or angular momentum (`dH/dt = 0`). Needed before any
   fast gait, and needed to capture the lit-review Mass-Mass-Spring result (leg

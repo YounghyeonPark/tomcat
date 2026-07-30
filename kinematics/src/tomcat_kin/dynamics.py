@@ -452,3 +452,281 @@ def angular_momentum_caveat(controller, n: int = 240) -> dict:
         "swing_leg_zmp_shift_max": max(shifts) if shifts else 0.0,
         "swing_leg_zmp_shift_mean": float(np.mean(shifts)) if shifts else 0.0,
     }
+
+
+# ===================================================================
+# M7 — DYNAMIC gaits: when the support is a LINE, not a polygon
+# ===================================================================
+#
+# A trot puts DIAGONAL pairs down together, so the support "polygon" degenerates
+# to a LINE. Three things follow, and none of them are bugs:
+#
+#  1. ``support_polygon`` / ``zero_moment_point`` REFUSE to evaluate (they raise).
+#     A ZMP margin inside a polygon is a static-stability idea; a line has no
+#     interior, so the concept genuinely does not apply.
+#  2. Two point contacts cannot produce a moment about the line joining them.
+#     ``contact_forces`` therefore returns a NON-ZERO residual, and that residual
+#     is not numerical noise -- it is the physically unbalanceable moment.
+#  3. That moment has to come from somewhere. In a real trot it comes from
+#     ``dH/dt`` -- the swinging legs and spine. This module reports how big it is
+#     so the demand on those can be judged.
+#
+# The right stability question for a line support is the INVERTED PENDULUM one:
+# the body topples about the support line with time constant 1/omega,
+# omega = sqrt(g/h), and the next diagonal has to be placed to catch it. That is
+# what ``line_balance`` and the capture point (DCM) below evaluate.
+
+# Re-exported from gait.py so there is ONE definition of the trot timing.
+from .gait import TROT_PHASE_OFFSETS  # noqa: E402,F401
+
+
+def lipm_omega(height: float, g: float = GRAVITY) -> float:
+    """Inverted-pendulum rate ``sqrt(g/h)`` (1/s). Divergence goes as e^(omega t)."""
+    return float(np.sqrt(g / height))
+
+
+@dataclass(frozen=True)
+class LineBalance:
+    """Toppling state of the body about a 2-contact (diagonal) support line.
+
+    Attributes
+    ----------
+    phase : float
+    feet : tuple[str, str]
+        The diagonal pair in contact.
+    offset : float
+        SIGNED perpendicular distance (m) from the support line to the CoM ground
+        projection. Zero means the CoM is directly over the line — the (unstable)
+        equilibrium a trot rocks through.
+    offset_rate : float
+        Rate of change of that offset (m/s).
+    dcm : float
+        Divergent component of motion, ``offset + offset_rate / omega`` (m). This
+        is the capture point measured from the line: to arrest the topple, the
+        NEXT support line must reach at least this far.
+    omega : float
+        ``sqrt(g/h)`` for the current CoM height.
+    unbalanced_moment : float
+        Moment (N·m) about the support line that the two contacts CANNOT supply,
+        and which ``dH/dt`` must therefore provide.
+    """
+
+    phase: float
+    feet: tuple
+    offset: float
+    offset_rate: float
+    dcm: float
+    omega: float
+    unbalanced_moment: float
+
+    @property
+    def time_to_fall(self) -> float:
+        """Rough time (s) for the offset to grow e-fold. ``inf`` if centred."""
+        return 1.0 / self.omega if self.offset != 0.0 else float("inf")
+
+
+def support_line(cyc: "CycleData", i: int):
+    """(point, unit direction) of the support line, or None if not 2 contacts."""
+    feet = cyc.feet[i]
+    if len(feet) != 2:
+        return None
+    a, b = (feet[nm] for nm in sorted(feet))
+    d = (b - a)[:2]
+    n = np.linalg.norm(d)
+    if n < 1e-12:
+        return None
+    return a[:2], d / n
+
+
+def line_balance(controller, phase: float, n: int = 240,
+                 cyc: "CycleData | None" = None) -> "LineBalance | None":
+    """Inverted-pendulum balance about the diagonal support line at ``phase``.
+
+    Returns None when the support is not exactly two contacts (i.e. when the
+    polygon-based ``zero_moment_point`` is the right tool instead).
+    """
+    if cyc is None:
+        cyc = cycle(controller, n)
+    i = cyc.index(phase)
+    line = support_line(cyc, i)
+    if line is None:
+        return None
+    a, d = line
+
+    def signed(idx: int) -> float:
+        ln = support_line(cyc, idx)
+        if ln is None:
+            return float("nan")
+        p0, dd = ln
+        r = cyc.com[idx][:2] - p0
+        perp = r - np.dot(r, dd) * dd
+        # sign from the 2D cross product dd x r
+        return float(np.sign(dd[0] * r[1] - dd[1] * r[0]) * np.linalg.norm(perp))
+
+    off = signed(i)
+    dt = cyc.period / cyc.n
+    # Differentiate ONLY within one contiguous stance block. Across a support
+    # switch the pair changes and the sign convention flips, so a central
+    # difference there is meaningless -- it produced a spurious ~240 mm capture
+    # point before this guard existed.
+    here = set(cyc.feet[i])
+    ip, im = (i + 1) % cyc.n, (i - 1) % cyc.n
+    fwd_ok = set(cyc.feet[ip]) == here
+    bwd_ok = set(cyc.feet[im]) == here
+    if fwd_ok and bwd_ok:
+        rate = (signed(ip) - signed(im)) / (2.0 * dt)
+    elif fwd_ok:
+        rate = (signed(ip) - off) / dt
+    elif bwd_ok:
+        rate = (off - signed(im)) / dt
+    else:
+        rate = 0.0
+
+    h = cyc.com[i][2] - cyc.ground_z
+    w = lipm_omega(h)
+
+    # Moment the contacts cannot supply = component of the required moment about
+    # the support line. For a flat ground plane this is m*(g+az) times the
+    # perpendicular offset.
+    m = cyc.mass
+    moment = abs(m * (GRAVITY + cyc.accel[i][2]) * off)
+
+    return LineBalance(phase=float(phase) % 1.0, feet=tuple(sorted(cyc.feet[i])),
+                       offset=off, offset_rate=rate,
+                       dcm=off + rate / w, omega=w, unbalanced_moment=moment)
+
+
+def trot_sweep(controller, n: int = 240) -> dict:
+    """Summarise a diagonal-support (trot) cycle.
+
+    ``zero_moment_point`` cannot be used here — see the section banner. The
+    figures returned are the inverted-pendulum ones instead.
+    """
+    cyc = cycle(controller, n)
+    bs = [line_balance(controller, i / n, n, cyc=cyc) for i in range(n)]
+    bs = [b for b in bs if b is not None]
+    if not bs:
+        return {"line_support_fraction": 0.0}
+    offs = np.array([b.offset for b in bs])
+    stance = controller.params.duty_factor * controller.params.period
+    w = float(np.mean([b.omega for b in bs]))
+    return {
+        "line_support_fraction": len(bs) / n,
+        "offset_min": float(offs.min()),
+        "offset_max": float(offs.max()),
+        "offset_abs_max": float(np.abs(offs).max()),
+        "crosses_zero": bool(offs.min() < 0.0 < offs.max()),
+        "dcm_abs_max": float(max(abs(b.dcm) for b in bs)),
+        "unbalanced_moment_max": float(max(b.unbalanced_moment for b in bs)),
+        "omega": w,
+        "stance_time_constants": stance * w,
+        "divergence": float(np.exp(stance * w)),
+    }
+
+
+def swing_leg_moment(controller, phase: float, n: int = 240,
+                     cyc: "CycleData | None" = None) -> dict:
+    """Angular-momentum rate the SWINGING legs supply about the support line.
+
+    This answers the question ``line_balance`` raises: two contacts cannot produce
+    a moment about the line joining them, so the ``unbalanced_moment`` has to come
+    from ``dH/dt``. In a trot the obvious source is the two legs in flight.
+
+    Each leg is treated as a point mass at its own CoM::
+
+        dH/dt = sum_i  m_i * (r_i - r_com) x (a_i - a_com)
+
+    and the component along the support-line direction is what counts, since only
+    that component can oppose the topple.
+
+    ⚠️ Point-mass approximation — a real leg also has spin angular momentum about
+    its own CoM, which this ignores. It therefore UNDER-estimates the available
+    moment, so a positive verdict here is conservative.
+
+    Returns ``{"available", "required", "ratio"}`` in N·m (``ratio`` > 1 means the
+    swing legs can supply it).
+    """
+    if cyc is None:
+        cyc = cycle(controller, n)
+    i = cyc.index(phase)
+    line = support_line(cyc, i)
+    bal = line_balance(controller, phase, n, cyc=cyc)
+    if line is None or bal is None:
+        return {"available": 0.0, "required": 0.0, "ratio": float("nan")}
+    _, d = line
+    d3 = np.array([d[0], d[1], 0.0])
+    dt = cyc.period / cyc.n
+
+    def leg_com(idx: int, name: str):
+        st = controller.state(idx / cyc.n)
+        q = st.legs[name].q
+        if q is None:
+            return None
+        c = controller.body.leg_com_world(st.spine_q, name, q)
+        v = np.asarray(c.com, dtype=float)
+        return np.array([v[0], 0.0, v[1]]) if v.shape == (2,) else v
+
+    st_now = controller.state(i / cyc.n)
+    total = np.zeros(3)
+    for name in st_now.swing_legs:
+        pts = [leg_com((i + k) % cyc.n, name) for k in (-1, 0, 1)]
+        if any(p is None for p in pts):
+            continue
+        a_leg = (pts[2] - 2 * pts[1] + pts[0]) / (dt * dt)
+        r = pts[1] - cyc.com[i]
+        m_leg = controller.body.legs[name].params.mass
+        total += m_leg * np.cross(r, a_leg - cyc.accel[i])
+
+    available = abs(float(np.dot(total, d3)))
+    required = bal.unbalanced_moment
+    return {"available": available, "required": required,
+            "ratio": available / required if required > 1e-12 else float("inf")}
+
+
+def swing_joint_torque(controller, leg_name: str, phase: float, n: int = 240) -> np.ndarray:
+    """Joint torques (N·m) needed to ACCELERATE one leg's own mass at ``phase``.
+
+    The contact-force solve above covers only STANCE legs pushing on the ground.
+    A swinging leg touches nothing, yet still needs torque — to accelerate its own
+    links. In a crawl that is negligible; in a trot it is the dominant term, and
+    it grows as 1/T², so it is what actually caps trot speed.
+
+    Each link is treated as a point mass at its CoM (``mass.leg_link_coms``), its
+    Cartesian acceleration is taken from the commanded trajectory by central
+    differences, and the torques follow from the per-link Jacobians::
+
+        tau = sum_links  J_link(q)^T * (m_link * a_link)
+
+    ⚠️ Point-mass links: this ignores each link's spin inertia about its own CoM,
+    so it UNDER-estimates. ⚠️ It also requires a C1 foot trajectory —
+    ``GaitParams.swing_profile`` must be "matched"; on the legacy "cycloid" the
+    accelerations are impulsive and this number is meaningless (grid-dependent).
+    """
+    from .mass import leg_link_coms
+
+    leg = controller.body.leg_model_for(leg_name)
+    dt = controller.params.period / n
+    i = int(round((float(phase) % 1.0) * n)) % n
+
+    qs = []
+    for k in (-1, 0, 1):
+        st = controller.leg_state(((i + k) % n) / n, leg_name)
+        if st.q is None:
+            return np.zeros(3)
+        qs.append(np.asarray(st.q, dtype=float))
+
+    coms = [np.asarray(leg_link_coms(leg, q), dtype=float) for q in qs]   # (4, 2)
+    accel = (coms[2] - 2.0 * coms[0 + 1] + coms[0]) / (dt * dt)      # (n_links, 2)
+    masses = np.asarray(leg.params.link_mass, dtype=float)
+
+    q = qs[1]
+    pts = leg.joint_positions(q)          # joint origins in the hip frame
+    tau = np.zeros(3)
+    for li, (a, m_l) in enumerate(zip(accel, masses)):
+        f = m_l * a                        # required force on this link (x, z)
+        for j in range(3):
+            if j > li:                     # joint distal to the link: no leverage
+                continue
+            r = coms[1][li] - pts[j]       # lever from joint j to this link's CoM
+            tau[j] += r[0] * f[1] - r[1] * f[0]     # 2D cross product
+    return tau

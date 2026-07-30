@@ -421,9 +421,13 @@ context, and consequences. Status is one of: **Proposed**, **Accepted**,
     was a placeholder never derived from the animal.
   - It **converges rather than spiralling**: the heavier body needs 1.48 N·m at
     the trot hip against the part's 1.95 N·m peak, so there is still 1.3× headroom.
-  - ⚠️ **Sustained trot is thermally limited**: 1.48 N·m against a 0.71 N·m
-    *continuous* rating is a 2.1× overload. Survivable as a transient, not as a
-    duty cycle. Raises the value of the ADR-0003 stance brake.
+  - ~~⚠️ **Sustained trot is thermally limited**: 1.48 N·m against a 0.71 N·m
+    *continuous* rating is a 2.1× overload.~~ **CORRECTED by ADR-0011.** That
+    compared a quasi-static *peak* against a *continuous* rating, which is the
+    wrong comparison — thermal limits are set by **RMS** over the cycle. Resolving
+    the real trot gives peak 1.26 N·m (0.65× the part's peak) and **RMS 0.40 N·m
+    = 0.56× the continuous rating**. Sustained trot is thermally FINE up to
+    ~96 cm/s. The stance brake keeps its value for static holds, not for trot.
 - **Decision B: retune the walk to period 5.0 s / sway 11°, and record that the
   binding constraint is TIPPING.**
   - ⚠️ **M5's headline was wrong.** M5 concluded *"friction sets the walk speed,
@@ -473,6 +477,59 @@ context, and consequences. Status is one of: **Proposed**, **Accepted**,
     ZMP shift against the **6.4 mm** margin, a ~6× ratio, so the result holds *at
     this crawl speed*. ⚠️ It scales with leg acceleration and would **not** hold
     for a fast or dynamic gait, which needs full rigid-body dynamics.
+
+## ADR-0011: The trot works — a dynamic gait reaches cat-like speed within the actuator envelope
+- **Status:** Accepted
+- **Context:** [ADR-0010](#adr-0010-mass-target-30--405-kg-and-the-walk-is-limited-by-tipping-not-friction)
+  ended with the statically stable crawl capped at **1.1 cm/s** and concluded a
+  dynamic gait was no longer optional. This is that gait: a diagonal **trot**,
+  evaluated with the M6 dynamics.
+- **Decision: adopt a diagonal trot as the locomotion mode**
+  (`gait.trot_params()`), and accept that its stability is *dynamic*, not static.
+  - Diagonal pairs (LF+RR, then RF+LR) at duty 0.50. The support degenerates from
+    a polygon to a **LINE**, so `support_polygon` / `zero_moment_point` correctly
+    **refuse to evaluate** — a line has no interior. The governing physics is the
+    inverted pendulum about that line (`dynamics.line_balance`).
+  - **Default ~67 cm/s.** Feasible and thermally sustainable to **~96 cm/s**; at
+    ~120 cm/s the RMS motor torque reaches the continuous rating. A domestic cat
+    trots at roughly 1 m/s, so this is genuinely cat-like — **60× the crawl.**
+- **What the trot required, and what it revealed:**
+  1. **Foot placement is a balance condition, not a comfort setting.** Two
+     contacts cannot produce a moment about the line joining them, so the CoM's
+     perpendicular offset from that line is an *unbalanceable* topple moment. The
+     crawl plants feet 50 mm ahead of the hips, putting the diagonal ~42 mm
+     forward of the CoM: a one-signed moment, and the roll rate then accumulates
+     **−4.1 rad/s every cycle — the robot falls over in one stride.** Moving the
+     nominal foot to **x = 0.005 m** makes the CoM rock symmetrically ±11 mm
+     *through* the line, the moment integrates to ~zero, and the roll becomes a
+     **bounded ±0.4°** oscillation. That rocking *is* the gait.
+  2. ⚠️ **A second C¹ defect, in the M2 foot trajectory itself.** The cycloidal
+     swing starts and ends at ZERO hip-frame velocity while stance sweeps at
+     `-stride/(duty·period)` — so the foot velocity **steps** at both liftoff and
+     touchdown. Two consequences: swing-leg torque is impulsive (it *doubles with
+     every grid refinement*, so it is not a number at all), and the paw lands
+     moving forward at the full stance speed — a **scuff** on every step. Replaced
+     with a velocity-**matched** quintic (`GaitParams.swing_profile`), which lands
+     the foot at zero velocity relative to the ground. This is the same class of
+     error as the M5 sway law, found the same way: by differentiating a trajectory
+     that only static checks had ever looked at.
+  3. **P1 is vindicated quantitatively.** Swing-leg torque is what caps trot
+     speed, and it is only **0.11 N·m** at 67 cm/s — because tendon drive keeps
+     the legs at 95–110 g. A conventional leg with motors at the joints would pay
+     this many times over. This is the first hard number supporting the founding
+     principle rather than merely restating it.
+- **Consequences:**
+  - `swing_profile="matched"` is the **default** for all gaits. The crawl is
+    unaffected (its margins move by 0.04 mm) — at 5 s the defect was invisible,
+    which is exactly why it survived five milestones.
+  - Contact-force residual is now a **meaningful output**, not an error: with two
+    contacts it is the physically unbalanceable moment.
+  - The **critical joint at trot is the hock**, not the hip. The quasi-static
+    sizing case identified the hip because the *land* transient drives it.
+  - ⚠️ Still unmodelled: touchdown **impact** (the matched profile removes the
+    tangential scuff but not the vertical impulse), contact compliance, and per-link
+    **spin** inertia — `swing_joint_torque` treats links as point masses, so it
+    under-estimates. Flight phases (duty < 0.5) are generated but not analysed.
 
 ---
 
