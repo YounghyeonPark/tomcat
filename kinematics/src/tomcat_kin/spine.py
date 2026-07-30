@@ -180,23 +180,32 @@ class LegMount:
 
     name       : label, e.g. "LF" (left-front), "RR" (right-rear).
     girdle     : which girdle the leg hangs from.
-    hip_offset : (x, z) of the hip origin in the girdle frame (m). In this 2D
-                 sagittal model the left/right (y) offset is out of plane and is
-                 dropped, so left/right legs on the same girdle share a mount.
+    hip_offset : (x, z) of the hip origin in the girdle frame (m). The leg's
+                 SOLVE is still planar-sagittal, so this stays 2D.
+    track_y    : lateral (y) offset of the leg plane from the mid-sagittal plane
+                 (m). Left legs positive, right negative. This does NOT add a
+                 degree of freedom -- the leg does not move laterally -- it just
+                 records where the leg plane actually is, which is enough to
+                 build a real ground-plane SUPPORT POLYGON (see stability.py).
+                 3D geometry, not 3D actuation: it costs no motors (ADR-0008).
     """
 
     name: str
     girdle: Girdle
     hip_offset: tuple[float, float] = (0.0, 0.0)
+    track_y: float = 0.0
 
 
 # Default four-leg layout: shoulder pair on the front girdle, pelvic pair on the
 # rear girdle. Hip offsets are (0, 0) placeholders (hips at the girdle mounts).
+# Half-track 0.048 m matches the 96 mm leg track used by the CAD.  ❓ TBD
+TRACK_HALF = 0.048
+
 DEFAULT_MOUNTS: tuple[LegMount, ...] = (
-    LegMount("LF", Girdle.FRONT),
-    LegMount("RF", Girdle.FRONT),
-    LegMount("LR", Girdle.REAR),
-    LegMount("RR", Girdle.REAR),
+    LegMount("LF", Girdle.FRONT, track_y=+TRACK_HALF),
+    LegMount("RF", Girdle.FRONT, track_y=-TRACK_HALF),
+    LegMount("LR", Girdle.REAR, track_y=+TRACK_HALF),
+    LegMount("RR", Girdle.REAR, track_y=-TRACK_HALF),
 )
 
 
@@ -396,6 +405,21 @@ class WholeBody:
         fx, fz, phi_hip = self.leg_model_for(leg_name).forward(leg_q)
         world_xz = np.array([hx, hz]) + _rot(hth) @ np.array([fx, fz])
         return np.array([world_xz[0], world_xz[1], hth + phi_hip])
+
+    def foot_ground_xy(self, spine_q, leg_q: dict[str, np.ndarray]) -> dict[str, np.ndarray]:
+        """World GROUND-PLANE (x, y) of every foot — the support-polygon input.
+
+        x comes from the planar sagittal solve; y is the leg's fixed track
+        offset. The legs do not move laterally, so this adds no DOF — but it is
+        what turns the fore-aft support INTERVAL into a real polygon.
+        """
+        return {
+            name: np.array([
+                float(self.foot_world_position(spine_q, name, leg_q[name])[0]),
+                float(self.mounts[name].track_y),
+            ])
+            for name in self.mounts
+        }
 
     def foot_positions(self, spine_q, leg_q: dict[str, np.ndarray]) -> dict[str, np.ndarray]:
         """World (x, z) of every foot.

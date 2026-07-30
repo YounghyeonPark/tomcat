@@ -216,3 +216,99 @@ def centering_shift(margin: StabilityMargin) -> float:
     is, and for sizing a geometry correction. NaN if nothing is in stance.
     """
     return margin.support.center - margin.com_x
+
+# ---------------------------------------------------------------- 3D: polygon
+# The fore-aft interval above is a 2D-sagittal projection, and every prior
+# document flagged it as NECESSARY BUT NOT SUFFICIENT: it cannot see roll/lateral
+# tipping over the real support triangle. The following adds the true ground-plane
+# SUPPORT POLYGON. It needs no new actuated DOF -- the legs stay planar, they just
+# sit at their real lateral (y) track offsets -- so it is 3D GEOMETRY, not 3D
+# actuation, and costs no motors (see ADR-0008).
+
+
+def _convex_hull(pts: np.ndarray) -> np.ndarray:
+    """Counter-clockwise convex hull (monotone chain). Fine for 3-4 feet."""
+    p = np.unique(np.asarray(pts, dtype=float).round(12), axis=0)
+    if len(p) < 3:
+        return p
+    p = p[np.lexsort((p[:, 1], p[:, 0]))]
+
+    def half(points):
+        out: list[np.ndarray] = []
+        for q in points:
+            while len(out) >= 2:
+                a, b = out[-2], out[-1]
+                if (b[0] - a[0]) * (q[1] - a[1]) - (b[1] - a[1]) * (q[0] - a[0]) <= 0:
+                    out.pop()
+                else:
+                    break
+            out.append(q)
+        return out
+
+    return np.array(half(p)[:-1] + half(p[::-1])[:-1])
+
+
+@dataclass(frozen=True)
+class SupportPolygon:
+    """The real ground-plane support polygon and the CoM's margin inside it.
+
+    `margin` is the signed distance from the CoM ground projection to the nearest
+    polygon EDGE: positive inside, negative outside. Unlike the sagittal
+    interval this captures lateral/diagonal tipping, which is the mode a
+    three-legged stance actually fails in.
+    """
+
+    feet: tuple[str, ...]
+    hull: np.ndarray                  # (n, 2) CCW vertices, metres
+    com_xy: np.ndarray                # (2,) CoM ground projection
+    margin: float                     # m, signed
+    critical_edge: tuple[int, int]    # hull vertex indices of the nearest edge
+
+    @property
+    def is_stable(self) -> bool:
+        return self.margin > 0.0
+
+    @property
+    def n_feet(self) -> int:
+        return len(self.feet)
+
+    def report(self) -> str:
+        v = " ".join(f"({x*1e3:+.0f},{y*1e3:+.0f})" for x, y in self.hull)
+        return (f"support polygon {self.n_feet} feet {v} mm | "
+                f"CoM ({self.com_xy[0]*1e3:+.0f},{self.com_xy[1]*1e3:+.0f}) | "
+                f"margin {self.margin*1e3:+.1f} mm "
+                f"{'STABLE' if self.is_stable else 'UNSTABLE'}")
+
+
+def polygon_stability_margin(com_xy, foot_xy: Mapping[str, Sequence[float]]) -> SupportPolygon:
+    """Signed distance from the CoM ground projection to the support polygon.
+
+    `foot_xy` maps each STANCE foot name to its (x, y) ground position.
+    """
+    names = tuple(foot_xy)
+    pts = np.array([list(foot_xy[n])[:2] for n in names], dtype=float)
+    c = np.asarray(com_xy, dtype=float)[:2]
+    if len(pts) < 3:
+        raise ValueError("a support POLYGON needs >= 3 stance feet; "
+                         "use sagittal_stability_margin for fewer")
+    hull = _convex_hull(pts)
+    inside = True
+    best, best_edge = np.inf, (0, 1)
+    n = len(hull)
+    for i in range(n):
+        a, b = hull[i], hull[(i + 1) % n]
+        e = b - a
+        L = float(np.hypot(*e))
+        if L < 1e-12:
+            continue
+        # CCW hull => interior is to the LEFT of every edge
+        cross = e[0] * (c[1] - a[1]) - e[1] * (c[0] - a[0])
+        if cross < 0.0:
+            inside = False
+        # distance to the SEGMENT
+        t = float(np.clip(np.dot(c - a, e) / (L * L), 0.0, 1.0))
+        d = float(np.hypot(*(c - (a + t * e))))
+        if d < best:
+            best, best_edge = d, (i, (i + 1) % n)
+    return SupportPolygon(names, hull, c, (best if inside else -best), best_edge)
+

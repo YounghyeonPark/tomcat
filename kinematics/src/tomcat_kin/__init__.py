@@ -60,6 +60,8 @@ from .stability import (
     SupportInterval,
     sagittal_stability_margin,
     centering_shift,
+    SupportPolygon,
+    polygon_stability_margin,
 )
 from .spine import (
     SpineModel,
@@ -120,6 +122,8 @@ __all__ = [
     "spine_segment_coms",
     "stability",
     "StabilityMargin",
+    "SupportPolygon",
+    "polygon_stability_margin",
     "SupportInterval",
     "sagittal_stability_margin",
     "centering_shift",

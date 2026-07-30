@@ -109,7 +109,8 @@ import numpy as np
 
 from .leg import LegModel, KneeConfig, UnreachableError
 from .spine import WholeBody, SpineModel, LegIKSolution, BodyCoM
-from .stability import StabilityMargin, sagittal_stability_margin
+from .stability import (StabilityMargin, sagittal_stability_margin,
+                        SupportPolygon, polygon_stability_margin)
 
 
 # Default lateral-sequence walk offsets (touchdown phase per leg). The offset SET
@@ -498,6 +499,31 @@ class GaitController:
     def stability_sweep(self, n: int = 48) -> list[StabilityMargin]:
         """``n`` evenly spaced stability margins over one cycle, phase in [0, 1)."""
         return [self.stability(i / n) for i in range(n)]
+
+    def support_polygon(self, phase: float, lateral_shift: float = 0.0):
+        """TRUE ground-plane support-polygon margin at ``phase`` (3D geometry).
+
+        ``stability()`` above returns the 2D-sagittal fore-aft INTERVAL margin,
+        which every prior document flagged as necessary but NOT sufficient. This
+        uses the real polygon spanned by the stance feet at their lateral track
+        offsets, so it can see roll/diagonal tipping.
+
+        ``lateral_shift`` (m) models BODY SWAY toward the support side — the
+        thing a real cat does during a crawl. It needs a lateral DOF the current
+        16-motor build does not have (see ADR-0006/0008), so it defaults to 0.
+        """
+        st = self.state(phase)
+        xy = self.body.foot_ground_xy(st.spine_q, {n: l.q for n, l in st.legs.items()})
+        stance = {n: xy[n] for n in st.stance_legs}
+        cy = 0.0
+        if lateral_shift:
+            side = float(np.sign(np.mean([stance[n][1] for n in stance])))
+            cy = lateral_shift * side
+        return polygon_stability_margin((st.com.x, cy), stance)
+
+    def support_polygon_sweep(self, n: int = 48, lateral_shift: float = 0.0):
+        """``n`` evenly spaced TRUE polygon margins over one cycle."""
+        return [self.support_polygon(i / n, lateral_shift) for i in range(n)]
 
     def state_at_time(self, t: float) -> GaitState:
         """Whole-body state at time ``t`` seconds (phase = (t/period) % 1)."""

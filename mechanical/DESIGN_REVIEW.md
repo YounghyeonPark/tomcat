@@ -219,6 +219,52 @@ stage — recording it so it is not mistaken for completeness.
 > without de-mounting a limb, and that re-tensioning must be followed by the FR7
 > calibration routine.
 
+## F7 — The walk is LATERALLY unstable (3D geometry) — OPEN, needs a decision
+
+Every stability result so far came from the 2D-sagittal support *interval*, which
+each document correctly flagged as **necessary but not sufficient**. Giving the
+legs their real lateral track offsets (3D **geometry** — no new DOF, no motors)
+makes the true ground-plane **support polygon** computable for the first time.
+It disagrees with the 2D result:
+
+| | 2D sagittal interval | **True support polygon** |
+|---|---|---|
+| Worst margin over the cycle | **+24.6 mm** (stable everywhere) | **−28.7 mm** (unstable) |
+
+With three feet down the support triangle is skewed to one side while the CoM
+sits on the mid-sagittal plane, so it falls **outside** the triangle for roughly
+half the cycle. This is the classic reason quadrupeds **sway** during a crawl.
+
+**What was tried (all measured, not assumed):**
+
+| Lever | Result | Costs motors? |
+|---|---|---|
+| Re-order the leg phase sequence (all 24 permutations) | best **−22.7 mm** — still unstable | no |
+| **Widen the track** (96 → 260 mm) | **−47.7 mm — WORSE** | no |
+| Shift the CoM forward alone | best **−8.3 mm** at +40 mm | no |
+| **Lateral body sway ~40 mm** | **+5.7 mm — works** | **yes** |
+| Forward CoM +30 mm **and** sway 25 mm | **+8.1 mm — works** | yes (less sway) |
+
+Widening the track being *counter-productive* is the surprise: the critical edge
+is the **diagonal** from the far front foot to the near rear foot, and widening
+only rotates that diagonal further away from the CoM.
+
+**The decision this forces.** Static stability needs a **lateral DOF** for sway.
+ADR-0006 already specifies spine lateral bend as a target, but
+[ADR-0008](../docs/DESIGN_DECISIONS.md) budgeted motors for the sagittal DOF only
+(16 motors, 38 % of body). Options:
+
+1. **Add spine lateral DOF** (+3 motors → 19, ~46 % of body) — re-opens ADR-0008's
+   mass closure, which had ~35 % left for structure.
+2. **Accept dynamic walking** — drop the static-stability requirement, as most
+   real quadrupeds do when trotting. Cheapest, but changes what the controller
+   must guarantee.
+3. **Bias mass forward + a smaller lateral DOF** — the +30 mm/25 mm combination
+   above needs less sway authority than 40 mm alone.
+
+Not resolved here: it changes ADR-0008 and possibly the control strategy, so it
+is the project owner's call.
+
 ---
 
 ## Resolution of F1 + F2 (done)
