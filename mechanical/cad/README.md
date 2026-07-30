@@ -10,21 +10,40 @@ the simulation cannot drift apart — change a link length in
 `kinematics/src/tomcat_kin/params.py` and this model follows on the next run.
 The four legs are posed by solving the leg **IK** for feet planted on the ground.
 
-The legs are **digitigrade** (cats stand on their toes) — a 4-link chain
-(femur / tibia / metatarsus / paw) with 3 actuated joints + a passive paw. The
-model is **fore/hind asymmetric** like a real cat: the front legs use the
-**fore-leg** proportions (`DEFAULT_FORELEG`) and the rear the **hind-leg**
-(`DEFAULT_LEG`). The limbs fold in *opposite* directions because each carries its
-own middle-joint limits — the hind **stifle bends forward** (negative range), the
-fore **elbow bends backward** (positive range) — and `LegModel.default_knee`
-derives the IK branch from those limits. **Both paws point forward**, as in a
-cat; an earlier version mirrored the whole front limb, which pointed the front
-paws at the tail. A **thoracic ribcage** hangs below the front spine while the rear
-(**lumbar**) third stays ring-free — the flexible bending region. Proportions,
-posture, and the thorax/lumbar split are informed by the public-domain
-**Reighard & Jennings (1901), *Anatomy of the Cat*** and the cat vertebral
-formula — see [../reference/ANATOMY.md](../reference/ANATOMY.md) for full,
-openly-licensed citations.
+## Skeletal detail
+
+The skeleton is no longer a capsule massing model — it implements bone **form**,
+joint **structure** and joint **axis orientation**, following the public-domain
+[ANATOMY.md](../reference/ANATOMY.md) reference and the cat vertebral formula
+(C7 / **T13** / **L7** / S3 / Ca~20):
+
+| Feature | How it is modelled | Why it matters |
+|---|---|---|
+| **Long bones** | shaft + expanded **condyles** at each end | the flare is where a joint bearing seats and a pulley gets its arm |
+| **Joint axes** | every actuated joint drawn as a **cylinder along lateral y** | shows structure *and orientation*, not just a blob |
+| **Hip / shoulder** | ball (3-DOF in a cat; we actuate the sagittal DOF only) | honest about what is and isn't actuated |
+| **Vertebrae** | ~20 presacral bodies with **spinous + transverse processes** | thoracic spines sweep **back**, lumbar **forward**, meeting at the anticlinal vertebra |
+| **Actuated spine joints** | only **3**, highlighted in a darker tone | the reader can count what ADR-0006 actually drives |
+| **Ribcage** | 8 **C-curved** rib pairs to a **sternum** | encloses a real volume, not decorative rings |
+| **Scapula** | sagittal blade sloping down-forward, glenoid at its tip | cats have **no functional clavicle** — the forelimb hangs from this mobile blade, which is also its righting contribution (ADR-0007) |
+| **Pelvis** | ilium blade up-forward + ischium back | anchors the hind limb and the tail |
+| **Neck / skull / tail** | cervical curve, cranium + muzzle, tapering caudal chain | completes the form |
+
+The legs are **digitigrade** — a 4-link chain (femur/tibia/metatarsus/paw) with 3
+actuated joints + a passive paw. The model is **fore/hind asymmetric**: the hind
+**stifle bends forward** (negative range) and the fore **elbow bends backward**
+(positive range), each derived from that leg's own joint limits via
+`LegModel.default_knee`. **Both paws point forward**, as in a cat.
+
+### Two component placements this detail justified
+
+1. **The spinous process height *is* the spine tendon moment arm.** The 30 mm arm
+   in `SpineParams` was an abstract pulley radius; it is now the dorsal process
+   the tendon actually bears on, so CAD and parameter agree by construction
+   (`SPINOUS_H` is read from `DEFAULT_SPINE.joint_moment_arm`).
+2. **The battery / electronics moved *inside* the thoracic basket.** The earlier
+   model put a "mid-body bay" box in the belly with no structural justification.
+   The ribcage is the natural home: protected, central, low, and near the CoM.
 
 ## Files
 - `tomcat_skeleton.py` — the parametric model (source of truth).

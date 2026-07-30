@@ -30,6 +30,9 @@ STYLE = {
     "tendon": ("#c1762e", 1.00),
     "pulley": ("#8a9bb0", 1.00),
     "girdle": ("#9fb0c3", 0.10),
+    "flat":   ("#c49a72", 1.00),
+    "joint":  ("#8a5a3c", 1.00),
+    "bay":    ("#7f93a8", 0.22),
 }
 # matplotlib: azim=-90,elev=0 looks along +y -> the x-z SIDE view;
 # elev=90 looks down -z -> top plan.
@@ -83,10 +86,10 @@ def bounds_of(*comps, pad=25.0):
 
 
 if __name__ == "__main__":
-    robot, _, _ = sk.build()
-    figure({"bone": robot}, bounds_of(robot),
+    skel, _, _ = sk.build()
+    figure(skel, bounds_of(*skel.values()),
            os.path.join(HERE, "views_skeleton.png"),
-           "T.O.M.C.A.T. — skeleton (digitigrade, fore/hind asymmetric, ribcage, tail)")
+           "T.O.M.C.A.T. — skeleton: bones, joint axes, vertebrae, scapula, ribcage")
 
     groups, _, _, _, _ = pk.build()
     figure(groups, bounds_of(*groups.values()),
