@@ -109,14 +109,19 @@ def test_trunk_plus_legs_equals_total():
 
 def test_fore_hind_split_is_near_balanced_not_sixty_forty():
     # REGRESSION GUARD for review finding F2. The old model TUNED the girdle
-    # masses to hit a 60/40 front-heavy split. Once the motors sit in their real
-    # clusters the pelvis carries MORE of them (19 vs 12), which largely cancels
-    # the head/neck: the machine is near-balanced, not front-heavy like a cat.
+    # masses to hit a 60/40 front-heavy split; the bottom-up count replaced that
+    # with wherever the hardware actually sits.
+    #
+    # UPDATED by the ADR-0009 mass re-check: correcting the motor mass (31 -> 72 g)
+    # and moving the spine/tail bank out of the rear girdle into the mid-body bay
+    # LIGHTENED the pelvis, so the split moved from 51/49 to ~55/45. Still nothing
+    # like a real cat's 60/40, and still an OUTPUT of the hardware layout rather
+    # than a tuned input.
     q = _body().mass_budget()
     assert q.total == pytest.approx(3.0, abs=1e-9)
     assert q.fore + q.hind == pytest.approx(q.total, abs=1e-12)
-    assert q.fore_fraction == pytest.approx(0.51, abs=0.02)
-    assert q.hind_fraction == pytest.approx(0.49, abs=0.02)
+    assert q.fore_fraction == pytest.approx(0.55, abs=0.02)
+    assert q.hind_fraction == pytest.approx(0.45, abs=0.02)
     # Still fore-biased, just barely -- the head/neck edges it forward.
     assert q.fore > q.hind
     assert "forequarters" in q.report()
@@ -368,3 +373,26 @@ def test_fore_and_hind_legs_have_different_coms_for_the_same_angles():
     hind_local = c.legs["LR"].com - body.hip_world_pose(STRAIGHT, "LR")[:2]
     assert not np.allclose(fore_local, hind_local)
     assert c.legs["LF"].mass < c.legs["LR"].mass
+
+
+def test_actuation_mass_matches_the_downselected_motor_and_count():
+    # REGRESSION GUARD for the ADR-0009 mass re-check. The apportionment was once
+    # built on 31 CHANNELS x 36 g -- a count predating ADR-0008's variable-radius
+    # pulley, and a 31 g motor predating the down-select. The build is 19 motors
+    # at ~72 g + a 5 g driver each. Both girdles must reflect that.
+    from tomcat_kin.params import DEFAULT_SPINE as sp
+    unit = 0.072 + 0.005
+    assert sp.front_girdle_mass == pytest.approx(6 * unit + 0.240 + 0.090, abs=1e-9)
+    assert sp.rear_girdle_mass == pytest.approx(6 * unit + 0.110, abs=1e-9)
+    # The pelvis is now the LIGHTER girdle: the spine/tail bank left it for the
+    # mid-body bay, which is where the CAD packaging actually puts those motors.
+    assert sp.rear_girdle_mass < sp.front_girdle_mass
+    # ...and that bank shows up in the MIDDLE spine segment, with the battery.
+    assert sp.segment_mass[1] > sp.segment_mass[0] + sp.segment_mass[2]
+    assert sp.segment_mass[1] == pytest.approx(0.130 + 0.300 + 7 * unit, abs=1e-9)
+
+
+def test_total_is_still_exactly_the_three_kg_target():
+    # NFR5. The re-check moved ~347 g of actuation into the model; it had to come
+    # out of the structure residual, not out of the top line.
+    assert _body().mass_budget().total == pytest.approx(3.0, abs=1e-9)

@@ -41,28 +41,44 @@ biology (limbs ~24% of body mass) and then TUNED the girdle masses to hit a
 2. LEGS, bottom-up: **0.110 kg** hind / **0.095 kg** fore -> 0.410 kg for all
    four = **13.7%** of body (was 24%). Still proximal-heavy within the leg
    (47.5 / 30 / 15 / 7.5 %) because tendon drive centralises mass.
-3. GIRDLES now carry their real contents -- motors (~31 g each) + one driver
-   board (~5 g) each, clustered per ADR-0005:
-       front  = 12 ch x 36 g + head/neck 0.240 + structure 0.090 = **0.762 kg**
-       rear   = 19 ch x 36 g + structure 0.110                   = **0.794 kg**
-   The rear girdle is now the HEAVIER one -- it holds the hind-leg, spine and
-   tail motors.
-4. SPINE segments = the remaining 1.034 kg: 0.220 / 0.514 / 0.300 kg rear->front.
-   The mid segment carries the ~0.300 kg battery (physically it sits mid-body,
-   under the spine).
-5. The fore/hind split is now a RESULT, not a target: **forequarters 1.535 kg
-   (51.2%) / hindquarters 1.465 kg (48.8%)** -- near-balanced, only just
-   fore-biased by the head/neck. See ``mass.quarter_masses``.
+3. GIRDLES carry their real contents -- motors + one driver board each:
+       front  = 6 leg motors x 77 g + head/neck 0.240 + structure 0.090 = **0.792 kg**
+       rear   = 6 leg motors x 77 g + structure 0.110                   = **0.572 kg**
+   where 77 g = the DOWN-SELECTED 72 g motor + a 5 g driver board.
+4. SPINE segments = the remaining 1.226 kg: 0.130 / 0.969 / 0.127 kg rear->front.
+   The MIDDLE segment dominates because it carries both the ~0.300 kg battery
+   AND the 7-motor spine+tail bank (3 dorsoventral + 3 lateral + 1 tail), which
+   the CAD packaging puts in the mid-body bay between the girdles.
+5. The fore/hind split is a RESULT, not a target. See ``mass.quarter_masses``.
 
-Consequences of the rebuild (all verified in the model): body CoM moved REARWARD
-from +130 mm to +102 mm; the walk stays statically stable but the worst-case
-margin fell from +46.5 mm to **+27.4 mm**; and quiet-stand spine load collapsed
-(the base joint no longer cantilevers a front-heavy body), though an asymmetric
-single-leg LANDING still makes the base joint the worst spine joint.
+   ⚠️ CORRECTED (ADR-0009 follow-up). The previous apportionment was wrong twice,
+   in opposite directions, and the errors did not cancel:
+     * it charged **31 CHANNELS x 36 g**, a count that predates ADR-0008's
+       variable-radius pulley (which halves motors to one per DOF) -- ~432 g too
+       much; and
+     * it used a **~31 g motor** from an assumed O16x28 mm envelope, while the
+       motor down-select then landed on a **~72 g** O36 class -- ~779 g too little.
+   Net: the model was **~347 g LIGHT on actuation**, ~12% of the whole budget.
+   It also parked the spine/tail motors in the REAR GIRDLE while the CAD packs
+   them mid-body, which mislocated ~0.5 kg by ~100 mm.
+   Correcting both moved the body CoM forward (+100 -> +108 mm), IMPROVED the
+   fore-aft margin (+32.7 -> +40.2 mm) and slightly raised lateral sway
+   authority, so the M5 stability conclusions survive -- see docs/notes/
+   mass-budget-recheck.md.
 
-Estimate quality: the motor mass (~31 g from a Ø16x28 mm envelope at ~5.5 g/cm^3)
-and the 0.300 kg battery are ❓ ASSUMED. Selecting a real motor is the single
-input that would firm up this whole budget -- it also gates Kt and bus voltage.
+Consequences, cumulative over BOTH passes (all verified in the model). The F1/F2
+rebuild moved the body CoM rearward from +130 mm to +102 mm and cut the fore-aft
+margin from +46.5 mm to +27.4 mm; the ADR-0009 correction above then moved it
+forward again to **+107.5 mm**, recovering the margin to **+40.2 mm**. Quiet-stand
+spine load remains far below the pre-F2 model (the base joint no longer
+cantilevers a front-heavy body) though it roughly doubled from the F1/F2 figure,
+0.13 -> 0.29 N.m; an asymmetric single-leg LANDING still makes the base joint the
+worst spine joint.
+
+Estimate quality: the motor mass is now the DOWN-SELECTED ~72 g (O36 pancake
+class, docs/notes/motor-downselect.md), no longer a guess. Still ❓ ASSUMED: the
+0.300 kg battery, the 5 g driver board, and the per-girdle structure allowances
+(0.090 / 0.110 kg) -- the last of these is the loosest number here.
 
 Why NOT the literature's 0.454 kg knee mass
 -------------------------------------------
@@ -298,7 +314,28 @@ class SpineParams:
     # RoboCat band; ~0.030 m brings it near the top of the band.  Still ❓ TBD.
     joint_moment_arm: tuple[float, ...] = (0.030, 0.030, 0.030)
 
+    # LATERAL tendon moment arm per segment (m) — ADR-0009 follow-up.
+    # The dorsoventral tendon rides over the tall SPINOUS process (30 mm); the
+    # lateral tendon has only the much shorter TRANSVERSE process. Since
+    # T = tau/r, a short lateral arm directly amplifies cable tension AND the
+    # motor torque behind it.
+    #
+    # SPINE_TAIL_SPEC §1.5 originally assumed the bare transverse-process width,
+    # 0.015 m. That does not work: sizing the lateral drive against the M5
+    # crossover inertia (``WholeBody.lateral_spine_loads``) puts the BASE joint at
+    # 1.18 N.m of motor torque -- 1.07x ADR-0008's 1.10 N.m trot sizing point,
+    # i.e. OVER peak, for the one joint that must swing the whole forequarters.
+    # 0.020 m brings it to 0.88 N.m (0.80x) with margin.
+    #
+    # 0.020 m is bought with a dedicated lateral pulley post on each vertebra --
+    # exactly the trick ASSEMBLY_SPEC already uses to realise the 30 mm
+    # dorsoventral arm via a milled spinous-process post, rather than trusting
+    # bone geometry. +/-20 mm sits well inside the +/-34 mm thoracic rib cavity.
+    lateral_moment_arm: tuple[float, ...] = (0.020, 0.020, 0.020)
+
     # Motor spool radius for the spine tendons (m).  ❓ TBD.
+    # FLOORED at ~0.0075 m by the 1.5 mm UHMWPE cable's minimum bend diameter
+    # (motor-downselect note) — torque cannot be bought back by shrinking it.
     motor_spool_radius: float = 0.008
 
     # Minimum cable tension / mechanical slack floor (N).  ❓ TBD.
@@ -331,7 +368,11 @@ class SpineParams:
     # mobile bending region); front = thoracic/ribcage + viscera (heavier). Sums
     # to 1.30 kg.  Matches the 13-thoracic / 7-lumbar formula in
     # mechanical/reference/ANATOMY.md qualitatively, not quantitatively.
-    segment_mass: tuple[float, ...] = (0.220, 0.514, 0.300)
+    # Rear -> front. The MIDDLE segment dominates because it physically carries
+    # both the ~0.300 kg battery and the 7-motor spine+tail bank, which the CAD
+    # packaging places in the mid-body bay between the girdles (NOT in the rear
+    # girdle, as the pre-ADR-0009 apportionment assumed).
+    segment_mass: tuple[float, ...] = (0.130, 0.969, 0.127)
 
     # Fraction along each segment (from its INBOARD/rear vertebra) at which that
     # segment's mass acts. 0.5 = uniform rod.  ❓ TBD
@@ -339,11 +380,14 @@ class SpineParams:
 
     # Girdle (limb-girdle) masses (kg), lumped at the corresponding end vertebra.
     # FRONT = shoulder girdle; it deliberately ABSORBS the HEAD + NECK, which are
-    # not separate bodies in this model and are a big part of why a cat is
-    # front-heavy. REAR = pelvic girdle (much lighter). These two values were the
-    # free variables solved to land the fore/hind weight split at ~60/40.  ❓ TBD
-    front_girdle_mass: float = 0.762
-    rear_girdle_mass: float = 0.794
+    # not separate bodies in this model. REAR = pelvic girdle. Both are now a
+    # bottom-up COUNT of what each girdle actually holds, not a free variable:
+    #     front = 6 leg motors x 77 g + head/neck 0.240 + structure 0.090
+    #     rear  = 6 leg motors x 77 g + structure 0.110
+    # where 77 g = the down-selected 72 g motor + a 5 g driver board. The rear
+    # girdle is now the LIGHTER one: the spine/tail bank moved to the mid-body.
+    front_girdle_mass: float = 0.792
+    rear_girdle_mass: float = 0.572
 
     # Girdle CoM offset (x, z) in the girdle's own frame (m). (0, 0) = the mass
     # acts exactly at the girdle mount vertebra.  ❓ TBD

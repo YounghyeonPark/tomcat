@@ -127,7 +127,7 @@ isometric) for both models — clearer than the single iso the build scripts emi
 
 ![packaging views](views_packaging.png)
 
-### Fit findings — re-packed for **16 motors** (ADR-0008)
+### Fit findings — re-packed for **19 motors** (ADR-0008 + ADR-0009)
 
 [ADR-0008](../../docs/DESIGN_DECISIONS.md) cut the count 24 → **16** (one
 variable-radius-pulley motor per DOF) and the
@@ -135,15 +135,21 @@ variable-radius-pulley motor per DOF) and the
 placeholder with a realistic **Ø36 × 26 mm, ~74 g pancake QDD** module. Both
 changes invalidated the earlier F4 packing, so it was redone.
 
+[ADR-0009](../../docs/DESIGN_DECISIONS.md) then added the **spine LATERAL bend**
+DOF, taking the count **16 → 19**. The three extra motors join the spine bank in
+the mid-body bay, which is why that bay grew and now packs 2 × 2 rather than
+2 × 1 — seven motors stacked two per layer would tower 152 mm out of a 113 mm-wide
+cat.
+
 | Result | Value |
 |--------|-------|
-| Motors | **16** — 12 leg DOF (3/leg) + 3 spine + 1 tail |
+| Motors | **19** — 12 leg DOF (3/leg) + 3 spine dorsoventral + **3 spine lateral** + 1 tail |
 | Motor envelope | Ø36 × 26 mm, ~74 g `[assumed, ADR-0008 class]` |
 | Shoulder girdle | **85 × 88 × 88 mm** (6 motors, 2 per layer) |
 | Pelvic girdle | **85 × 88 × 88 mm** (6 motors) |
-| Mid-body bay | **85 × 46 × 80 mm** (3 spine + 1 tail) |
+| Mid-body bay | **85 × 85 × 80 mm** (3 spine + 3 lateral + 1 tail, 2 × 2 per layer) |
 | Width vs 96 mm leg track | **88 mm — fits** |
-| Overall | 402 × 113 × 301 mm |
+| Overall | 426 × 113 × 281 mm |
 
 **Two layout decisions this forced:**
 

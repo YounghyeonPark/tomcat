@@ -555,6 +555,56 @@ class WholeBody:
         num = float((m_seg * seg_y).sum()) + (sp.front_girdle_mass + m_fore) * tip_y
         return num / self.total_mass
 
+    def lateral_spine_loads(self, lateral_accel: float) -> list[dict]:
+        """Per-joint LATERAL spine drive loads for a sideways CoM acceleration.
+
+        Sizes the ADR-0009 lateral tendons. Unlike every other load in this model
+        these are **inertial, not gravitational**: the lateral bend axis is
+        VERTICAL, so gravity (acting along it) exerts no moment about it and
+        holding a sway costs essentially nothing. What costs torque is *reversing*
+        the sway — accelerating the forequarters sideways during the gait's
+        four-foot crossover window (``GaitController.crossover_accel``).
+
+        For each joint, everything DISTAL (toward the head) is treated as a rigid
+        body accelerated at ``lateral_accel``::
+
+            tau_joint  = m_distal * a * (com_distal - x_joint)
+            T_cable    = tau_joint / lateral_moment_arm      # 20 mm, vs 30 mm
+            tau_motor  = T_cable * motor_spool_radius        # dorsoventrally
+
+        Returns one dict per joint (base first) with ``joint``, ``distal_mass``,
+        ``lever``, ``joint_torque``, ``cable_tension`` and ``motor_torque`` in SI.
+
+        ⚠️ Rigid-body approximation: the distal chain is taken as one lump at its
+        combined CoM, and no spine compliance, tendon stretch or routing friction
+        is included. Good for sizing, not a substitute for dynamics.
+        """
+        sp = self.spine.params
+        L = np.asarray(sp.segment_lengths, dtype=float)
+        x = np.concatenate([[0.0], np.cumsum(L)])
+        m_seg = np.asarray(sp.segment_mass, dtype=float)
+        seg_com = (x[:-1] + x[1:]) / 2.0
+        m_fore = sum(self.legs[n].params.mass
+                     for n, m in self.mounts.items() if m.girdle is Girdle.FRONT)
+        m_tip = sp.front_girdle_mass + m_fore          # rides at the spine tip
+
+        out = []
+        for j in range(sp.n_segments):
+            m_distal = float(m_seg[j:].sum()) + m_tip
+            com = (float(np.dot(m_seg[j:], seg_com[j:])) + m_tip * x[-1]) / m_distal
+            lever = com - x[j]
+            tau = m_distal * float(lateral_accel) * lever
+            tension = tau / sp.lateral_moment_arm[j]
+            out.append({
+                "joint": j,
+                "distal_mass": m_distal,
+                "lever": lever,
+                "joint_torque": tau,
+                "cable_tension": tension,
+                "motor_torque": tension * sp.motor_spool_radius,
+            })
+        return out
+
     def center_of_mass(self, spine_q, leg_q=None) -> BodyCoM:
         """Whole-body centre of mass for a spine posture + per-leg joint angles.
 

@@ -244,26 +244,44 @@ committing a backplane channel count. (The tail is now a single motor, ADR-0007.
 
 Motors are centralized in the girdles/pelvis (P1), so drivers cluster with them:
 
+⚠️ **Superseded — see the corrected table below.** This section was written when
+each antagonistic DOF took ~2 channels and the spine bank sat in the pelvis:
+
 | Cluster | Motors it hosts | Driver count (headline / reduced) |
 |---|---|---|
 | **Shoulder-girdle cluster** | 2 forelegs | 12 / 10 |
 | **Pelvic-girdle cluster** | 2 hind legs + spine bank + tail | 12 + 6 + 1 = **19 / 14** |
-| *(Tail node)* | 1 tail motor (mounted at pelvic girdle per SPINE_TAIL_SPEC) | 1 — its own CAN **node ID**, sharing the pelvic segment; physically inside the pelvic girdle |
+| *(Tail node)* | 1 tail motor | 1 — sharing the pelvic segment |
 
-The pelvic girdle carries the most channels (hind legs + all spine + tail
-motors per SPINE_TAIL_SPEC), so power distribution there is the tightest.
-**Update (review F4):** standing the motors upright in the CAD packaging study
-levelled the two girdles — both are now 87 × 52 mm in section, and the pelvic
-girdle is no longer taller/denser than the shoulder. The thermal concern is
-reduced but not gone: it still hosts ~19 channels in the same volume, so
-airflow/heat-sinking remains a mechanical action item.
+**Corrected layout (ADR-0008 variable-radius pulley + ADR-0009 lateral DOF, and
+the CAD packaging).** One motor per DOF, and the spine+tail bank lives in a
+**mid-body bay**, not the pelvis — so there are **three** backplanes and the
+pelvis is no longer the dense one:
+
+| Cluster | Motors | Contents |
+|---|---|---|
+| **Shoulder girdle** | **6** | fore-leg DOF (3/leg) |
+| **Pelvic girdle** | **6** | hind-leg DOF (3/leg) |
+| **Mid-body bay** | **7** | 3 spine dorsoventral + 3 spine lateral + 1 tail |
+| **Total** | **19** | |
+
+The tail keeps its own CAN **node ID** but is a stub off the mid-body node — one
+motor does not justify a backplane.
+
+**Thermal note (was review F4).** Standing the motors upright levelled the two
+girdles (both 85 × 88 × 88 mm in the current packaging). The old worry that the
+pelvis hosts ~19 channels in one volume is **gone** — the densest node is now the
+**mid-body bay at 7 channels in 85 × 85 × 80 mm**, which is where
+airflow/heat-sinking attention should go instead.
 
 ### 2.3 CAN-FD segmentation (~6–8 segments, ADR-0005)
 
 ADR-0005 fixes **~6–8 CAN-FD segments** (extrapolated from the mjbots 12-axis
 result; ADR-0005 flags **bench-verify ≥1 kHz per segment** at final axis count).
-At ~31 drivers that is **~4–6 drivers per segment** — comfortably under the
-12-axis-per-bus reference, giving margin for the ≥1 kHz aggregation (NFR3):
+At **19** drivers (not the ~31 this section was first written for) that is
+**~3–4 drivers per segment** — well under the 12-axis-per-bus reference, giving
+generous margin for the ≥1 kHz aggregation (NFR3). If anything the segment count
+can now be revisited downward:
 
 | Segment (indicative) | Drivers | Notes |
 |---|---|---|

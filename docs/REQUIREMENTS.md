@@ -47,9 +47,9 @@ curve.
 | NFR2b | DOF per spine segment                            | **2** — dorsoventral + lateral (ADR-0006/0009) |
 | NFR2c | Total actuated DOF (12 legs + 6 spine + 1 tail)  | **19** (= 19 motors, ADR-0008 + **ADR-0009** lateral) |
 | NFR2d | Tail actuation (coarse assist, no accuracy)      | 1 tendon + passive return |
-| NFR2e | Spine LATERAL bend ROM (per segment)             | **±15°** (ADR-0009; gait commands 13.5°, so ~1.5° spare) |
-| NFR2f | Spine lateral **slew rate** (per segment)         | **≥ 129 °/s** at the 1.4 s walk (ADR-0009) |
-| NFR2g | Paw–ground friction coefficient μ                 | **≥ 0.72** — the sway crossover slides below this; static stability depends on it |
+| NFR2e | Spine LATERAL bend ROM (per segment)             | **±15°** (ADR-0009; gait commands 12.5°, so ~2.5° spare) |
+| NFR2f | Spine lateral **slew rate** (per segment)         | **≥ 119 °/s** at the 1.4 s walk (ADR-0009) |
+| NFR2g | Paw–ground friction coefficient μ                 | **≥ 0.70** — the sway crossover slides below this; static stability depends on it |
 | NFR2h | Statically stable walk speed                      | **~4 cm/s** (crawl). Faster requires a *dynamic* gait — ADR-0009 |
 | NFR3  | Control loop rate (tension/position)             | ≥ 1 kHz             |
 | NFR4  | Gait / trajectory update rate                    | ≥ 100 Hz            |

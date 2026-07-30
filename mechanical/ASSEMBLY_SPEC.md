@@ -71,9 +71,10 @@ a long area* rather than point bearing.
 | Joint clevises / forks | **CNC-milled** | 6061-T6 | carries the bearing bores |
 | Joint sheaves (Ø56/50/28) | **turned**, hard-anodised groove | 6061-T6 | groove r ≈ 0.85 mm `[sourced: §2]` |
 | Vertebrae, girdle shells, scapula/pelvis blades | **3D printed** (SLS nylon or MJF) | PA12 | complex, low-stress, non-critical form |
-| Spine spinous-process pulley posts | **CNC-milled** | 6061-T6 | this *is* the 30 mm tendon moment arm |
+| Spine spinous-process pulley posts | **CNC-milled** | 6061-T6 | this *is* the 30 mm dorsoventral tendon moment arm |
+| Spine **lateral** pulley posts (±20 mm, per actuated vertebra) | **CNC-milled** | 6061-T6 | this *is* the 20 mm lateral moment arm (ADR-0009 f/u). Shortening it to the bare transverse process puts the base lateral joint **over motor peak** |
 | Motor / driver housings | **3D printed** | PA12 | cover plates for access, §4 |
-| Paw pads | **cast / moulded** | TPU ~80A | compliant contact + tactile sensor pocket |
+| Paw pads | **cast / moulded** | TPU ~80A | compliant contact + tactile sensor pocket. ⚠️ **μ ≥ 0.70 is now a stability requirement** (NFR2g): below it the ADR-0009 sway crossover slides. `[owed: measure on the intended floor]` |
 
 Rationale: metal only where load or precision demands it (bearing bores, sheave
 grooves, bonded joints); printed everywhere else to keep mass and cost down.

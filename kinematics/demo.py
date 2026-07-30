@@ -335,12 +335,12 @@ def _mass_and_stability_demo() -> None:
     print()
     print("  >>> Sway amplitude is an OPTIMUM, not a maximum -- over-swaying")
     print("      carries the CoM out over the FAR edge of the triangle")
-    print("      (16/19 deg tie because both clip to the +/-15 deg spine ROM):")
-    for deg in (8.0, 11.0, 13.5, 16.0, 19.0):
+    print("      (15/18 deg nearly tie -- both are at the +/-15 deg spine ROM clip):")
+    for deg in (8.0, 10.5, 12.5, 15.0, 18.0):
         c = GaitController(params=GaitParams(lateral_amplitude=np.radians(deg)))
         w = min(q.margin for q in c.support_polygon_sweep(120))
         print("        %4.1f deg -> %+6.2f mm%s"
-              % (deg, w * 1e3, "  <-- default" if deg == 13.5 else ""))
+              % (deg, w * 1e3, "  <-- default" if deg == 12.5 else ""))
 
     print()
     print("  >>> But the constraint that actually set the WALK SPEED was FRICTION,")
@@ -364,6 +364,39 @@ def _mass_and_stability_demo() -> None:
     print("         and static stability caps the walk at %.1f cm/s -- a CRAWL."
           % (on.params.body_speed * 100))
     print("         Cat-like speed must come from a DYNAMIC gait (next milestone).")
+
+    # ------------------------------------------- lateral spine DRIVE sizing
+    print()
+    print("=== SIZING THE LATERAL SPINE DRIVE (ADR-0009 follow-up) ===")
+    print("  ADR-0009 added 3 motors without checking what they must pull. Note the")
+    print("  load is INERTIAL, not gravitational: the lateral bend axis is VERTICAL,")
+    print("  so gravity exerts no moment about it and HOLDING a sway is nearly free.")
+    print("  What costs torque is REVERSING it during the crossover.")
+    print()
+    print("  joint  distal kg  lever mm  joint N.m  cable N   motor N.m   vs 1.10 sizing")
+    for r in on.body.lateral_spine_loads(on.crossover_accel()):
+        print("  %5d    %6.3f     %5.1f     %6.3f    %6.1f     %6.3f      %5.2fx"
+              % (r["joint"], r["distal_mass"], r["lever"] * 1e3, r["joint_torque"],
+                 r["cable_tension"], r["motor_torque"], r["motor_torque"] / 1.10))
+    print()
+    print("  >>> The base joint is worst -- it swings the whole forequarters. It fits")
+    print("      inside ADR-0008's trot sizing point, so the 3 extra motors are the")
+    print("      SAME class as the leg motors and ADR-0009's mass arithmetic holds.")
+    print("      But that depends entirely on the LATERAL MOMENT ARM:")
+    import dataclasses as _dc
+    from tomcat_kin.spine import SpineModel as _SM
+    for arm_mm in (15.0, 20.0, 25.0):
+        b = WholeBody(spine=_SM(_dc.replace(on.body.spine.params,
+                                            lateral_moment_arm=(arm_mm / 1000.0,) * 3)))
+        w = max(r["motor_torque"] for r in b.lateral_spine_loads(on.crossover_accel()))
+        note = "  <- OVER motor peak" if w > 1.10 else ""
+        if arm_mm == 20.0:
+            note += "  <-- specified"
+        print("        %4.0f mm arm -> %.3f N.m motor (%.2fx)%s"
+              % (arm_mm, w, w / 1.10, note))
+    print("      15 mm is the BARE transverse process, which is what SPINE_TAIL_SPEC")
+    print("      first assumed -- it does not work. 20 mm needs a milled lateral")
+    print("      pulley post, the same trick already used for the 30 mm dorsal arm.")
 
 
 

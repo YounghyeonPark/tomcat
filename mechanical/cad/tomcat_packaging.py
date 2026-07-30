@@ -43,7 +43,8 @@ FOOT_Z, FOOT_PITCH = -0.17, 0.0     # paw flat on the ground (digitigrade)
 FRONT_FOOT_X, REAR_FOOT_X = 0.06, 0.04
 TENDON_R = 1.6
 LEG_ARMS = np.asarray(DEFAULT_TENDON.joint_moment_arm) * MM   # hip,knee,ankle pulley radii (mm)
-SPINE_ARM = float(DEFAULT_SPINE.joint_moment_arm[0]) * MM     # 30 mm
+SPINE_ARM = float(DEFAULT_SPINE.joint_moment_arm[0]) * MM     # 30 mm (dorsoventral)
+SPINE_LAT_ARM = float(DEFAULT_SPINE.lateral_moment_arm[0]) * MM  # 20 mm (lateral, ADR-0009)
 
 
 def yaxis(origin):
@@ -176,6 +177,35 @@ def spine_tendons(z, xs, spools):
     return Compound([dorsal, ventral])
 
 
+def spine_lateral_tendons(z, xs, spools):
+    """Left + right lateral tendons over the vertebral LATERAL pulley posts.
+
+    The ADR-0009 sway DOF. Where the dorsoventral pair runs above/below the
+    centrum over the spinous process, this pair runs to either SIDE at
+    ``SPINE_LAT_ARM``, so tensioning one bends the spine toward that side.
+    """
+    left = [(x, +SPINE_LAT_ARM, z) for x in xs]
+    right = [(x, -SPINE_LAT_ARM, z) for x in xs]
+    return Compound([tube([spools[0]] + left), tube([spools[1]] + right)])
+
+
+def lateral_posts(z, xs):
+    """The milled posts that REALISE the 20 mm lateral moment arm.
+
+    Drawn explicitly because, like the spinous-process posts, this hardware IS
+    the moment arm -- shorten it and the base lateral joint goes over the motor's
+    peak torque (see params.SpineParams.lateral_moment_arm).
+    """
+    parts = []
+    for x in xs[1:-1]:
+        for side in (+1, -1):
+            parts.append(bone((float(x), 0, z),
+                              (float(x), side * SPINE_LAT_ARM, z), 2.2))
+            parts.append(Pos(float(x), side * SPINE_LAT_ARM, z)
+                         * Cylinder(3.0, 5.0))
+    return Compound(parts)
+
+
 def tail(z, spool):
     pts = [(0, 0, z), (-70, 0, z + 20), (-125, 0, z + 55), (-160, 0, z + 100)]
     radii = [9, 7, 5, 3.5]
@@ -220,11 +250,18 @@ def build():
     # ---- spine + tail motor bank in the pelvic girdle (centre) ----
     # Spine + tail bank lives in the BELLY between the girdles (still
     # centralized per P1), which is otherwise empty volume.
-    spine_bank, spine_spools = pack_cluster((0.5 * front_x, 0.0, H - 26.0), 4, +1)  # 3 spine + 1 tail
+    # 7 = 3 dorsoventral + 3 LATERAL (ADR-0009) + 1 tail. Was 4 before ADR-0009
+    # raised the motor count 16 -> 19; the CAD had not caught up.
+    # 2x2 footprint, not the girdles' 2x1: seven motors stacked 2-per-layer would
+    # tower 152 mm out of a 113 mm-wide cat. 2x2 puts them in two layers instead.
+    spine_bank, spine_spools = pack_cluster((0.5 * front_x, 0.0, H - 26.0), 7, +1,
+                                            per_layer=(2, 2))
     motors.append(spine_bank)
     mid_clusters = [spine_bank]
     tendons.append(spine_tendons(H, xs, [spine_spools[0], spine_spools[1]]))
-    tail_body, tail_tendon = tail(H, spine_spools[3])
+    tendons.append(spine_lateral_tendons(H, xs, [spine_spools[3], spine_spools[4]]))
+    pulleys.append(lateral_posts(H, xs))
+    tail_body, tail_tendon = tail(H, spine_spools[6])
     bones.append(tail_body)
     tendons.append(tail_tendon)
 

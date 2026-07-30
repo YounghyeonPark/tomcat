@@ -179,9 +179,13 @@ def test_gravity_load_total_scales_with_case_body_mass():
 def test_near_balanced_body_barely_loads_the_base_joint_in_quiet_stand():
     # Consequence of review finding F2. When the girdle masses were TUNED to a
     # 60/40 front-heavy split, the base joint carried a large cantilever moment
-    # (>0.3 N·m). With the motors in their real clusters the body is near-balanced
-    # (51/49), so in a symmetric 4-leg stand the base joint carries very little --
-    # it approaches the exactly-symmetric body's zero.
+    # (0.57 N·m). Putting the motors in their real clusters cut that sharply.
+    #
+    # PARTLY WALKED BACK by the ADR-0009 mass re-check: correcting the motor mass
+    # and moving the spine/tail bank into the mid-body bay left the body at 55/45
+    # rather than 51/49, so the base joint now carries ~0.29 N·m -- about double
+    # the post-F2 value, though still half the tuned model's. F2's direction holds;
+    # its magnitude was optimistic because it under-weighed the actuators.
     load = WholeBodyLoadCase(
         "stand", dynamic_factor=1.0, spine_q=(0.0, 0.0, 0.0),
         stance_legs=("LF", "RF", "LR", "RR"),
@@ -189,7 +193,7 @@ def test_near_balanced_body_barely_loads_the_base_joint_in_quiet_stand():
     real = abs(spine_joint_torques(_body(), load)[0])
     symmetric = abs(spine_joint_torques(_symmetric_body(), load)[0])
     assert symmetric == pytest.approx(0.0, abs=1e-9)
-    assert real < 0.15          # N·m -- small, not the 0.57 of the tuned model
+    assert real < 0.35          # N·m -- still well under the 0.57 of the tuned model
 
 
 def test_asymmetric_land_still_makes_the_base_joint_the_worst():
@@ -227,7 +231,7 @@ def test_report_states_the_mass_model_and_the_split():
     txt = res.report()
     assert "REAL distributed" in txt
     assert res.mass_total_kg == pytest.approx(3.0)
-    assert res.mass_fore_fraction == pytest.approx(0.51, abs=0.02)
+    assert res.mass_fore_fraction == pytest.approx(0.55, abs=0.02)
 
 
 def test_stand_case_spine_tension_is_not_excessive():

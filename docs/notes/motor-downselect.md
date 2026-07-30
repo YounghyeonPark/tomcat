@@ -124,6 +124,13 @@ one motor per antagonistic pair), the budget closes comfortably at the existing
 | Battery | 300 g | 10.0 % |
 | **Remaining for structure** | **1065 g** | **35.5 %** |
 
+> ⚠️ **Superseded count.** [ADR-0009](../DESIGN_DECISIONS.md) later added the
+> spine lateral DOF, taking the build to **19 motors**: 1368 g of motors + 95 g of
+> drivers, leaving **827 g**, not 1065 g. The current apportionment — and the
+> discovery that `params.py` had been carrying a stale 31 g/31-channel figure all
+> along — is in the [mass-budget re-check](mass-budget-recheck.md). The *sizing
+> basis* below (trot, not landing) is unaffected and still governs.
+
 ## 4. What this unblocks now
 
 - **`G-Kt` → ≈0.44 N·m/A** (output side, from the rated pair; the vendor's

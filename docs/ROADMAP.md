@@ -19,7 +19,7 @@ sequences the work that implements them.
 > **M4 done:** real mass — CoM & static stability (fore-aft).
 > **M5 done:** the **lateral spine DOF** ([ADR-0009](DESIGN_DECISIONS.md)) — a true
 > 3D support polygon, commanded lateral sway, and with it the first walk that is
-> genuinely statically stable in 3D (**+8.4 mm**, up from **−25.4 mm**) *and*
+> genuinely statically stable in 3D (**+10.1 mm**, up from **−21.6 mm**) *and*
 > dynamically realisable inside the paw friction cone. 244 tests.
 
 ---
@@ -246,12 +246,12 @@ segment (16 → 19 motors); M5 is that model.
    actuated DOF** instead of the old `lateral_shift` what-if parameter.
 4. `GaitController.crossover_accel` / `.friction_accel_limit` /
    `.crossover_is_feasible` — the dynamic reality check on the sway (see below).
-5. Default gait retuned: **duty 0.75 → 0.90**, **period 1.2 → 1.4 s**, sway **13.5°**.
+5. Default gait retuned: **duty 0.75 → 0.90**, **period 1.2 → 1.4 s**, sway **12.5°**.
 
 **Results, and the four things building it taught us:**
-- The default walk is now statically stable in 3D: **+8.4 mm** (was −25.4 mm).
-- Sway authority is **adequate, not ample** — margin *peaks* at 13.5° and falls
-  beyond, since over-swaying tips the CoM over the far edge. ~1.5° of ROM spare.
+- The default walk is now statically stable in 3D: **+10.1 mm** (was −21.6 mm).
+- Sway authority is **adequate, not ample** — margin *peaks* at 12.5° and falls
+  beyond, since over-swaying tips the CoM over the far edge. ~2.5° of ROM spare.
 - **Duty had to rise above 0.75.** At exactly 0.75 the swing windows tile, so the
   support side flips instantaneously; any finite ramp collapses the margin back
   to the no-sway value. Duty > 0.75 opens the four-foot crossover windows.
@@ -261,19 +261,55 @@ segment (16 → 19 motors); M5 is that model.
   the sway costs `a = 4d/w²` — inverse-square in the window — and a paw delivers
   only `μg`. The first tuned gait (1.2 s, duty 0.80) demanded **9.1 g** and was
   not realisable despite a healthy quasi-static margin. Retuned to 1.4 s / duty
-  0.90: **7.06 vs 7.85 m/s²**, closing with only **11 %** margin (needs μ ≥ 0.72).
+  0.90: **6.87 vs 7.85 m/s²**, closing with only **14 %** margin (needs μ ≥ 0.70).
 
-**Honest bounds.** (a) +8.4 mm is a *static* margin; full inertia is still
+**Honest bounds.** (a) +10.1 mm is a *static* margin; full inertia is still
 unmodelled. (b) The friction check is a **hand calculation outside the model**.
 (c) Static stability caps this walk at a **~4 cm/s crawl** — inherent to stopping
 and shifting weight between steps. Cat-like speed must come from a **dynamic**
 gait, which ADR-0008 already sized the motors for. That is the next milestone.
 
+### M5 follow-up — sizing what ADR-0009 added, and a mass-model correction
+
+ADR-0009 added three motors; M5 proved they were *needed*. This pass checked they
+are *sufficient*, and in doing so found the mass model was wrong.
+
+1. **The lateral drive was never sized.** `WholeBody.lateral_spine_loads` now does
+   it. The load is **inertial, not gravitational** — the lateral bend axis is
+   vertical, so gravity exerts no moment about it and *holding* a sway is nearly
+   free; *reversing* it is what costs. Base joint: **2.21 N·m → 110 N cable →
+   0.88 N·m motor = 0.80×** the trot sizing point, so the three extra motors are
+   the **same class as the leg motors** and ADR-0009's mass arithmetic holds.
+2. ⚠️ **…but only after raising the lateral moment arm 15 → 20 mm.** At the bare
+   transverse-process width the base joint needs **1.18 N·m — over motor peak**.
+   20 mm needs a **milled lateral pulley post** per vertebra (the trick already
+   used for the 30 mm dorsoventral arm). That post is load-bearing, not detail.
+3. ⚠️ **The mass model was ~347 g light on actuation.** It charged **31 channels**
+   (a pre-variable-radius-pulley count) at a **31 g** motor, while the build is
+   **19 motors at the down-selected 72 g** — two errors of opposite sign that hid
+   each other. It also parked the spine/tail bank in the rear girdle when the CAD
+   packs it **mid-body**. Corrected in `params.py`.
+   - Net effect is **favourable**: CoM +100 → +108 mm, fore-aft margin +32.7 →
+     **+40.2 mm**, polygon +8.4 → **+10.1 mm**, friction margin 11 → **14 %**.
+   - But review finding **F2 is partly walked back** — "quiet stand barely loads
+     the base joint" goes 0.13 → **0.29 N·m**. Its direction holds; its magnitude
+     was optimistic because it under-weighed the actuators.
+   - Full accounting: [notes/mass-budget-recheck.md](notes/mass-budget-recheck.md).
+4. **CAD and electronics caught up with the decision.** Packaging now places all
+   **19** motors (was still drawing 16) with the lateral tendons and posts, and
+   the cluster topology is corrected to **three** nodes — shoulder 6 / pelvis 6 /
+   **mid-body 7** — in ADR-0005 and the board outline. The pelvis is no longer
+   the dense node; the mid-body bay is.
+
+**ADR-0009's structure-budget ⚠️ is downgraded, not closed:** the first estimate
+from real CAD geometry gives **~296 g of printed structure against a 587 g
+allowance**, but that is a massing model with solid bones — directional only.
+
 ## Later milestones (candidate M6+, not committed)
 
 - **Full dynamics — now the critical path, not an optional extra.** M5 ended by
   hitting a limit no quasi-static model can cross: the statically stable walk is
-  capped at ~4 cm/s, and its friction margin is 11 %. Both need real inertia.
+  capped at ~4 cm/s, and its friction margin is 14 %. Both need real inertia.
 - **Full dynamics:** velocities/accelerations, Newton–Euler; leg mass in flight
   driving trunk bending (the lit-review MMS result — note its ~0.454 kg knee is
   from a far larger robot and must be rescaled);

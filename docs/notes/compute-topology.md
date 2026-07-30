@@ -249,9 +249,15 @@ mass-centralization.
   transceiver). Add a **tension front-end**: load-cell instrumentation amp + ADC
   for tendon joints (ADR-0004 load-cell path), or rely on current sense where a
   load cell is dropped. ⚠️ This is the one ADR-0004-dependent board feature.
-- **Two girdle backplanes + a tail stub**: power distribution + CAN-FD segment
-  wiring, grouping ~3–6 drivers per 5 Mbit/s segment. Decide **segment count
-  (~6–8)** from the bus-loading bench test (§2).
+- **Three backplanes**: power distribution + CAN-FD segment wiring, grouping ~3–6
+  drivers per 5 Mbit/s segment. Decide **segment count (~6–8)** from the
+  bus-loading bench test (§2).
+  > ⚠️ **Superseded detail.** This note originally said *"two girdle backplanes +
+  > a tail stub"*, assuming the spine and tail motors lived in the pelvic girdle.
+  > The CAD packaging puts them in a **mid-body bay** instead, so the real layout
+  > is shoulder 6 / pelvis 6 / **mid-body 7**, with the tail as a stub off the
+  > mid-body node. See [ADR-0005](../DESIGN_DECISIONS.md); the segment-count
+  > reasoning below is unaffected.
 - **Hardware e-stop circuit (Tier B):** a power-cut contactor / gate on the motor
   bus and/or a shared "safe-torque-off" line to all drivers, not gated by software.
 - **RT-bridge choice:** a pi3hat-style multi-CAN-FD bridge (up to 5 buses) or a

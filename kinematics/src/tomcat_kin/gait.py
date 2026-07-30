@@ -23,12 +23,12 @@ Frames & conventions
 Gait timing (the walk)
 ----------------------
 The default is a statically stable, lateral-sequence walk with **duty factor
-0.80** and swing windows spaced 0.25 apart. At most one leg swings at a time, so
+0.90** and swing windows spaced 0.25 apart. At most one leg swings at a time, so
 at least THREE feet are always planted (the classic crawl condition), and because
-0.80 > 0.75 the windows do NOT tile: four FOUR-FOOT windows of 5% of the cycle
+0.90 > 0.75 the windows do NOT tile: four FOUR-FOOT windows of 15% of the cycle
 each open between them.
 
-Those four-foot windows are not incidental — they are the reason duty is 0.80 and
+Those four-foot windows are not incidental — they are the reason duty is 0.90 and
 not the textbook 0.75. The lateral spine sway (below) must change sides, and it
 can only do so while all four feet are down. At exactly 0.75 one leg touches down
 at the same instant another lifts off, the support side flips discontinuously,
@@ -48,12 +48,12 @@ within 2 mm. Sequencing is NOT a lever for lateral stability; sway is.)
 Lateral sway (M5, ADR-0009)
 ---------------------------
 Three feet down means a SKEWED support triangle, and a mid-sagittal CoM falls
-outside it: the default walk is laterally unstable at -27.4 mm however healthy
+outside it: the default walk is laterally unstable at -21.6 mm however healthy
 its fore-aft margin looks. The fix is the actuated lateral spine bend: hold the
 spine at ``lateral_amplitude`` toward the SUPPORT side through each 3-foot phase
 and traverse across the four-foot windows (``GaitController.lateral_q``). That
-recovers a +7.3 mm polygon margin. See ``GaitParams.lateral_amplitude`` for why
-14 deg is an optimum rather than a maximum.
+recovers a +10.1 mm polygon margin. See ``GaitParams.lateral_amplitude`` for
+why 12.5 deg is an optimum rather than a maximum.
 
 Body speed relationship
 ------------------------
@@ -109,11 +109,13 @@ Modelling assumptions / limitations (flagged per engineering standards)
   the M4 fore-aft INTERVAL margin (necessary but not sufficient), and
   ``support_polygon(phase)`` is the TRUE ground-plane polygon margin, which can
   see lateral/roll tipping. The polygon margin is what drives the design:
-  * with no sway the default walk is LATERALLY UNSTABLE at −27.4 mm, even though
-    the fore-aft margin is a comfortable +27.7 mm at every phase;
-  * commanding the M5 lateral spine bend recovers it to **+7.3 mm**.
+  * with no sway the default walk is LATERALLY UNSTABLE at −21.6 mm, even though
+    the fore-aft margin is a comfortable +40.2 mm at every phase;
+  * commanding the M5 lateral spine bend recovers it to **+10.1 mm**.
   Remaining limit: still quasi-static — no ZMP, no inertia, no friction cone. The
-  +7.3 mm is a STATIC margin with no dynamic allowance, and it is small.
+  +10.1 mm is a STATIC margin with no dynamic allowance, and it is small. The one
+  dynamic check that IS made is the sway crossover against the paw friction cone
+  (``crossover_accel``), because it decides whether the margin is realisable.
 - Foot targets are in the HIP frame (see above); ground contact is idealized as
   a point at the nominal foot height with no friction/slip model.
 - Rigid links, frictionless idealization inherited from leg.py / spine.py.
@@ -249,12 +251,14 @@ class GaitParams:
     # inside the 3-foot support triangle. Set to 0.0 to reproduce the pre-ADR-0009
     # (laterally unstable, -28.7 mm) behaviour.
     #
-    # 13.5 deg is an OPTIMUM, not a maximum. Margin rises to +8.4 mm at 13.5 deg
+    # 12.5 deg is an OPTIMUM, not a maximum. Margin rises to +10.1 mm at 12.5 deg
     # then FALLS again: over-swaying carries the CoM out over the FAR edge of the
-    # triangle. It sits just inside the +/-15 deg
+    # triangle. Above ~14 deg it is not merely worse but INFEASIBLE -- the sway
+    # reversal exceeds what the paw friction cone can deliver (crossover_accel).
+    # It sits well inside the +/-15 deg
     # per-segment ROM, so the ROM is adequate but has ~1 deg to spare -- the
     # lateral DOF is sized almost exactly right, with no slack for error.
-    lateral_amplitude: float = math.radians(13.5)
+    lateral_amplitude: float = math.radians(12.5)
     spine_amplitude: float = 0.0
     spine_phase: float = 0.0
 

@@ -154,8 +154,33 @@ duty — the same distinction drawn in [LEG_TENDON_SPEC.md](LEG_TENDON_SPEC.md) 
 |---|---|---|---|
 | Dorsal extensor (arch, +q) | **0.030** | spinous-process height + pulley standoff | `[assumed]` |
 | Ventral flexor (curl, −q) | **0.018** | belly clearance (smaller → higher tension, but gravity assists flexion so torque demand is lower) | `[assumed]` |
-| Lateral (per side, 3D) | 0.015 | transverse-process width | `[assumed]` |
+| Lateral (per side) | **0.020** | **milled lateral pulley post** (⚠️ NOT the bare 15 mm transverse-process width — see below) | `[sourced: ADR-0009 f/u]` |
 | Axial twist (3D) | 0.020 | vertebral-body periphery | `[assumed]` |
+
+> **Why the lateral arm is a designed post, not a bone feature (ADR-0009 f/u).**
+> The dorsoventral tendon has the tall **spinous** process to wrap (30 mm); the
+> lateral tendon has only the much shorter **transverse** process. This spec
+> originally took that at face value, 15 mm. Sizing the lateral drive against the
+> M5 sway-reversal inertia (`WholeBody.lateral_spine_loads`) shows that does not
+> work: at 15 mm the **base** lateral joint needs **1.13 N·m** of motor torque,
+> *over* the selected motor's ~1.10 N·m peak. At **20 mm** it needs 0.88 N·m
+> (0.80× the sizing point) and the ADR-0009 motors fit.
+>
+> 20 mm is realised by a **milled lateral pulley post** on each actuated vertebra
+> — the same approach [ASSEMBLY_SPEC §1](ASSEMBLY_SPEC.md) already takes for the
+> dorsoventral arm, where the milled spinous post *is* the moment arm. ±20 mm
+> sits well inside the ±34 mm thoracic rib cavity.
+>
+> Per-joint lateral loads at the shipped gait's 6.87 m/s² crossover:
+>
+> | joint | joint torque | cable tension | motor torque |
+> |---|---|---|---|
+> | **0 (base)** | **2.21 N·m** | **110 N** | **0.88 N·m** (0.80×) |
+> | 1 | 1.11 N·m | 55 N | 0.44 N·m |
+> | 2 | 0.40 N·m | 20 N | 0.16 N·m |
+>
+> Note these are **inertial**: the lateral axis is vertical, so gravity produces
+> no moment about it and holding a sway is nearly free.
 
 For the single-value `SpineParams.joint_moment_arm` field (which today models one
 arm per segment) use the **dorsal extensor 0.030 m** as the representative
@@ -233,7 +258,7 @@ When `SpineParams` grows per-axis limits, seed them ordered by compliance rank:
 | lateral (yaw) | −0.262 | +0.262 | rad | `[assumed]` (narrowest — stiffest) |
 
 Per-axis `joint_moment_arm` when 3D lands: dorsal 0.030 / ventral 0.018 /
-lateral 0.015 / axial 0.020 m (all `[assumed]`, §1.5).
+lateral **0.020** / axial 0.020 m (§1.5).
 
 ### 3.3 Proposed new `TailParams` dataclass (simplified — ADR-0007)
 

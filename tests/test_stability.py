@@ -316,3 +316,54 @@ def test_no_sway_means_no_crossover_cost():
     c = GaitController(params=GaitParams(lateral_amplitude=0.0))
     assert c.crossover_accel() == 0.0
     assert c.crossover_is_feasible()
+
+
+# --------------------------------- lateral spine DRIVE sizing (ADR-0009 f/u)
+def test_lateral_spine_loads_are_inertial_and_peak_at_the_base():
+    # The lateral bend axis is VERTICAL, so gravity exerts no moment about it --
+    # holding a sway is nearly free. What costs torque is REVERSING it. The base
+    # joint is worst because it must swing the entire forequarters.
+    from tomcat_kin import GaitController
+    c = GaitController()
+    loads = c.body.lateral_spine_loads(c.crossover_accel())
+    assert len(loads) == 3
+    tq = [r["joint_torque"] for r in loads]
+    assert tq[0] > tq[1] > tq[2] > 0.0                 # monotonic, base worst
+    assert loads[0]["distal_mass"] > loads[2]["distal_mass"]
+    # Zero acceleration => zero load, i.e. gravity really is absent from this axis.
+    assert all(r["joint_torque"] == 0.0 for r in c.body.lateral_spine_loads(0.0))
+
+
+def test_lateral_drive_fits_inside_the_selected_motor():
+    # ADR-0008 sized motors to the TROT case: 1.10 N.m at the shaft. The lateral
+    # spine drive must fit inside that too, or ADR-0009's "+3 of the same motors"
+    # is wrong and its mass closure with it.
+    from tomcat_kin import GaitController
+    c = GaitController()
+    worst = max(r["motor_torque"] for r in c.body.lateral_spine_loads(c.crossover_accel()))
+    assert worst < 1.10                       # inside the trot sizing point
+    assert worst > 0.5                        # ...but genuinely loaded, not trivial
+
+
+def test_lateral_moment_arm_is_what_makes_that_fit():
+    # REGRESSION GUARD. SPINE_TAIL_SPEC originally assumed the bare 15 mm
+    # transverse-process width; at that arm the base joint goes OVER the motor's
+    # peak. The 20 mm milled lateral post is load-bearing design, not detail.
+    import dataclasses
+    from tomcat_kin import GaitController
+    from tomcat_kin.spine import WholeBody, SpineModel
+    c = GaitController()
+    a = c.crossover_accel()
+    bare = WholeBody(spine=SpineModel(
+        dataclasses.replace(c.body.spine.params, lateral_moment_arm=(0.015,) * 3)))
+    assert max(r["motor_torque"] for r in bare.lateral_spine_loads(a)) > 1.10
+    assert max(r["motor_torque"] for r in c.body.lateral_spine_loads(a)) < 1.10
+
+
+def test_cable_tension_stays_inside_the_spec_band():
+    # The lateral tendon is the same 1.5 mm UHMWPE as everything else
+    # (LEG_TENDON_SPEC, ~465 N design load).
+    from tomcat_kin import GaitController
+    c = GaitController()
+    assert max(r["cable_tension"]
+               for r in c.body.lateral_spine_loads(c.crossover_accel())) < 465.0

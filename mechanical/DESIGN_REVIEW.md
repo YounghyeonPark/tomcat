@@ -277,14 +277,14 @@ closes, but should be re-checked against real printed-part masses.
 
 ### F7 — built and verified (M5)
 
-The lateral DOF is now implemented and the walk measures **+8.4 mm** polygon
-margin (vs **−25.4 mm** with the sway disabled). Building it corrected two
+The lateral DOF is now implemented and the walk measures **+10.1 mm** polygon
+margin (vs **−21.6 mm** with the sway disabled). Building it corrected two
 things in the table above and added a constraint nobody had costed:
 
 - **"Lateral body sway ~40 mm works" understates the coupling.** Sway is not
-  monotonic — the margin *peaks* at 13.5°/segment and falls beyond, because
+  monotonic — the margin *peaks* at 12.5°/segment and falls beyond, because
   over-swaying carries the CoM out over the **far** edge of the triangle. The
-  ±15° ROM is *adequate with ~1.5° to spare*, not comfortable.
+  ±15° ROM is *adequate with ~2.5° to spare*, not comfortable.
 - **The "widen the track is worse" finding REVERSES once sway exists.** With sway
   commanded, a wider track is now *better* (+10.3 mm at ±70 mm) — but it demands
   more sway than the ±15° ROM allows (a ±55 mm track already wants 16.5°). Track
@@ -294,11 +294,11 @@ things in the table above and added a constraint nobody had costed:
   sway must reverse a ~78 mm CoM traverse inside each four-foot window, costing
   `a = 4d/w²`. The first gait tuned to the geometry (1.2 s, duty 0.80) demanded
   **8.8 g / 260 N** laterally — the paws would simply **slide**, so its healthy
-  quasi-static margin was fiction. Retuned to **1.4 s, duty 0.90**: 7.06 vs
-  7.85 m/s² available, closing on only **11 %** margin and needing **μ ≥ 0.72**.
+  quasi-static margin was fiction. Retuned to **1.4 s, duty 0.90**: 6.87 vs
+  7.85 m/s² available, closing on only **14 %** margin and needing **μ ≥ 0.70**.
   → **Handoff to mechanical:** paw pad compound and contact area now carry a
   stability requirement, not just a wear one. TPU ~80A
-  ([ASSEMBLY_SPEC §1](ASSEMBLY_SPEC.md)) must be shown to give μ ≥ 0.72 on the
+  ([ASSEMBLY_SPEC §1](ASSEMBLY_SPEC.md)) must be shown to give μ ≥ 0.70 on the
   intended floor, or the walk slows further.
 - **Consequence:** the statically stable walk is capped at **~4 cm/s**. Cat-like
   speed must come from a dynamic gait.

@@ -94,4 +94,4 @@ if __name__ == "__main__":
     groups, _, _, _, _ = pk.build()
     figure(groups, bounds_of(*groups.values()),
            os.path.join(HERE, "views_packaging.png"),
-           "T.O.M.C.A.T. — packaging: 16 motors (ADR-0008) · tendons · joint pulleys")
+           "T.O.M.C.A.T. — packaging: 19 motors (ADR-0008/0009) · tendons · joint pulleys")

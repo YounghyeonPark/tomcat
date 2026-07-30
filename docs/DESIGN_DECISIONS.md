@@ -129,8 +129,8 @@ context, and consequences. Status is one of: **Proposed**, **Accepted**,
   centralized multi-axis controller; **distributed smart drivers on a real-time
   bus** + a compute split.
 - **Decision:** **Distributed FOC smart drivers — one per tendon motor —
-  clustered in the shoulder & pelvic girdles and a tail node (falls out of P1),
-  on a CAN-FD real-time bus (~5 Mbit/s, split across ~6–8 segments), under a
+  clustered in the shoulder & pelvic girdles and a **mid-body bay** (falls out of
+  P1), on a CAN-FD real-time bus (~5 Mbit/s, split across ~6–8 segments), under a
   two-tier compute split.** A real-time controller (PREEMPT_RT core or dedicated
   MCU) owns the ≥1 kHz aggregation + tendon-map/AIC fast path + safety
   supervision; a separate SBC (ROS 2) runs ≥100 Hz planning/righting + host
@@ -143,11 +143,27 @@ context, and consequences. Status is one of: **Proposed**, **Accepted**,
   [compute-topology.md](notes/compute-topology.md). EtherCAT is the documented
   upgrade path if CAN-FD determinism becomes limiting.
 - **Consequences:** electronics owns a per-motor FOC smart-driver board (rotor
-  sensor + CAN-FD + ADR-0004 tension front-end), two girdle backplanes + tail
-  stub, a multi-CAN-FD bridge, and the hardware e-stop; firmware owns driver FOC
+  sensor + CAN-FD + ADR-0004 tension front-end), **three** backplanes, a
+  multi-CAN-FD bridge, and the hardware e-stop; firmware owns driver FOC
   + tension + Tier-A safety, RT-tier aggregation + Tier-C watchdog, and SBC ROS 2
   nodes. ⚠️ The ~6–8 CAN-FD segment count is an extrapolation from the mjbots
   12-axis result — **bench-verify ≥1 kHz per segment** at final axis count.
+  - **Cluster layout amended (ADR-0009 follow-up).** The earlier "two girdle
+    backplanes + a tail stub" no longer matches where the motors physically are.
+    The CAD packaging puts the whole spine+tail bank in a **mid-body bay**, so
+    there are **three real nodes**, and the pelvis is no longer the big one:
+
+    | Node | Motors | Contents |
+    |---|---|---|
+    | Shoulder girdle | 6 | fore-leg DOF |
+    | Pelvic girdle | 6 | hind-leg DOF |
+    | **Mid-body bay** | **7** | 3 spine dorsoventral + 3 spine lateral + 1 tail |
+
+    The tail is a **stub off the mid-body node**, not its own node — one motor
+    does not justify a backplane. This also matters for mass: the bay carries
+    ~0.5 kg of actuation ~100 mm forward of the pelvis, which the old
+    apportionment had charged to the rear girdle
+    ([mass re-check](notes/mass-budget-recheck.md)).
 
 ## ADR-0006: Articulated tendon-driven spine (whole-body curvature)
 - **Status:** Accepted
@@ -295,13 +311,13 @@ context, and consequences. Status is one of: **Proposed**, **Accepted**,
 - **Implementation outcome (M5) — decision upheld, two claims corrected.**
   The lateral DOF is now built (`SpineModel.lateral_vertebra_xy`,
   `WholeBody.center_of_mass_y`, `GaitController.lateral_q`) and the default walk
-  measures **+8.4 mm** polygon margin, up from **−25.4 mm** with sway disabled.
+  measures **+10.1 mm** polygon margin, up from **−21.6 mm** with sway disabled.
   Building it changed four things the ADR had not anticipated:
   1. ⚠️ **"Authority is ample" was too optimistic.** The 42.8 mm sway figure is
-     right, but sway is not a monotonic good: margin peaks at **13.5°/segment
-     (+8.4 mm)** and then *falls* — over-swaying carries the CoM out over the
+     right, but sway is not a monotonic good: margin peaks at **12.5°/segment
+     (+10.1 mm)** and then *falls* — over-swaying carries the CoM out over the
      **far** edge of the triangle (at 18° the margin is negative again). The ±15°
-     ROM is therefore **adequate with ~1.5° to spare, not ample**. Optimum sway
+     ROM is therefore **adequate with ~2.5° to spare, not ample**. Optimum sway
      and track width are coupled (a ±55 mm track would want 16.5°, beyond the
      ROM), so the existing ±48 mm track is well matched and should not be widened
      without also widening the ROM.
@@ -323,23 +339,52 @@ context, and consequences. Status is one of: **Proposed**, **Accepted**,
      duty 0.80, 60 ms window) demanded **9.1 g / 268 N** and was **not physically
      realisable**, even though its quasi-static margin looked fine. The default
      was therefore retuned to **period 1.4 s, duty 0.90** → a 210 ms window,
-     7.06 m/s² demanded vs 7.85 available. It closes with only **11 % margin**
-     and needs **μ ≥ 0.72**. `GaitController.crossover_accel()` /
+     6.87 m/s² demanded vs 7.85 available. It closes with only **14 % margin**
+     and needs **μ ≥ 0.70**. `GaitController.crossover_accel()` /
      `.crossover_is_feasible()` make this checkable.
   - **Consequence — static stability caps this walk at a crawl:** ~**4 cm/s**.
      That is inherent, not a tuning failure: a statically stable gait must stop
      and shift its weight between steps. Anything faster must be **dynamic**,
      which is what ADR-0008 already sized the motors for (trot). Option E in this
      ADR is thus not avoided, only deferred.
-  - **New requirement on the spine drives:** a lateral slew of **≈129 °/s per
+  - **New requirement on the spine drives:** a lateral slew of **≈119 °/s per
     segment** at the shipped default (`GaitController.lateral_slew_rate()`).
     Modest — the *speed* was never the problem, the *acceleration of the body*
     was. Motor side: ~0.07 m/s of cable, ~80 rpm at an 8 mm spool.
   - Option **A is now retired for good**: with sway commanded, all 24 sequence
     permutations land within **2 mm** of each other and all are stable. Sequencing
     changes *when* postures occur, not *which* — it was never the lever.
-  - ⚠️ The +7.3 mm is a **static** margin with no dynamic allowance, and it is
+  - ⚠️ The +10.1 mm is a **static** margin with no dynamic allowance, and it is
     small. It does not survive contact with inertia, and nothing here models that.
+- **Follow-up (done): the lateral DRIVE was sized, and the mass model corrected.**
+  ADR-0009 added three motors without checking what they must actually pull.
+  - **The lateral load is INERTIAL, not gravitational.** The lateral bend axis is
+    vertical, so gravity exerts no moment about it — *holding* a sway is nearly
+    free. What costs torque is *reversing* it during the crossover
+    (`WholeBody.lateral_spine_loads`). The **base** joint is worst, swinging the
+    whole forequarters: **2.21 N·m**, 110 N of cable, **0.88 N·m at the motor
+    shaft = 0.80×** ADR-0008's 1.10 N·m trot sizing point. **The +3 motors are
+    the same class as the leg motors**, so ADR-0009's mass arithmetic holds.
+  - ⚠️ **But only because the lateral moment arm was raised 15 → 20 mm.**
+    SPINE_TAIL_SPEC §1.5 assumed the bare transverse-process width (15 mm); at
+    that arm the base joint needs **1.13 N·m — over the motor's peak**. 20 mm is
+    bought with a milled lateral pulley post per vertebra, the same trick
+    ASSEMBLY_SPEC already uses for the 30 mm dorsoventral arm. ±20 mm fits inside
+    the ±34 mm rib cavity. **This post is load-bearing, not detail.**
+  - ⚠️ **The mass model was wrong by ~347 g of actuation** — it charged 31
+    *channels* (a pre-variable-radius-pulley count) at a *31 g* motor, while the
+    build is 19 motors at the down-selected *72 g*; the two errors had opposite
+    signs and hid each other. It also parked the spine/tail bank in the rear
+    girdle when the CAD packs it mid-body. Corrected in `params.py`; the pelvis
+    is now the *lighter* girdle and the fore/hind split moved 51/49 → **55/45**.
+    Net effect on this ADR is **favourable** — margin +8.4 → **+10.1 mm**,
+    friction margin 11 % → **14 %** — but review finding F2's "quiet stand barely
+    loads the base joint" is partly walked back (0.13 → 0.29 N·m). Full accounting
+    in [notes/mass-budget-recheck.md](notes/mass-budget-recheck.md).
+  - **ADR-0009's ⚠️ on the structure budget is downgraded, not closed.** The first
+    estimate from real CAD geometry gives **~296 g of printed structure against a
+    587 g allowance (~2× headroom)** — but that is a massing model with solid
+    bones, so it is directional only.
 
 ---
 
