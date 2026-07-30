@@ -35,6 +35,22 @@ actuated joints + a passive paw. The model is **fore/hind asymmetric**: the hind
 (positive range), each derived from that leg's own joint limits via
 `LegModel.default_knee`. **Both paws point forward**, as in a cat.
 
+### Stance — crouched, not straight
+
+The limbs stand at **~63 % of leg reach** (hip-to-paw / total reach), matching a
+standing cat's ~55–65 %; an earlier revision sat at 70 % and read as
+noticeably straight-legged. Deepening the crouch turned out to be nearly **free**:
+with a vertical support force the **hip** torque depends only on the foot's
+horizontal offset, and the **hock** torque is fixed by the paw geometry, so a
+deeper crouch loads **only the stifle** (0.14 → 0.34 N·m at trot) — far below the
+binding hip/hock. Stability margin is unchanged and ~10° of joint-limit margin
+remains over the gait cycle, so the gait adopted the same stance.
+
+A geometry bug surfaced while checking this: the forelimb hangs from the
+scapula's **glenoid**, which sits ~17 mm *below* the hip, but every limb was
+solving for one global ground drop — so the **front paws sat 17 mm underground**.
+Each limb now solves for its own mount-to-ground distance.
+
 ### Two component placements this detail justified
 
 1. **The spinous process height *is* the spine tendon moment arm.** The 30 mm arm

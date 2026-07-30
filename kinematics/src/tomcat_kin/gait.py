@@ -175,11 +175,18 @@ class GaitParams:
     stride_length: float = 0.05
     step_height: float = 0.03
     duty_factor: float = 0.75
-    # Feet planted just ahead of / under the hips at a moderately extended
-    # digitigrade stance. Pre-M4 this was (0.20, -0.13): the positive-knee branch
-    # could not reach under the hip, so every paw landed ~0.2 m forward and the
-    # support interval sat entirely ahead of the trunk (statically unstable).
-    nominal_foot: tuple[float, float] = (0.05, -0.19)
+    # Feet planted just ahead of / under the hips in a CROUCHED digitigrade
+    # stance: hip-to-paw distance is ~63% of the leg's reach, matching a standing
+    # cat (~55-65%) rather than the near-straight 70% of an earlier revision.
+    # Crouching is nearly FREE here: with a vertical support force the hip torque
+    # depends only on the foot's horizontal offset and the hock torque is fixed by
+    # the paw geometry, so deepening the crouch loads ONLY the stifle (0.14 ->
+    # 0.34 N.m at trot) -- far below the binding hip/hock. Stability margin is
+    # unchanged; ~10 deg of joint-limit margin remains over the cycle.
+    # Pre-M4 this was (0.20, -0.13): the positive-knee branch could not reach
+    # under the hip, so every paw landed ~0.2 m forward and the support interval
+    # sat entirely ahead of the trunk (statically unstable).
+    nominal_foot: tuple[float, float] = (0.05, -0.17)
     foot_pitch: float = 0.0
     phase_offsets: Mapping[str, float] = field(
         default_factory=lambda: dict(DEFAULT_PHASE_OFFSETS)

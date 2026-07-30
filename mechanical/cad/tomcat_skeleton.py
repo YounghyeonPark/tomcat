@@ -74,7 +74,7 @@ RIB_PAIRS = 8                     # drawn (of 13) — enough to read as a ribcag
 SHAFT_R, CONDYLE_R = 4.5, 7.5     # long-bone shaft / articular end radii
 HINGE_R, HINGE_W = 8.0, TRACK * 0.11   # joint-axis cylinder
 
-FOOT_Z, FOOT_PITCH = -0.19, 0.0
+FOOT_Z, FOOT_PITCH = -0.17, 0.0
 
 # render tones: skeleton pale, flat bones slightly darker, ACTUATED joints
 # highlighted, payload volume translucent
@@ -84,7 +84,13 @@ SKEL_STYLE = {
     "joint": ("#8a5a3c", 1.00),
     "bay":   ("#7f93a8", 0.22),
 }
-FRONT_FOOT_X, REAR_FOOT_X = 0.06, 0.04
+# Foot placement RELATIVE TO EACH LIMB'S OWN MOUNT. The forelimb hangs from the
+# scapula's glenoid, which sits forward of and BELOW the shoulder girdle, so a
+# small offset already puts the front paw under the shoulder (x~221 mm world vs
+# a 195 mm body). NOTE: the kinematics model has no scapula -- it mounts the
+# forelimb on the girdle frame -- so CAD and model differ slightly here by
+# design; the model is the authority for stability, the CAD for form.
+FRONT_FOOT_X, REAR_FOOT_X = 0.02, 0.04
 
 
 # ----------------------------------------------------------------- primitives
@@ -269,13 +275,20 @@ def tail(z):
     return Compound(parts)
 
 
-def limb(mount, foot_x, leg_model, side):
+def limb(mount, foot_x, leg_model, side, foot_z=None):
     """One digitigrade limb: long bones with condyles + explicit joint axes.
 
     Each leg solves with its OWN anatomical fold (hind stifle forward, fore
     elbow back) via `LegModel.default_knee`, so both paws point forward.
+
+    `foot_z` is the drop from THIS limb's mount to the ground. It must be given
+    per-limb because the forelimb hangs from the scapula's glenoid, which sits
+    LOWER than the hip — using one global drop put the front paws ~17 mm below
+    the ground plane.
     """
-    q = leg_model.inverse((foot_x, FOOT_Z, FOOT_PITCH))
+    if foot_z is None:
+        foot_z = FOOT_Z
+    q = leg_model.inverse((foot_x, foot_z, FOOT_PITCH))
     pts2d = leg_model.joint_positions(q) * MM       # hip, mid, low, paw-base, paw-tip
     mx, my, mz = mount
     p3 = [(mx + x, my, mz + zz) for (x, zz) in pts2d]
@@ -316,8 +329,9 @@ def build():
     for side in (+1, -1):
         sc, glenoid = scapula(total, H, side)
         scaps.append(sc)
+        # forelimb hangs from the glenoid, so it only has to drop that far
         limbs.append(limb((glenoid[0], side * TRACK / 2, glenoid[2]),
-                          FRONT_FOOT_X, fore, side))
+                          FRONT_FOOT_X, fore, side, foot_z=-glenoid[2] / MM))
         limbs.append(limb((0.0, side * TRACK / 2, H), REAR_FOOT_X, hind, side))
     pelvises = [pelvis(0.0, H, side) for side in (+1, -1)]
 
