@@ -133,6 +133,37 @@ class SpineModel:
             poses.append((x, z, ang))
         return np.array(poses)
 
+    def lateral_vertebra_xy(self, lateral_q) -> np.ndarray:
+        """(n+1, 2) vertebra (x, y) for a LATERAL (yaw) spine posture — ADR-0009.
+
+        The lateral bend is the same planar serial chain as the sagittal one, but
+        in the horizontal x-y plane: joint i turns the remaining chain by
+        ``lateral_q[i]`` about the vertical axis. Rear girdle at the origin.
+
+        This is what gives the body a real lateral CoM offset — the SWAY that
+        review F7 showed static stability requires.
+        """
+        q = np.asarray(lateral_q, dtype=float)
+        if q.shape != (self.params.n_segments,):
+            raise ValueError(
+                f"lateral_q must have {self.params.n_segments} entries, got {q.shape}"
+            )
+        th = 0.0
+        x = y = 0.0
+        out = [(0.0, 0.0)]
+        for qi, L in zip(q, self.params.segment_lengths):
+            th += float(qi)
+            x += L * math.cos(th)
+            y += L * math.sin(th)
+            out.append((x, y))
+        return np.array(out)
+
+    def lateral_segment_com_y(self, lateral_q) -> np.ndarray:
+        """(n,) lateral y of each spine segment's CoM, using `segment_com_frac`."""
+        pts = self.lateral_vertebra_xy(lateral_q)
+        f = np.asarray(self.params.segment_com_frac, dtype=float)
+        return pts[:-1, 1] + f * (pts[1:, 1] - pts[:-1, 1])
+
     def vertebra_positions(self, q) -> np.ndarray:
         """(N+1, 2) array of vertebra XY positions, base -> front."""
         return self.vertebra_poses(q)[:, :2]
@@ -500,6 +531,29 @@ class WholeBody:
         local = leg_com(self.leg_model_for(leg_name), leg_q)
         xz = np.array([hx, hz]) + _rot(hth) @ local.com
         return ComResult(local.mass, xz)
+
+    def center_of_mass_y(self, lateral_q) -> float:
+        """Lateral (y) offset of the whole-body CoM for a LATERAL spine posture.
+
+        This is the SWAY authority ADR-0009 bought. Bending the spine sideways
+        carries the FRONT girdle -- and everything mounted on it, including the
+        fore legs and the head/neck lumped into it -- off the mid-sagittal plane,
+        moving the CoM with it. The rear girdle and hind legs stay at the base
+        (y = 0), so they anchor the other end.
+
+        Left/right legs on a girdle sit at symmetric track offsets, so their own
+        +/-y contributions cancel; what moves the CoM is the girdle they hang
+        from. Returns metres, positive = toward +y (left).
+        """
+        sp = self.spine.params
+        seg_y = self.spine.lateral_segment_com_y(lateral_q)
+        tip_y = float(self.spine.lateral_vertebra_xy(lateral_q)[-1, 1])
+
+        m_seg = np.asarray(sp.segment_mass, dtype=float)
+        m_fore = sum(self.legs[n].params.mass
+                     for n, m in self.mounts.items() if m.girdle is Girdle.FRONT)
+        num = float((m_seg * seg_y).sum()) + (sp.front_girdle_mass + m_fore) * tip_y
+        return num / self.total_mass
 
     def center_of_mass(self, spine_q, leg_q=None) -> BodyCoM:
         """Whole-body centre of mass for a spine posture + per-leg joint angles.

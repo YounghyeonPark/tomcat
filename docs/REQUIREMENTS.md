@@ -30,6 +30,7 @@ curve.
 | FR3  | Sense joint angle (directly or inferred from cable displacement).           | Must     |
 | FR4  | Execute a parameterized gait to produce forward walking.                    | Must     |
 | FR9  | Actuate the spine to bend (dorsoventral + lateral) via tendons.             | Must     |
+| FR9b | Command lateral spine sway toward the support side, in phase with the gait. | Must     |
 | FR10 | Coordinate spine curvature with leg motion (whole-body posture).            | Should   |
 | FR11 | Detect a fall and reorient (tail + spine twist) to land feet-first.        | Should   |
 | FR5  | Detect and recover from a foot slip / unexpected ground contact.            | Should   |
@@ -42,10 +43,14 @@ curve.
 | ID    | Target                                          | Value (placeholder) |
 |-------|-------------------------------------------------|---------------------|
 | NFR1  | Degrees of freedom per leg                       | 3 (hip, knee, ankle)|
-| NFR2  | Spine segments (serial, tendon-driven)           | ❓ TBD (e.g. 3–5)    |
-| NFR2b | DOF per spine segment                            | ❓ TBD (2: pitch+yaw)|
+| NFR2  | Spine segments (serial, tendon-driven)           | **3** (ADR-0006)     |
+| NFR2b | DOF per spine segment                            | **2** — dorsoventral + lateral (ADR-0006/0009) |
 | NFR2c | Total actuated DOF (12 legs + 6 spine + 1 tail)  | **19** (= 19 motors, ADR-0008 + **ADR-0009** lateral) |
 | NFR2d | Tail actuation (coarse assist, no accuracy)      | 1 tendon + passive return |
+| NFR2e | Spine LATERAL bend ROM (per segment)             | **±15°** (ADR-0009; gait commands 13.5°, so ~1.5° spare) |
+| NFR2f | Spine lateral **slew rate** (per segment)         | **≥ 129 °/s** at the 1.4 s walk (ADR-0009) |
+| NFR2g | Paw–ground friction coefficient μ                 | **≥ 0.72** — the sway crossover slides below this; static stability depends on it |
+| NFR2h | Statically stable walk speed                      | **~4 cm/s** (crawl). Faster requires a *dynamic* gait — ADR-0009 |
 | NFR3  | Control loop rate (tension/position)             | ≥ 1 kHz             |
 | NFR4  | Gait / trajectory update rate                    | ≥ 100 Hz            |
 | NFR5  | Mass (total)                                     | **3.0 kg** (ADR-0008 closes the budget at this) |

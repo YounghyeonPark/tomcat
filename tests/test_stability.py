@@ -170,23 +170,149 @@ def test_feet_sit_at_their_real_lateral_track_offsets():
     assert xy["LF"][1] == pytest.approx(-xy["RF"][1])
 
 
-def test_default_walk_is_LATERALLY_unstable_despite_a_positive_fore_aft_margin():
-    # THE 3D FINDING. The sagittal interval says stable at every phase; the real
-    # support polygon says otherwise, because with three feet down the triangle
-    # is skewed and the mid-sagittal CoM falls outside it. Recorded as a fact
-    # about the current 16-motor build, not fudged away.
-    from tomcat_kin import GaitController
-    c = GaitController()
+def test_walk_WITHOUT_lateral_sway_is_laterally_unstable():
+    # THE 3D FINDING that motivated ADR-0009, kept as a REGRESSION GUARD. With the
+    # sway switched off the sagittal interval still says "stable" at every phase,
+    # but the real support polygon disagrees: with three feet down the triangle is
+    # skewed and a mid-sagittal CoM falls outside it.
+    from tomcat_kin import GaitController, GaitParams
+    c = GaitController(params=GaitParams(lateral_amplitude=0.0))
     assert all(m.is_stable for m in c.stability_sweep(48))        # 2D says fine
     poly = c.support_polygon_sweep(48)
     assert any(not p.is_stable for p in poly)                     # 3D disagrees
     assert min(p.margin for p in poly) < -0.02                    # by > 20 mm
 
 
-def test_lateral_body_sway_recovers_polygon_stability():
-    # Sway toward the support side is what a real cat does in a crawl. It needs
-    # a lateral DOF the 16-motor build lacks (ADR-0006/0008), so it is modelled
-    # as a parameter rather than actuated.
+def test_default_walk_IS_laterally_stable_via_the_actuated_spine():
+    # The M5 payoff: the sway is now produced by a REAL actuated lateral DOF
+    # (ADR-0009), not assumed as a parameter, and it closes the 3D margin.
     from tomcat_kin import GaitController
     c = GaitController()
-    assert min(p.margin for p in c.support_polygon_sweep(48, lateral_shift=0.040)) > 0.0
+    poly = c.support_polygon_sweep(200)
+    assert all(p.is_stable for p in poly)
+    assert min(p.margin for p in poly) > 0.005                    # > 5 mm
+    assert all(m.is_stable for m in c.stability_sweep(200))       # 2D still fine
+
+
+def test_sway_is_a_ramped_square_wave_confined_to_four_foot_windows():
+    # The law must hold full amplitude through each 3-foot phase and traverse ONLY
+    # while all four feet are planted -- a sinusoid is near zero exactly at the
+    # crossovers, which is where the margin is decided.
+    from tomcat_kin import GaitController
+    import numpy as np
+    c = GaitController()
+    amp = c.params.lateral_amplitude
+    for i in range(200):
+        p = i / 200
+        q = c.lateral_q(p)
+        assert np.allclose(q, q[0])                       # uniform per segment
+        if c.stance_count(p) == 3:
+            assert abs(abs(q[0]) - amp) < 1e-9            # saturated on 3 feet
+        assert abs(q[0]) <= amp + 1e-12                   # never overshoots
+
+
+def test_sway_bends_AWAY_from_the_swinging_leg():
+    from tomcat_kin import GaitController
+    c = GaitController()
+    for i in range(200):
+        p = i / 200
+        st = c.state(p)
+        if len(st.swing_legs) != 1:
+            continue
+        swing = st.swing_legs[0]
+        # spine leans opposite to the lifted foot's side => toward the support
+        assert c.lateral_q(p)[0] * c.body.mounts[swing].track_y < 0
+
+
+def test_over_swaying_is_WORSE_than_the_optimum():
+    # The amplitude is an OPTIMUM, not a maximum: too much sway carries the CoM
+    # out over the FAR edge of the support triangle. Guards against someone
+    # "improving" stability by turning the number up.
+    from tomcat_kin import GaitController, GaitParams
+    import numpy as np
+    best = min(p.margin for p in GaitController().support_polygon_sweep(200))
+    for deg in (11.0, 18.0, 20.0):
+        worse = GaitController(params=GaitParams(lateral_amplitude=np.radians(deg)))
+        assert min(p.margin for p in worse.support_polygon_sweep(200)) < best
+
+
+def test_sequencing_is_not_the_lever_for_lateral_stability():
+    # Reordering the swings changes WHEN postures occur, not WHICH postures occur,
+    # so across all 24 assignments of the offset SET {0,.25,.5,.75} the worst-case
+    # margin barely moves (~1.5 mm on ~7 mm) and every one is stable. It is the
+    # SWAY that fixes lateral stability, not the sequence -- retiring "just
+    # re-sequence the gait" as a lever.
+    from tomcat_kin import GaitController, GaitParams
+    import itertools
+    legs = ["LF", "RF", "RR", "LR"]
+    worsts = []
+    for perm in itertools.permutations([0.0, 0.25, 0.5, 0.75]):
+        c = GaitController(params=GaitParams(phase_offsets=dict(zip(legs, perm))))
+        worsts.append(min(p.margin for p in c.support_polygon_sweep(96)))
+    assert all(w > 0.005 for w in worsts)          # every sequence is stable
+    assert max(worsts) - min(worsts) < 0.002       # and they differ by < 2 mm
+
+    # Without sway, NO sequence is stable -- the same sweep, one parameter changed.
+    for perm in itertools.permutations([0.0, 0.25, 0.5, 0.75]):
+        c = GaitController(params=GaitParams(phase_offsets=dict(zip(legs, perm)),
+                                             lateral_amplitude=0.0))
+        assert min(p.margin for p in c.support_polygon_sweep(96)) < 0.0
+
+
+def test_lateral_slew_rate_is_reported_and_finite():
+    # The sway imposes a real SPEED requirement on the spine drives; if it cannot
+    # be met the walk is not stable however good the geometry looks.
+    from tomcat_kin import GaitController, GaitParams
+    import numpy as np
+    c = GaitController()
+    slew = np.degrees(c.lateral_slew_rate())
+    assert 100.0 < slew < 200.0                     # ~129 deg/s per segment
+    # duty 0.75 leaves NO four-foot window -> the traverse would be instantaneous
+    tiled = GaitController(params=GaitParams(duty_factor=0.75))
+    assert tiled.lateral_slew_rate() == float("inf")
+    assert GaitController(params=GaitParams(lateral_amplitude=0.0)).lateral_slew_rate() == 0.0
+
+
+def test_sway_stays_inside_the_spine_lateral_joint_limits():
+    from tomcat_kin import GaitController, GaitParams
+    import numpy as np
+    sp = GaitController().body.spine.params
+    greedy = GaitController(params=GaitParams(lateral_amplitude=np.radians(40)))
+    for i in range(100):
+        q = greedy.lateral_q(i / 100)
+        assert np.all(q >= np.asarray(sp.lateral_q_min) - 1e-12)
+        assert np.all(q <= np.asarray(sp.lateral_q_max) + 1e-12)
+
+
+def test_crossover_stays_inside_the_friction_cone():
+    # THE DYNAMIC REALITY CHECK. The quasi-static polygon margin is only
+    # meaningful if the sway reversal is physically achievable: the paws can
+    # deliver ~mu*g laterally before they slide. The 1.2 s / duty-0.80 gait the
+    # sway was first tuned on demanded 9.1 g and was NOT achievable; the shipped
+    # default trades period and duty to get inside the cone.
+    from tomcat_kin import GaitController, GaitParams
+    c = GaitController()
+    assert c.crossover_is_feasible(mu=0.8)
+    assert c.crossover_accel() < c.friction_accel_limit(0.8)
+    assert c.crossover_window() > 0.15                    # > 150 ms to cross
+
+    # And the guard bites: the original fast/tight gait is correctly rejected.
+    fast = GaitController(params=GaitParams(period=1.2, duty_factor=0.80))
+    assert not fast.crossover_is_feasible(mu=0.8)
+    assert fast.crossover_accel() > 8 * 9.81              # ~9 g
+
+
+def test_crossover_accel_scales_as_the_inverse_square_of_the_window():
+    # Why walking faster is punished so hard: halving the window quadruples the
+    # demand. This is the relationship that caps the statically stable walk speed.
+    from tomcat_kin import GaitController, GaitParams
+    slow = GaitController(params=GaitParams(period=2.8))
+    fast = GaitController(params=GaitParams(period=1.4))
+    assert fast.crossover_accel() == pytest.approx(4 * slow.crossover_accel(), rel=1e-9)
+
+
+def test_no_sway_means_no_crossover_cost():
+    from tomcat_kin import GaitController, GaitParams
+    c = GaitController(params=GaitParams(lateral_amplitude=0.0))
+    assert c.crossover_accel() == 0.0
+    assert c.crossover_is_feasible()

@@ -262,7 +262,8 @@ def test_wholebody_gait_body_advances_forward():
 
 
 def test_wholebody_gait_stance_count_preserved():
-    # Same statically stable timing as the hip-frame walk: exactly 3 feet down.
+    # Same timing as the hip-frame walk: at least 3 feet down, at most 1 swinging
+    # (duty 0.80 since M5, so four-foot windows are expected -- see test_gait).
     wb = WholeBodyGaitController(params=GaitParams())
     for i in range(41):
-        assert wb.state(i / 40).stance_count == 3
+        assert wb.state(i / 40).stance_count in (3, 4)

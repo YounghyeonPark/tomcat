@@ -16,7 +16,11 @@ sequences the work that implements them.
 > while the legs compensate for spine motion. Plus a biomimetic pass: digitigrade
 > 4-link legs, fore/hind asymmetry (model *and* CAD), thoracic ribcage, and 3D
 > CAD/packaging studies (168 passing tests).
-> **M4 (active):** real mass — CoM & static stability.
+> **M4 done:** real mass — CoM & static stability (fore-aft).
+> **M5 done:** the **lateral spine DOF** ([ADR-0009](DESIGN_DECISIONS.md)) — a true
+> 3D support polygon, commanded lateral sway, and with it the first walk that is
+> genuinely statically stable in 3D (**+8.4 mm**, up from **−25.4 mm**) *and*
+> dynamically realisable inside the paw friction cone. 244 tests.
 
 ---
 
@@ -200,7 +204,7 @@ in the world while the legs absorb spine motion** (verified: foot-target span
 0.000 mm under a ±2°/seg spine oscillation, leg angles differ up to ~8°, FK
 error ~0). 25 new tests (158 total).
 
-## Milestone M4 — Real mass: CoM & static stability (ACTIVE)
+## Milestone M4 — Real mass: CoM & static stability (DONE)
 
 **Goal.** Put actual **mass** into the model. Today everything is massless and
 `whole_body_budget` lumps *equal* masses at the vertebrae — its own assumption
@@ -219,16 +223,64 @@ full Newton–Euler is M5):
    equal-lumped placeholder in the whole-body budget.
 
 **Honest bound:** a 2D sagittal "support polygon" is really a fore-aft interval —
-true lateral/roll stability needs the 3D extension.
+true lateral/roll stability needs the 3D extension. *That bound is what M5 went
+on to close, and it turned out to be a hardware decision, not a modelling one.*
 
-## Later milestones (candidate M5+, not committed)
+## Milestone M5 — Lateral spine DOF: 3D static stability (DONE)
 
+**Goal.** Close M4's honest bound. Evaluating the *true* ground-plane support
+polygon showed the walk was **laterally unstable at −27.4 mm** while its fore-aft
+margin read a healthy +27.7 mm — the 2D check had been hiding a real failure.
+[ADR-0009](DESIGN_DECISIONS.md) resolved it by adding a lateral bend DOF per spine
+segment (16 → 19 motors); M5 is that model.
+
+**Delivered.**
+1. `SpineParams.lateral_q_min/max` (±15°/segment) and
+   `SpineModel.lateral_vertebra_xy` / `lateral_segment_com_y` — a planar chain in
+   the x–y plane alongside the existing sagittal one.
+2. `WholeBody.center_of_mass_y` — lateral CoM including the fore-leg mass that
+   rides with the front girdle. Reproduces ADR-0009's predicted authority exactly
+   (15.0 / 29.4 / **42.8 mm** at 5 / 10 / 15°).
+3. `GaitController.lateral_q` — the sway law, plus `support_side` and
+   `lateral_slew_rate`. `support_polygon` now takes its CoM y from this **real
+   actuated DOF** instead of the old `lateral_shift` what-if parameter.
+4. `GaitController.crossover_accel` / `.friction_accel_limit` /
+   `.crossover_is_feasible` — the dynamic reality check on the sway (see below).
+5. Default gait retuned: **duty 0.75 → 0.90**, **period 1.2 → 1.4 s**, sway **13.5°**.
+
+**Results, and the four things building it taught us:**
+- The default walk is now statically stable in 3D: **+8.4 mm** (was −25.4 mm).
+- Sway authority is **adequate, not ample** — margin *peaks* at 13.5° and falls
+  beyond, since over-swaying tips the CoM over the far edge. ~1.5° of ROM spare.
+- **Duty had to rise above 0.75.** At exactly 0.75 the swing windows tile, so the
+  support side flips instantaneously; any finite ramp collapses the margin back
+  to the no-sway value. Duty > 0.75 opens the four-foot crossover windows.
+- **A sinusoidal sway is worse than none** — it is near zero exactly at the
+  crossovers, which is where the margin is decided. The law is a ramped square.
+- ⚠️ **The real constraint was FRICTION, and it sets the walk speed.** Reversing
+  the sway costs `a = 4d/w²` — inverse-square in the window — and a paw delivers
+  only `μg`. The first tuned gait (1.2 s, duty 0.80) demanded **9.1 g** and was
+  not realisable despite a healthy quasi-static margin. Retuned to 1.4 s / duty
+  0.90: **7.06 vs 7.85 m/s²**, closing with only **11 %** margin (needs μ ≥ 0.72).
+
+**Honest bounds.** (a) +8.4 mm is a *static* margin; full inertia is still
+unmodelled. (b) The friction check is a **hand calculation outside the model**.
+(c) Static stability caps this walk at a **~4 cm/s crawl** — inherent to stopping
+and shifting weight between steps. Cat-like speed must come from a **dynamic**
+gait, which ADR-0008 already sized the motors for. That is the next milestone.
+
+## Later milestones (candidate M6+, not committed)
+
+- **Full dynamics — now the critical path, not an optional extra.** M5 ended by
+  hitting a limit no quasi-static model can cross: the statically stable walk is
+  capped at ~4 cm/s, and its friction margin is 11 %. Both need real inertia.
 - **Full dynamics:** velocities/accelerations, Newton–Euler; leg mass in flight
   driving trunk bending (the lit-review MMS result — note its ~0.454 kg knee is
   from a far larger robot and must be rescaled);
   velocities/inertia beyond the current quasi-static model.
-- 3D extension: frontal-plane leg abduction + spine lateral bend & axial twist.
-- Dynamics: leg mass in flight (~0.454 kg knee) driving trunk bending.
+- 3D extension, remaining parts: frontal-plane leg **abduction** and spine
+  **axial twist** (the lateral bend is done, M5). Yaw and twist are what the
+  ADR-0007 righting work needs.
 - **Righting milestone ([ADR-0007](DESIGN_DECISIONS.md)):** model flight-phase
   reorientation via **spine axial-twist + leg shape-change** (rotary-only 180°),
   with the single-tendon tail as a coarse bias term, and a fall-detect → reorient

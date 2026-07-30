@@ -54,10 +54,23 @@ def test_invalid_params_raise():
 # ------------------------------------------------------------- stance counting
 @pytest.mark.parametrize("phase", np.linspace(0.0, 1.0, 41))
 def test_exactly_three_legs_in_stance(phase):
-    # duty 0.75 with tiled offsets => always exactly 3 planted, 1 swinging.
+    # M5/ADR-0009: duty is now 0.80, NOT 0.75, so the swing windows no longer
+    # tile exactly -- there are FOUR-FOOT windows between them. The invariant
+    # that actually matters is unchanged and stronger: never fewer than three
+    # feet down, and never more than one leg swinging.
     st = ctrl.state(phase)
-    assert st.stance_count == 3
-    assert len(st.swing_legs) == 1
+    assert st.stance_count in (3, 4)
+    assert len(st.swing_legs) <= 1
+
+
+def test_four_foot_windows_exist_for_the_spine_crossover():
+    # These windows are the WHOLE REASON duty is 0.80: the lateral spine sway has
+    # to change sides, and it can only do so while all four feet are planted.
+    counts = [ctrl.state(i / 200).stance_count for i in range(200)]
+    four = sum(c == 4 for c in counts) / len(counts)
+    # duty 0.90 => each window is (duty - 0.75) = 15% of the cycle, 4 of them.
+    assert four == pytest.approx(4 * (ctrl.params.duty_factor - 0.75), abs=0.02)
+    assert min(counts) == 3
 
 
 def test_stance_count_matches_duty_expectation():
@@ -267,7 +280,10 @@ def test_gait_state_reports_com_and_stability():
 
 
 def test_support_interval_uses_only_the_three_stance_feet():
-    st = ctrl.state(0.3)
+    # Pick a genuine 3-foot phase rather than hard-coding one, so this survives
+    # future duty-factor changes (it already survived 0.75 -> 0.80 -> 0.90).
+    st = next(s for s in (ctrl.state(i / 200) for i in range(200))
+              if s.stance_count == 3)
     assert st.stability.support.n_feet == 3
     assert set(st.stability.support.feet) == set(st.stance_legs)
     assert st.swing_legs[0] not in st.stability.support.feet
@@ -303,7 +319,7 @@ def test_default_walk_is_fore_aft_STATICALLY_STABLE():
     margins = ctrl.stability_sweep(60)
     assert len(margins) == 60
     assert all(m.is_stable for m in margins)
-    assert all(m.support.n_feet == 3 for m in margins)
+    assert all(m.support.n_feet in (3, 4) for m in margins)
     assert all(m.normalized_margin > 0.0 for m in margins)
     worst = min(m.margin for m in margins)
     assert worst > 0.02                     # > 20 mm of margin at every phase

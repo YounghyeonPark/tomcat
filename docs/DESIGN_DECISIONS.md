@@ -292,6 +292,54 @@ context, and consequences. Status is one of: **Proposed**, **Accepted**,
   - Forward mass bias is retained as a **free secondary trim** — it reduces the
     lateral ROM the gait must command, buying margin.
   - NFR2c total actuated DOF **16 → 19**.
+- **Implementation outcome (M5) — decision upheld, two claims corrected.**
+  The lateral DOF is now built (`SpineModel.lateral_vertebra_xy`,
+  `WholeBody.center_of_mass_y`, `GaitController.lateral_q`) and the default walk
+  measures **+8.4 mm** polygon margin, up from **−25.4 mm** with sway disabled.
+  Building it changed four things the ADR had not anticipated:
+  1. ⚠️ **"Authority is ample" was too optimistic.** The 42.8 mm sway figure is
+     right, but sway is not a monotonic good: margin peaks at **13.5°/segment
+     (+8.4 mm)** and then *falls* — over-swaying carries the CoM out over the
+     **far** edge of the triangle (at 18° the margin is negative again). The ±15°
+     ROM is therefore **adequate with ~1.5° to spare, not ample**. Optimum sway
+     and track width are coupled (a ±55 mm track would want 16.5°, beyond the
+     ROM), so the existing ±48 mm track is well matched and should not be widened
+     without also widening the ROM.
+  2. **Duty factor had to rise 0.75 → 0.80** (a gait change, not a hardware one).
+     At 0.75 the swing windows tile exactly, so the support side flips
+     discontinuously and the sway would have to be instantaneous — a swept study
+     found *any* finite ramp, even 2 % of the cycle, collapses the margin right
+     back to the no-sway value. Duty must exceed 0.75 to open **four-foot
+     windows** (each `duty − 0.75` of the cycle) for the spine to cross over in.
+     The shipped default is **0.90**, not the minimum-viable 0.80 — see (4).
+  3. **The sway law must be a ramped square wave**, not a sinusoid. A sinusoid is
+     *worse than no sway at all* at every phase lead tested, because it is near
+     zero exactly at the crossovers, which is where the margin is decided.
+  4. ⚠️ **The binding constraint turned out to be FRICTION, not geometry — and it
+     sets the walk speed.** The sway must reverse a ~78 mm CoM traverse inside
+     each four-foot window, costing `a = 4d/w²` — the *inverse square* of the
+     window, so speed is punished hard. A paw delivers only `μg ≈ 7.8 m/s²`
+     laterally before it slides. The gait the sway was first tuned on (1.2 s,
+     duty 0.80, 60 ms window) demanded **9.1 g / 268 N** and was **not physically
+     realisable**, even though its quasi-static margin looked fine. The default
+     was therefore retuned to **period 1.4 s, duty 0.90** → a 210 ms window,
+     7.06 m/s² demanded vs 7.85 available. It closes with only **11 % margin**
+     and needs **μ ≥ 0.72**. `GaitController.crossover_accel()` /
+     `.crossover_is_feasible()` make this checkable.
+  - **Consequence — static stability caps this walk at a crawl:** ~**4 cm/s**.
+     That is inherent, not a tuning failure: a statically stable gait must stop
+     and shift its weight between steps. Anything faster must be **dynamic**,
+     which is what ADR-0008 already sized the motors for (trot). Option E in this
+     ADR is thus not avoided, only deferred.
+  - **New requirement on the spine drives:** a lateral slew of **≈129 °/s per
+    segment** at the shipped default (`GaitController.lateral_slew_rate()`).
+    Modest — the *speed* was never the problem, the *acceleration of the body*
+    was. Motor side: ~0.07 m/s of cable, ~80 rpm at an 8 mm spool.
+  - Option **A is now retired for good**: with sway commanded, all 24 sequence
+    permutations land within **2 mm** of each other and all are stable. Sequencing
+    changes *when* postures occur, not *which* — it was never the lever.
+  - ⚠️ The +7.3 mm is a **static** margin with no dynamic allowance, and it is
+    small. It does not survive contact with inertia, and nothing here models that.
 
 ---
 

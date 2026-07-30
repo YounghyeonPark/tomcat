@@ -295,33 +295,76 @@ def _mass_and_stability_demo() -> None:
     margins = [m.margin for m in ctrl.stability_sweep(120)]
     print(f"  margin over the cycle: {min(margins)*1e3:+.1f} .. {max(margins)*1e3:+.1f} mm")
 
-    print("\n  >>> HONEST FINDING: the default walk is fore-aft UNSTABLE, and it is")
-    print("      NOT the gait's fault. With the PLACEHOLDER leg geometry a leg cannot")
-    print("      put its foot under its own hip at stance height -- the reachable,")
-    print("      in-limit foot x at z=-130 mm is ~+160..+240 mm FORWARD of the hip.")
-    print("      Every foot therefore lands ~0.2 m ahead of its hip, the support")
-    print("      interval sits entirely ahead of the trunk, and the CoM cannot be")
-    print("      inside it. Fore-aft correction needed: "
-          f"{centering_shift(ctrl.stability(0.0))*1e3:.0f} mm.")
-    print("      -> HANDOFF to tomcat-mechanical: leg link proportions, the hip/hock")
-    print("         joint limits, the +55 deg passive paw offset, and the girdle hip")
-    print("         offsets need to be reconciled so a foot can plant under its hip.")
+    print("  >>> fore-aft stability is SOLVED (M4): the anatomical negative-knee")
+    print("      fold lets each paw plant under its own hip, so the support")
+    print("      interval straddles the CoM at every phase. But a positive")
+    print("      fore-aft margin was never SUFFICIENT -- see below.")
 
-    # Diagnostic what-if: move the hips back so the support base straddles the
-    # CoM. NOT a committed design value -- it just isolates the defect.
-    mounts = {
-        n: LegMount(n, g, (-0.22, 0.0))
-        for n, g in (("LF", Girdle.FRONT), ("RF", Girdle.FRONT),
-                     ("LR", Girdle.REAR), ("RR", Girdle.REAR))
-    }
-    fixed = GaitController(body=WholeBody(spine=SpineModel(), mounts=mounts))
-    fm = [m.margin for m in fixed.stability_sweep(120)]
-    print("\n  Diagnostic what-if (hip mounts moved -220 mm so the feet land under")
-    print("  the trunk; NOT a design value): the SAME duty-0.75 walk becomes")
-    print(f"  statically stable at every phase, margin {min(fm)*1e3:+.1f} .. "
-          f"{max(fm)*1e3:+.1f} mm.")
-    print("  => the gait PATTERN (3 feet down, duty 0.75) is sound; the placeholder")
-    print("     leg/mount geometry is what breaks static stability.")
+    # ------------------------------------------------------------------ M5
+    print()
+    print("=== 3D SUPPORT POLYGON + LATERAL SPINE SWAY (M5, ADR-0009) ===")
+    print("  The fore-aft interval above says STABLE everywhere. The TRUE ground-")
+    print("  plane polygon disagrees: three feet down is a SKEWED triangle, and a")
+    print("  mid-sagittal CoM falls outside it.")
+    off = GaitController(params=GaitParams(lateral_amplitude=0.0))
+    on = GaitController(params=GaitParams())
+    m_off = [q.margin for q in off.support_polygon_sweep(200)]
+    m_on = [q.margin for q in on.support_polygon_sweep(200)]
+    print()
+    print("    sway OFF : worst polygon margin %+7.2f mm   -> %s"
+          % (min(m_off) * 1e3, "STABLE" if min(m_off) > 0 else "UNSTABLE"))
+    print("    sway ON  : worst polygon margin %+7.2f mm   -> %s"
+          % (min(m_on) * 1e3, "STABLE" if min(m_on) > 0 else "UNSTABLE"))
+    print("    (the fore-aft margin is a healthy %+.1f mm in BOTH cases -- which is"
+          % (min(m.margin for m in off.stability_sweep(200)) * 1e3))
+    print("     exactly why the 2D check could never be trusted on its own)")
+
+    print()
+    print("  The sway law: hold full amplitude toward the SUPPORT side while a leg")
+    print("  swings, and traverse ONLY while all four feet are down.")
+    print()
+    print("  phase  stance  sway deg   polygon margin mm")
+    for i in range(10):
+        ph = i / 10
+        q = on.lateral_q(ph)
+        pm = on.support_polygon(ph)
+        print("  %4.2f   %^6s  %+7.1f    %+8.2f  %s".replace("%^6s", "%6d")
+              % (ph, on.stance_count(ph), np.degrees(q[0]), pm.margin * 1e3,
+                 "STABLE" if pm.is_stable else "UNSTABLE"))
+
+    print()
+    print("  >>> Sway amplitude is an OPTIMUM, not a maximum -- over-swaying")
+    print("      carries the CoM out over the FAR edge of the triangle")
+    print("      (16/19 deg tie because both clip to the +/-15 deg spine ROM):")
+    for deg in (8.0, 11.0, 13.5, 16.0, 19.0):
+        c = GaitController(params=GaitParams(lateral_amplitude=np.radians(deg)))
+        w = min(q.margin for q in c.support_polygon_sweep(120))
+        print("        %4.1f deg -> %+6.2f mm%s"
+              % (deg, w * 1e3, "  <-- default" if deg == 13.5 else ""))
+
+    print()
+    print("  >>> But the constraint that actually set the WALK SPEED was FRICTION,")
+    print("      not geometry. Reversing the sway costs a = 4d/w^2 -- inverse-square")
+    print("      in the crossover window -- while a paw delivers only mu*g.")
+    print()
+    print("    gait                        window   demanded    limit   verdict")
+    for label, gp in (("first tuned: 1.2 s duty .80",
+                       GaitParams(period=1.2, duty_factor=0.80)),
+                      ("SHIPPED:     1.4 s duty .90", GaitParams())):
+        c = GaitController(params=gp)
+        a, lim = c.crossover_accel(), c.friction_accel_limit(0.8)
+        print("    %s  %4.0f ms  %6.2f m/s2  %5.2f   %s"
+              % (label, c.crossover_window() * 1e3, a, lim,
+                 "OK" if a <= lim else "SLIDES (%.1f g)" % (a / 9.81)))
+    print()
+    print("      -> the shipped gait closes with only %.0f%% friction margin "
+          "(needs mu >= %.2f),"
+          % ((on.friction_accel_limit() / on.crossover_accel() - 1) * 100,
+             on.crossover_accel() / 9.81))
+    print("         and static stability caps the walk at %.1f cm/s -- a CRAWL."
+          % (on.params.body_speed * 100))
+    print("         Cat-like speed must come from a DYNAMIC gait (next milestone).")
+
 
 
 def _sketch_foot_path(ctrl, leg_name: str, rows: int = 6, cols: int = 40) -> None:

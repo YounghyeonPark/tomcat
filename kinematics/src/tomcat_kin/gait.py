@@ -1,4 +1,4 @@
-"""Parameterized periodic WALK gait generation (sagittal plane, quasi-static).
+"""Parameterized periodic WALK gait generation (quasi-static).
 
 This module turns the static whole-body model (``spine.py`` + ``leg.py``) into
 *motion*: a periodic walk that produces per-leg joint-angle trajectories over one
@@ -22,20 +22,38 @@ Frames & conventions
 
 Gait timing (the walk)
 ----------------------
-The default is a statically stable, lateral-sequence walk. With a duty factor of
-0.75 each leg swings for 1/4 of the cycle, and the four swing windows are spaced
-0.25 apart so they tile the cycle exactly: at every phase EXACTLY ONE leg is in
-swing and the other THREE are planted (a 3-foot support polygon at all times,
-the classic crawl condition for static stability).
+The default is a statically stable, lateral-sequence walk with **duty factor
+0.80** and swing windows spaced 0.25 apart. At most one leg swings at a time, so
+at least THREE feet are always planted (the classic crawl condition), and because
+0.80 > 0.75 the windows do NOT tile: four FOUR-FOOT windows of 5% of the cycle
+each open between them.
+
+Those four-foot windows are not incidental — they are the reason duty is 0.80 and
+not the textbook 0.75. The lateral spine sway (below) must change sides, and it
+can only do so while all four feet are down. At exactly 0.75 one leg touches down
+at the same instant another lifts off, the support side flips discontinuously,
+and the sway would have to be instantaneous. See ``GaitParams.duty_factor``.
 
 Default per-leg phase offsets (touchdown phase of each leg):
 
     LF = 0.00,  RF = 0.25,  RR = 0.50,  LR = 0.75
 
-so the liftoff (swing) sequence around the cycle is LF -> RF -> RR -> LR. (The
+so the liftoff (swing) sequence around the cycle is RF -> RR -> LR -> LF. (The
 biological cat lateral-sequence walk LH->LF->RH->RF is the same family; only the
 offset-to-leg labelling differs. Any assignment of the offset SET {0, .25, .5,
-.75} keeps the 3-foot support property.)
+.75} keeps the >=3-foot support property, and — a measured result, see
+tests/test_stability.py — all 24 assignments give the same lateral margin to
+within 2 mm. Sequencing is NOT a lever for lateral stability; sway is.)
+
+Lateral sway (M5, ADR-0009)
+---------------------------
+Three feet down means a SKEWED support triangle, and a mid-sagittal CoM falls
+outside it: the default walk is laterally unstable at -27.4 mm however healthy
+its fore-aft margin looks. The fix is the actuated lateral spine bend: hold the
+spine at ``lateral_amplitude`` toward the SUPPORT side through each 3-foot phase
+and traverse across the four-foot windows (``GaitController.lateral_q``). That
+recovers a +7.3 mm polygon margin. See ``GaitParams.lateral_amplitude`` for why
+14 deg is an optimum rather than a maximum.
 
 Body speed relationship
 ------------------------
@@ -81,17 +99,21 @@ Modelling assumptions / limitations (flagged per engineering standards)
   is used for gravity/CoM/stability, but the literature's Mass-Mass-Spring result
   (leg mass in flight bending a compliant trunk, and the resulting spine-leg
   elastic energy exchange) still requires full Newton-Euler and is NOT captured.
-- SAGITTAL-ONLY: no frontal-plane (roll/abduction) or yaw motion; left/right legs
-  on a girdle share a mount pose in this 2D projection (inherited from spine.py).
-- STABILITY (updated in M4): the gait now reports a real fore-aft STATIC
-  STABILITY MARGIN — the whole-body CoM ground projection against the fore-aft
-  interval spanned by the STANCE feet (``GaitState.stability`` /
-  ``*GaitController.stability(phase)``, see ``stability.py``). Stance-leg COUNT
-  is no longer the only check. Two honest limits remain: (a) a 2D sagittal
-  support "polygon" is really a fore-aft INTERVAL, so a positive margin is
-  necessary but NOT sufficient — lateral/roll tipping over the edges of the real
-  3-foot support triangle needs the 3D model; and (b) it is still quasi-static:
-  no ZMP, no inertia, no friction cone.
+- MOSTLY SAGITTAL: the LEGS are still solved sagittally (no abduction/roll), and
+  left/right legs on a girdle share a mount pose in that 2D projection. Since M5
+  the SPINE has a real LATERAL bend DOF (ADR-0009) and the feet sit at their true
+  lateral track offsets, so the model is 3D enough to evaluate a genuine support
+  POLYGON and to command the sway that keeps the CoM inside it. Yaw and axial
+  twist are still absent.
+- STABILITY (updated in M5): two margins are reported. ``stability(phase)`` is
+  the M4 fore-aft INTERVAL margin (necessary but not sufficient), and
+  ``support_polygon(phase)`` is the TRUE ground-plane polygon margin, which can
+  see lateral/roll tipping. The polygon margin is what drives the design:
+  * with no sway the default walk is LATERALLY UNSTABLE at −27.4 mm, even though
+    the fore-aft margin is a comfortable +27.7 mm at every phase;
+  * commanding the M5 lateral spine bend recovers it to **+7.3 mm**.
+  Remaining limit: still quasi-static — no ZMP, no inertia, no friction cone. The
+  +7.3 mm is a STATIC margin with no dynamic allowance, and it is small.
 - Foot targets are in the HIP frame (see above); ground contact is idealized as
   a point at the nominal foot height with no friction/slip model.
 - Rigid links, frictionless idealization inherited from leg.py / spine.py.
@@ -114,7 +136,8 @@ from .stability import (StabilityMargin, sagittal_stability_margin,
 
 
 # Default lateral-sequence walk offsets (touchdown phase per leg). The offset SET
-# {0, .25, .5, .75} with duty 0.75 keeps exactly three feet planted at all times.
+# {0, .25, .5, .75} with duty 0.80 keeps at least three feet planted at all times,
+# with four-foot windows between the swings for the lateral spine crossover.
 DEFAULT_PHASE_OFFSETS: dict[str, float] = {
     "LF": 0.00,
     "RF": 0.25,
@@ -125,7 +148,7 @@ DEFAULT_PHASE_OFFSETS: dict[str, float] = {
 
 @dataclass(frozen=True)
 class GaitParams:
-    """Parameters of a periodic sagittal-plane walk.
+    """Parameters of a periodic walk (sagittal legs + lateral spine sway).
 
     All lengths are metres, angles radians, times seconds (SI). Defaults are
     ILLUSTRATIVE and tuned to stay inside the placeholder leg joint limits with a
@@ -147,8 +170,10 @@ class GaitParams:
     step_height : float
         Peak swing lift above the nominal ground level (m).
     duty_factor : float
-        Fraction of the cycle each leg spends in stance, in (0, 1). 0.75 gives the
-        3-foot-support walk (one leg swinging at a time).
+        Fraction of the cycle each leg spends in stance, in (0, 1). The default
+        **0.80** gives a >=3-foot-support walk (at most one leg swinging) PLUS the
+        four-foot windows the lateral sway needs to change sides. 0.75 is the
+        degenerate tiling case — see the comment on the field itself.
     nominal_foot : tuple[float, float]
         (x, z) of the mid-stride foot position in the hip frame (m). z is
         negative (foot below the hip).
@@ -164,6 +189,11 @@ class GaitParams:
         backward (positive range), exactly as in a cat. Set explicitly only to
         override. The pre-M4 walk forced the positive branch on every leg, which
         cannot place a paw under its own hip and made the gait fore/aft unstable.
+    lateral_amplitude : float
+        Amplitude (rad, per segment) of the LATERAL spine sway that holds the CoM
+        inside the 3-foot support triangle (M5 / ADR-0009). Default 14 deg, which
+        is an OPTIMUM, not a maximum. 0.0 disables the sway and reproduces the
+        laterally unstable pre-M5 walk.
     spine_amplitude : float
         Amplitude (rad, per segment) of the OPTIONAL dorsoventral spine
         oscillation coupled to the gait. 0.0 (default) => spine held NEUTRAL.
@@ -172,10 +202,31 @@ class GaitParams:
         gait phase.
     """
 
-    period: float = 1.2
+    # 1.4 s, set by the CROSSOVER not by the legs. The lateral sway must reverse
+    # an 80 mm CoM traverse inside each four-foot window; doing that faster than
+    # friction allows would just slide the paws (see ``crossover_accel``). At duty
+    # 0.90 the window is 0.15*period = 210 ms, which needs 3.6 m/s^2 -- inside the
+    # ~7.8 m/s^2 a mu=0.8 paw can deliver. The old 1.2 s default demanded 9.1 g.
+    period: float = 1.4
     stride_length: float = 0.05
     step_height: float = 0.03
-    duty_factor: float = 0.75
+    # 0.80, NOT the textbook 0.75 (M5 / ADR-0009). At exactly 0.75 the four swing
+    # windows TILE the cycle: one leg touches down at the same instant another
+    # lifts off, so the robot is never on four feet. That is fine for the 2D
+    # fore-aft margin but fatal in 3D -- the support side flips DISCONTINUOUSLY,
+    # and the lateral spine sway that holds the CoM inside the 3-foot triangle
+    # would have to flip sides in zero time. A swept study found any finite ramp
+    # (even 2% of the cycle) collapses the worst-case polygon margin straight back
+    # to the no-sway value of -28.7 mm. Raising duty to 0.80 opens a 5%-of-cycle
+    # FOUR-FOOT window at each of the four crossovers, which is when the spine
+    # actually traverses. The binding case then moves off the crossover and back
+    # onto the 3-foot posture, and the margin stops depending on duty at all.
+    #
+    # 0.90 rather than the minimum-viable 0.80 because the window must be wide in
+    # SECONDS, not just non-zero: 0.80 leaves only 5% of the cycle, forcing either
+    # a 9 g lateral CoM slam or a 4.05 s crawl. 0.90 gives 15% and, as a bonus,
+    # a slightly BETTER polygon margin (+8.4 vs +7.3 mm).
+    duty_factor: float = 0.90
     # Feet planted just ahead of / under the hips in a CROUCHED digitigrade
     # stance: hip-to-paw distance is ~63% of the leg's reach, matching a standing
     # cat (~55-65%) rather than the near-straight 70% of an earlier revision.
@@ -193,6 +244,17 @@ class GaitParams:
         default_factory=lambda: dict(DEFAULT_PHASE_OFFSETS)
     )
     knee: KneeConfig | None = None
+    # LATERAL spine sway per segment (rad), ADR-0009: bend the spine toward the
+    # SUPPORT side while a leg swings, which is how a real cat keeps its CoM
+    # inside the 3-foot support triangle. Set to 0.0 to reproduce the pre-ADR-0009
+    # (laterally unstable, -28.7 mm) behaviour.
+    #
+    # 13.5 deg is an OPTIMUM, not a maximum. Margin rises to +8.4 mm at 13.5 deg
+    # then FALLS again: over-swaying carries the CoM out over the FAR edge of the
+    # triangle. It sits just inside the +/-15 deg
+    # per-segment ROM, so the ROM is adequate but has ~1 deg to spare -- the
+    # lateral DOF is sized almost exactly right, with no slack for error.
+    lateral_amplitude: float = math.radians(13.5)
     spine_amplitude: float = 0.0
     spine_phase: float = 0.0
 
@@ -500,7 +562,145 @@ class GaitController:
         """``n`` evenly spaced stability margins over one cycle, phase in [0, 1)."""
         return [self.stability(i / n) for i in range(n)]
 
-    def support_polygon(self, phase: float, lateral_shift: float = 0.0):
+    # ------------------------------------------------------- lateral sway (M5)
+    def _events(self) -> list[float]:
+        """Sorted phases at which the STANCE SET changes (liftoffs + touchdowns).
+
+        A leg with offset ``o`` touches down at ``o`` and lifts off at
+        ``o + duty`` (both mod 1). Between two consecutive events the set of
+        planted feet is constant, so these are the exact breakpoints of the
+        sway law -- no numerical scanning, no missed windows.
+        """
+        d = self.params.duty_factor
+        ev = set()
+        for o in self.params.phase_offsets.values():
+            ev.add(o % 1.0)
+            ev.add((o + d) % 1.0)
+        return sorted(ev)
+
+    def support_side(self, phase: float) -> float:
+        """Which side the sway should favour at ``phase``: +1 (left), -1, or 0.
+
+        Returns the side AWAY from the swinging leg(s) -- i.e. toward the support
+        triangle. Returns 0.0 when all four feet are planted, which is the window
+        the spine uses to cross over.
+        """
+        swinging = [n for n in self.params.phase_offsets
+                    if not self.is_stance(phase, n)]
+        if not swinging:
+            return 0.0
+        ys = sum(self.body.mounts[n].track_y for n in swinging)
+        return -float(np.sign(ys)) if ys else 0.0
+
+    def lateral_q(self, phase: float) -> np.ndarray:
+        """Commanded LATERAL spine bend at ``phase`` (rad per segment, ADR-0009).
+
+        The law is a RAMPED square wave, not a sinusoid and not a step:
+
+        - while one leg swings (3-foot support) the spine is held at full
+          ``lateral_amplitude`` toward the support side;
+        - while all four feet are down it traverses LINEARLY to the next side.
+
+        A sinusoid was tested and is *worse than no sway at all* at every phase
+        lead: it is near zero exactly at the crossovers, which is where the
+        margin is decided, so the worst case never improves on -28.7 mm. The
+        traverse must therefore be confined to the four-foot windows, which is
+        what ``duty_factor = 0.80`` exists to provide.
+
+        The result is clipped to the spine's lateral joint limits.
+        """
+        n = self.body.spine.params.n_segments
+        amp = float(self.params.lateral_amplitude)
+        if amp == 0.0:
+            return np.zeros(n)
+
+        p = float(phase) % 1.0
+        side = self.support_side(p)
+        if side == 0.0:
+            # Four feet down: linearly traverse from the side held before this
+            # window to the side demanded after it.
+            ev = self._events()
+            start = max((e for e in ev if e <= p), default=ev[-1] - 1.0)
+            end = min((e for e in ev if e > p), default=ev[0] + 1.0)
+            prev = self.support_side((start - 1e-9) % 1.0)
+            nxt = self.support_side((end + 1e-9) % 1.0)
+            u = (p - start) / (end - start) if end > start else 0.0
+            side = prev + (nxt - prev) * u
+
+        sp = self.body.spine.params
+        return np.clip(np.full(n, amp * side),
+                       np.asarray(sp.lateral_q_min, dtype=float),
+                       np.asarray(sp.lateral_q_max, dtype=float))
+
+    def lateral_slew_rate(self) -> float:
+        """Peak commanded lateral spine rate (rad/s per segment) for this gait.
+
+        The traverse of ``2 * lateral_amplitude`` across the narrowest four-foot
+        window. This is a hard requirement on the spine tendon drives: if they
+        cannot slew this fast, the walk is NOT statically stable, however good
+        the geometry looks. Returns ``inf`` when there is no four-foot window
+        (duty <= 0.75), which is the degenerate case the 0.80 default avoids.
+        """
+        amp = float(self.params.lateral_amplitude)
+        if amp == 0.0:
+            return 0.0
+        ev = self._events()
+        widths = []
+        for a, b in zip(ev, ev[1:] + [ev[0] + 1.0]):
+            mid = (a + b) / 2.0
+            if self.support_side(mid % 1.0) == 0.0:
+                widths.append(b - a)
+        if not widths:
+            return math.inf
+        return 2.0 * amp / (min(widths) * self.params.period)
+
+    def crossover_window(self) -> float:
+        """Duration (s) of the narrowest four-foot window — the sway's time budget."""
+        ev = self._events()
+        widths = [b - a for a, b in zip(ev, ev[1:] + [ev[0] + 1.0])
+                  if self.support_side(((a + b) / 2.0) % 1.0) == 0.0]
+        return min(widths) * self.params.period if widths else 0.0
+
+    def crossover_accel(self) -> float:
+        """Peak LATERAL CoM acceleration (m/s^2) demanded by the sway reversal.
+
+        ⚠️ This is a HAND CHECK that steps outside the module's quasi-static
+        model, and it is the number that actually constrains walk speed.
+
+        The sway must reverse the CoM across ``2 * sway_amplitude`` within one
+        four-foot window. Under a bang-bang acceleration profile that costs
+        ``a = 4 * d / w**2`` — which grows as the INVERSE SQUARE of the window, so
+        walking faster is punished hard. The paws can only deliver ``mu * g``
+        laterally before they slide (~7.8 m/s^2 at mu = 0.8), and exceeding it
+        means the static margin computed elsewhere in this module is not
+        physically realisable. Compare against ``friction_accel_limit``.
+
+        Returns 0.0 when the sway is disabled, ``inf`` when there is no window.
+        """
+        amp = float(self.params.lateral_amplitude)
+        if amp == 0.0:
+            return 0.0
+        w = self.crossover_window()
+        if w <= 0.0:
+            return math.inf
+        n = self.body.spine.params.n_segments
+        d = 2.0 * abs(self.body.center_of_mass_y(np.full(n, amp)))
+        return 4.0 * d / (w * w)
+
+    @staticmethod
+    def friction_accel_limit(mu: float = 0.8, g: float = 9.81) -> float:
+        """Lateral acceleration (m/s^2) a paw can deliver before sliding: ``mu*g``.
+
+        Independent of mass — the friction force and the inertia both scale with
+        it. ``mu = 0.8`` is a nominal rubber-on-hard-floor value ``[assumed]``.
+        """
+        return mu * g
+
+    def crossover_is_feasible(self, mu: float = 0.8) -> bool:
+        """Whether the commanded sway reversal stays inside the friction cone."""
+        return self.crossover_accel() <= self.friction_accel_limit(mu)
+
+    def support_polygon(self, phase: float, lateral_shift: float | None = None):
         """TRUE ground-plane support-polygon margin at ``phase`` (3D geometry).
 
         ``stability()`` above returns the 2D-sagittal fore-aft INTERVAL margin,
@@ -508,20 +708,23 @@ class GaitController:
         uses the real polygon spanned by the stance feet at their lateral track
         offsets, so it can see roll/diagonal tipping.
 
-        ``lateral_shift`` (m) models BODY SWAY toward the support side — the
-        thing a real cat does during a crawl. It needs a lateral DOF the current
-        16-motor build does not have (see ADR-0006/0008), so it defaults to 0.
+        The CoM's lateral position comes from the **commanded lateral spine
+        bend** (``GaitParams.lateral_amplitude``, ADR-0009) via
+        ``WholeBody.center_of_mass_y`` — i.e. it is produced by a real actuated
+        DOF, not assumed. Pass ``lateral_shift`` to override it with a raw
+        offset (metres) for what-if studies.
         """
         st = self.state(phase)
         xy = self.body.foot_ground_xy(st.spine_q, {n: l.q for n, l in st.legs.items()})
         stance = {n: xy[n] for n in st.stance_legs}
-        cy = 0.0
-        if lateral_shift:
+        if lateral_shift is None:
+            cy = self.body.center_of_mass_y(self.lateral_q(phase))
+        else:
             side = float(np.sign(np.mean([stance[n][1] for n in stance])))
             cy = lateral_shift * side
         return polygon_stability_margin((st.com.x, cy), stance)
 
-    def support_polygon_sweep(self, n: int = 48, lateral_shift: float = 0.0):
+    def support_polygon_sweep(self, n: int = 48, lateral_shift: float | None = None):
         """``n`` evenly spaced TRUE polygon margins over one cycle."""
         return [self.support_polygon(i / n, lateral_shift) for i in range(n)]
 

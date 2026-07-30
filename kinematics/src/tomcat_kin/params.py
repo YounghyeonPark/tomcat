@@ -285,6 +285,13 @@ class SpineParams:
     q_min: tuple[float, ...] = (-0.436, -0.436, -0.436)
     q_max: tuple[float, ...] = (0.436, 0.436, 0.436)
 
+    # LATERAL (yaw) joint limits per segment, rad — ADR-0009. The sagittal
+    # q_min/q_max above drive dorsoventral arch; these drive the side-to-side
+    # bend that produces the body SWAY static stability needs. ADR-0006 always
+    # specified this axis; ADR-0009 finally budgets motors for it.  ❓ TBD
+    lateral_q_min: tuple[float, ...] = (-0.262, -0.262, -0.262)   # -15 deg
+    lateral_q_max: tuple[float, ...] = (0.262, 0.262, 0.262)      # +15 deg
+
     # Per-segment tendon moment arm about the vertebral joint (m).
     # Raised from the initial 0.020 m to 0.030 m per mechanical/SPINE_TAIL_SPEC.md:
     # T = tau/r, so 0.020 m amplified peak cable tension well above the ~20-70 N
