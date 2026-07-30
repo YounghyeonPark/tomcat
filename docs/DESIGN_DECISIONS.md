@@ -531,6 +531,55 @@ context, and consequences. Status is one of: **Proposed**, **Accepted**,
     **spin** inertia — `swing_joint_torque` treats links as point masses, so it
     under-estimates. Flight phases (duty < 0.5) are generated but not analysed.
 
+## ADR-0012: Tactile sensing at the paw — a barometric dome, capped at 20 g
+- **Status:** Accepted
+- **Context:** [ADR-0011](#adr-0011-the-trot-works--a-dynamic-gait-reaches-cat-like-speed-within-the-actuator-envelope)
+  left closed-loop balance as the next milestone, and it is an *open-loop*
+  trajectory check today: it shows the prescribed motion is dynamically
+  consistent, not that a controller can stabilise it. Closing that loop needs
+  measurement at the contact. The project had reserved a *"tactile sensor
+  pocket"* in the paw pad since the assembly spec, but never specified a sensor.
+- **Decision: a MEMS barometer under a sealed, moulded TPU dome in each paw,
+  ≤ 20 g per paw**, reporting normal force and a hardware contact flag at ≥1 kHz;
+  tangential force comes from the existing ADR-0004 joint-end load cells and is
+  **fused** with the paw's normal. Full spec:
+  [TACTILE_SENSING_SPEC](../mechanical/TACTILE_SENSING_SPEC.md).
+- **Why not rely on the sensing we already own** (this was the real question —
+  ADR-0004 already buys joint-end load cells, and a point contact exerts no
+  moment, so `tau = J^T F` is solvable from two clean torque measurements):
+  1. **The inversion is badly conditioned on the hind legs.**
+     `dynamics.grf_observability` measures the error amplification: **3.2–3.4 on
+     the fore legs but a median 7.5 and worst 36 on the hind legs**, degrading
+     sharply *just before liftoff* — exactly when load transfers to the other
+     diagonal. A 1 % tension error becomes a 36 % force error there.
+  2. **Joint torque cannot detect contact at all.** It cannot distinguish
+     "pressing on the ground" from "limb accelerating" without a dynamics model in
+     the loop. For the single measurement closed-loop balance most depends on —
+     *when did the foot actually land* — the joint route is not imprecise but
+     **categorically unable**. Only a sensor at the contact can answer it.
+- **Why ≤ 20 g, and why that is the binding constraint:** a paw sensor sits at the
+  most distal point of the limb — precisely what tendon drive exists to keep
+  light. M7 showed swing-leg torque caps trot speed, so the trade is measurable
+  rather than rhetorical: **20 g/paw costs ~41 % of the swing term and drops the
+  sustainable top speed 120 → 96 cm/s; 40 g/paw pushes the worst motor past its
+  continuous rating even at 96 cm/s**, i.e. the sensor starts taking away usable
+  gait. The 4 × 20 g of *mass* is ~2 % of the 4.05 kg budget and irrelevant — it
+  is **swing inertia**, not mass, that limits this. P1, quantified.
+- **Consequences:**
+  - Requirements derived from the robot's own dynamics, not a catalogue: **0–35 N**
+    measurement, **≥100 N survival** (the ×2.5 land transient), **≤0.4 N**
+    resolution, **≥1 kHz** (trot stance is 150 ms).
+  - No new bus — the paw joins its limb's existing CAN-FD node (ADR-0005).
+  - **FR5** (detect and recover from a foot slip) becomes achievable; it has been
+    a "Should" with no sensing behind it since M1.
+  - Shin, body-shell and whisker sensing are **deferred** — recorded so the
+    structure carries provision rather than being retrofitted, but none is on the
+    balance critical path.
+  - ⚠️ Owed: dome geometry (the range is set by cavity volume, and needs FEA or a
+    moulding trial), a **drop test** for the real touchdown impulse, barometer part
+    selection against the 100 N overpressure case, TPU **creep** under the crawl's
+    4.5 s sustained load, and the fusion estimator itself.
+
 ---
 
 ### How to add an ADR

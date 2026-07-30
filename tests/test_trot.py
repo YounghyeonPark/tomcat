@@ -195,3 +195,53 @@ def test_trot_stays_well_inside_the_friction_cone():
     cyc = dyn.cycle(c, 96)
     mu = max(dyn.contact_forces(c, i / 96, 96, cyc=cyc).aggregate_mu for i in range(96))
     assert mu < 0.5
+
+
+# ------------------------------------ contact sensing (TACTILE_SENSING_SPEC)
+def test_ground_force_is_ill_conditioned_on_the_HIND_legs_near_liftoff():
+    # THE QUANTITATIVE CASE FOR A PAW SENSOR. ADR-0004's joint-end load cells can
+    # in principle recover the foot force (a point contact exerts no moment, so
+    # tau = J^T F has only two unknowns). On the FORE legs that inversion is well
+    # conditioned; on the HIND legs it degrades ~10x just before liftoff, exactly
+    # when load transfers to the other diagonal.
+    c = GaitController(params=trot_params())
+    obs = dyn.grf_observability_sweep(c, 96)
+    assert obs["LF"]["worst"] < 5.0
+    assert obs["RF"]["worst"] < 5.0
+    assert obs["LR"]["worst"] > 20.0
+    assert obs["RR"]["worst"] == pytest.approx(obs["LR"]["worst"], rel=1e-6)
+    assert obs["LR"]["median"] > 2 * obs["LF"]["median"]
+
+
+def test_paw_sensor_mass_budget_is_what_limits_it_not_the_mass_budget():
+    # TACTILE_SENSING_SPEC §4: distal mass is charged against SWING TORQUE, which
+    # M7 showed caps trot speed -- not against the 4.05 kg total, where 4x20 g is
+    # a rounding error. Guards the "<= 20 g per paw" rule.
+    import dataclasses
+    from tomcat_kin import LegModel
+    from tomcat_kin.spine import WholeBody, SpineModel
+    from tomcat_kin.params import DEFAULT_FORELEG, DEFAULT_HINDLEG
+
+    def swing_peak(paw_g, n=48):
+        add = paw_g / 1000.0
+        fo = dataclasses.replace(DEFAULT_FORELEG, link_mass=tuple(
+            np.array(DEFAULT_FORELEG.link_mass) + np.array([0, 0, 0, add])))
+        hi = dataclasses.replace(DEFAULT_HINDLEG, link_mass=tuple(
+            np.array(DEFAULT_HINDLEG.link_mass) + np.array([0, 0, 0, add])))
+        b = WholeBody(spine=SpineModel(), legs={"LF": LegModel(fo), "RF": LegModel(fo),
+                                                "LR": LegModel(hi), "RR": LegModel(hi)})
+        c = GaitController(params=trot_params(), body=b)
+        out = 0.0
+        for i in range(n):
+            for nm in ("LF", "RF", "LR", "RR"):
+                if c.is_stance(i / n, nm):
+                    continue
+                t = np.abs(dyn.swing_joint_torque(c, nm, i / n, n))
+                out = max(out, float((t / ARMS * SPOOL).max()))
+        return out, b.total_mass
+
+    base, m0 = swing_peak(0)
+    at20, m20 = swing_peak(20)
+    # 20 g/paw costs ~40% of the swing term but only ~2% of body mass.
+    assert 1.25 < at20 / base < 1.6
+    assert (m20 - m0) / m0 < 0.03

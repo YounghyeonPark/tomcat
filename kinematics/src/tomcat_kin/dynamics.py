@@ -730,3 +730,56 @@ def swing_joint_torque(controller, leg_name: str, phase: float, n: int = 240) ->
             r = coms[1][li] - pts[j]       # lever from joint j to this link's CoM
             tau[j] += r[0] * f[1] - r[1] * f[0]     # 2D cross product
     return tau
+
+
+# ===================================================================
+# Contact SENSING — what closed-loop balance can actually observe
+# ===================================================================
+
+def grf_observability(controller, phase: float, leg_name: str,
+                      sensed_joints: tuple = (0, 1)) -> float:
+    """Error amplification when inferring ground force from JOINT torques.
+
+    Closed-loop balance needs per-foot ground-reaction force. The project already
+    buys part of that for free: ADR-0004 puts load cells at the JOINT end of the
+    hip and stifle tendons, and a POINT contact exerts no moment, so the foot
+    force is only two unknowns ``(fx, fz)`` related to joint torque by
+    ``tau = J^T F``. Two clean torque measurements are therefore *sufficient in
+    principle* — the question is how well conditioned the inversion is.
+
+    Returns the 2x2 condition number: the factor by which a relative error in the
+    measured torques is amplified in the inferred force. 1 is perfect; large
+    means the estimate is worthless however good the load cell.
+
+    Measured on the shipped gaits this is ~3.2–3.4 on the FORE legs but degrades
+    to a median 7.5 and a worst 36 on the HIND legs just before liftoff — which is
+    precisely when load is transferring to the other diagonal and accurate load
+    sharing matters most. That is the quantitative case for a direct paw sensor;
+    see mechanical/TACTILE_SENSING_SPEC.md.
+
+    ⚠️ Conditioning is a *best case*: it assumes an ideal point contact (a
+    compliant pad exerts a small moment), and ignores that a joint-torque estimate
+    cannot distinguish ground contact from limb inertia at all without a dynamics
+    model — so it can never provide fast touchdown DETECTION, only force.
+    """
+    st = controller.state(phase)
+    q = st.legs[leg_name].q
+    if q is None:
+        return float("inf")
+    J = controller.body.leg_model_for(leg_name).jacobian(q)
+    rows = list(sensed_joints)
+    sub = J.T[np.ix_(rows, [0, 1])]          # sensed joints x (fx, fz)
+    return float(np.linalg.cond(sub))
+
+
+def grf_observability_sweep(controller, n: int = 96,
+                            sensed_joints: tuple = (0, 1)) -> dict:
+    """Per-leg conditioning of the joint-torque ground-force estimate over a cycle."""
+    out = {}
+    for name in ("LF", "RF", "LR", "RR"):
+        vals = [grf_observability(controller, i / n, name, sensed_joints)
+                for i in range(n) if controller.is_stance(i / n, name)]
+        vals = [v for v in vals if np.isfinite(v)]
+        if vals:
+            out[name] = {"median": float(np.median(vals)), "worst": float(max(vals))}
+    return out

@@ -410,9 +410,15 @@ disturbances.
 
 ## Later milestones (candidate M8+, not committed)
 
-- **Closed-loop balance control** — the natural sequel: state estimation plus
-  foot-placement/DCM feedback, so the trot survives disturbance rather than merely
-  being consistent on paper.
+- **Closed-loop balance control (M8)** — state estimation plus foot-placement/DCM
+  feedback, so the trot survives disturbance rather than merely being consistent
+  on paper. **Prerequisite now specified:** contact sensing at the paw
+  ([ADR-0012](DESIGN_DECISIONS.md) /
+  [TACTILE_SENSING_SPEC](../mechanical/TACTILE_SENSING_SPEC.md)). The key finding
+  is that the joint-end load cells the project already owns are *categorically*
+  unable to detect contact — they cannot tell ground reaction from limb inertia —
+  and their force estimate degrades ~10× on the hind legs near liftoff. Sensor is
+  capped at **20 g/paw**, a limit set by swing inertia, not by the mass budget.
 
 
 - **Full rigid-body dynamics** — M6 models the CoM and the contacts, but not

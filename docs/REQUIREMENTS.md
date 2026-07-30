@@ -35,6 +35,7 @@ curve.
 | FR10 | Coordinate spine curvature with leg motion (whole-body posture).            | Should   |
 | FR11 | Detect a fall and reorient (tail + spine twist) to land feet-first.        | Should   |
 | FR5  | Detect and recover from a foot slip / unexpected ground contact.            | Should   |
+| FR12 | Sense **per-foot contact and normal force** (≥1 kHz) for closed-loop balance. | Must     |
 | FR6  | Report telemetry (per-motor current, tension, angle) over a host link.      | Should   |
 | FR7  | Support a calibration routine for zeroing tendon tension and joint range.   | Must     |
 | FR8  | Enter a safe, limp state on fault (over-current, over-tension, e-stop).     | Must     |
@@ -55,6 +56,8 @@ curve.
 | NFR2i | Dynamic (ZMP) stability margin, CRAWL             | **> 0** at every phase; currently **+6.4 mm** ⚠️ small |
 | NFR2j | **TROT** speed (the locomotion mode, ADR-0011)     | **~67 cm/s** default; sustainable to **~96 cm/s** (RMS motor torque hits the continuous rating at ~120 cm/s) |
 | NFR2k | Trot roll oscillation                             | **bounded** — roll-rate drift ≈ 0 per cycle, ±0.4° peak. Requires `nominal_foot` x ≈ 0.005 m; the crawl's 0.05 m falls in one stride |
+| NFR8  | Paw force sensing range / survival                | **0–35 N** measured, **≥100 N** survival (×2.5 land transient), ≤0.4 N resolution, ≥1 kHz (ADR-0012) |
+| NFR9  | **Paw sensor mass**                               | **≤ 20 g per paw** — binding via SWING INERTIA, not mass: 20 g costs top speed 120→96 cm/s, 40 g exceeds the motor's continuous rating (ADR-0012) |
 | NFR3  | Control loop rate (tension/position)             | ≥ 1 kHz             |
 | NFR4  | Gait / trajectory update rate                    | ≥ 100 Hz            |
 | NFR5  | Mass (total)                                     | **4.05 kg** — raised from 3.0 kg (ADR-0010) once a real motor was sourced: the lightest purchasable part is 120 g, not the 72 g class target. A domestic cat is 4–5 kg. |

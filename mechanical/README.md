@@ -53,6 +53,12 @@ Scope:
   per-axis ROM, and the parameter table for `SpineParams` + `TailParams`, plus
   BOM/motor-count implications.
 
+- [TACTILE_SENSING_SPEC.md](TACTILE_SENSING_SPEC.md) — **contact sensing and the
+  paw structure** (ADR-0012), the prerequisite for closed-loop balance. Derives
+  the force range, bandwidth and — the binding one — the **20 g/paw** distal-mass
+  limit from the robot's own swing dynamics, and shows why the existing joint-end
+  load cells cannot substitute.
+
 ## Status
 Stub — CAD files and routing diagrams to be added. Mechanical review is the
 gate for ADR-0002 (antagonistic vs. return spring) and torque budget feeding
