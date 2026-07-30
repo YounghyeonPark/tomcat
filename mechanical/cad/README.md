@@ -83,17 +83,25 @@ python mechanical/cad/tomcat_skeleton.py
 | Fore-leg links (humerus/radius/metacarpus/paw) | 100 / 90 / 65 / 25 mm | `DEFAULT_FORELEG` (columnar) |
 | Actuated joints per leg | 3 (hip · stifle · hock) + passive paw | `LegParams` |
 | Spine segments (tapered) | 75 / 65 / 55 mm (195 total) | `DEFAULT_SPINE` |
-| Hip / body height (standing) | 200 mm | IK stance target |
-| Track width (L/R legs) | 90 mm | ❓ placeholder |
-| Overall bounding box | 396 (L) × 120 (W) × 313 (H) mm | computed |
+| Hip / body height (standing) | 170 mm | IK stance target, ~63 % extension |
+| Track width (L/R limbs) | 96 mm | ❓ placeholder |
+| Vertebrae drawn / actuated spine joints | 20 (T13 + L7) / **3** | `ANATOMY.md` / ADR-0006 |
+| Spinous process height = spine tendon arm | 30 mm | `DEFAULT_SPINE.joint_moment_arm` |
+| Overall bounding box | 427 (L) × 115 (W) × 262 (H) mm | computed |
 
 ## Scope / honesty
-This is a **skeleton massing model**, not a manufacturing model:
-- Bones are capsules, joints are spheres, girdles/motors are simple prisms and
-  cylinders — enough to see scale, proportion, and reach, **not** to fabricate.
-- Left/right legs are placed at a chosen track width; the underlying kinematics
-  is still the 2D sagittal model, so there is no true frontal-plane geometry yet.
-- Body width, bone/vertebra radii, girdle size, and tail shape are **placeholders**.
+This is a **skeletal model**, not a manufacturing model:
+- Bone *form* and joint *axes* are modelled, but there are **no fasteners,
+  bearings, tolerances or fabrication features** — nothing here is machinable
+  as drawn. That is review finding **F5**, still open.
+- Left/right limbs are placed at a chosen track width; the underlying kinematics
+  is still the **2D sagittal** model, so there is no true frontal-plane geometry
+  yet — the top plan is a projection, not a solved 3D pose.
+- The kinematics model has **no scapula** (it mounts the forelimb on the girdle
+  frame), so CAD and model differ slightly at the shoulder *by design*: the model
+  is the authority for stability, the CAD for form.
+- Body width, bone/vertebra radii, girdle size, tail shape and every dimension
+  driven by `params.py` remain **placeholders**.
 
 ## Packaging model — motors · tendons · joints
 
