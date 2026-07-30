@@ -191,7 +191,7 @@ requirement (thinner cable → smaller spool). Most likely a combination.
 > Still open: motor count 24 → 16 invalidates the **F4 girdle packing**, and the
 > real motor envelope differs from the Ø16 × 28 mm placeholder — re-pack needed.
 
-## F5 — No assembly / manufacturing pass (gap)
+## F5 — No assembly / manufacturing pass (gap) — ✅ RESOLVED
 
 Across all mechanical docs there is essentially **one** mention of
 manufacturability (the CAD README stating it is not a manufacturing model). Not
@@ -199,6 +199,25 @@ yet addressed: fabrication method per part, tolerances and fits, fastener
 strategy, cable **termination** and **re-tensioning** access, and how a joint is
 physically assembled around its pulley and bearings. This is expected at this
 stage — recording it so it is not mistaken for completeness.
+
+> **Resolved by [ASSEMBLY_SPEC.md](ASSEMBLY_SPEC.md)**, which also closes the two
+> checks F3 deferred:
+> - **Combined bending + torsion.** An unguided cable reaching the bone with the
+>   27 mm lateral offset implied by the girdle layout costs ~24 % of the femur's
+>   safety factor (2.84 → **2.17**) — still above 2, so not a blocker, but a
+>   **limb-root idler** that turns the cable into the bone's plane recovers it
+>   fully and is cheap.
+> - **Local crushing.** Through-bolting is survivable at ≥4 mm pin (112 MPa vs a
+>   ~150 MPa transverse allowable) but is *not* recommended — it cuts fibres and
+>   leans on the least trustworthy number in the design. **20 mm bonded aluminium
+>   inserts** carry the same load at 0.71 MPa adhesive shear, SF > 14.
+>
+> The spec also fixes fabrication method per part, the joint stack-up (with the
+> rule that **the sheave keys to the DISTAL link**), H7/h6 fits, spliced-eye
+> terminations (knots lose 30–50 % in UHMWPE), and **±5 mm re-tensioning travel**
+> sized from UHMWPE creep — with the constraint that adjusters must be reachable
+> without de-mounting a limb, and that re-tensioning must be followed by the FR7
+> calibration routine.
 
 ---
 
@@ -243,7 +262,12 @@ would firm up the whole budget — and it also gates `Kt` and bus voltage.
 3. ~~**F4**~~ — **done**: motors stood upright, see above.
 4. ~~**F6**~~ — **done**: ADR-0008 (size to trot + 16 motors). Follow-up: re-pack
    the girdles for 16 real motors (re-opens part of F4).
-5. **F5** — assembly pass, once the above settle.
+5. ~~**F5**~~ — **done**: ASSEMBLY_SPEC.md (also closes F3's deferred checks).
+
+**All review findings are now closed.** What remains is not analysis but
+*procurement and test*: shop drawings + a real BOM, a bond-coupon pull-out test,
+a measured CF transverse allowable, a limb tolerance stack-up, and a
+serviceability check of the adjuster access against real housing geometry.
 
 ## Does the hock verdict still hold?
 

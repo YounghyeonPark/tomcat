@@ -38,6 +38,10 @@ Scope:
   with a rendered preview. A massing model, not yet a manufacturing model.
 
 ## Specs
+- [ASSEMBLY_SPEC.md](ASSEMBLY_SPEC.md) — **how it is built**: fabrication method
+  per part, joint assembly stack-up and fits, cable termination and
+  re-tensioning access, assembly sequence. Also closes the combined
+  bending+torsion and local-crushing checks (review F3/F5).
 - [LEG_TENDON_SPEC.md](LEG_TENDON_SPEC.md) — leg tendon-drive spec for the
   pure-tendon legs (ADR-0003): moment-arm sizing that halves the ~1 kN cable
   tension to a ~500 N land transient, UHMWPE cable spec, pulley/bearing/routing
