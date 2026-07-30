@@ -19,8 +19,8 @@ sequences the work that implements them.
 > **M4 done:** real mass — CoM & static stability (fore-aft).
 > **M5 done:** the **lateral spine DOF** ([ADR-0009](DESIGN_DECISIONS.md)) — a true
 > 3D support polygon, commanded lateral sway, and with it the first walk that is
-> genuinely statically stable in 3D (**+10.1 mm**, up from **−21.6 mm**) *and*
-> dynamically realisable inside the paw friction cone. 244 tests.
+> genuinely statically stable in 3D (**+10.1 mm**, up from **−21.6 mm**).
+> **M6 done:** whole-body **dynamics** — and it overturned M5's headline. 264 tests.
 
 ---
 
@@ -305,15 +305,70 @@ are *sufficient*, and in doing so found the mass model was wrong.
 from real CAD geometry gives **~296 g of printed structure against a 587 g
 allowance**, but that is a massing model with solid bones — directional only.
 
-## Later milestones (candidate M6+, not committed)
+## Milestone M6 — Whole-body dynamics: the quasi-static answers were wrong (DONE)
 
-- **Full dynamics — now the critical path, not an optional extra.** M5 ended by
-  hitting a limit no quasi-static model can cross: the statically stable walk is
-  capped at ~4 cm/s, and its friction margin is 14 %. Both need real inertia.
-- **Full dynamics:** velocities/accelerations, Newton–Euler; leg mass in flight
-  driving trunk bending (the lit-review MMS result — note its ~0.454 kg knee is
-  from a far larger robot and must be rescaled);
-  velocities/inertia beyond the current quasi-static model.
+**Goal.** Stop asking *"does the CoM project inside the feet?"* — a question about
+a body standing still — and start asking *"can the contacts produce the forces the
+motion requires?"* Delivered as `kinematics/src/tomcat_kin/dynamics.py`: the CoM
+path differentiated in time, Newton–Euler balance, a per-foot ground-reaction
+solve with an active-set unilateral constraint, friction cones, and the ZMP.
+
+**It overturned two published conclusions and found a defect.**
+
+1. ⚠️ **The binding constraint is TIPPING, not friction.** M5 concluded friction
+   set the walk speed and demanded μ ≥ 0.70. The resolved per-foot forces show the
+   body-level demand at M5's own gait is only **μ ≈ 0.35** — it would never have
+   slipped. What fails is the **ZMP**: accelerating the CoM sideways to make the
+   sway shifts the pressure point by `(h/g)·a` the other way, **~128 mm** against a
+   96 mm track. **Slipping never binds at all** — swept over 0.6–6.0 s the aggregate demand never reaches μ = 0.8, while tipping only clears at **3.8 s**. NFR2g is withdrawn.
+2. ⚠️ **M5's sway law was not physically realisable.** Its crossover ramp was
+   *linear in position*, so velocity **stepped** — an impulse in acceleration,
+   i.e. infinite force. A static check can never see this because it never
+   differentiates the trajectory. Fixed with a **raised-cosine (C¹)** ramp: 23 %
+   more peak acceleration, but finite. A grid-convergence test guards it.
+3. **The walk is a 1.1 cm/s crawl**, not 4 cm/s — retuned to period **5.0 s**,
+   sway **11°**, giving **+6.5 mm static / +6.4 mm ZMP**.
+
+**Also closed here (the two remaining ❓ blockers):**
+
+- **The motor.** ADR-0008's mass closure rode on a ~72 g part. A market survey
+  ([reality check](notes/motor-reality-check.md)) finds the lightest purchasable
+  part meeting the torque is **~120 g (131.7 g with driver)**. Torque *density*
+  was fine — motors just come in discrete sizes, and the smallest one clearing the
+  bar is ~2× the capability needed. **NFR5 rose 3.0 → 4.05 kg** (ADR-0010), which
+  is if anything more biomimetic: a domestic cat is 4–5 kg.
+- **Paw friction.** Published PU-on-concrete is 0.8–1.2 dry *and* wet; the
+  resolved demand is **μ ≈ 0.055**. Never a real constraint.
+
+**Cascades that had to be followed through:** the heavier body pushed the hip land
+transient 465 → **600 N**, dropping the 1.5 mm cable below its own SF ≥ 4 target →
+upsized to **1.75 mm** (SF ≈ 5.0, spool 8.0 → 8.75 mm). The real motor is 39 %
+longer than the placeholder, so girdle height went **88 → 108 mm** (width still
+clears the track).
+
+**Honest bounds.** `dH/dt = 0` (classical ZMP form), *quantified* rather than
+declared: the swing leg's neglected spin is worth **~1.0 mm** against the +6.4 mm
+margin — a ~6× ratio, so it holds at this crawl speed, but it scales with leg
+acceleration and would **not** hold for a fast gait. No contact compliance, no
+touchdown impact, no motor dynamics. The force distribution is a heuristic, not
+the optimum a real controller would solve. ⚠️ Sustained trot is a **2.1× overload**
+on the motor's continuous rating — thermally limited, not torque limited.
+
+**The consequence for the project.** A 1.1 cm/s statically stable crawl is not
+cat-like by any measure. Static stability is now clearly a *demonstration mode*;
+the operating mode has to be **dynamic**. That is the next milestone, and it is no
+longer optional.
+
+## Later milestones (candidate M7+, not committed)
+
+- **A dynamic gait (trot)** with ZMP / capture-point control — the only route to
+  cat-like speed, and ADR-0008 already sized the motors for it. Now the critical
+  path: M6 showed the quasi-static crawl cannot be made fast by tuning.
+- **Full rigid-body dynamics** — M6 models the CoM and the contacts, but not
+  per-link inertia tensors or angular momentum (`dH/dt = 0`). Needed before any
+  fast gait, and needed to capture the lit-review Mass-Mass-Spring result (leg
+  mass in flight bending a compliant trunk; note its ~0.454 kg knee is from a far
+  larger robot and must be rescaled).
 - 3D extension, remaining parts: frontal-plane leg **abduction** and spine
   **axial twist** (the lateral bend is done, M5). Yaw and twist are what the
   ADR-0007 righting work needs.

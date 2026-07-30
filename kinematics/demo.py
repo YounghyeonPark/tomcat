@@ -40,6 +40,7 @@ from tomcat_kin.params import (  # noqa: E402
     DEFAULT_WHOLE_BODY_LOADS,
 )
 from tomcat_kin import torque_budget, whole_body_budget  # noqa: E402
+from tomcat_kin import dynamics as dyn  # noqa: E402
 from tomcat_kin.sensitivity import moment_arm_sweep  # noqa: E402
 from tomcat_kin.params import DEFAULT_TENDON  # noqa: E402
 
@@ -336,67 +337,101 @@ def _mass_and_stability_demo() -> None:
     print("  >>> Sway amplitude is an OPTIMUM, not a maximum -- over-swaying")
     print("      carries the CoM out over the FAR edge of the triangle")
     print("      (15/18 deg nearly tie -- both are at the +/-15 deg spine ROM clip):")
-    for deg in (8.0, 10.5, 12.5, 15.0, 18.0):
+    for deg in (8.0, 9.5, 11.0, 13.0, 15.0):
         c = GaitController(params=GaitParams(lateral_amplitude=np.radians(deg)))
         w = min(q.margin for q in c.support_polygon_sweep(120))
         print("        %4.1f deg -> %+6.2f mm%s"
-              % (deg, w * 1e3, "  <-- default" if deg == 12.5 else ""))
+              % (deg, w * 1e3, "  <-- default" if deg == 11.0 else ""))
 
     print()
-    print("  >>> But the constraint that actually set the WALK SPEED was FRICTION,")
-    print("      not geometry. Reversing the sway costs a = 4d/w^2 -- inverse-square")
-    print("      in the crossover window -- while a paw delivers only mu*g.")
-    print()
-    print("    gait                        window   demanded    limit   verdict")
-    for label, gp in (("first tuned: 1.2 s duty .80",
-                       GaitParams(period=1.2, duty_factor=0.80)),
-                      ("SHIPPED:     1.4 s duty .90", GaitParams())):
-        c = GaitController(params=gp)
-        a, lim = c.crossover_accel(), c.friction_accel_limit(0.8)
-        print("    %s  %4.0f ms  %6.2f m/s2  %5.2f   %s"
-              % (label, c.crossover_window() * 1e3, a, lim,
-                 "OK" if a <= lim else "SLIDES (%.1f g)" % (a / 9.81)))
-    print()
-    print("      -> the shipped gait closes with only %.0f%% friction margin "
-          "(needs mu >= %.2f),"
-          % ((on.friction_accel_limit() / on.crossover_accel() - 1) * 100,
-             on.crossover_accel() / 9.81))
-    print("         and static stability caps the walk at %.1f cm/s -- a CRAWL."
-          % (on.params.body_speed * 100))
-    print("         Cat-like speed must come from a DYNAMIC gait (next milestone).")
+    print("  >>> M5 concluded that FRICTION set the walk speed. The M6 dynamics")
+    print("      show that was WRONG -- see the dynamics section below.")
 
     # ------------------------------------------- lateral spine DRIVE sizing
     print()
-    print("=== SIZING THE LATERAL SPINE DRIVE (ADR-0009 follow-up) ===")
-    print("  ADR-0009 added 3 motors without checking what they must pull. Note the")
-    print("  load is INERTIAL, not gravitational: the lateral bend axis is VERTICAL,")
-    print("  so gravity exerts no moment about it and HOLDING a sway is nearly free.")
-    print("  What costs torque is REVERSING it during the crossover.")
+    print("=== SIZING THE LATERAL SPINE DRIVE (ADR-0009 f/u, revised by M6) ===")
+    print("  The load is INERTIAL, not gravitational: the lateral bend axis is")
+    print("  VERTICAL, so gravity exerts no moment about it and HOLDING a sway is")
+    print("  nearly free. What costs torque is REVERSING it.")
     print()
-    print("  joint  distal kg  lever mm  joint N.m  cable N   motor N.m   vs 1.10 sizing")
-    for r in on.body.lateral_spine_loads(on.crossover_accel()):
-        print("  %5d    %6.3f     %5.1f     %6.3f    %6.1f     %6.3f      %5.2fx"
-              % (r["joint"], r["distal_mass"], r["lever"] * 1e3, r["joint_torque"],
-                 r["cable_tension"], r["motor_torque"], r["motor_torque"] / 1.10))
+    print("  At the shipped 5 s CRAWL the sway is so slow the drive is barely loaded:")
+    for r_ in on.body.lateral_spine_loads(on.crossover_accel()):
+        print("    joint %d -> %.3f N.m at the motor" % (r_["joint"], r_["motor_torque"]))
+    print("  Sizing to THAT would under-build it -- the same motors must also serve")
+    print("  the ADR-0007 righting reflex and any future dynamic gait. So the drive")
+    print("  is sized to a REFERENCE FAST MANOEUVRE (the old 1.4 s crossover):")
+    FAST = 6.87
     print()
-    print("  >>> The base joint is worst -- it swings the whole forequarters. It fits")
-    print("      inside ADR-0008's trot sizing point, so the 3 extra motors are the")
-    print("      SAME class as the leg motors and ADR-0009's mass arithmetic holds.")
-    print("      But that depends entirely on the LATERAL MOMENT ARM:")
+    print("    lateral arm   base motor N.m   vs 1.10 class target   vs 1.95 REAL part")
     import dataclasses as _dc
     from tomcat_kin.spine import SpineModel as _SM
     for arm_mm in (15.0, 20.0, 25.0):
         b = WholeBody(spine=_SM(_dc.replace(on.body.spine.params,
                                             lateral_moment_arm=(arm_mm / 1000.0,) * 3)))
-        w = max(r["motor_torque"] for r in b.lateral_spine_loads(on.crossover_accel()))
-        note = "  <- OVER motor peak" if w > 1.10 else ""
-        if arm_mm == 20.0:
-            note += "  <-- specified"
-        print("        %4.0f mm arm -> %.3f N.m motor (%.2fx)%s"
-              % (arm_mm, w, w / 1.10, note))
-    print("      15 mm is the BARE transverse process, which is what SPINE_TAIL_SPEC")
-    print("      first assumed -- it does not work. 20 mm needs a milled lateral")
-    print("      pulley post, the same trick already used for the 30 mm dorsal arm.")
+        t = max(x["motor_torque"] for x in b.lateral_spine_loads(FAST))
+        note = "  <-- specified" if arm_mm == 20.0 else ""
+        print("       %4.0f mm      %6.3f            %.2fx %-8s      %.2fx%s"
+              % (arm_mm, t, t / 1.10, "OVER" if t > 1.10 else "ok", t / 1.95, note))
+    print()
+    print("  >>> HONEST DOWNGRADE. The 20 mm milled post was justified against a")
+    print("      1.10 N.m CLASS TARGET motor. The surveyed REAL part peaks at")
+    print("      1.95 N.m, so even the bare 15 mm transverse process now fits.")
+    print("      The post is retained -- it is nearly free and buys ~25% margin --")
+    print("      but it is an OPTIMISATION now, not a necessity.")
+
+
+    # ------------------------------------------------------- M6: DYNAMICS
+    print()
+    print("=== WHOLE-BODY DYNAMICS (M6) -- the quasi-static answer was wrong ===")
+    print("  Every check so far asked: does the CoM project inside the feet? That is")
+    print("  a question about a body STANDING STILL. The real question is whether the")
+    print("  contacts can produce the forces the MOTION requires.")
+    print()
+    r = dyn.sweep(on, 120)
+    print("    shipped gait (%.1f s, sway %.0f deg):" % (on.params.period,
+                                                        np.degrees(on.params.lateral_amplitude)))
+    print("      static polygon margin  %+7.2f mm" % (min(q.margin for q in on.support_polygon_sweep(96)) * 1e3))
+    print("      ZMP (dynamic) margin   %+7.2f mm   stable: %s" % (r["zmp_margin_min"] * 1e3, r["zmp_stable"]))
+    print("      aggregate friction mu   %6.3f" % r["aggregate_mu"])
+    print("      any foot forced to pull? %s" % (not r["unilateral_ok"]))
+
+    m5 = GaitController(params=GaitParams(period=1.4, lateral_amplitude=np.radians(12.5)))
+    r5 = dyn.sweep(m5, 120)
+    print()
+    print("    the M5 gait (1.4 s, sway 12.5 deg) -- which M5 declared STABLE:")
+    print("      static polygon margin  %+7.2f mm   <- looked fine" % (min(q.margin for q in m5.support_polygon_sweep(96)) * 1e3))
+    print("      ZMP (dynamic) margin   %+7.2f mm   <- OUTSIDE the support polygon" % (r5["zmp_margin_min"] * 1e3))
+    print("      aggregate friction mu   %6.3f          <- would NOT have slipped" % r5["aggregate_mu"])
+    print()
+    print("  >>> TIPPING binds, not slipping. Swaying the CoM sideways needs real")
+    print("      acceleration, and that shifts the effective pressure point by")
+    print("      (h/g)*a the OTHER way -- ~128 mm against a 96 mm track.")
+    print()
+    print("    period   ZMP margin   tips?    aggregate mu   slips?   speed")
+    for T in (1.4, 2.8, 4.0, 5.0):
+        c = GaitController(params=GaitParams(period=T, lateral_amplitude=np.radians(11)))
+        rr = dyn.sweep(c, 96)
+        print("     %4.1f s   %+8.2f mm   %s      %6.3f       %s    %.2f cm/s"
+              % (T, rr["zmp_margin_min"] * 1e3,
+                 "TIPS" if rr["zmp_margin_min"] <= 0 else " ok ",
+                 rr["aggregate_mu"], "SLIPS" if rr["aggregate_mu"] > 0.8 else " ok ",
+                 c.params.body_speed * 100))
+    print()
+    print("  >>> And M5's sway law was not physically realisable: its ramp was LINEAR")
+    print("      in position, so velocity STEPPED -- an impulse in acceleration. A")
+    print("      static check can never see that (it never differentiates). Now a")
+    print("      raised cosine, so the peak CONVERGES under grid refinement:")
+    for nn in (120, 240, 480, 960):
+        print("        n=%4d -> peak lateral accel %.3f m/s2"
+              % (nn, np.abs(dyn.com_acceleration(on, nn)[:, 1]).max()))
+    caveat = dyn.angular_momentum_caveat(on, 120)
+    print()
+    print("  >>> Honest bound: dH/dt = 0 is assumed (classical ZMP form). The swing")
+    print("      leg's neglected spin is worth %.1f mm of ZMP shift against a %.1f mm"
+          % (caveat["swing_leg_zmp_shift_max"] * 1e3, r["zmp_margin_min"] * 1e3))
+    print("      margin -- a ~6x ratio, so the result holds AT THIS CRAWL SPEED. The")
+    print("      shift scales with leg acceleration, so it would NOT hold for a fast")
+    print("      or dynamic gait; that needs real rigid-body dynamics.")
 
 
 

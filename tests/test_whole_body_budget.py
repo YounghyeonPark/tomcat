@@ -230,8 +230,8 @@ def test_report_states_the_mass_model_and_the_split():
     res = whole_body_budget.evaluate(body, leg_t, spine_t, DEFAULT_WHOLE_BODY_LOADS[0])
     txt = res.report()
     assert "REAL distributed" in txt
-    assert res.mass_total_kg == pytest.approx(3.0)
-    assert res.mass_fore_fraction == pytest.approx(0.55, abs=0.02)
+    assert res.mass_total_kg == pytest.approx(4.045)
+    assert res.mass_fore_fraction == pytest.approx(0.542, abs=0.02)
 
 
 def test_stand_case_spine_tension_is_not_excessive():

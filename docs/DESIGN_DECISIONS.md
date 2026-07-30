@@ -244,6 +244,11 @@ context, and consequences. Status is one of: **Proposed**, **Accepted**,
     GIM3505-9 (1.95 N·m, 132 g) is ~1.8× larger — a headroom option, not the
     target part.
 - **Consequences:**
+  - ⚠️ **Amended by [ADR-0010](#adr-0010-mass-target-30--405-kg-and-the-walk-is-limited-by-tipping-not-friction):**
+    the ~72 g motor this closure rests on **does not exist**. The lightest real
+    part meeting the torque is ~120 g (131.7 g with driver), and NFR5 rose to
+    **4.05 kg**. The *sizing basis* below (trot, not landing) still governs and is
+    unchanged; only the mass arithmetic moved.
   - Budget closes at 3.0 kg: motors 38 %, drivers 3 %, legs 14 %, battery 10 %,
     leaving **~35 % for structure**.
   - **Hard landings are out of scope for v1**, which touches ADR-0007 (righting
@@ -342,7 +347,14 @@ context, and consequences. Status is one of: **Proposed**, **Accepted**,
      6.87 m/s² demanded vs 7.85 available. It closes with only **14 % margin**
      and needs **μ ≥ 0.70**. `GaitController.crossover_accel()` /
      `.crossover_is_feasible()` make this checkable.
-  - **Consequence — static stability caps this walk at a crawl:** ~**4 cm/s**.
+  - ⚠️ **SUPERSEDED by [ADR-0010](#adr-0010-mass-target-30--405-kg-and-the-walk-is-limited-by-tipping-not-friction).**
+    Item (4) above and the μ ≥ 0.70 requirement are **wrong**. Resolving the
+    per-foot ground-reaction forces (M6 dynamics) shows friction was never the
+    binding constraint — the body-level demand at this very gait is only μ ≈ 0.35.
+    What actually fails is **tipping**: the ZMP leaves the support polygon by
+    ~128 mm. The walk speed cap is **1.1 cm/s**, not 4 cm/s, and the sway law
+    below needed a C¹ fix before it was even physically realisable.
+  - ~~**Consequence — static stability caps this walk at a crawl:** ~**4 cm/s**.~~
      That is inherent, not a tuning failure: a statically stable gait must stop
      and shift its weight between steps. Anything faster must be **dynamic**,
      which is what ADR-0008 already sized the motors for (trot). Option E in this
@@ -385,6 +397,82 @@ context, and consequences. Status is one of: **Proposed**, **Accepted**,
     estimate from real CAD geometry gives **~296 g of printed structure against a
     587 g allowance (~2× headroom)** — but that is a massing model with solid
     bones, so it is directional only.
+
+## ADR-0010: Mass target 3.0 → 4.05 kg, and the walk is limited by TIPPING not friction
+- **Status:** Accepted
+- **Context:** Two long-standing ❓ items were closed at once, and each overturned
+  a published conclusion.
+  1. **The motor.** ADR-0008's mass closure rode on a **~72 g** motor at
+     ~1.1 N·m. A survey of the real market
+     ([motor-reality-check](notes/motor-reality-check.md)) finds the lightest
+     purchasable part meeting that torque is **~120 g** (131.7 g with driver).
+     Torque *density* was not the bad assumption — the real part beats the
+     implied 15.3 N·m/kg — but **motors come in discrete sizes**, and the
+     smallest one clearing the bar is ~2× the capability needed.
+  2. **The dynamics.** M4 and M5 were quasi-static: they asked only whether the
+     CoM projects inside the feet. The new `kinematics/dynamics.py` asks whether
+     the **contacts can produce the forces the motion requires** (per-foot
+     ground-reaction solve, friction cones, ZMP).
+- **Decision A: raise NFR5 to 4.05 kg.**
+  - 19 × 131.7 g of actuation alone is 2.5 kg; with legs, battery, head/neck and
+    structure the body lands at **4.04 kg**. 3.0 kg is not achievable with real
+    hardware at 19 motors.
+  - This is **more biomimetic, not less** — a domestic cat is 4–5 kg, and 3.0 kg
+    was a placeholder never derived from the animal.
+  - It **converges rather than spiralling**: the heavier body needs 1.48 N·m at
+    the trot hip against the part's 1.95 N·m peak, so there is still 1.3× headroom.
+  - ⚠️ **Sustained trot is thermally limited**: 1.48 N·m against a 0.71 N·m
+    *continuous* rating is a 2.1× overload. Survivable as a transient, not as a
+    duty cycle. Raises the value of the ADR-0003 stance brake.
+- **Decision B: retune the walk to period 5.0 s / sway 11°, and record that the
+  binding constraint is TIPPING.**
+  - ⚠️ **M5's headline was wrong.** M5 concluded *"friction sets the walk speed,
+    needs μ ≥ 0.70"*. Resolving the per-foot forces shows the body-level friction
+    demand at M5's own 1.4 s gait is only **μ ≈ 0.35** — it would never have
+    slipped. What fails is the **ZMP leaving the support polygon**: accelerating
+    the CoM sideways to produce the sway shifts the effective pressure point by
+    `(h/g)·a` the *other* way, ~**128 mm** against a 96 mm track. **Slipping never becomes the binding
+    constraint at all** — swept over periods 0.6–6.0 s the aggregate friction
+    demand never reaches even μ = 0.8, while tipping only clears at **3.8 s**.
+  - ⚠️ **M5's sway law was not physically realisable.** Its crossover ramp was
+    *linear in position*, so velocity **stepped** at each end — an impulse in
+    acceleration, i.e. infinite force. No static check could have seen this,
+    because a static check never differentiates the trajectory. Replaced with a
+    **raised-cosine (C¹)** ramp, which costs 23 % more peak acceleration
+    (`π²/2 · d/w²` rather than `4 d/w²`) but is finite.
+  - Consequence: the statically stable walk is a **1.1 cm/s crawl**, not 4 cm/s.
+    Both margins are small — **+6.5 mm static, +6.4 mm ZMP**.
+- **Consequences:**
+  - Every mass-derived number rescaled: load cases, girdle masses, spine loads.
+    Fore/hind split 55/45 → **54.2/45.8**.
+  - ⚠️ **The cable had to be re-sized.** Tendon loads scale with body mass, so the
+    hip land transient went **465 → 600 N**, dropping the 1.5 mm UHMWPE to
+    **SF 3.67 — below LEG_TENDON_SPEC's own ≥ 4 target**. Upsized to **1.75 mm**
+    (SF ≈ 5.0), which forces the spool radius **8.0 → 8.75 mm** and so costs ~9 %
+    more motor torque (trot hip 1.47 → 1.61 N·m, still 0.82× the real part's
+    peak). 2.0 mm was rejected: it would trade a cable margin for a *tighter*
+    actuator margin (0.94× peak).
+  - ⚠️ **The girdles grew.** The real motor is Ø34.5 × **36.1 mm** — nearly the
+    same diameter as the placeholder but **39 % longer**, and the banks stack
+    vertically, so girdle height goes **88 → 108 mm**. Width (86 mm) still clears
+    the 96 mm track, so nothing collides.
+  - **Paw friction is no longer a stability requirement.** NFR2g (μ ≥ 0.70) is
+    withdrawn: the resolved aggregate demand is **μ ≈ 0.055** at the shipped gait.
+    Published TPU/PU-on-concrete values are 0.8–1.2, so this was never close.
+  - The lateral spine drive is now **trivially loaded by the crawl** (0.10 N·m),
+    so it must be sized against a *faster* reference manoeuvre instead — the
+    ADR-0007 righting reflex and any future dynamic gait. The 20 mm lateral post
+    (ADR-0009 follow-up) is consequently **an optimisation, not a necessity**:
+    against the real part's 1.95 N·m peak, even the bare 15 mm transverse process
+    would fit.
+  - ⚠️ **The case for a dynamic gait is now decisive, not preferential.** A 1.1 cm/s
+    crawl is not cat-like by any measure. Static stability is a demonstration
+    mode; the operating mode has to be dynamic.
+  - Remaining modelling debt: `dH/dt = 0` (classical ZMP form). Quantified rather
+    than merely declared — the swing leg's neglected spin is worth **~1.0 mm** of
+    ZMP shift against the **6.4 mm** margin, a ~6× ratio, so the result holds *at
+    this crawl speed*. ⚠️ It scales with leg acceleration and would **not** hold
+    for a fast or dynamic gait, which needs full rigid-body dynamics.
 
 ---
 

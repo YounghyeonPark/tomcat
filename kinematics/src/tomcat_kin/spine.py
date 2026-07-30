@@ -468,7 +468,7 @@ class WholeBody:
         """Whole-body mass (kg): spine segments + both girdles + every leg.
 
         Summed from the PLACEHOLDER params (params.py). By construction the
-        default body totals ``LoadCase.body_mass_kg`` = 3.0 kg.
+        default body totals ``LoadCase.body_mass_kg`` = 4.045 kg.
         """
         legs = sum(self.legs[name].params.mass for name in self.mounts)
         return float(self.spine.params.trunk_mass + legs)

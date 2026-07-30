@@ -41,7 +41,11 @@ stiffness conversion.
 
 ### 1.2 Segment lengths (rear → front)
 
-Cat torso (T1→sacrum) scale for a ~3 kg body is ~0.20 m. Lumbar (rear) segments
+Cat torso (T1→sacrum) scale for a ~3 kg body is ~0.20 m. ⚠️ NFR5 later rose to
+**4.05 kg** (ADR-0010), but that came from heavier *motors*, not from scaling up
+the animal — the geometry is deliberately left at the ~3 kg cat's proportions, so
+the robot is a dense 3 kg-sized cat rather than a 4 kg one. Revisit only if the
+torso is ever re-scaled for a reason other than mass. Lumbar (rear) segments
 are longer and are the dorsoventral-mobile region, so lengths taper front-ward.
 
 | Segment | Region | Length (m) | Label |

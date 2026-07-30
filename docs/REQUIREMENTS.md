@@ -47,13 +47,14 @@ curve.
 | NFR2b | DOF per spine segment                            | **2** — dorsoventral + lateral (ADR-0006/0009) |
 | NFR2c | Total actuated DOF (12 legs + 6 spine + 1 tail)  | **19** (= 19 motors, ADR-0008 + **ADR-0009** lateral) |
 | NFR2d | Tail actuation (coarse assist, no accuracy)      | 1 tendon + passive return |
-| NFR2e | Spine LATERAL bend ROM (per segment)             | **±15°** (ADR-0009; gait commands 12.5°, so ~2.5° spare) |
-| NFR2f | Spine lateral **slew rate** (per segment)         | **≥ 119 °/s** at the 1.4 s walk (ADR-0009) |
-| NFR2g | Paw–ground friction coefficient μ                 | **≥ 0.70** — the sway crossover slides below this; static stability depends on it |
-| NFR2h | Statically stable walk speed                      | **~4 cm/s** (crawl). Faster requires a *dynamic* gait — ADR-0009 |
+| NFR2e | Spine LATERAL bend ROM (per segment)             | **±15°** (ADR-0009; gait commands 11°, so ~4° spare) |
+| NFR2f | Spine lateral **slew rate** (per segment)         | **≥ 119 °/s** — sized to a FAST reference manoeuvre (righting / future dynamic gait), **not** the 5 s crawl, which needs only ~29 °/s (ADR-0010) |
+| ~~NFR2g~~ | ~~Paw–ground friction μ ≥ 0.70~~ | **WITHDRAWN (ADR-0010).** The resolved per-foot demand is **μ ≈ 0.055**; friction was never the binding constraint. Any sane pad meets it. |
+| NFR2h | Statically stable walk speed                      | **~1.1 cm/s** (crawl), limited by **TIPPING** (ZMP), not friction. Faster requires a *dynamic* gait — ADR-0010 |
+| NFR2i | Dynamic (ZMP) stability margin                    | **> 0** at every phase; currently **+6.4 mm** ⚠️ small |
 | NFR3  | Control loop rate (tension/position)             | ≥ 1 kHz             |
 | NFR4  | Gait / trajectory update rate                    | ≥ 100 Hz            |
-| NFR5  | Mass (total)                                     | **3.0 kg** (ADR-0008 closes the budget at this) |
+| NFR5  | Mass (total)                                     | **4.05 kg** — raised from 3.0 kg (ADR-0010) once a real motor was sourced: the lightest purchasable part is 120 g, not the 72 g class target. A domestic cat is 4–5 kg. |
 | NFR6  | Runtime on one battery charge                    | ❓ TBD               |
 | NFR7  | Max cable tension per tendon                     | ❓ TBD (N)           |
 
@@ -79,10 +80,12 @@ The major architecture questions are **resolved** in the [ADR log](DESIGN_DECISI
 Remaining **calibration / measurement** items (not decisions):
 - ❓ Routed cable friction μ and per-tendon wrap — blocks the tension error budget
   and the current-vs-load-cell placement split (ADR-0004 follow-up).
-- ❓ Specific motor **part** — the *class* is now specified (~1.1 N·m peak, ≤80 g,
-  24 V; `Kt` ≈ 0.44 N·m/A) by the [down-select](notes/motor-downselect.md), but a
-  real part must be surveyed and its torque density confirmed — ADR-0008's mass
-  closure rides on it.
+- ✅ **Specific motor part — CLOSED** by the
+  [reality check](notes/motor-reality-check.md): **SteadyWin GIM3505-9**, 0.71 /
+  1.95 N·m at the output, 9:1, **131.7 g with driver**, 24 V, Kt 0.35 N·m/A. The
+  ≤80 g class target does not exist in this torque band; NFR5 rose to 4.05 kg as
+  a result (ADR-0010). ⚠️ Still owed: buy and weigh one, and a **thermal test** —
+  sustained trot is a 2.1× overload on the continuous rating.
 - ❓ Runtime (NFR6) and per-tendon force target (NFR7).
 
 ## 6. Out of scope (for now)

@@ -65,7 +65,7 @@ def _symmetric_trunk_body(leg_mass=0.0):
 def test_default_body_totals_the_load_case_body_mass():
     # The apportionment in params.py is built to reproduce the 3.0 kg that every
     # LoadCase / WholeBodyLoadCase already assumed.
-    assert DEFAULT_BODY_MASS_KG == pytest.approx(3.0, abs=1e-9)
+    assert DEFAULT_BODY_MASS_KG == pytest.approx(4.045, abs=1e-9)
     assert _body().total_mass == pytest.approx(LoadCase("x").body_mass_kg, abs=1e-9)
 
 
@@ -112,16 +112,18 @@ def test_fore_hind_split_is_near_balanced_not_sixty_forty():
     # masses to hit a 60/40 front-heavy split; the bottom-up count replaced that
     # with wherever the hardware actually sits.
     #
-    # UPDATED by the ADR-0009 mass re-check: correcting the motor mass (31 -> 72 g)
+    # UPDATED TWICE: the ADR-0009 re-check corrected the motor mass (31 -> 72 g)
+    # and moved the spine bank; the M6 motor-reality-check then replaced the 72 g
+    # CLASS TARGET with the surveyed real part at 132 g, taking the body to 4.05 kg.
     # and moving the spine/tail bank out of the rear girdle into the mid-body bay
     # LIGHTENED the pelvis, so the split moved from 51/49 to ~55/45. Still nothing
     # like a real cat's 60/40, and still an OUTPUT of the hardware layout rather
     # than a tuned input.
     q = _body().mass_budget()
-    assert q.total == pytest.approx(3.0, abs=1e-9)
+    assert q.total == pytest.approx(4.045, abs=1e-9)
     assert q.fore + q.hind == pytest.approx(q.total, abs=1e-12)
-    assert q.fore_fraction == pytest.approx(0.55, abs=0.02)
-    assert q.hind_fraction == pytest.approx(0.45, abs=0.02)
+    assert q.fore_fraction == pytest.approx(0.542, abs=0.02)
+    assert q.hind_fraction == pytest.approx(0.458, abs=0.02)
     # Still fore-biased, just barely -- the head/neck edges it forward.
     assert q.fore > q.hind
     assert "forequarters" in q.report()
@@ -278,7 +280,7 @@ def test_symmetric_body_with_legs_shifts_by_exactly_the_leg_offset():
 def test_default_com_sits_forward_of_mid_body_because_the_cat_is_front_heavy():
     body = _body()
     c = body.center_of_mass(STRAIGHT, STAND)
-    assert c.mass == pytest.approx(3.0)
+    assert c.mass == pytest.approx(4.045)
     # Forward of the mid-spine point, but still between the two girdles.
     assert c.x > DEFAULT_SPINE.total_length / 2.0
     assert 0.0 < c.x < DEFAULT_SPINE.total_length
@@ -376,12 +378,12 @@ def test_fore_and_hind_legs_have_different_coms_for_the_same_angles():
 
 
 def test_actuation_mass_matches_the_downselected_motor_and_count():
-    # REGRESSION GUARD for the ADR-0009 mass re-check. The apportionment was once
-    # built on 31 CHANNELS x 36 g -- a count predating ADR-0008's variable-radius
-    # pulley, and a 31 g motor predating the down-select. The build is 19 motors
-    # at ~72 g + a 5 g driver each. Both girdles must reflect that.
+    # REGRESSION GUARD. The apportionment was once built on 31 CHANNELS x 36 g --
+    # a count predating ADR-0008's variable-radius pulley, and a 31 g motor
+    # predating the down-select. It is now 19 motors at the SURVEYED REAL mass of
+    # 132 g each (motor + integrated driver), not a class target.
     from tomcat_kin.params import DEFAULT_SPINE as sp
-    unit = 0.072 + 0.005
+    unit = 0.132          # SteadyWin GIM3505-9: 120 g motor + integrated driver
     assert sp.front_girdle_mass == pytest.approx(6 * unit + 0.240 + 0.090, abs=1e-9)
     assert sp.rear_girdle_mass == pytest.approx(6 * unit + 0.110, abs=1e-9)
     # The pelvis is now the LIGHTER girdle: the spine/tail bank left it for the
@@ -392,7 +394,10 @@ def test_actuation_mass_matches_the_downselected_motor_and_count():
     assert sp.segment_mass[1] == pytest.approx(0.130 + 0.300 + 7 * unit, abs=1e-9)
 
 
-def test_total_is_still_exactly_the_three_kg_target():
-    # NFR5. The re-check moved ~347 g of actuation into the model; it had to come
-    # out of the structure residual, not out of the top line.
-    assert _body().mass_budget().total == pytest.approx(3.0, abs=1e-9)
+def test_total_matches_the_revised_NFR5_target():
+    # NFR5 was RAISED 3.0 -> 4.05 kg when a real motor was sourced: the smallest
+    # buyable part meeting the torque requirement is 132 g, not the 72 g class
+    # target, and 19 of them do not fit inside 3 kg. See the motor-reality-check
+    # note. A domestic cat is 4-5 kg, so the new figure is if anything more
+    # biomimetic -- but it was forced by hardware, not chosen.
+    assert _body().mass_budget().total == pytest.approx(4.045, abs=1e-9)

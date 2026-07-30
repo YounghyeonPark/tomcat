@@ -290,18 +290,18 @@ things in the table above and added a constraint nobody had costed:
   more sway than the ±15° ROM allows (a ±55 mm track already wants 16.5°). Track
   width and lateral ROM are **co-design variables**; the current ±48 mm track is
   well matched to the ROM and should not be widened on its own.
-- ⚠️ **New, and it binds harder than the geometry: the paw FRICTION CONE.** The
-  sway must reverse a ~78 mm CoM traverse inside each four-foot window, costing
-  `a = 4d/w²`. The first gait tuned to the geometry (1.2 s, duty 0.80) demanded
-  **8.8 g / 260 N** laterally — the paws would simply **slide**, so its healthy
-  quasi-static margin was fiction. Retuned to **1.4 s, duty 0.90**: 6.87 vs
-  7.85 m/s² available, closing on only **14 %** margin and needing **μ ≥ 0.70**.
-  → **Handoff to mechanical:** paw pad compound and contact area now carry a
-  stability requirement, not just a wear one. TPU ~80A
-  ([ASSEMBLY_SPEC §1](ASSEMBLY_SPEC.md)) must be shown to give μ ≥ 0.70 on the
-  intended floor, or the walk slows further.
-- **Consequence:** the statically stable walk is capped at **~4 cm/s**. Cat-like
-  speed must come from a dynamic gait.
+- ⚠️ ~~**New, and it binds harder than the geometry: the paw FRICTION CONE.**~~
+  **WITHDRAWN by the M6 dynamics (ADR-0010).** This finding claimed the sway
+  crossover needed μ ≥ 0.72 and made the paw pad compound a stability
+  requirement. Resolving the per-foot ground-reaction forces shows the body-level
+  friction demand is **μ ≈ 0.055** at the shipped gait and only ~0.35 even at the
+  much faster gait this was written against. **Friction was never the binding
+  constraint.** What actually fails is **tipping** — the ZMP leaves the support
+  polygon during the crossover. The paw-pad handoff to mechanical is cancelled;
+  TPU 80A is fine on any reasonable floor (published PU-on-concrete is 0.8–1.2).
+- **Consequence:** the statically stable walk is capped at **~1.1 cm/s** (M6
+  figure; this section originally said 4 cm/s). Cat-like speed must come from a
+  dynamic gait — now a necessity, not a preference.
 
 ---
 

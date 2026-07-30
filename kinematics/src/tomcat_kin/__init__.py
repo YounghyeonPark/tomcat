@@ -63,6 +63,14 @@ from .stability import (
     SupportPolygon,
     polygon_stability_margin,
 )
+from . import dynamics                                    # noqa: F401  (M6)
+from .dynamics import (
+    ContactSolution,
+    ZMPResult,
+    CycleData,
+    contact_forces,
+    zero_moment_point,
+)
 from .spine import (
     SpineModel,
     WholeBody,
@@ -94,6 +102,8 @@ from .gait import (
 )
 
 __all__ = [
+    "dynamics", "ContactSolution", "ZMPResult", "CycleData",
+    "contact_forces", "zero_moment_point",
     "LegParams",
     "TendonParams",
     "SpineParams",

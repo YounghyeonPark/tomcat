@@ -37,15 +37,19 @@ biology (limbs ~24% of body mass) and then TUNED the girdle masses to hit a
     NOT sit forward: per ADR-0005 the pelvis carries 19 of them and the shoulder
     only 12.
 
-1. TOTAL = ``LoadCase.body_mass_kg`` = **3.00 kg** (unchanged).
+1. TOTAL = **4.05 kg** -- raised from 3.00 kg once a real motor was sourced
+   (see step 3 and docs/notes/motor-reality-check.md). A domestic cat is 4-5 kg,
+   so this is if anything MORE biomimetic than the original target; but it was
+   forced by hardware, not chosen.
 2. LEGS, bottom-up: **0.110 kg** hind / **0.095 kg** fore -> 0.410 kg for all
    four = **13.7%** of body (was 24%). Still proximal-heavy within the leg
    (47.5 / 30 / 15 / 7.5 %) because tendon drive centralises mass.
 3. GIRDLES carry their real contents -- motors + one driver board each:
-       front  = 6 leg motors x 77 g + head/neck 0.240 + structure 0.090 = **0.792 kg**
-       rear   = 6 leg motors x 77 g + structure 0.110                   = **0.572 kg**
-   where 77 g = the DOWN-SELECTED 72 g motor + a 5 g driver board.
-4. SPINE segments = the remaining 1.226 kg: 0.130 / 0.969 / 0.127 kg rear->front.
+       front  = 6 leg motors x 132 g + head/neck 0.240 + structure 0.090 = **1.122 kg**
+       rear   = 6 leg motors x 132 g + structure 0.110                   = **0.902 kg**
+   where 132 g = the SURVEYED REAL PART (SteadyWin GIM3505-9: 120 g motor +
+   integrated driver = 131.7 g), NOT the 72 g class target it replaced.
+4. SPINE segments = 1.611 kg: 0.130 / 1.354 / 0.127 kg rear->front.
    The MIDDLE segment dominates because it carries both the ~0.300 kg battery
    AND the 7-motor spine+tail bank (3 dorsoventral + 3 lateral + 1 tail), which
    the CAD packaging puts in the mid-body bay between the girdles.
@@ -372,7 +376,7 @@ class SpineParams:
     # both the ~0.300 kg battery and the 7-motor spine+tail bank, which the CAD
     # packaging places in the mid-body bay between the girdles (NOT in the rear
     # girdle, as the pre-ADR-0009 apportionment assumed).
-    segment_mass: tuple[float, ...] = (0.130, 0.969, 0.127)
+    segment_mass: tuple[float, ...] = (0.130, 1.354, 0.127)
 
     # Fraction along each segment (from its INBOARD/rear vertebra) at which that
     # segment's mass acts. 0.5 = uniform rod.  ❓ TBD
@@ -386,8 +390,8 @@ class SpineParams:
     #     rear  = 6 leg motors x 77 g + structure 0.110
     # where 77 g = the down-selected 72 g motor + a 5 g driver board. The rear
     # girdle is now the LIGHTER one: the spine/tail bank moved to the mid-body.
-    front_girdle_mass: float = 0.792
-    rear_girdle_mass: float = 0.572
+    front_girdle_mass: float = 1.122
+    rear_girdle_mass: float = 0.902
 
     # Girdle CoM offset (x, z) in the girdle's own frame (m). (0, 0) = the mass
     # acts exactly at the girdle mount vertebra.  ❓ TBD
@@ -433,7 +437,8 @@ class LoadCase:
     """A static loading scenario for the torque budget."""
 
     name: str
-    body_mass_kg: float = 3.0          # total robot mass.  ❓ TBD
+    body_mass_kg: float = 4.045        # total robot mass -- RAISED from 3.0 once a
+                                       # real motor was sourced (motor-reality-check).
     n_stance_legs: int = 2             # legs sharing the load (e.g. trot => 2).
     dynamic_factor: float = 1.5        # peak/static impact multiplier.  ❓ TBD
 
@@ -462,7 +467,7 @@ class WholeBodyLoadCase:
     """
 
     name: str
-    body_mass_kg: float = 3.0
+    body_mass_kg: float = 4.045
     dynamic_factor: float = 1.0
     # Spine posture for this case (rad per segment).  Length must match the
     # SpineParams used in the budget.  Straight = zeros; arch = uniform positive.

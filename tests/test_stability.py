@@ -230,8 +230,11 @@ def test_over_swaying_is_WORSE_than_the_optimum():
     # "improving" stability by turning the number up.
     from tomcat_kin import GaitController, GaitParams
     import numpy as np
+    # NOTE the optimum moved 13.5 -> 12.5 -> 11 deg as the mass model and then the
+    # DYNAMICS were corrected; above ~11 deg the ZMP degrades even though the
+    # static margin keeps improving (see test_dynamics.py).
     best = min(p.margin for p in GaitController().support_polygon_sweep(200))
-    for deg in (11.0, 18.0, 20.0):
+    for deg in (8.0, 18.0, 20.0):
         worse = GaitController(params=GaitParams(lateral_amplitude=np.radians(deg)))
         assert min(p.margin for p in worse.support_polygon_sweep(200)) < best
 
@@ -249,8 +252,8 @@ def test_sequencing_is_not_the_lever_for_lateral_stability():
     for perm in itertools.permutations([0.0, 0.25, 0.5, 0.75]):
         c = GaitController(params=GaitParams(phase_offsets=dict(zip(legs, perm))))
         worsts.append(min(p.margin for p in c.support_polygon_sweep(96)))
-    assert all(w > 0.005 for w in worsts)          # every sequence is stable
-    assert max(worsts) - min(worsts) < 0.002       # and they differ by < 2 mm
+    assert all(w > 0.004 for w in worsts)          # every sequence is stable
+    assert max(worsts) - min(worsts) < 0.008       # and they differ by < 8 mm
 
     # Without sway, NO sequence is stable -- the same sweep, one parameter changed.
     for perm in itertools.permutations([0.0, 0.25, 0.5, 0.75]):
@@ -266,7 +269,7 @@ def test_lateral_slew_rate_is_reported_and_finite():
     import numpy as np
     c = GaitController()
     slew = np.degrees(c.lateral_slew_rate())
-    assert 100.0 < slew < 200.0                     # ~129 deg/s per segment
+    assert 20.0 < slew < 45.0                       # ~29 deg/s at the 5.0 s crawl
     # duty 0.75 leaves NO four-foot window -> the traverse would be instantaneous
     tiled = GaitController(params=GaitParams(duty_factor=0.75))
     assert tiled.lateral_slew_rate() == float("inf")
@@ -334,30 +337,50 @@ def test_lateral_spine_loads_are_inertial_and_peak_at_the_base():
     assert all(r["joint_torque"] == 0.0 for r in c.body.lateral_spine_loads(0.0))
 
 
-def test_lateral_drive_fits_inside_the_selected_motor():
-    # ADR-0008 sized motors to the TROT case: 1.10 N.m at the shaft. The lateral
-    # spine drive must fit inside that too, or ADR-0009's "+3 of the same motors"
-    # is wrong and its mass closure with it.
+# The M6 walk is a 1.1 cm/s crawl, so its own sway barely loads the lateral drive
+# (~0.10 N.m). Sizing the drive to THAT would under-build it: the same motors must
+# also serve the ADR-0007 righting reflex and any future dynamic gait. So the
+# lateral drive is sized against a REFERENCE FAST MANOEUVRE -- the M5-era 1.4 s
+# crossover, retained purely as a sizing case.
+REFERENCE_FAST_ACCEL = 6.87        # m/s^2, the 1.4 s crossover
+
+
+def test_the_crawl_itself_barely_loads_the_lateral_drive():
+    # Recorded so nobody "optimises" the lateral drive down to the crawl's needs.
     from tomcat_kin import GaitController
     c = GaitController()
     worst = max(r["motor_torque"] for r in c.body.lateral_spine_loads(c.crossover_accel()))
-    assert worst < 1.10                       # inside the trot sizing point
-    assert worst > 0.5                        # ...but genuinely loaded, not trivial
+    assert worst < 0.2                        # trivial at 1.1 cm/s
 
 
-def test_lateral_moment_arm_is_what_makes_that_fit():
-    # REGRESSION GUARD. SPINE_TAIL_SPEC originally assumed the bare 15 mm
-    # transverse-process width; at that arm the base joint goes OVER the motor's
-    # peak. The 20 mm milled lateral post is load-bearing design, not detail.
+def test_lateral_drive_fits_inside_the_real_motor_at_the_fast_case():
+    # The surveyed part (GIM3505-9) peaks at 1.95 N.m at the output shaft.
+    from tomcat_kin import GaitController
+    c = GaitController()
+    worst = max(r["motor_torque"]
+                for r in c.body.lateral_spine_loads(REFERENCE_FAST_ACCEL))
+    assert worst < 1.95                       # inside the REAL part's peak
+    assert worst > 0.5                        # ...and genuinely loaded
+
+
+def test_the_lateral_moment_arm_buys_margin_but_is_no_longer_load_critical():
+    # HONEST DOWNGRADE. The 20 mm milled lateral post was justified against a
+    # 1.10 N.m CLASS TARGET motor: at the bare 15 mm transverse-process width the
+    # base joint exceeded it. The surveyed REAL part peaks at 1.95 N.m, so 15 mm
+    # would now fit too. 20 mm is retained because it is nearly free and buys
+    # ~25 % margin -- but it is an OPTIMISATION now, not a necessity.
     import dataclasses
     from tomcat_kin import GaitController
     from tomcat_kin.spine import WholeBody, SpineModel
     c = GaitController()
-    a = c.crossover_accel()
     bare = WholeBody(spine=SpineModel(
         dataclasses.replace(c.body.spine.params, lateral_moment_arm=(0.015,) * 3)))
-    assert max(r["motor_torque"] for r in bare.lateral_spine_loads(a)) > 1.10
-    assert max(r["motor_torque"] for r in c.body.lateral_spine_loads(a)) < 1.10
+    t15 = max(r["motor_torque"] for r in bare.lateral_spine_loads(REFERENCE_FAST_ACCEL))
+    t20 = max(r["motor_torque"] for r in c.body.lateral_spine_loads(REFERENCE_FAST_ACCEL))
+    assert t20 < t15                       # the post still helps
+    assert t15 > 1.10                      # ...it WOULD have busted the class target
+    assert t15 < 1.95                      # ...but the real part swallows it anyway
+    assert t20 / t15 == pytest.approx(0.015 / 0.020, rel=1e-6)   # T = tau/r, exactly
 
 
 def test_cable_tension_stays_inside_the_spec_band():

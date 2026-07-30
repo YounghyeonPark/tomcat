@@ -204,12 +204,15 @@ class GaitParams:
         gait phase.
     """
 
-    # 1.4 s, set by the CROSSOVER not by the legs. The lateral sway must reverse
-    # an 80 mm CoM traverse inside each four-foot window; doing that faster than
-    # friction allows would just slide the paws (see ``crossover_accel``). At duty
-    # 0.90 the window is 0.15*period = 210 ms, which needs 3.6 m/s^2 -- inside the
-    # ~7.8 m/s^2 a mu=0.8 paw can deliver. The old 1.2 s default demanded 9.1 g.
-    period: float = 1.4
+    # 5.0 s, set by TIPPING -- and this is the third time this number has moved.
+    # M5 set 1.4 s from a friction hand-calc. The M6 dynamics (dynamics.py) show
+    # friction was never the binding constraint: what actually fails first is the
+    # ZMP leaving the support polygon. Accelerating the CoM sideways to produce
+    # the sway shifts the effective pressure point by (h/g)*a the OTHER way, and
+    # at 1.4 s that shift is ~128 mm against a 96 mm track -- the robot tips long
+    # before a paw slips (aggregate mu there is only 0.35, well inside any floor).
+    # tipping binds first; slipping never binds at all., so the walk is a 1.1 cm/s crawl.
+    period: float = 5.0
     stride_length: float = 0.05
     step_height: float = 0.03
     # 0.80, NOT the textbook 0.75 (M5 / ADR-0009). At exactly 0.75 the four swing
@@ -258,7 +261,7 @@ class GaitParams:
     # It sits well inside the +/-15 deg
     # per-segment ROM, so the ROM is adequate but has ~1 deg to spare -- the
     # lateral DOF is sized almost exactly right, with no slack for error.
-    lateral_amplitude: float = math.radians(12.5)
+    lateral_amplitude: float = math.radians(11.0)
     spine_amplitude: float = 0.0
     spine_phase: float = 0.0
 
@@ -621,15 +624,26 @@ class GaitController:
         p = float(phase) % 1.0
         side = self.support_side(p)
         if side == 0.0:
-            # Four feet down: linearly traverse from the side held before this
-            # window to the side demanded after it.
+            # Four feet down: traverse from the side held before this window to
+            # the side demanded after it, on a RAISED-COSINE (C1) profile.
+            #
+            # NOT linear. A linear position ramp has piecewise-constant velocity,
+            # so velocity STEPS at each end of the window -- an impulse in
+            # acceleration, i.e. infinite force. The M6 dynamics caught this
+            # (kinematics/dynamics.py): the static checks never could, because a
+            # static check never differentiates the trajectory. The raised cosine
+            # starts and ends at zero velocity, so the force stays finite.
+            #
+            # Cost: peak acceleration is pi^2/2 = 4.93 d/w^2 rather than the
+            # bang-bang 4 d/w^2 -- 23% worse, and ``crossover_accel`` reflects it.
             ev = self._events()
             start = max((e for e in ev if e <= p), default=ev[-1] - 1.0)
             end = min((e for e in ev if e > p), default=ev[0] + 1.0)
             prev = self.support_side((start - 1e-9) % 1.0)
             nxt = self.support_side((end + 1e-9) % 1.0)
             u = (p - start) / (end - start) if end > start else 0.0
-            side = prev + (nxt - prev) * u
+            smooth = 0.5 * (1.0 - math.cos(math.pi * u))
+            side = prev + (nxt - prev) * smooth
 
         sp = self.body.spine.params
         return np.clip(np.full(n, amp * side),
@@ -672,9 +686,12 @@ class GaitController:
         model, and it is the number that actually constrains walk speed.
 
         The sway must reverse the CoM across ``2 * sway_amplitude`` within one
-        four-foot window. Under a bang-bang acceleration profile that costs
-        ``a = 4 * d / w**2`` — which grows as the INVERSE SQUARE of the window, so
-        walking faster is punished hard. The paws can only deliver ``mu * g``
+        four-foot window. On the RAISED-COSINE profile ``lateral_q`` actually
+        commands, the peak costs ``a = (pi**2 / 2) * d / w**2`` — which grows as
+        the INVERSE SQUARE of the window, so walking faster is punished hard.
+        (An earlier revision quoted the bang-bang ``4 d / w**2``. That profile is
+        cheaper but demands a velocity discontinuity at each end of the ramp;
+        the physically realisable smooth profile costs 23 % more.) The paws can only deliver ``mu * g``
         laterally before they slide (~7.8 m/s^2 at mu = 0.8), and exceeding it
         means the static margin computed elsewhere in this module is not
         physically realisable. Compare against ``friction_accel_limit``.
@@ -689,7 +706,7 @@ class GaitController:
             return math.inf
         n = self.body.spine.params.n_segments
         d = 2.0 * abs(self.body.center_of_mass_y(np.full(n, amp)))
-        return 4.0 * d / (w * w)
+        return (math.pi ** 2 / 2.0) * d / (w * w)
 
     @staticmethod
     def friction_accel_limit(mu: float = 0.8, g: float = 9.81) -> float:

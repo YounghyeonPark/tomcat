@@ -135,6 +135,13 @@ variable-radius-pulley motor per DOF) and the
 placeholder with a realistic **Ø36 × 26 mm, ~74 g pancake QDD** module. Both
 changes invalidated the earlier F4 packing, so it was redone.
 
+⚠️ **Re-packed again for the REAL motor.** The surveyed part is
+**Ø34.5 × 36.1 mm** — very close in diameter to the placeholder but **39 %
+longer**. Because the banks stack along z, that goes straight into girdle
+**height**: 88 → **108 mm**. Width is unaffected and still clears the 96 mm
+track, so nothing collides — but it confirms the earlier F4 verdict that the
+torso is, honestly, a motor box.
+
 [ADR-0009](../../docs/DESIGN_DECISIONS.md) then added the **spine LATERAL bend**
 DOF, taking the count **16 → 19**. The three extra motors join the spine bank in
 the mid-body bay, which is why that bay grew and now packs 2 × 2 rather than
@@ -144,11 +151,11 @@ cat.
 | Result | Value |
 |--------|-------|
 | Motors | **19** — 12 leg DOF (3/leg) + 3 spine dorsoventral + **3 spine lateral** + 1 tail |
-| Motor envelope | Ø36 × 26 mm, ~74 g `[assumed, ADR-0008 class]` |
-| Shoulder girdle | **85 × 88 × 88 mm** (6 motors, 2 per layer) |
-| Pelvic girdle | **85 × 88 × 88 mm** (6 motors) |
-| Mid-body bay | **85 × 85 × 80 mm** (3 spine + 3 lateral + 1 tail, 2 × 2 per layer) |
-| Width vs 96 mm leg track | **88 mm — fits** |
+| Motor envelope | **Ø34.5 × 36.1 mm, 131.7 g** `[sourced: SteadyWin GIM3505-9 + driver]` — replaces the Ø36 × 26 mm / 74 g class target, which does not exist ([reality check](../../docs/notes/motor-reality-check.md)) |
+| Shoulder girdle | **82 × 86 × 108 mm** (6 motors, 2 per layer) |
+| Pelvic girdle | **82 × 86 × 108 mm** (6 motors) |
+| Mid-body bay | **82 × 82 × 100 mm** (3 spine + 3 lateral + 1 tail, 2 × 2 per layer) |
+| Width vs 96 mm leg track | **86 mm — still fits** |
 | Overall | 426 × 113 × 281 mm |
 
 **Two layout decisions this forced:**

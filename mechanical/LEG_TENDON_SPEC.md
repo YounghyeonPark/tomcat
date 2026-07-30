@@ -177,12 +177,32 @@ sizing case — check spool width and wrap stacking against it.
 
 ## 2. Cable spec
 
-Structural design tension **~525 N** (retained basis — the post-M4 recomputed
-peak is ~465 N at the hip, but the margin is kept, see §1.3); target **safety
-factor ≥ 4** on peak (covers knot/splice strength loss ~30–50 %, abrasion, and
-fatigue) → **breaking strength ≥ ~2.2 kN.**
+Structural design tension **~600 N** at the hip land transient (ADR-0010, at the
+revised 4.05 kg body; was ~465 N at 3.0 kg); target **safety factor ≥ 4** on peak
+(covers knot/splice strength loss ~30–50 %, abrasion, and fatigue) →
+**breaking strength ≥ ~2.4 kN**, met with margin by the 1.75 mm cable below.
 
-**Recommendation: 1.5 mm braided UHMWPE (Dyneema SK78 / SK99, 12-strand).**
+**Recommendation: ~~1.5 mm~~ → 1.75 mm braided UHMWPE (Dyneema SK78 / SK99,
+12-strand).**
+
+> ⚠️ **Re-sized by ADR-0010.** When NFR5 rose 3.0 → 4.05 kg (the real motor is
+> 132 g, not the 72 g class target — [reality check](../docs/notes/motor-reality-check.md)),
+> every tendon load scaled with it. The hip land transient went **465 → 600 N**,
+> which drops 1.5 mm cable to **SF 3.67 — below this section's own ≥ 4 target**.
+>
+> | Cable | Break `[derived: area-scaled from the 1.5 mm figure]` | SF at 600 N | Min bend r (10×D) | Trot hip motor torque |
+> |---|---|---|---|---|
+> | 1.5 mm | ~2.2 kN | **3.67** ❌ | 7.5 mm | 1.47 N·m (0.75× peak) |
+> | **1.75 mm** | ~3.0 kN | **4.99** ✅ | 8.8 mm | 1.61 N·m (0.82× peak) |
+> | 2.0 mm | ~3.9 kN | 6.52 | 10.0 mm | 1.84 N·m (0.94× peak) |
+>
+> **1.75 mm is the pick.** 2.0 mm would be safer on the cable but its larger bend
+> radius forces a bigger spool, and `τ_motor = T · r_spool` then pushes the trot
+> case to 0.94× the real motor's peak — trading a cable margin for an actuator
+> margin that is tighter. The spool radius must rise **8.0 → 8.75 mm** to suit.
+>
+> `[owed]` The break strengths above are **area-scaled**, not read off a product
+> table. Confirm against a real SK78/SK99 datasheet before committing.
 
 | Property | Value | Note / source |
 |---|---|---|

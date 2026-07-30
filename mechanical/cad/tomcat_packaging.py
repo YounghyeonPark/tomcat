@@ -37,7 +37,12 @@ MM = 1000.0
 # --- placeholders ---
 TRACK = 96.0
 BONE_R = 6.0
-MOTOR_D, MOTOR_L = 36.0, 26.0        # ~74 g pancake QDD module (ADR-0008 class)
+# REAL surveyed part (SteadyWin GIM3505-9 with integrated driver), replacing the
+# Ø36 x 26 mm / ~74 g ADR-0008 CLASS TARGET that turned out not to exist:
+# Ø34.5 x 36.1 mm, 131.7 g, 0.71/1.95 N.m at 9:1. See docs/notes/motor-reality-check.md.
+# Note it is ~39% LONGER than the placeholder, and the banks stack along z, so
+# this pushes directly into girdle HEIGHT.
+MOTOR_D, MOTOR_L = 34.5, 36.1
 SPOOL_D, SPOOL_L = 16.0, 8.0   # variable-radius pulley (ADR-0008)
 FOOT_Z, FOOT_PITCH = -0.17, 0.0     # paw flat on the ground (digitigrade)
 FRONT_FOOT_X, REAR_FOOT_X = 0.06, 0.04
