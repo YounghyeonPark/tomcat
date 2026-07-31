@@ -609,9 +609,16 @@ context, and consequences. Status is one of: **Proposed**, **Accepted**,
 
   | | value |
   |---|---|
-  | One-step envelope (before the placement saturates) | **51 mm** (beta=0) |
-  | **Guaranteed rejection envelope** | **74 mm** |
+  | One-step envelope (before the placement saturates) | ~~51 mm~~ **22 mm** (beta=0) |
+  | **Guaranteed rejection envelope** | ~~74 mm~~ **33 mm** (feet alone) |
   | Binding direction | **rearward** -- the leg reaches +153 mm forward but only -74 mm back |
+
+  ⚠️ **CORRECTED by [ADR-0014](#adr-0014-the-lateral-spine-is-the-trots-main-balance-actuator).**
+  The figures above used the leg's raw FORE-AFT range, but the DCM lives
+  *perpendicular* to the diagonal and that direction is ~90 % **lateral**. With
+  sagittal-only legs a fore-aft foothold shift buys perpendicular authority only
+  through its **0.44 projection**, so the true feet-alone envelope is **33 mm**,
+  not 74. ADR-0014 then recovers it to 68 mm using the spine.
 
   The full envelope is **independent of `beta`**: gain sets how *fast* recovery
   happens, reach sets whether it happens at all. (An earlier version of the
@@ -634,6 +641,71 @@ context, and consequences. Status is one of: **Proposed**, **Accepted**,
   - ⚠️ Still open: **sensing latency** (only a static bias is modelled), step
     retiming (the controller places feet but does not retime them), and the fact
     that a real disturbance perturbs the full 3D state, not one scalar.
+
+## ADR-0014: The lateral spine is the trot's main balance actuator
+- **Status:** Accepted
+- **Context:** [ADR-0013](#adr-0013-closed-loop-balance-by-step-to-step-foot-placement)
+  put the trot's disturbance envelope at 74 mm and named two gaps: sensing
+  **latency** and step **retiming**. Chasing them turned up a mistake in the
+  envelope itself, and then a much better actuator than the one being tuned.
+- ⚠️ **First, a correction.** The DCM is measured **perpendicular to the
+  diagonal support line**, and that direction is ~**90 % lateral**. ADR-0013 used
+  the leg's raw *fore-aft* reach as placement authority. But the legs are
+  **sagittal-only** -- abduction was rejected in ADR-0009 and the track is fixed
+  at +/-48 mm -- so a fore-aft foothold shift only buys perpendicular authority
+  through its **0.44 projection**. The envelope was therefore overstated by
+  **2.3x**: it is **33 mm**, not 74 mm (one-step: 22 mm, not 51 mm).
+- **Decision: use the ADR-0009 LATERAL SPINE as a balance actuator during the
+  trot.** It moves the CoM rather than the support line, so it *adds* to foot
+  placement instead of competing with it -- and it pushes almost exactly along the
+  perpendicular, which is precisely where the sagittal legs are weakest.
+
+  | actuator | perpendicular authority | note |
+  |---|---|---|
+  | Foot placement | **33 mm** | 0.44 projection of a generous fore-aft range |
+  | **Lateral spine** | **24 mm** | rate-limited to +/-8.9 deg within one 150 ms stance (NFR2f 119 deg/s) |
+  | **Combined** | **68 mm** | **+108 %** over feet alone |
+
+  The spine was bought for the CRAWL's *static* stability (ADR-0009, 16 -> 19
+  motors) and the trot preset had it switched off. It turns out to be the
+  dominant **dynamic** balance actuator. That is a real dividend from a decision
+  taken for an unrelated reason, and it is the strongest argument yet for the
+  articulated spine as more than a biomimetic flourish.
+- **Latency: costs the envelope roughly linearly, no cliff.** Handled by
+  predicting the DCM forward -- prediction itself is not the problem. What remains
+  is that estimation error is amplified by `e^(omega*tau)` and less time is left
+  under the corrective placement:
+
+  | latency | envelope (with spine) |
+  |---|---|
+  | 0 ms | 68.0 mm |
+  | 10 ms | 61.8 mm (-9 %) |
+  | **20 ms** | **56.1 mm (-18 %)** |
+  | 40 ms | 45.9 mm (-32 %) |
+
+  **Budget 20 ms** end-to-end (contact detect + estimate + bus + swing tracking).
+  NFR3's >=1 kHz loop makes the compute path nearly free; the risk is filtering
+  and swing tracking.
+- **Retiming: speeds recovery, does NOT extend the envelope.** With the placement
+  saturated at reach `R`, `xi_end = R + (e-R)e^(omega*T)`. For `e < R` the bracket
+  is negative so a *longer* stance amplifies the correction -- one-step recovery
+  becomes possible. For `e > R` it is positive and grows for any `T`; as `T -> 0`
+  it merely holds. **Timing buys speed, never range.** A useful negative result: it
+  removes retiming from the critical path.
+- **Consequences:**
+  - `trot_params()` still ships with `lateral_amplitude = 0` -- the spine is used
+    for *balance*, not for a nominal sway, so it stays centred until disturbed.
+    The gait definition does not change; the controller gains an input.
+  - **Leg abduction is worth revisiting.** ADR-0009 rejected it on mass grounds
+    when the question was static stability. The dynamic case is different: abduction
+    would point straight down the perpendicular. Not reopened here, but the reason
+    it was rejected no longer covers this use.
+  - ⚠️ The spine figure is rate-limited by **NFR2f (119 deg/s)**, which was
+    sized for the righting reflex, not for balance. A faster spine drive would buy
+    envelope directly -- ~39 mm if the full +/-15 deg were reachable within a stance.
+  - ⚠️ Unchanged reduced-order caveats from ADR-0013, plus: the spine is
+    modelled as an instantaneous bounded CoM offset, ignoring its own dynamics and
+    the reaction torque it puts into the trunk.
 
 ---
 

@@ -76,14 +76,33 @@ class StepPlant:
     stance : float
         Stance duration of one step (s).
     reach : tuple[float, float]
-        (min, max) foothold placement relative to the nominal (m). This is what
-        makes the problem finite: a controller can only ask for a foot where the
-        leg can actually put it.
+        (min, max) support-line placement relative to nominal, **measured along
+        the perpendicular** (m) — already projected, see ``projection``. This is
+        what makes the problem finite: a controller can only ask for a foot where
+        the leg can actually put it.
+    projection : float
+        Fraction of a fore-aft foothold shift that appears along the support-line
+        perpendicular (~0.44 for the diagonal trot). The perpendicular is ~90 %
+        LATERAL and the legs are sagittal-only, so most of the leg's generous
+        fore-aft range is simply not pointed the right way.
+    spine : float
+        Perpendicular CoM shift available from the ADR-0009 LATERAL SPINE bend
+        within one stance (m), after rate limiting. This is a second balance
+        actuator the project already owns -- bought for the crawl's static
+        stability -- and it pushes almost exactly along the perpendicular, i.e.
+        precisely where foot placement is weakest. 0 disables it.
+    latency : float
+        Delay (s) between measuring the DCM and the foot actually landing where
+        commanded. Handled by PREDICTING forward, which works but amplifies any
+        estimation error by ``e^(omega*latency)``.
     """
 
     omega: float
     stance: float
-    reach: tuple = (-0.069, 0.153)
+    reach: tuple = (-0.033, 0.068)
+    projection: float = 0.442
+    spine: float = 0.0
+    latency: float = 0.0
 
     @property
     def growth(self) -> float:
@@ -95,7 +114,7 @@ class StepPlant:
         return p + (xi - p) * self.growth
 
     @classmethod
-    def from_gait(cls, controller, n: int = 96) -> "StepPlant":
+    def from_gait(cls, controller, n: int = 96, latency: float = 0.0) -> "StepPlant":
         """Build the plant from a real gait: omega and stance from the full model."""
         from . import dynamics as dyn
 
@@ -104,8 +123,30 @@ class StepPlant:
         stance = controller.params.duty_factor * controller.params.period
         nom = controller.params.nominal_foot[0]
         lo, hi = -0.069, 0.158           # measured leg foothold range at stance height
+
+        # ⚠️ PROJECT the fore-aft reach onto the support-line PERPENDICULAR.
+        # The DCM lives perpendicular to the diagonal, and that direction is ~90 %
+        # LATERAL. The legs are sagittal-only -- there is no abduction (rejected in
+        # ADR-0009) and the track is fixed at +/-48 mm -- so the only placement
+        # freedom is fore-aft, and it buys perpendicular authority only through its
+        # ~0.44 projection. Using the raw fore-aft range OVERSTATES the disturbance
+        # envelope by ~2.3x; an earlier revision of this module did exactly that.
+        line = dyn.support_line(cyc, 0) or dyn.support_line(cyc, n // 4)
+        if line is None:
+            proj = 1.0
+        else:
+            _, d = line
+            proj = abs(-d[1])          # x-component of the unit perpendicular (-dy, dx)
+        # Lateral-spine authority, rate limited to what one stance allows.
+        sp = controller.body.spine.params
+        rom = float(min(abs(sp.lateral_q_min[0]), abs(sp.lateral_q_max[0])))
+        slew = math.radians(119.0)                 # NFR2f
+        usable = min(rom, 0.5 * slew * stance)     # half-traverse within a stance
+        lateral = abs(controller.body.center_of_mass_y(np.full(sp.n_segments, usable)))
+        perp = math.sqrt(max(0.0, 1.0 - proj * proj))   # y-component of the perpendicular
         return cls(omega=math.sqrt(GRAVITY / h), stance=stance,
-                   reach=(lo - nom, hi - nom))
+                   reach=((lo - nom) * proj, (hi - nom) * proj), projection=proj,
+                   spine=lateral * perp, latency=latency)
 
 
 def capture_placement(plant: StepPlant, xi_end: float) -> float:
@@ -145,9 +186,25 @@ def placement(plant: StepPlant, xi_end: float, nominal: float = 0.0,
     return p
 
 
+def spine_assist(plant: StepPlant, xi: float, nominal: float = 0.0) -> float:
+    """Perpendicular CoM shift the lateral spine contributes, bounded by ``plant.spine``.
+
+    The spine moves the CoM *relative to the body*, so it offsets the DCM directly
+    rather than moving the support line. It therefore ADDS to foot placement
+    instead of competing with it -- and because the support-line perpendicular is
+    ~90 % lateral, the spine points almost exactly the right way while the
+    sagittal-only legs only manage a 0.44 projection.
+
+    Sign is opposite the error: lean away from the direction of the topple.
+    """
+    e = xi - nominal
+    return -math.copysign(min(abs(e), plant.spine), e) if plant.spine else 0.0
+
+
 def simulate(plant: StepPlant, steps: int = 12, xi0: float = 0.0,
              closed_loop: bool = True, beta: float = 0.0,
-             estimation_error: float = 0.0, nominal: float = 0.0):
+             estimation_error: float = 0.0, nominal: float = 0.0,
+             use_spine: bool = False):
     """Run ``steps`` steps and return the DCM at each touchdown.
 
     ``xi0`` is the initial DCM error — the disturbance. ``estimation_error`` adds
@@ -160,11 +217,38 @@ def simulate(plant: StepPlant, steps: int = 12, xi0: float = 0.0,
     xi = float(xi0)
     out = [xi]
     for _ in range(steps):
-        if closed_loop:
-            p = placement(plant, xi + estimation_error, nominal=nominal, beta=beta)
-        else:
-            p = nominal
-        xi = plant.propagate(xi, p)
+        if not closed_loop:
+            xi = plant.propagate(xi, nominal)
+            out.append(xi)
+            continue
+        measured = xi + estimation_error
+        tau = plant.latency
+        if tau <= 0.0:
+            s_assist = spine_assist(plant, measured, nominal) if use_spine else 0.0
+            p = placement(plant, measured + s_assist, nominal=nominal, beta=beta)
+            xi = plant.propagate(xi + s_assist, p)
+            out.append(xi)
+            continue
+
+        # LATENCY, modelled honestly. The command lands tau late, so the OLD line
+        # (left at nominal) acts for tau, and only then does the new placement act,
+        # for the REMAINING (stance - tau). The controller knows this and predicts
+        # xi(tau) exactly -- prediction is not the problem. Two real costs remain:
+        #   (a) any estimation error is amplified by e^(omega*tau) in that
+        #       prediction, and
+        #   (b) there is less time under the corrective placement, so a LARGER
+        #       placement is needed and the reach saturates sooner.
+        gtau = math.exp(plant.omega * tau)
+        grem = math.exp(plant.omega * max(plant.stance - tau, 0.0))
+        pred = nominal + (measured - nominal) * gtau        # controller's estimate
+        s_assist = spine_assist(plant, pred, nominal) if use_spine else 0.0
+        # Solve xi_end = nominal + beta*(pred - nominal) over the REMAINING time.
+        e = pred + s_assist - nominal
+        p = nominal + (grem - beta) / (grem - 1.0) * e if grem > 1.0 + 1e-12 else nominal
+        p = min(max(p, nominal + plant.reach[0]), nominal + plant.reach[1])
+        # True propagation: tau under the old (nominal) line, then the remainder.
+        xi_tau = nominal + (xi - nominal) * gtau + s_assist
+        xi = p + (xi_tau - p) * grem
         out.append(xi)
     return np.array(out)
 
@@ -181,7 +265,8 @@ def one_step_envelope(plant: StepPlant, beta: float = 0.0) -> float:
 
 
 def rejection_envelope(plant: StepPlant, beta: float = 0.0,
-                       tol: float = 1e-4, steps: int = 400) -> float:
+                       tol: float = 1e-4, steps: int = 400,
+                       use_spine: bool = False) -> float:
     """Largest initial DCM error (m) the controller can eventually recover from.
 
     Larger than ``one_step_envelope``: once the placement saturates the controller
@@ -202,7 +287,7 @@ def rejection_envelope(plant: StepPlant, beta: float = 0.0,
     def recovers(d: float) -> bool:
         for sign in (+1.0, -1.0):
             traj = simulate(plant, steps=steps, xi0=sign * d,
-                            closed_loop=True, beta=beta)
+                            closed_loop=True, beta=beta, use_spine=use_spine)
             if not (np.all(np.isfinite(traj)) and abs(traj[-1]) < tol):
                 return False
         return True

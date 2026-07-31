@@ -24,7 +24,10 @@ sequences the work that implements them.
 > **M7 done:** the **trot** ([ADR-0011](DESIGN_DECISIONS.md)) — the first dynamic
 > gait, **67 cm/s** (60× the crawl) inside the actuator envelope.
 > **M8 done:** **closed-loop balance** ([ADR-0013](DESIGN_DECISIONS.md)) — DCM foot
-> placement; rejects a **74 mm** disturbance, limited by rearward reach. 291 tests.
+> placement.
+> **M9 done:** latency, retiming — and a 2.3× correction to M8's envelope, then
+> the **lateral spine** doubles it back to **68 mm** ([ADR-0014](DESIGN_DECISIONS.md)).
+> 296 tests.
 
 ---
 
@@ -455,10 +458,62 @@ double support. Only a static sensing bias is modelled, not **latency**. The
 controller places feet but does not **retime** steps, and a real disturbance
 perturbs the full 3D state rather than one scalar.
 
-## Later milestones (candidate M9+, not committed)
+## Milestone M9 — Latency, retiming, and the spine as a balance actuator (DONE)
 
-- **Sensing latency and step retiming** — the two largest gaps left by M8; both
-  shrink the 74 mm envelope by amounts nothing has yet quantified.
+**Goal.** Close the two gaps M8 named: sensing **latency** and step **retiming**.
+Chasing them found a mistake in M8's headline number, and then a better actuator
+than the one being tuned.
+
+⚠️ **The correction first.** The DCM is measured *perpendicular* to the diagonal
+support line, and that direction is ~**90 % lateral**. M8 used the leg's raw
+*fore-aft* reach as its placement authority — but the legs are **sagittal-only**
+(abduction rejected in ADR-0009, track fixed), so a fore-aft shift buys
+perpendicular authority only through its **0.44 projection**. M8's envelope was
+overstated **2.3×**: **33 mm**, not 74 mm.
+
+**The recovery: use the lateral spine.** It moves the CoM rather than the support
+line, so it *adds* to foot placement — and it pushes almost exactly along the
+perpendicular, precisely where the sagittal legs are weakest.
+
+| actuator | perpendicular authority |
+|---|---|
+| Foot placement | 33 mm |
+| **Lateral spine** (rate-limited to ±8.9° in a 150 ms stance) | 24 mm |
+| **Combined** | **68 mm** — **+108 %** |
+
+The spine was bought for the **crawl's static stability** (ADR-0009) and the trot
+preset had it switched *off*. It turns out to be the dominant **dynamic** balance
+actuator — a real dividend from a decision taken for an unrelated reason.
+
+**Latency: linear cost, no cliff.** Prediction handles it; what remains is error
+amplification `e^(omega*tau)` and less time under the corrective placement.
+20 ms costs 18 % of the envelope — that is the budget.
+
+**Retiming: speeds recovery, does NOT extend the envelope.** With the placement
+saturated at reach `R`, `xi_end = R + (e-R)e^(omega*T)`: for `e < R` a longer
+stance amplifies the correction; for `e > R` it grows for any `T`. **Timing buys
+speed, never range.** A useful negative result — it takes retiming off the
+critical path.
+
+**Consequences.** **Leg abduction is worth revisiting**: ADR-0009 rejected it on
+mass grounds when the question was *static* stability, but the dynamic case is
+different — abduction points straight down the perpendicular. And the spine
+figure is limited by **NFR2f (119°/s)**, sized for the righting reflex rather
+than balance; a faster spine drive buys envelope directly (~39 mm if the full
+±15° were reachable within a stance).
+
+**Honest bounds.** All of ADR-0013's reduced-order caveats still stand, plus: the
+spine is modelled as an instantaneous bounded CoM offset, ignoring its own
+dynamics and the reaction torque it puts into the trunk.
+
+## Later milestones (candidate M10+, not committed)
+
+- **Revisit leg abduction** for dynamic balance — the ADR-0009 rejection was
+  argued against a static-stability requirement that no longer applies.
+- **Faster spine drive** — NFR2f was sized for righting, and balance would use
+  more.
+
+
 
 
 

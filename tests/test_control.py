@@ -85,12 +85,12 @@ def test_envelope_is_set_by_REACH_not_by_gain():
     p = _plant()
     envs = [ctl.rejection_envelope(p, beta=b) for b in (0.0, 0.3, 0.5)]
     assert max(envs) - min(envs) < 1e-3          # gain-independent
-    assert all(e > 0.05 for e in envs)
+    assert all(e > 0.02 for e in envs)
 
 
 def test_the_binding_direction_is_REARWARD():
-    # The leg reaches +153 mm forward but only -74 mm back, so a disturbance that
-    # needs a rearward foothold is the one that limits the robot.
+    # The leg reaches further forward than back, so a disturbance needing a
+    # rearward foothold is the one that limits the robot.
     p = _plant()
     assert abs(p.reach[0]) < abs(p.reach[1])
     guaranteed = ctl.rejection_envelope(p, beta=0.0)
@@ -123,3 +123,77 @@ def test_sensing_bias_becomes_a_PERMANENT_offset_amplified_by_the_growth():
     for bias in (0.002, 0.005, 0.010):
         traj = ctl.simulate(p, 60, xi0=0.03, beta=0.0, estimation_error=bias)
         assert traj[-1] == pytest.approx(-p.growth * bias, rel=0.02)
+
+
+# ===================================================================
+# M9 — the projection correction, the spine as a balance actuator,
+#      latency, and why retiming does not help
+# ===================================================================
+
+def test_reach_is_PROJECTED_onto_the_support_line_perpendicular():
+    # THE M9 CORRECTION. The DCM lives perpendicular to the diagonal, and that
+    # direction is ~90% LATERAL. The legs are sagittal-only (no abduction, and the
+    # track is fixed), so a fore-aft foothold shift buys perpendicular authority
+    # only through its ~0.44 projection. M8 used the raw fore-aft range and so
+    # OVERSTATED the disturbance envelope by ~2.3x.
+    from tomcat_kin import dynamics as dyn
+    c = GaitController(params=trot_params())
+    p = _plant()
+    assert 0.40 < p.projection < 0.50
+    # cross-check the projection against the actual support-line geometry
+    cyc = dyn.cycle(c, 96)
+    _, d = dyn.support_line(cyc, 24)
+    assert p.projection == pytest.approx(abs(-d[1]), rel=1e-6)
+    # and the stored reach is the projected one, not the raw leg range
+    assert abs(p.reach[0]) < 0.05          # ~33 mm, not the raw ~74 mm
+
+
+def test_the_LATERAL_SPINE_roughly_doubles_the_envelope():
+    # The perpendicular is ~90% lateral, which is exactly where the sagittal legs
+    # are weakest -- and precisely where the ADR-0009 spine bend pushes. Hardware
+    # bought for the CRAWL's static stability turns out to be the dominant
+    # DYNAMIC balance actuator for the trot.
+    p = _plant()
+    assert p.spine > 0.015                              # ~24 mm within one stance
+    feet_only = ctl.rejection_envelope(p, use_spine=False)
+    with_spine = ctl.rejection_envelope(p, use_spine=True)
+    assert with_spine > 1.8 * feet_only
+
+
+def test_spine_assist_opposes_the_error_and_is_bounded():
+    p = _plant()
+    assert ctl.spine_assist(p, +0.05) == pytest.approx(-p.spine)   # saturated, opposing
+    assert ctl.spine_assist(p, -0.05) == pytest.approx(+p.spine)
+    small = 0.5 * p.spine
+    assert ctl.spine_assist(p, small) == pytest.approx(-small)     # unsaturated
+
+
+def test_latency_degrades_the_envelope_smoothly():
+    # Latency is handled by predicting forward -- prediction is not the problem.
+    # The costs are that estimation error is amplified by e^(omega*tau), and that
+    # less time remains under the corrective placement.
+    c = GaitController(params=trot_params())
+    envs = [ctl.rejection_envelope(
+                ctl.StepPlant.from_gait(c, latency=t), use_spine=True)
+            for t in (0.0, 0.010, 0.020, 0.040)]
+    assert all(a > b for a, b in zip(envs, envs[1:]))     # monotonic decay
+    assert envs[2] > 0.75 * envs[0]                      # 20 ms costs < 25 %
+    assert all(e > 0 for e in envs)                      # no artificial cliff
+
+
+def test_retiming_speeds_recovery_but_does_NOT_extend_the_envelope():
+    # With the placement saturated at reach R: xi_end = R + (e-R)*e^(wT).
+    # For e < R the bracket is negative, so a LONGER stance amplifies the
+    # correction -- recovery gets faster. For e > R it is positive and grows for
+    # any T; as T->0 it merely holds. So timing buys speed, never range.
+    import math
+    p = _plant()
+    R = abs(p.reach[0])
+    w = p.omega
+    for e in (0.5 * R, 0.9 * R):                 # inside the envelope
+        T = math.log(R / (R - e)) / w
+        assert T > 0
+        assert R + (e - R) * math.exp(w * T) == pytest.approx(0.0, abs=1e-9)
+    for e in (1.1 * R, 2.0 * R):                 # outside it
+        for T in (0.01, 0.05, 0.15, 0.5):
+            assert abs(R + (e - R) * math.exp(w * T)) >= e - 1e-9

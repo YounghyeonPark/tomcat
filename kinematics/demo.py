@@ -534,16 +534,44 @@ def _mass_and_stability_demo() -> None:
     print("      sideways. The recovery law puts the foot BEYOND the DCM, by a")
     print("      factor (growth)/(growth-1) = %.2f." % (P.growth / (P.growth - 1)))
     print()
-    print("  >>> What limits it is REACH, not gain:")
-    print("        foothold reach from nominal   %+.0f .. %+.0f mm (asymmetric)"
+    print("  >>> What limits it is REACH, not gain -- but MIND THE DIRECTION. The DCM")
+    print("      is measured PERPENDICULAR to the diagonal, and that is ~90% lateral;")
+    print("      the legs are sagittal-only, so a fore-aft foothold shift only counts")
+    print("      through its %.2f projection. (An earlier pass used the raw fore-aft" % P.projection)
+    print("      range and overstated the envelope by %.1fx.)" % (1 / P.projection))
+    print("        perpendicular reach from nominal   %+.0f .. %+.0f mm"
           % (P.reach[0] * 1e3, P.reach[1] * 1e3))
     print("        beta   one-step envelope   GUARANTEED envelope")
     for b in (0.0, 0.3, 0.5):
         print("         %.1f       %5.1f mm            %5.1f mm"
               % (b, ctl.one_step_envelope(P, b) * 1e3,
                  ctl.rejection_envelope(P, beta=b) * 1e3))
-    print("      The envelope is gain-INDEPENDENT: gain sets how fast recovery is,")
-    print("      reach sets whether it happens. The binding direction is REARWARD.")
+    print("      Gain-INDEPENDENT: gain sets how fast, reach sets whether at all.")
+    print()
+    print("  >>> THE FIX IS HARDWARE WE ALREADY OWN. The perpendicular is ~90%")
+    print("      lateral, which is exactly where the legs cannot push -- and exactly")
+    print("      where the ADR-0009 LATERAL SPINE does. It was bought for the CRAWL's")
+    print("      static stability and the trot has it switched off:")
+    feet = ctl.rejection_envelope(P, use_spine=False)
+    both = ctl.rejection_envelope(P, use_spine=True)
+    print("        foot placement only         %5.1f mm" % (feet * 1e3))
+    print("        spine authority (1 stance)  %5.1f mm  (rate-limited to +/-8.9 deg)"
+          % (P.spine * 1e3))
+    print("        COMBINED                    %5.1f mm  (%+.0f%%)"
+          % (both * 1e3, 100 * (both / feet - 1)))
+    print()
+    print("  >>> Sensing latency costs the envelope linearly -- no cliff:")
+    for tau in (0.0, 0.010, 0.020, 0.040):
+        Pl = ctl.StepPlant.from_gait(tr, 96, latency=tau)
+        e = ctl.rejection_envelope(Pl, use_spine=True)
+        print("        %3.0f ms -> %5.1f mm  (%+.0f%%)"
+              % (tau * 1e3, e * 1e3, 100 * (e / both - 1)))
+    print("      so budget ~20 ms end to end (NFR12).")
+    print()
+    print("  >>> And step RETIMING buys speed, never range: with the placement")
+    print("      saturated at R, xi_end = R + (e-R)e^(wT). For e<R a longer stance")
+    print("      amplifies the correction; for e>R it grows for any T. A useful")
+    print("      negative result -- retiming is off the critical path.")
     print()
     print("  >>> And it puts a hard number on the paw sensing (ADR-0012): a steady")
     print("      bias in the ESTIMATED DCM does not average out --")
