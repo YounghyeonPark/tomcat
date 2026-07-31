@@ -22,7 +22,9 @@ sequences the work that implements them.
 > genuinely statically stable in 3D (**+10.1 mm**, up from **−21.6 mm**).
 > **M6 done:** whole-body **dynamics** — and it overturned M5's headline.
 > **M7 done:** the **trot** ([ADR-0011](DESIGN_DECISIONS.md)) — the first dynamic
-> gait, **67 cm/s** (60× the crawl) inside the actuator envelope. 276 tests.
+> gait, **67 cm/s** (60× the crawl) inside the actuator envelope.
+> **M8 done:** **closed-loop balance** ([ADR-0013](DESIGN_DECISIONS.md)) — DCM foot
+> placement; rejects a **74 mm** disturbance, limited by rearward reach. 291 tests.
 
 ---
 
@@ -408,17 +410,57 @@ this is an **open-loop trajectory check**: it shows the prescribed motion is
 dynamically consistent, not that a controller can stabilise it against
 disturbances.
 
-## Later milestones (candidate M8+, not committed)
+## Milestone M8 — Closed-loop balance: step-to-step foot placement (DONE)
 
-- **Closed-loop balance control (M8)** — state estimation plus foot-placement/DCM
-  feedback, so the trot survives disturbance rather than merely being consistent
-  on paper. **Prerequisite now specified:** contact sensing at the paw
-  ([ADR-0012](DESIGN_DECISIONS.md) /
-  [TACTILE_SENSING_SPEC](../mechanical/TACTILE_SENSING_SPEC.md)). The key finding
-  is that the joint-end load cells the project already owns are *categorically*
-  unable to detect contact — they cannot tell ground reaction from limb inertia —
-  and their force estimate degrades ~10× on the hind legs near liftoff. Sensor is
-  capped at **20 g/paw**, a limit set by swing inertia, not by the mass budget.
+**Goal.** M7 ended on an honest caveat: the trot was an *open-loop* consistency
+check. It showed the error *starts* at zero, not that it stays there — and the
+trot is an inverted pendulum whose deviations grow **3.2× per step, 339× over
+five**. This closes that loop.
+
+**Delivered.** `control.py`: the step-to-step DCM plant (`StepPlant`, built from
+the full model's `omega` and stance), the placement law, and the measurements
+that say what it is worth — `one_step_envelope`, `rejection_envelope`.
+
+**The law.** Working in the DCM (`xi = c + c_dot/omega`) makes the plant
+first-order, so balance reduces to one placement per touchdown:
+`p = nominal + (growth-beta)/(growth-1) * (xi - nominal)`.
+
+⚠️ **The coefficient exceeds one (1.45): the foot goes *beyond* the DCM.**
+Placing it *at* the DCM arrests the topple but leaves the body permanently
+displaced — the robot looks stable and walks away sideways. That error was made
+in the first draft here; only simulating it caught the difference, which is the
+argument for the module existing rather than the law being asserted on paper.
+
+**What binds: reach, not gain.**
+
+| | |
+|---|---|
+| One-step envelope | **51 mm** |
+| **Guaranteed rejection envelope** | **74 mm** |
+| Binding direction | **rearward** (+153 mm forward vs −74 mm back) |
+
+The envelope is **independent of the gain** — gain sets how fast recovery is,
+reach sets whether it happens. The leg's asymmetric workspace is now a *balance*
+parameter, not merely a workspace one.
+
+**It puts a sharp number on ADR-0012.** A steady bias in the estimated DCM does
+not average out: it becomes a **permanent lateral offset amplified 3.2×**, so
+5 mm of estimation error is 16 mm of drift. "Detect contact" was never a
+sufficient spec; the estimator needs a few millimetres of DCM accuracy.
+
+**Honest bounds.** Reduced order — one perpendicular coordinate, constant CoM
+height, point feet, instantaneous support transfer. A controller-design tool, not
+a simulation of the robot: no swing dynamics, no actuator limits in the loop, no
+double support. Only a static sensing bias is modelled, not **latency**. The
+controller places feet but does not **retime** steps, and a real disturbance
+perturbs the full 3D state rather than one scalar.
+
+## Later milestones (candidate M9+, not committed)
+
+- **Sensing latency and step retiming** — the two largest gaps left by M8; both
+  shrink the 74 mm envelope by amounts nothing has yet quantified.
+
+
 
 
 - **Full rigid-body dynamics** — M6 models the CoM and the contacts, but not

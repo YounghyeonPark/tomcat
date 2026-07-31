@@ -64,6 +64,8 @@ from .stability import (
     polygon_stability_margin,
 )
 from . import dynamics                                    # noqa: F401  (M6)
+from . import control                                     # noqa: F401  (M8)
+from .control import StepPlant, placement, rejection_envelope
 from .dynamics import (
     ContactSolution,
     ZMPResult,
@@ -102,6 +104,7 @@ from .gait import (
 )
 
 __all__ = [
+    "control", "StepPlant", "placement", "rejection_envelope",
     "dynamics", "ContactSolution", "ZMPResult", "CycleData",
     "contact_forces", "zero_moment_point",
     "LegParams",

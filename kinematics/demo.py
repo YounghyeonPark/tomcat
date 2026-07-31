@@ -502,6 +502,59 @@ def _mass_and_stability_demo() -> None:
           % vals[-1])
 
 
+    # ------------------------------------------ M8: CLOSED-LOOP BALANCE
+    print()
+    print("=== CLOSED-LOOP BALANCE (M8) -- can it survive a push? ===")
+    from tomcat_kin import control as ctl
+    P = ctl.StepPlant.from_gait(tr, 96)
+    print("  M7 showed the trot's NOMINAL path is dynamically consistent -- i.e. the")
+    print("  error STARTS at zero. It is still an inverted pendulum: omega*T = %.2f," % (P.omega * P.stance))
+    print("  so any deviation is multiplied by %.2f EVERY step." % P.growth)
+    print()
+    d = 0.02
+    rows = (("OPEN loop", dict(closed_loop=False)),
+            ("capture only", None),
+            ("CLOSED beta=0", dict(beta=0.0)),
+            ("CLOSED beta=0.5", dict(beta=0.5)))
+    print("    20 mm DCM disturbance -- DCM at each touchdown (mm):")
+    for lbl, kw in rows:
+        if kw is None:
+            xi = d
+            out = [xi]
+            for _ in range(6):
+                xi = P.propagate(xi, ctl.capture_placement(P, xi))
+                out.append(xi)
+        else:
+            out = ctl.simulate(P, 6, xi0=d, **kw)
+        print("      %-16s %s" % (lbl, " ".join("%9.2f" % (v * 1e3) for v in out)))
+    print()
+    print("  >>> Note 'capture only' HOLDS at 20 mm rather than recovering. Placing")
+    print("      the foot AT the DCM arrests the topple but leaves the body")
+    print("      permanently displaced -- the robot is stable and walks away")
+    print("      sideways. The recovery law puts the foot BEYOND the DCM, by a")
+    print("      factor (growth)/(growth-1) = %.2f." % (P.growth / (P.growth - 1)))
+    print()
+    print("  >>> What limits it is REACH, not gain:")
+    print("        foothold reach from nominal   %+.0f .. %+.0f mm (asymmetric)"
+          % (P.reach[0] * 1e3, P.reach[1] * 1e3))
+    print("        beta   one-step envelope   GUARANTEED envelope")
+    for b in (0.0, 0.3, 0.5):
+        print("         %.1f       %5.1f mm            %5.1f mm"
+              % (b, ctl.one_step_envelope(P, b) * 1e3,
+                 ctl.rejection_envelope(P, beta=b) * 1e3))
+    print("      The envelope is gain-INDEPENDENT: gain sets how fast recovery is,")
+    print("      reach sets whether it happens. The binding direction is REARWARD.")
+    print()
+    print("  >>> And it puts a hard number on the paw sensing (ADR-0012): a steady")
+    print("      bias in the ESTIMATED DCM does not average out --")
+    for e in (0.002, 0.005):
+        t = ctl.simulate(P, 60, xi0=0.03, beta=0.0, estimation_error=e)
+        print("        %.0f mm estimation bias -> %+.1f mm PERMANENT offset (%.1fx)"
+              % (e * 1e3, t[-1] * 1e3, abs(t[-1] / e)))
+    print("      so 'detect contact' was never a sufficient spec; the estimator")
+    print("      needs a few mm of DCM accuracy.")
+
+
 def _sketch_foot_path(ctrl, leg_name: str, rows: int = 6, cols: int = 40) -> None:
     """Print a tiny ASCII side-view of one foot's path over its own cycle."""
     xs, zs = [], []

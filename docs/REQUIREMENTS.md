@@ -57,6 +57,8 @@ curve.
 | NFR2j | **TROT** speed (the locomotion mode, ADR-0011)     | **~67 cm/s** default; sustainable to **~96 cm/s** (RMS motor torque hits the continuous rating at ~120 cm/s) |
 | NFR2k | Trot roll oscillation                             | **bounded** — roll-rate drift ≈ 0 per cycle, ±0.4° peak. Requires `nominal_foot` x ≈ 0.005 m; the crawl's 0.05 m falls in one stride |
 | NFR8  | Paw force sensing range / survival                | **0–35 N** measured, **≥100 N** survival (×2.5 land transient), ≤0.4 N resolution, ≥1 kHz (ADR-0012) |
+| NFR10 | **Disturbance rejection envelope** (trot)         | **≥ 74 mm** DCM error, limited by REARWARD foot reach; gain-independent (ADR-0013) |
+| NFR11 | **DCM estimation accuracy**                       | **≤ 3 mm** — a steady bias becomes a PERMANENT lateral offset amplified 3.2× (ADR-0013). Sharpens NFR8/ADR-0012. |
 | NFR9  | **Paw sensor mass**                               | **≤ 20 g per paw** — binding via SWING INERTIA, not mass: 20 g costs top speed 120→96 cm/s, 40 g exceeds the motor's continuous rating (ADR-0012) |
 | NFR3  | Control loop rate (tension/position)             | ≥ 1 kHz             |
 | NFR4  | Gait / trajectory update rate                    | ≥ 100 Hz            |

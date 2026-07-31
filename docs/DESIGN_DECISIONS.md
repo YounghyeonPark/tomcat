@@ -580,6 +580,61 @@ context, and consequences. Status is one of: **Proposed**, **Accepted**,
     selection against the 100 N overpressure case, TPU **creep** under the crawl's
     4.5 s sustained load, and the fusion estimator itself.
 
+## ADR-0013: Closed-loop balance by step-to-step foot placement
+- **Status:** Accepted
+- **Context:** [ADR-0011](#adr-0011-the-trot-works--a-dynamic-gait-reaches-cat-like-speed-within-the-actuator-envelope)
+  closed with an explicit caveat: the trot was an **open-loop** check, showing the
+  prescribed motion is dynamically consistent -- i.e. that the error *starts* at
+  zero, not that it stays there. The trot is an inverted pendulum about its
+  diagonal support line, so on the shipped gait `omega*T = 1.17` and any deviation
+  is multiplied by **3.2 every step, 339 over five**. Nothing in the model arrested
+  it.
+- **Decision: stabilise by choosing where to put the next foot, not by tracking
+  the trajectory harder** (`kinematics/src/tomcat_kin/control.py`). Working in the
+  **DCM** (divergent component of motion, `xi = c + c_dot/omega`) collapses the
+  problem to first order -- `xi_dot = omega(xi - p)` -- so the entire control law
+  is one placement per touchdown:
+
+  > `p = nominal + (growth - beta)/(growth - 1) * (xi - nominal)`
+
+  `beta` is the residual error per step: 0 gives one-step deadbeat, 0.5 halves it
+  each step for a smaller foothold excursion.
+- ⚠️ **The coefficient is greater than one (1.45 here) -- the foot goes BEYOND
+  the DCM, not under it.** Placing it *at* the DCM (`capture_placement`) arrests
+  the topple but leaves the body permanently displaced: the robot is perfectly
+  stable and walks away sideways. This is kept as a separate function because it
+  is a quiet, plausible-looking error -- it was made in the first draft of this
+  module and only simulating it caught the difference.
+- **What actually limits it -- REACH, not gain:**
+
+  | | value |
+  |---|---|
+  | One-step envelope (before the placement saturates) | **51 mm** (beta=0) |
+  | **Guaranteed rejection envelope** | **74 mm** |
+  | Binding direction | **rearward** -- the leg reaches +153 mm forward but only -74 mm back |
+
+  The full envelope is **independent of `beta`**: gain sets how *fast* recovery
+  happens, reach sets whether it happens at all. (An earlier version of the
+  measurement ran only 12 steps and made a slow gain look like a *smaller*
+  envelope -- that was horizon-limited, a different and misleading statement.)
+- **A hard requirement lands back on [ADR-0012](#adr-0012-tactile-sensing-at-the-paw--a-barometric-dome-capped-at-20-g):**
+  a steady bias in the *estimated* DCM does not average out. It settles into a
+  **permanent lateral offset, amplified by exactly the per-step growth (3.2x)** --
+  a 5 mm estimation error becomes a 16 mm drift. Paw contact timing and the state
+  estimator must therefore be good to a few millimetres of equivalent DCM, which
+  is a far sharper specification than "detect contact".
+- **Consequences:**
+  - The asymmetric leg reach is now a **balance** parameter, not just a workspace
+    one. Anything that trims rearward reach directly cuts the disturbance envelope.
+  - ⚠️ **Reduced-order model.** One perpendicular coordinate, constant CoM
+    height, point feet, instantaneous support transfer. It is a controller-design
+    tool, not a replacement for `dynamics.py`; its `omega` and stance are taken
+    *from* the full model. It is also **not** a simulation of the robot: no swing
+    dynamics, no actuator limits in the loop, no double support.
+  - ⚠️ Still open: **sensing latency** (only a static bias is modelled), step
+    retiming (the controller places feet but does not retime them), and the fact
+    that a real disturbance perturbs the full 3D state, not one scalar.
+
 ---
 
 ### How to add an ADR
