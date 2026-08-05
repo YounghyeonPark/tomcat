@@ -67,8 +67,13 @@ permanently displaced: stable, and walking away sideways.
 The DCM lives *perpendicular* to the diagonal, and that direction is ~90 %
 **lateral** — where sagittal-only legs are weakest. The articulated spine, added
 for the *crawl's static stability*, turns out to be the trot's dominant **dynamic**
-balance actuator, roughly tripling the envelope. Leg abduction (+4 motors, 528 g)
-was re-examined against this and found **unnecessary**.
+balance actuator.
+
+Solving the loop with **real latency** then brings it back to **59 mm**
+(a 0.46 m/s lateral shove): latency is not an independent parameter, because a
+bigger correction takes the leg longer to execute and *that* is the staleness the
+controller acts on. Of the ~45 ms total, **37 ms is the leg moving** — so the
+electronics is comfortably *not* the bottleneck, and foot speed is the lever.
 
 ### The machine
 
@@ -90,7 +95,8 @@ class target the budget had assumed. A domestic cat is 4–5 kg.
 | M5 | Lateral spine DOF | 3D support polygon; static stability recovered |
 | M6 | Whole-body dynamics | **overturned M5** — tipping binds, not friction |
 | M7 | The trot | **67 cm/s**; found a C¹ defect in the foot trajectory |
-| M8–M10 | Closed-loop balance | rejects a **0.70 m/s** shove; spine is the key actuator |
+| M8–M10 | Closed-loop balance | DCM foot placement; spine is the key actuator |
+| M11 | Latency budget | rejects a **0.46 m/s** shove; the leg, not the electronics, is the limit |
 
 Full detail in the [roadmap](docs/ROADMAP.md) and the [ADR log](docs/DESIGN_DECISIONS.md).
 

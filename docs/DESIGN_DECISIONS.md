@@ -762,6 +762,62 @@ context, and consequences. Status is one of: **Proposed**, **Accepted**,
     trot it is (`lateral_amplitude = 0`); if a future gait uses lateral sway for
     something else, the balance authority is spent and this closes differently.
 
+## ADR-0016: Latency is not an independent parameter -- and the electronics is not the bottleneck
+- **Status:** Accepted
+- **Context:** [ADR-0014](#adr-0014-the-lateral-spine-is-the-trots-main-balance-actuator)
+  measured the disturbance-rejection envelope against an *assumed* latency and set
+  **NFR12 at <=20 ms**, unallocated -- so no subsystem owned it. Allocating it
+  turns the calculation inside out.
+- **The structural finding: the loop is a fixed point.** A bigger disturbance needs
+  a bigger foothold correction; a bigger correction takes the leg **longer to
+  execute**; and that time *is* the staleness of the information the controller
+  committed on. Correction size sets latency, which sets the envelope, which bounds
+  the correction. `control.self_consistent_envelope()` solves it.
+- **Decision A: re-cast NFR12 as a PIPELINE budget of <=7.5 ms**, not a whole-loop
+  budget. The pipeline is the part anyone can design to:
+
+  | Stage | Budget | Basis |
+  |---|---|---|
+  | Contact detection (paw -> flag) | **1.0 ms** | NFR8's >=1 kHz; the flag is a comparator, no filter delay |
+  | **State estimation** (contact + IMU + kinematics -> DCM) | **5.0 ms** | ⚠️ the loosest number, and the real constraint on firmware -- caps estimator group delay at roughly a >=30 Hz corner |
+  | Bus transport (both directions) | **1.0 ms** | ~60 us/frame CAN-FD; 3-6 nodes/segment at 1 kHz is 18-36 % utilisation |
+  | Control computation | **0.5 ms** | one multiply-add inside NFR3's >=1 kHz loop |
+
+  The whole-loop latency is then **~45 ms**, of which **37 ms is the leg moving**.
+- **Decision B: correct NFR10 from 90 mm to ~59 mm.** The 90 mm figure assumed
+  **zero latency**. Solved as a fixed point at the allocated pipeline the envelope
+  is **59 mm** -- still a **0.46 m/s** lateral shove, but a third smaller than
+  published. This is the third correction to this number
+  ([ADR-0013](#adr-0013-closed-loop-balance-by-step-to-step-foot-placement) 74 mm →
+  [ADR-0014](#adr-0014-the-lateral-spine-is-the-trots-main-balance-actuator) 33 →
+  [ADR-0015](#adr-0015-both-m9-follow-ups-close-no-change-needed) 90 → **59**), and
+  the pattern each time was the same: a term that was assumed rather than measured.
+- **The useful surprise: the envelope is nearly INSENSITIVE to the pipeline.**
+  Going 2.5 → 20 ms costs 62 → 52 mm, about 16 %. Three consequences:
+  - **Electronics and firmware have a comfortable budget.** Even a sloppy 20 ms
+    pipeline costs little. Chasing microseconds on the CAN-FD bus would be effort
+    in the wrong place -- ADR-0005's architecture is *not* the constraint. This is
+    a useful negative result for two subsystems that had an unowned requirement.
+  - **Foot speed is the lever.** Doubling the leg's spare foot speed buys more
+    envelope than eliminating the entire electronics pipeline. The ceiling is
+    5.93 m/s (motor free speed through the tendon ratios) against a nominal swing
+    peak of 1.83 m/s, so the headroom exists -- the question is using it.
+  - **Or attack the 0.44 projection.** The correction is inflated 2.3x because
+    sagittal legs push obliquely to the support-line perpendicular. That projection
+    has now cost the design something three times over, and this is the strongest
+    remaining argument for **revisiting leg abduction** --
+    [ADR-0015](#adr-0015-both-m9-follow-ups-close-no-change-needed) closed it on
+    *authority* grounds, which does not address *actuation time*.
+- **Consequences:**
+  - Full allocation and workings: [notes/latency-budget.md](notes/latency-budget.md).
+  - ⚠️ The 37 ms actuation term is **optimistic** -- constant-velocity
+    correction, ignoring the accelerate/decelerate ramp and torque limits during
+    it. It is now the dominant term in the whole budget, so this is the single most
+    valuable thing left to measure on real hardware.
+  - `self_consistent_envelope` builds its plant once rather than per bisection
+    step; doing otherwise re-ran a full IK sweep 34 times and dominated the test
+    suite.
+
 ---
 
 ### How to add an ADR

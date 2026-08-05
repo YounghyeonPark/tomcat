@@ -196,24 +196,34 @@ def fig_closed_loop():
 
 # ---------------------------------------------------------------- figure 5
 def fig_authority():
-    """M9-M10: where the disturbance-rejection authority comes from."""
-    P = ctl.StepPlant.from_gait(GaitController(params=trot_params()), 96)
+    """M9-M11: where the authority comes from, and what latency costs."""
+    c = GaitController(params=trot_params())
+    P = ctl.StepPlant.from_gait(c, 96)
     feet = ctl.rejection_envelope(P, use_spine=False) * 1e3
     both = ctl.rejection_envelope(P, use_spine=True) * 1e3
+    real = ctl.self_consistent_envelope(c, pipeline=0.0075)
+    solved = real["envelope"] * 1e3
 
-    fig, ax = plt.subplots(figsize=(8, 3.1))
-    y = [1, 0]
-    ax.barh(y, [feet, both], height=0.5, color=[ORANGE, BLUE], zorder=3)
-    ax.text(feet + 1.5, 1.05, f"{feet:.0f} mm", va="bottom", color=INK, fontweight="bold")
-    ax.text(feet + 1.5, 0.98, "sagittal legs reach the perpendicular\nonly through a 0.44 projection",
-            va="top", color=INK2, fontsize=8)
-    ax.text(both + 1.5, 0.05, f"{both:.0f} mm", va="bottom", color=INK, fontweight="bold")
-    ax.text(both + 1.5, -0.02, f"rejects a {both / 1e3 * P.omega:.2f} m/s\nlateral shove",
-            va="top", color=INK2, fontsize=8)
-    ax.set_yticks(y, ["Foot placement\nalone", "+ LATERAL SPINE\n(already fitted)"])
+    fig, ax = plt.subplots(figsize=(8, 3.5))
+    y = [2, 1, 0]
+    ax.barh(y, [feet, both, solved], height=0.5,
+            color=[ORANGE, GRID, BLUE], zorder=3)
+    notes = [
+        "sagittal legs reach the perpendicular\nonly through a 0.44 projection",
+        "the spine adds lateral authority\n(but this assumes ZERO latency)",
+        f"rejects a {solved / 1e3 * P.omega:.2f} m/s shove; latency is "
+        f"{real['latency'] * 1e3:.0f} ms,\nof which {real['actuation'] * 1e3:.0f} ms is the LEG moving",
+    ]
+    for yi, v, n in zip(y, [feet, both, solved], notes):
+        ax.text(v + 1.5, yi + 0.06, f"{v:.0f} mm", va="bottom",
+                color=INK, fontweight="bold")
+        ax.text(v + 1.5, yi - 0.02, n, va="top", color=INK2, fontsize=8)
+    ax.set_yticks(y, ["Foot placement\nalone",
+                      "+ lateral spine\n(idealised)",
+                      "SOLVED with real\nlatency (M11)"])
     ax.set_xlabel("disturbance rejection envelope (mm of DCM error)")
-    ax.set_xlim(0, both * 1.62)
-    ax.set_title("The spine, bought for the crawl, is the trot's main balance actuator")
+    ax.set_xlim(0, both * 1.75)
+    ax.set_title("Balance authority \u2014 and what including latency costs")
     ax.grid(axis="y", visible=False)
     _save(fig, "05_balance_authority.png")
 

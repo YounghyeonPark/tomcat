@@ -246,3 +246,63 @@ def test_spine_dominates_foot_placement_for_lateral_balance():
     with_spine = ctl.rejection_envelope(p, use_spine=True)
     assert p.spine > abs(p.reach[0])             # spine beats the binding reach
     assert with_spine > 2.5 * feet_only
+
+
+# ===================================================================
+# M11 — the latency budget solved as a fixed point
+# ===================================================================
+
+def test_actuation_time_scales_with_the_correction_and_the_projection():
+    # The correction travels along the perpendicular, but sagittal legs deliver it
+    # only through their 0.44 projection -- so the fore-aft foot travel, and hence
+    # the time, is 2.3x the correction.
+    p = _plant()
+    t_small = ctl.actuation_time(p, 0.010)
+    t_big = ctl.actuation_time(p, 0.020)
+    assert t_big == pytest.approx(2 * t_small, rel=1e-9)      # linear until clamped
+    coeff = p.growth / (p.growth - 1.0)
+    expected = coeff * 0.010 / p.projection / ctl.SPARE_FOOT_SPEED
+    assert t_small == pytest.approx(expected, rel=1e-9)
+    # and it saturates once the placement hits the reach limit
+    assert ctl.actuation_time(p, 1.0) == pytest.approx(
+        abs(p.reach[1]) / p.projection / ctl.SPARE_FOOT_SPEED, rel=1e-9)
+
+
+def test_envelope_solved_as_a_fixed_point_is_smaller_than_the_zero_latency_one():
+    # THE M11 CORRECTION. ADR-0014/0015 quoted ~90 mm, which assumed zero latency.
+    # Latency is not independent: correction size sets actuation time, which IS the
+    # staleness the controller commits on.
+    c = GaitController(params=trot_params())
+    ideal = ctl.rejection_envelope(_plant(), use_spine=True)
+    real = ctl.self_consistent_envelope(c, pipeline=0.0075)
+    assert ideal > 0.085                          # ~90 mm, the published figure
+    assert 0.050 < real["envelope"] < 0.070       # ~59 mm once latency is real
+    assert real["envelope"] < 0.75 * ideal
+
+
+def test_ACTUATION_dominates_the_pipeline():
+    # The headline consequence: electronics and firmware are not the bottleneck.
+    c = GaitController(params=trot_params())
+    r = ctl.self_consistent_envelope(c, pipeline=0.0075)
+    assert r["actuation"] > 4 * r["pipeline"]
+    assert r["latency"] == pytest.approx(r["pipeline"] + r["actuation"], rel=1e-9)
+
+
+def test_envelope_is_nearly_insensitive_to_the_electronics_pipeline():
+    # 2.5 -> 20 ms of pipeline costs only ~16 % of the envelope, so chasing
+    # microseconds on the bus would be effort in the wrong place. Foot speed is
+    # the lever.
+    c = GaitController(params=trot_params())
+    fast = ctl.self_consistent_envelope(c, pipeline=0.0025)["envelope"]
+    slow = ctl.self_consistent_envelope(c, pipeline=0.020)["envelope"]
+    assert slow > 0.80 * fast                     # 8x the pipeline, <20 % lost
+
+
+def test_faster_feet_buy_more_envelope_than_faster_electronics():
+    # Quantifies the recommendation in the latency-budget note.
+    c = GaitController(params=trot_params())
+    base = ctl.self_consistent_envelope(c, pipeline=0.0075)["envelope"]
+    no_electronics = ctl.self_consistent_envelope(c, pipeline=0.0)["envelope"]
+    faster_legs = ctl.self_consistent_envelope(
+        c, pipeline=0.0075, spare_speed=2 * ctl.SPARE_FOOT_SPEED)["envelope"]
+    assert (faster_legs - base) > (no_electronics - base)

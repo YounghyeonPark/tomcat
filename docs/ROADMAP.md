@@ -27,9 +27,11 @@ sequences the work that implements them.
 > placement.
 > **M9 done:** latency, retiming — and a 2.3× correction to M8's envelope, then
 > the **lateral spine** recovers it ([ADR-0014](DESIGN_DECISIONS.md)).
-> **M10 done:** the spine is ROM- not rate-limited (**90 mm**, a 0.70 m/s shove);
-> abduction and a faster drive both close as *not needed*
-> ([ADR-0015](DESIGN_DECISIONS.md)). 300 tests.
+> **M10 done:** the spine is ROM- not rate-limited; abduction and a faster drive
+> both close as *not needed* ([ADR-0015](DESIGN_DECISIONS.md)).
+> **M11 done:** the latency budget — solved as a fixed point, the envelope is
+> **59 mm**, and **the electronics is not the bottleneck**
+> ([ADR-0016](DESIGN_DECISIONS.md)). 304 tests.
 
 ---
 
@@ -551,7 +553,57 @@ M8/M9, and assumes the spine's full ROM is free for balance — true in the trot
 (`lateral_amplitude = 0`), but a future gait that uses lateral sway for something
 else would spend that authority and close this differently.
 
-## Later milestones (candidate M11+, not committed)
+## Milestone M11 — The latency budget: the electronics is not the bottleneck (DONE)
+
+**Goal.** M9/M10 produced two requirements that no subsystem owned: NFR12
+(≤20 ms balance latency) and NFR11 (≤3 mm DCM accuracy). Allocating the latency
+turned the calculation inside out.
+
+**The structural finding: latency is not an independent parameter.** A bigger
+disturbance needs a bigger foothold correction; a bigger correction takes the leg
+longer to execute; and that time *is* the staleness of the information the
+controller committed on. It has to be solved as a **fixed point**
+(`control.self_consistent_envelope`).
+
+| term | value |
+|---|---|
+| Pipeline (contact + estimation + transport + compute) | **7.5 ms** allocated |
+| **Actuation** (the leg repositioning its foothold) | **37 ms** |
+| Whole loop | **~45 ms** |
+
+⚠️ **NFR10 corrected 90 → 59 mm.** The 90 mm assumed zero latency. Still a
+**0.46 m/s** lateral shove, but a third smaller than published — the third
+correction to this figure, each time from a term assumed rather than measured.
+
+⚠️ **NFR12 re-cast** from a whole-loop ≤20 ms to a **pipeline ≤7.5 ms**, since
+37 of the 45 ms is the leg, not the electronics.
+
+**The useful surprise: the envelope is nearly insensitive to the pipeline** —
+2.5 → 20 ms costs only ~16 %. So:
+
+- **Electronics and firmware have a comfortable budget.** Chasing microseconds on
+  the CAN-FD bus would be effort in the wrong place; ADR-0005's architecture is not
+  the constraint. A useful negative result for two subsystems.
+- **Foot speed is the lever** — doubling the leg's spare speed buys more than
+  deleting the entire electronics pipeline. Ceiling 5.93 m/s vs a 1.83 m/s nominal
+  swing peak, so the headroom exists.
+- **Or attack the 0.44 projection**, which inflates every correction 2.3×. That
+  projection has now cost the design something three times, and it is the strongest
+  remaining case for **revisiting leg abduction** — ADR-0015 closed that on
+  *authority* grounds, which says nothing about *actuation time*.
+
+**Honest bounds.** The 37 ms actuation term assumes a constant-velocity correction,
+ignoring the accelerate/decelerate ramp and torque limits during it. It is now the
+dominant term in the entire budget, which makes it the single most valuable thing
+left to measure on real hardware.
+
+## Later milestones (candidate M12+, not committed)
+
+- **Bench the actuation ramp** — now the dominant term, and the only one still
+  resting on an idealisation.
+- **Leg abduction, third look** — on actuation-time grounds this time, not
+  authority.
+
 
 
 

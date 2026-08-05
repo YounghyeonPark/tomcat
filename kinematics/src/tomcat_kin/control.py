@@ -310,3 +310,84 @@ def rejection_envelope(plant: StepPlant, beta: float = 0.0,
         else:
             hi = mid
     return lo
+
+
+# ===================================================================
+# M11 — the latency budget: where the delay actually comes from
+# ===================================================================
+#
+# ADR-0014 measured the envelope against an ASSUMED latency and left the 20 ms
+# figure (NFR12) unallocated. Allocating it turns the calculation inside out,
+# because latency is not an independent parameter: a bigger disturbance needs a
+# bigger foothold correction, a bigger correction takes the leg LONGER to
+# execute, and that time IS the staleness of the information the controller
+# committed on. Correction size therefore sets latency, which sets the envelope,
+# which bounds the correction. It has to be solved as a fixed point.
+
+# Unused foot speed available for a correction, m/s. The swing's nominal peak is
+# ~1.83 m/s against an actuator ceiling of ~5.93 m/s (motor 380 rpm through the
+# tendon ratios), so ~4.1 m/s is spare. [derived]
+SPARE_FOOT_SPEED = 4.10
+
+
+def actuation_time(plant: StepPlant, disturbance: float,
+                   spare_speed: float = SPARE_FOOT_SPEED,
+                   beta: float = 0.0) -> float:
+    """Time (s) the leg needs to execute the correction a disturbance demands.
+
+    The placement law asks for ``(growth-beta)/(growth-1)`` times the error along
+    the support-line PERPENDICULAR; the leg delivers that only through its
+    ``projection``, so the fore-aft foot travel is larger by ``1/projection``.
+    Dividing by the spare foot speed gives the time.
+
+    ⚠️ OPTIMISTIC: constant-velocity correction, ignoring the accelerate/decelerate
+    ramp and any torque limit during it. A real leg needs longer, so treat this as
+    a lower bound on the actuation term.
+    """
+    coeff = (plant.growth - beta) / (plant.growth - 1.0)
+    perp = min(coeff * abs(disturbance), abs(plant.reach[1]))
+    fore_aft = perp / plant.projection if plant.projection > 0 else perp
+    return fore_aft / spare_speed
+
+
+def self_consistent_envelope(controller, pipeline: float = 0.0075,
+                             spare_speed: float = SPARE_FOOT_SPEED,
+                             beta: float = 0.0, n: int = 96) -> dict:
+    """Envelope solved as a FIXED POINT, latency included rather than assumed.
+
+    ``pipeline`` is the electronics/firmware delay — contact detection, state
+    estimation, bus transport, control computation — everything except the leg
+    physically moving. The actuation term is computed per disturbance by
+    ``actuation_time`` and added.
+
+    Returns ``{"envelope", "latency", "pipeline", "actuation"}``. On the shipped
+    trot this gives **~59 mm at a 7.5 ms pipeline**, against the ~90 mm that
+    ADR-0014/0015 quoted for zero latency.
+
+    The useful surprise: the result is nearly INSENSITIVE to ``pipeline``. Going
+    2.5 → 20 ms costs only 62 → 52 mm, because the actuation term dominates. The
+    electronics is not the bottleneck — foot speed is.
+    """
+    import dataclasses
+
+    # Build the plant ONCE. Only `latency` varies over the bisection, and
+    # from_gait() re-runs a full inverse-kinematics cycle sweep every call -- doing
+    # that inside the loop cost ~50x more work than the whole rest of the solve.
+    base = StepPlant.from_gait(controller, n)
+
+    def envelope_for(d: float) -> tuple:
+        tau = pipeline + actuation_time(base, d, spare_speed, beta)
+        plant = dataclasses.replace(base, latency=tau)
+        return rejection_envelope(plant, beta=beta, use_spine=True), tau
+
+    lo, hi = 0.002, 0.15
+    for _ in range(34):          # ~8 nm resolution on a 150 mm bracket
+        mid = 0.5 * (lo + hi)
+        e, _ = envelope_for(mid)
+        if mid <= e:
+            lo = mid
+        else:
+            hi = mid
+    env, tau = envelope_for(lo)
+    return {"envelope": lo, "latency": tau, "pipeline": pipeline,
+            "actuation": tau - pipeline}
