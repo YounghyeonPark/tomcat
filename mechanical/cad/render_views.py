@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright 2026 Younghyeon Park
 """Multi-view renders of the T.O.M.C.A.T. CAD models.
 
 Produces one legible figure per model (side elevation · top plan · isometric)

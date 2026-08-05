@@ -11,6 +11,8 @@ cat-like agility, energy-efficient movement, and passive shock absorption.
 > **C**ompliant **A**ctuated **T**omcat — advanced in intent, community-driven
 > in spirit.
 
+[![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
+
 ## Progress
 
 Ten milestones in. The model now spans kinematics → real mass → 3D static
@@ -124,6 +126,8 @@ much like biological muscle and tendon.
 | `mechanical/`   | CAD, tendon routing, joint geometry, BOM                      |
 | `tools/`        | Scripts for build, calibration, and analysis                  |
 | `tests/`        | Unit and hardware-in-the-loop tests                           |
+| `LICENSE`       | Apache License 2.0 (full text)                                |
+| `NOTICE`        | Copyright + third-party attribution                           |
 
 ## Design principles
 
@@ -145,6 +149,25 @@ See [docs/PRINCIPLES.md](docs/PRINCIPLES.md) for the full statement.
 - [Related Work & References](docs/REFERENCES.md) — raw source index
 - [Sub-Agent Team](docs/TEAM.md) — specialist agents + coordinating lead
 - [Glossary](docs/GLOSSARY.md)
+
+## License
+
+**[Apache License 2.0](LICENSE)** — permissive, and unlike MIT it carries an
+**explicit patent grant**, which matters for a project whose output is a
+mechanism. You may use, modify, and commercialise this work, including in closed
+products, provided you keep the notice and state your changes.
+
+Source files carry an `SPDX-License-Identifier: Apache-2.0` header so the licence
+is machine-readable per file, not only at the repo root.
+
+**Third-party material** is listed in [NOTICE](NOTICE). In short: the feline
+skeletal geometry derives from Reighard & Jennings, *Anatomy of the Cat* (1901),
+which is **public domain**; no third-party anatomical image is redistributed
+here; and the literature review cites prior art by reference without reproducing
+it.
+
+> If you contribute, you agree your contribution is licensed under the same
+> terms (Apache-2.0 §5). No separate CLA.
 
 ## Status
 

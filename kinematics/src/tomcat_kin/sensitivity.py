@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright 2026 Younghyeon Park
 """Moment-arm vs. cable-tension sensitivity tool.
 
 For a FIXED worst-case joint torque, sweep the joint moment arm (pulley radius)

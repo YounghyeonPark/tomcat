@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright 2026 Younghyeon Park
 """Parametric 3D CAD model of the T.O.M.C.A.T. skeleton (build123d).
 
 Turns the placeholder dimensions of the `tomcat_kin` simulation into an actual

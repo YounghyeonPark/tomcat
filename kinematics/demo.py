@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright 2026 Younghyeon Park
 """Runnable demo of the TomCat single-leg kinematics + tendon map.
 
     python kinematics/demo.py

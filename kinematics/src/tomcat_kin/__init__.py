@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright 2026 Younghyeon Park
 """TomCat kinematics prototype.
 
 A pure-software, single-leg model used to validate the tendon-driven design

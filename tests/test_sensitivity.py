@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright 2026 Younghyeon Park
 """Tests for the moment-arm / cable-tension sensitivity tool (ADR-0003)."""
 
 import numpy as np

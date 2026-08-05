@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright 2026 Younghyeon Park
 """Static torque budget for one leg.
 
 Sweeps the reachable foot workspace for a given loading scenario and reports the

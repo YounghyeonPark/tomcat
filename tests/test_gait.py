@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright 2026 Younghyeon Park
 """Tests for the periodic WALK gait generator (M2) + its M4 stability reporting."""
 
 import math

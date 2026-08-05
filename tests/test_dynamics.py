@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright 2026 Younghyeon Park
 """Tests for the M6 whole-body dynamics: contact forces, friction cone, ZMP.
 
 These encode the milestone's central finding: the quasi-static checks (M4/M5)

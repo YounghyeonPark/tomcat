@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright 2026 Younghyeon Park
 """Tests for the M4 quasi-static stability margin (sagittal fore-aft interval).
 
 Reminder of the honest scope being tested: the 2D "support polygon" is really a

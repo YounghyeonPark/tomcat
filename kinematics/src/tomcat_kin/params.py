@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright 2026 Younghyeon Park
 """Placeholder parameters for the TomCat single-leg model.
 
 IMPORTANT: every numeric value here is a PLACEHOLDER (❓ TBD in

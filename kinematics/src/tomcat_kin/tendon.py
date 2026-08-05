@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright 2026 Younghyeon Park
 """Tendon map: the bridge between joint space and actuator space.
 
 A cable can only PULL, never push. This module converts, per joint:

@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright 2026 Younghyeon Park
 """Digitigrade 4-link leg kinematics (sagittal plane).
 
 Four links -- femur (l1), tibia (l2), metatarsus (l3), paw (l4) -- but only

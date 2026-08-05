@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright 2026 Younghyeon Park
 """Tests for whole-body foot placement / inverse kinematics (M3).
 
 Covers ``WholeBody.inverse`` / ``inverse_pose`` (place feet in the WORLD frame

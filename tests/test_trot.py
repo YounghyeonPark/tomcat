@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright 2026 Younghyeon Park
 """Tests for the M7 diagonal TROT — the project's first dynamic gait.
 
 A trot puts diagonal pairs down together, so the support degenerates from a

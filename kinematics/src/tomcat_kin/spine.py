@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright 2026 Younghyeon Park
 """Articulated tendon-driven spine + whole-body kinematics (sagittal plane).
 
 This module treats the torso as a SERIAL revolute chain (ADR-0006, principle P2)

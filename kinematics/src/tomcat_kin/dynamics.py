@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright 2026 Younghyeon Park
 """Whole-body DYNAMICS for the walk — the first non-quasi-static layer (M6).
 
 Everything before this milestone was a sequence of static postures. The gait was

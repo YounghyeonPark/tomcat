@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright 2026 Younghyeon Park
 """3D packaging study: motors, tendons (wires) and joint pulleys in the skeleton.
 
 Extends the skeleton massing model with the *internal* layout the design implies:

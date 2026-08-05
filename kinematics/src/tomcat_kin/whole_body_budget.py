@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright 2026 Younghyeon Park
 """Combined whole-body static tendon/torque budget (spine + four legs).
 
 This closes M1 Definition-of-Done item 5: sweep whole-body load cases (stand,

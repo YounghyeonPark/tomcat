@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright 2026 Younghyeon Park
 """Parameterized periodic WALK gait generation (quasi-static).
 
 This module turns the static whole-body model (``spine.py`` + ``leg.py``) into

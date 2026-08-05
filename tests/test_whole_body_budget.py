@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright 2026 Younghyeon Park
 """Tests for the combined whole-body static tendon/torque budget."""
 
 import numpy as np

@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright 2026 Younghyeon Park
 """Generate the README progress figures from the LIVE model.
 
 Every number in these figures is computed from ``tomcat_kin`` at render time, so a

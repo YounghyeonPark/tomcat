@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright 2026 Younghyeon Park
 """Static (quasi-static) stability margin: CoM projection vs. the support base.
 
 The gait generator has, until M4, validated stability only by counting stance

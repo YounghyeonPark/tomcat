@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright 2026 Younghyeon Park
 """Tests for the digitigrade 4-link leg kinematics (3 actuated joints + paw)."""
 
 import math

@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright 2026 Younghyeon Park
 """Closed-loop balance for the trot — step-to-step foot placement (M8).
 
 M7 showed the trot's *nominal* trajectory is dynamically consistent. That is a

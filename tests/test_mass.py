@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright 2026 Younghyeon Park
 """Tests for the M4 mass properties: bookkeeping, sub-assembly CoMs, whole-body CoM.
 
 Scope reminder: everything here is QUASI-STATIC (gravity + CoM geometry). No

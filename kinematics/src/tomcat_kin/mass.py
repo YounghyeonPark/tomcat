@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright 2026 Younghyeon Park
 """Rigid-body MASS properties: per-link CoMs, sub-assembly and whole-body CoM.
 
 This is the M4 "real mass" layer. Everything above it (leg.py, spine.py, gait.py)

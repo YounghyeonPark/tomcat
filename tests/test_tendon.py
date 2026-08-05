@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright 2026 Younghyeon Park
 """Tests for the tendon map (angle<->cable and torque<->tension)."""
 
 import numpy as np

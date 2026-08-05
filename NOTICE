@@ -1,0 +1,41 @@
+Project T.O.M.C.A.T.
+Tendon-Operated Mechanism for a Compliant Actuated Tomcat
+
+Copyright 2026 Younghyeon Park
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+
+--------------------------------------------------------------------------
+Third-party material
+--------------------------------------------------------------------------
+
+Anatomical reference
+    The feline skeletal geometry in mechanical/ is derived from
+    Reighard, J. & Jennings, H. S., "Anatomy of the Cat" (1901), which is
+    in the PUBLIC DOMAIN. See mechanical/reference/ANATOMY.md for the
+    specific figures relied on.
+
+    No third-party anatomical image is redistributed in this repository.
+    An image used during development (Felis_silvestris_restoration_&
+    _skeleton.jpg) is deliberately NOT tracked in git because its licence
+    was never established.
+
+Literature
+    docs/LITERATURE_REVIEW.md and docs/REFERENCES.md cite prior art by
+    reference only. No copyrighted text, figure, or dataset from those
+    sources is reproduced here.
+
+Dependencies
+    This project depends on, but does not redistribute, NumPy (BSD-3),
+    matplotlib (PSF-based) and build123d (Apache-2.0). Their licences
+    apply to those works, not to this one.
