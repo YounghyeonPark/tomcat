@@ -555,8 +555,10 @@ def _mass_and_stability_demo() -> None:
     feet = ctl.rejection_envelope(P, use_spine=False)
     both = ctl.rejection_envelope(P, use_spine=True)
     print("        foot placement only         %5.1f mm" % (feet * 1e3))
-    print("        spine authority (1 stance)  %5.1f mm  (rate-limited to +/-8.9 deg)"
+    print("        spine authority (1 stance)  %5.1f mm  (full +/-15 deg ROM: the"
           % (P.spine * 1e3))
+    print("                                            drive does ~912 deg/s, a full")
+    print("                                            traverse needs only 200)")
     print("        COMBINED                    %5.1f mm  (%+.0f%%)"
           % (both * 1e3, 100 * (both / feet - 1)))
     print()
@@ -567,6 +569,12 @@ def _mass_and_stability_demo() -> None:
         print("        %3.0f ms -> %5.1f mm  (%+.0f%%)"
               % (tau * 1e3, e * 1e3, 100 * (e / both - 1)))
     print("      so budget ~20 ms end to end (NFR12).")
+    print()
+    print("  >>> In physical terms the %.0f mm envelope rejects a %.2f m/s lateral"
+          % (both * 1e3, both * P.omega))
+    print("      shove. Leg ABDUCTION (+4 motors, 528 g) would add ~40 mm of")
+    print("      authority the robot does not need -- so both M9 follow-ups close")
+    print("      as NOT NEEDED, and the motor count stays at 19 (ADR-0015).")
     print()
     print("  >>> And step RETIMING buys speed, never range: with the placement")
     print("      saturated at R, xi_end = R + (e-R)e^(wT). For e<R a longer stance")

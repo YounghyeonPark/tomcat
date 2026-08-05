@@ -197,3 +197,50 @@ def test_retiming_speeds_recovery_but_does_NOT_extend_the_envelope():
     for e in (1.1 * R, 2.0 * R):                 # outside it
         for T in (0.01, 0.05, 0.15, 0.5):
             assert abs(R + (e - R) * math.exp(w * T)) >= e - 1e-9
+
+
+# ===================================================================
+# M10 — the spine is ROM-limited, not rate-limited; and both M9
+#       follow-ups (abduction, faster drive) close as "not needed"
+# ===================================================================
+
+def test_spine_is_ROM_limited_not_RATE_limited():
+    # M9 clamped the spine with NFR2f's 119 deg/s. That is a REQUIREMENT floor
+    # sized for the ADR-0007 righting reflex, not a capability. The drive can do
+    # ~912 deg/s at the joint (380 rpm motor x the 8/20 mm spool-to-arm ratio),
+    # while traversing the full +/-15 deg ROM inside a 150 ms stance needs only
+    # 200 deg/s. Using the requirement as the capability under-counted the spine
+    # by ~40 %.
+    import math
+    from tomcat_kin.params import DEFAULT_SPINE as sp
+    joint_dps = math.degrees(2 * math.pi * 380.0 / 60.0
+                             * sp.motor_spool_radius / sp.lateral_moment_arm[0])
+    assert joint_dps > 800.0                    # ~912 deg/s
+    assert joint_dps > 4 * 200.0                # 4x what a full traverse needs
+
+    p = _plant()
+    rom = abs(sp.lateral_q_min[0])
+    c = GaitController(params=trot_params())
+    full = abs(c.body.center_of_mass_y(np.full(3, rom)))
+    perp = math.sqrt(1.0 - p.projection ** 2)
+    assert p.spine == pytest.approx(full * perp, rel=1e-6)   # the FULL ROM is usable
+
+
+def test_envelope_in_physical_units_is_a_real_shove():
+    # A DCM envelope is abstract; xi = c + c_dot/omega, so a pure velocity
+    # disturbance v maps to xi = v/omega. That is the number to judge.
+    p = _plant()
+    env = ctl.rejection_envelope(p, use_spine=True)
+    assert env > 0.08                            # ~90 mm
+    assert env * p.omega > 0.6                   # rejects a >0.6 m/s lateral shove
+
+
+def test_spine_dominates_foot_placement_for_lateral_balance():
+    # The perpendicular is ~90 % lateral. The sagittal legs reach it only through
+    # a 0.44 projection; the spine pushes almost straight down it. So the spine --
+    # bought for the CRAWL's static stability -- outweighs foot placement here.
+    p = _plant()
+    feet_only = ctl.rejection_envelope(p, use_spine=False)
+    with_spine = ctl.rejection_envelope(p, use_spine=True)
+    assert p.spine > abs(p.reach[0])             # spine beats the binding reach
+    assert with_spine > 2.5 * feet_only

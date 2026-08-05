@@ -26,8 +26,10 @@ sequences the work that implements them.
 > **M8 done:** **closed-loop balance** ([ADR-0013](DESIGN_DECISIONS.md)) — DCM foot
 > placement.
 > **M9 done:** latency, retiming — and a 2.3× correction to M8's envelope, then
-> the **lateral spine** doubles it back to **68 mm** ([ADR-0014](DESIGN_DECISIONS.md)).
-> 296 tests.
+> the **lateral spine** recovers it ([ADR-0014](DESIGN_DECISIONS.md)).
+> **M10 done:** the spine is ROM- not rate-limited (**90 mm**, a 0.70 m/s shove);
+> abduction and a faster drive both close as *not needed*
+> ([ADR-0015](DESIGN_DECISIONS.md)). 300 tests.
 
 ---
 
@@ -506,12 +508,52 @@ than balance; a faster spine drive buys envelope directly (~39 mm if the full
 spine is modelled as an instantaneous bounded CoM offset, ignoring its own
 dynamics and the reaction torque it puts into the trunk.
 
-## Later milestones (candidate M10+, not committed)
+## Milestone M10 — Both M9 follow-ups close: no change needed (DONE)
 
-- **Revisit leg abduction** for dynamic balance — the ADR-0009 rejection was
-  argued against a static-stability requirement that no longer applies.
-- **Faster spine drive** — NFR2f was sized for righting, and balance would use
-  more.
+**Goal.** M9 left two questions, both expected to cost motors: revisit leg
+**abduction** (ADR-0009 rejected it against a static requirement that no longer
+applies), and consider a **faster spine drive** (NFR2f was sized for righting).
+Neither turned out to be needed.
+
+⚠️ **A correction first.** M9's spine figure clamped the authority with NFR2f's
+**119°/s** — a *requirement floor* for the righting reflex, not a capability. The
+real joint rate is `380 rpm × (8 mm spool / 20 mm arm)` = **~912°/s**, while a
+full ±15° traverse inside a 150 ms stance needs only **200°/s**. The spine is
+**ROM-limited, not rate-limited**, and M9 under-counted it by ~40 %:
+
+| | M9 | corrected |
+|---|---|---|
+| Spine authority | 24 mm | **39 mm** |
+| **Combined envelope** | 68 mm | **90 mm** |
+
+**A faster spine drive: not needed.** Capability is already **8×** the
+requirement and 4.6× what a full traverse needs.
+
+**Leg abduction: not needed.** 90 mm of DCM envelope corresponds to rejecting a
+**0.70 m/s lateral shove**. Abduction would add ~40 mm of authority for
+**+4 motors = 528 g (13 % of the budget)** — buying capability the robot does not
+need. (ADR-0009's original "puts mass in the limbs" objection was actually weak
+for a tendon drive, where the motor sits in the girdle; the conclusion survives on
+the stronger ground that the requirement is already met.)
+
+**Widening the spine ROM: available, deliberately not taken.** It scales well
+(±25° → 119 mm) and costs no motors, but **lateral is the stiffest spine axis** —
+SPINE_TAIL_SPEC ranks compliance *axial > dorsoventral > lateral*, so ±15° is
+already the narrowest by design. Widening fights the biomechanics the geometry
+came from. Recorded so the lever is known rather than rediscovered.
+
+**Net: motor count stays 19, mass stays 4.05 kg, no spec changes.** Two
+milestones of balance work land on "the hardware you already have is enough",
+which is the most useful answer available.
+
+**Honest bounds.** The 0.70 m/s figure inherits every reduced-order caveat from
+M8/M9, and assumes the spine's full ROM is free for balance — true in the trot
+(`lateral_amplitude = 0`), but a future gait that uses lateral sway for something
+else would spend that authority and close this differently.
+
+## Later milestones (candidate M11+, not committed)
+
+
 
 
 

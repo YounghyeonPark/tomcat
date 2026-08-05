@@ -663,8 +663,15 @@ context, and consequences. Status is one of: **Proposed**, **Accepted**,
   | actuator | perpendicular authority | note |
   |---|---|---|
   | Foot placement | **33 mm** | 0.44 projection of a generous fore-aft range |
-  | **Lateral spine** | **24 mm** | rate-limited to +/-8.9 deg within one 150 ms stance (NFR2f 119 deg/s) |
-  | **Combined** | **68 mm** | **+108 %** over feet alone |
+  | **Lateral spine** | ~~24 mm~~ **39 mm** | full +/-15 deg ROM -- see the correction below |
+  | **Combined** | ~~68 mm~~ **90 mm** | **+175 %** over feet alone |
+
+  ⚠️ **CORRECTED by [ADR-0015](#adr-0015-both-m9-follow-ups-close-no-change-needed).**
+  The 24 mm figure clamped the spine with **NFR2f's 119 deg/s**, which is a
+  *requirement floor* sized for the righting reflex, not a capability. The drive
+  actually manages ~**912 deg/s** at the joint, while a full-ROM traverse inside a
+  stance needs only 200 deg/s. The spine is **ROM-limited, not rate-limited**, so
+  the full +/-15 deg is available: **39 mm**, and the envelope is **90 mm**.
 
   The spine was bought for the CRAWL's *static* stability (ADR-0009, 16 -> 19
   motors) and the trot preset had it switched off. It turns out to be the
@@ -706,6 +713,54 @@ context, and consequences. Status is one of: **Proposed**, **Accepted**,
   - ⚠️ Unchanged reduced-order caveats from ADR-0013, plus: the spine is
     modelled as an instantaneous bounded CoM offset, ignoring its own dynamics and
     the reaction torque it puts into the trunk.
+
+## ADR-0015: Both M9 follow-ups close -- no change needed
+- **Status:** Accepted
+- **Context:** [ADR-0014](#adr-0014-the-lateral-spine-is-the-trots-main-balance-actuator)
+  left two open questions: **(a)** revisit leg **abduction**, since ADR-0009
+  rejected it against a *static*-stability requirement that no longer applies, and
+  **(b)** consider a **faster spine drive**, since NFR2f was sized for righting
+  rather than balance. Both were expected to cost motors. Neither does.
+- ⚠️ **First, a correction to ADR-0014.** Its spine figure clamped the
+  authority with **NFR2f's 119 deg/s**. That is a *requirement floor* set by the
+  ADR-0007 righting reflex, not a capability. The real joint rate is
+  `380 rpm x (8 mm spool / 20 mm arm)` = **~912 deg/s**, while traversing the full
+  +/-15 deg ROM inside a 150 ms stance needs only **200 deg/s**. The spine is
+  **ROM-limited, not rate-limited**, and ADR-0014 under-counted it by ~40 %:
+
+  | | ADR-0014 | corrected |
+  |---|---|---|
+  | Spine authority | 24 mm | **39 mm** |
+  | Combined envelope | 68 mm | **90 mm** |
+
+- **(b) A faster spine drive is NOT needed** -- the capability is already **8x**
+  the requirement, and 4.6x what a full-ROM traverse needs. NFR2f stands as a
+  righting spec; balance is not asking for more.
+- **(a) Leg abduction is NOT needed either.** The corrected envelope of **90 mm**
+  corresponds, via `xi = c + c_dot/omega`, to rejecting a **0.70 m/s lateral
+  shove** -- a substantial disturbance. Abduction would add direct lateral
+  placement (authority = travel x 0.897, so ~40 mm at +/-45 mm of foot travel) at
+  a cost of **+4 motors = 528 g, 13 % of the 4.05 kg budget**. That buys authority
+  the robot does not currently need.
+  - ADR-0009's *original* objection ("puts mass in the LIMBS") was in fact weak
+    for a tendon-driven design -- the motor would sit in the girdle. But the
+    conclusion survives on the stronger ground that **the requirement is already
+    met**, so the mass is simply unspent.
+- **Widening the spine ROM is available but deliberately NOT taken.** It scales
+  well (+/-25 deg would give 119 mm) and costs no motors -- but **lateral is the
+  STIFFEST spine axis**: SPINE_TAIL_SPEC ranks compliance
+  *axial > dorsoventral > lateral*, so +/-15 deg is already the narrowest axis by
+  design. Widening it fights the biomechanics the spine geometry came from. Held
+  at +/-15 deg unless a future requirement demands otherwise; recorded here so the
+  lever is known rather than rediscovered.
+- **Consequences:**
+  - Motor count stays at **19**. Mass stays at **4.05 kg**. No spec changes.
+  - NFR10 rises **68 -> 90 mm**; a new NFR records the equivalent **0.70 m/s**
+    shove, which is a more meaningful acceptance criterion than a DCM figure.
+  - ⚠️ The 0.70 m/s figure inherits every reduced-order caveat from
+    ADR-0013/0014, and assumes the spine's full ROM is free for balance. In the
+    trot it is (`lateral_amplitude = 0`); if a future gait uses lateral sway for
+    something else, the balance authority is spent and this closes differently.
 
 ---
 

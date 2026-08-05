@@ -87,7 +87,7 @@ class StepPlant:
         fore-aft range is simply not pointed the right way.
     spine : float
         Perpendicular CoM shift available from the ADR-0009 LATERAL SPINE bend
-        within one stance (m), after rate limiting. This is a second balance
+        within one stance (m). ROM-limited in practice, not rate-limited. This is a second balance
         actuator the project already owns -- bought for the crawl's static
         stability -- and it pushes almost exactly along the perpendicular, i.e.
         precisely where foot placement is weakest. 0 disables it.
@@ -137,11 +137,17 @@ class StepPlant:
         else:
             _, d = line
             proj = abs(-d[1])          # x-component of the unit perpendicular (-dy, dx)
-        # Lateral-spine authority, rate limited to what one stance allows.
+        # Lateral-spine authority. ROM-limited, NOT rate-limited: the drive can do
+        # ~912 deg/s at the joint (380 rpm motor x the 8/20 mm spool-to-arm ratio),
+        # while traversing the full +/-15 deg ROM inside a 150 ms stance needs only
+        # 200 deg/s. An earlier revision clamped this with NFR2f's 119 deg/s -- but
+        # that is a REQUIREMENT floor sized for the ADR-0007 righting reflex, not a
+        # capability, and using it under-counted the spine by ~40 %.
         sp = controller.body.spine.params
         rom = float(min(abs(sp.lateral_q_min[0]), abs(sp.lateral_q_max[0])))
-        slew = math.radians(119.0)                 # NFR2f
-        usable = min(rom, 0.5 * slew * stance)     # half-traverse within a stance
+        joint_rate = (2.0 * math.pi * 380.0 / 60.0) * (
+            sp.motor_spool_radius / sp.lateral_moment_arm[0])
+        usable = min(rom, joint_rate * stance)
         lateral = abs(controller.body.center_of_mass_y(np.full(sp.n_segments, usable)))
         perp = math.sqrt(max(0.0, 1.0 - proj * proj))   # y-component of the perpendicular
         return cls(omega=math.sqrt(GRAVITY / h), stance=stance,
