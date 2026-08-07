@@ -818,6 +818,68 @@ context, and consequences. Status is one of: **Proposed**, **Accepted**,
     step; doing otherwise re-ran a full IK sweep 34 times and dominated the test
     suite.
 
+## ADR-0017: State the disturbance requirement -- and abduction closes for the third time, properly
+- **Status:** Accepted
+- **Context:** [ADR-0016](#adr-0016-latency-is-not-an-independent-parameter--and-the-electronics-is-not-the-bottleneck)
+  left two follow-ups: bench the actuation ramp (its dominant term rested on a
+  constant-velocity idealisation), and take a third look at **leg abduction** on
+  *actuation-time* grounds. Doing both exposed a gap underneath them: **the project
+  has never stated what disturbance the robot must survive.**
+- **The ramp: modelled, and it barely matters.** Replacing constant velocity with a
+  trapezoidal accelerate/cruise/decelerate profile moves the envelope only
+  **59.2 → 57.0 mm** (-4 %). ADR-0016's caveat was over-cautious. The reason is
+  another P1 dividend: at 95 g the leg has ~**107 g of foot acceleration**
+  available, so the move is **speed**-limited, not acceleration-limited. The ramp
+  costs ~10 % on a full-scale correction but ~50 % on a short one, where the move
+  never reaches cruise.
+  - ⚠️ **Do not compute the acceleration limit by driving every joint at
+    peak torque at once.** The distal joint's inertia is tiny, so that route reports
+    ~665 g -- an artefact of a near-singular direction, not a usable acceleration.
+    The operational-space form (`tau = J^T Lambda a`, minimised over directions)
+    gives the defensible ~107 g.
+- **Abduction, quantified at last.** It points along the support-line perpendicular
+  (0.897) instead of obliquely (0.442), so the same correction needs **2.3x less
+  foot travel** -- actuation drops **41 → 24 ms**:
+
+  | abduction | perpendicular reach | self-consistent envelope |
+  |---|---|---|
+  | none (shipped) | 33 mm | **57.0 mm** |
+  | ±10° | 59 mm | 80.7 mm (+42 %) |
+  | ±15° | 72 mm | 85.7 mm (+50 %) |
+  | ±20° | 85 mm | 89.9 mm (+58 %) |
+
+  Cost unchanged: **+4 motors = 528 g, 13 % of the 4.05 kg budget.**
+- ⚠️ **The gap this exposed.** ADR-0015 rejected abduction because
+  "the requirement is already met" -- but **NFR13 was recording a *capability*, not
+  a *requirement*.** That capability has since been corrected three times
+  (74 → 33 → 90 → 59 → 57 mm), so the rejection was resting on a moving number with
+  nothing behind it. The decision was unanswerable as posed.
+- **Decision A: state the requirement (new NFR15).** Derived from cases the robot
+  will actually meet:
+
+  | case | DCM error | within 57 mm? |
+  |---|---|---|
+  | Human nudge, 5 N for 0.1 s | 16 mm | yes |
+  | **Firm push, 15 N for 0.1 s** | **48 mm** | **yes** (~19 % margin) |
+  | Unexpected 40 mm step | 40 mm | yes |
+  | 10° lateral slope (steady bias) | 29 mm | yes |
+  | Hard shove, 30 N for 0.1 s | 96 mm | **no -- a stated limit** |
+
+- **Decision B: abduction stays REJECTED, now on solid ground.** The shipped
+  57 mm meets NFR15 with margin. Abduction remains a **costed, quantified option**
+  (+42-58 % for 528 g) rather than an open question -- if a future requirement
+  demands rejecting a hard shove or rough terrain, this is the lever and its price
+  is known.
+- **Consequences:**
+  - The pattern behind three corrections in a row is now named: **a capability was
+    being used where a requirement belonged.** NFR13 is re-labelled as *measured
+    capability*; NFR15 carries the requirement.
+  - `actuation_time` takes an `accel_limit`; passing `inf` recovers the ADR-0016
+    model, so the older figures remain reproducible rather than lost.
+  - ⚠️ NFR15's cases are `[assumed]` engineering scenarios, not measured
+    ones. They are a *stated* basis, which is the improvement -- not a validated
+    one. A real disturbance test would supersede them.
+
 ---
 
 ### How to add an ADR

@@ -255,17 +255,24 @@ def test_spine_dominates_foot_placement_for_lateral_balance():
 def test_actuation_time_scales_with_the_correction_and_the_projection():
     # The correction travels along the perpendicular, but sagittal legs deliver it
     # only through their 0.44 projection -- so the fore-aft foot travel, and hence
-    # the time, is 2.3x the correction.
+    # the time, is 2.3x the correction. Checked on the CONSTANT-VELOCITY model,
+    # where the relationship is exactly linear; M12's ramp makes the shipped
+    # default mildly super-linear (see the trapezoid test below).
+    import math
     p = _plant()
-    t_small = ctl.actuation_time(p, 0.010)
-    t_big = ctl.actuation_time(p, 0.020)
-    assert t_big == pytest.approx(2 * t_small, rel=1e-9)      # linear until clamped
+    inf = math.inf
+    t_small = ctl.actuation_time(p, 0.010, accel_limit=inf)
+    t_big = ctl.actuation_time(p, 0.020, accel_limit=inf)
+    assert t_big == pytest.approx(2 * t_small, rel=1e-9)
     coeff = p.growth / (p.growth - 1.0)
     expected = coeff * 0.010 / p.projection / ctl.SPARE_FOOT_SPEED
     assert t_small == pytest.approx(expected, rel=1e-9)
     # and it saturates once the placement hits the reach limit
-    assert ctl.actuation_time(p, 1.0) == pytest.approx(
+    assert ctl.actuation_time(p, 1.0, accel_limit=inf) == pytest.approx(
         abs(p.reach[1]) / p.projection / ctl.SPARE_FOOT_SPEED, rel=1e-9)
+    # the shipped (ramped) default is monotonic and always slower
+    assert ctl.actuation_time(p, 0.020) > ctl.actuation_time(p, 0.010)
+    assert ctl.actuation_time(p, 0.020) > t_big
 
 
 def test_envelope_solved_as_a_fixed_point_is_smaller_than_the_zero_latency_one():
@@ -306,3 +313,65 @@ def test_faster_feet_buy_more_envelope_than_faster_electronics():
     faster_legs = ctl.self_consistent_envelope(
         c, pipeline=0.0075, spare_speed=2 * ctl.SPARE_FOOT_SPEED)["envelope"]
     assert (faster_legs - base) > (no_electronics - base)
+
+
+# ===================================================================
+# M12 — the actuation ramp, and abduction on actuation-time grounds
+# ===================================================================
+
+def test_trapezoidal_actuation_costs_little_on_large_moves_and_more_on_small():
+    # M11 flagged the constant-velocity assumption as optimistic. Modelling the
+    # accelerate/cruise/decelerate ramp shows it was only ~10% out on a full-scale
+    # correction -- but ~50% on a short one, where the move never reaches cruise.
+    import math
+    p = _plant()
+    for d, tol in ((0.050, 0.60), (0.010, 1.0)):
+        cv = ctl.actuation_time(p, d, accel_limit=math.inf)
+        ramp = ctl.actuation_time(p, d, accel_limit=ctl.FOOT_ACCEL_LIMIT)
+        assert ramp > cv                       # the ramp always costs something
+        assert ramp < (1 + tol) * cv
+    # short moves are triangular (never reach cruise), long ones trapezoidal
+    v, a = ctl.SPARE_FOOT_SPEED, ctl.FOOT_ACCEL_LIMIT
+    short = 0.5 * v * v / a
+    assert ctl.actuation_time(p, 1e-9, accel_limit=a) < 1e-3
+
+
+def test_the_ramp_barely_moves_the_envelope():
+    # 57 vs 59 mm. The M11 caveat was over-cautious: the leg is light enough
+    # (tendon drive) that ~107 g of foot acceleration is available, so the move is
+    # SPEED limited, not acceleration limited.
+    import math
+    c = GaitController(params=trot_params())
+    cv = ctl.self_consistent_envelope(c, accel_limit=math.inf)["envelope"]
+    ramp = ctl.self_consistent_envelope(c)["envelope"]
+    assert ramp < cv
+    assert ramp > 0.93 * cv                    # < 7 % lost
+
+
+def test_abduction_would_cut_actuation_time_roughly_in_half():
+    # ADR-0015 closed abduction on AUTHORITY grounds. On ACTUATION-TIME grounds the
+    # case is different: abduction points along the perpendicular (0.897) instead
+    # of obliquely (0.442), so the same correction needs 2.3x less foot travel.
+    import dataclasses
+    p = _plant()
+    abducted = dataclasses.replace(p, projection=0.897)
+    t_now = ctl.actuation_time(p, 0.05)
+    t_abd = ctl.actuation_time(abducted, 0.05)
+    assert t_abd < 0.65 * t_now
+
+
+def test_the_shipped_design_meets_the_stated_disturbance_cases():
+    # NFR15. Capability had never been checked against a REQUIREMENT -- NFR13
+    # recorded what the robot achieves, not what it must achieve.
+    c = GaitController(params=trot_params())
+    p = _plant()
+    env = ctl.self_consistent_envelope(c)["envelope"]
+    mass = c.body.total_mass
+    # a firm 15 N push lasting 0.1 s
+    dv = 15.0 * 0.1 / mass
+    assert dv / p.omega < env                  # recoverable
+    # a 40 mm unexpected step, and a 10 deg lateral slope
+    assert 0.040 < env
+    assert 0.163 * np.tan(np.radians(10)) < env
+    # ...but a 30 N shove is NOT, and that is a stated limit, not a surprise
+    assert (30.0 * 0.1 / mass) / p.omega > env

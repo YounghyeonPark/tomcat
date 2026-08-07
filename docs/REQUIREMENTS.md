@@ -57,9 +57,10 @@ curve.
 | NFR2j | **TROT** speed (the locomotion mode, ADR-0011)     | **~67 cm/s** default; sustainable to **~96 cm/s** (RMS motor torque hits the continuous rating at ~120 cm/s) |
 | NFR2k | Trot roll oscillation                             | **bounded** — roll-rate drift ≈ 0 per cycle, ±0.4° peak. Requires `nominal_foot` x ≈ 0.005 m; the crawl's 0.05 m falls in one stride |
 | NFR8  | Paw force sensing range / survival                | **0–35 N** measured, **≥100 N** survival (×2.5 land transient), ≤0.4 N resolution, ≥1 kHz (ADR-0012) |
-| NFR10 | **Disturbance rejection envelope** (trot)         | **≥ 59 mm** DCM error, solved as a FIXED POINT with real latency (ADR-0016). The earlier 90 mm assumed zero latency; 74 mm and 68 mm were superseded before that. |
+| NFR10 | **Disturbance rejection envelope** (trot) — *measured capability* | **57 mm** DCM error, fixed-point with real latency AND the actuation ramp (ADR-0017). Superseded figures: 74 → 33 → 90 → 59 → **57**. |
 | NFR12 | **Balance PIPELINE latency** (contact → command)  | **≤ 7.5 ms** — contact 1.0 + estimation 5.0 + transport 1.0 + compute 0.5 (ADR-0016). Re-cast from a whole-loop ≤20 ms: whole-loop is ~45 ms and **37 ms of it is the leg moving**, not electronics. |
-| NFR13 | **Lateral shove rejected** (trot)                  | **≥ 0.46 m/s** — the physical reading of the corrected NFR10 via xi = c + c_dot/omega (ADR-0016) |
+| NFR13 | Lateral shove rejected — *measured capability*      | **0.44 m/s** — the physical reading of NFR10 via xi = c + c_dot/omega. ⚠️ This is what the robot ACHIEVES; **NFR15 is what it must achieve** (ADR-0017). |
+| **NFR15** | **Disturbance cases the robot MUST survive**  | a **15 N / 0.1 s push** (48 mm), an **unexpected 40 mm step**, and a **10° lateral slope**. A 30 N shove (96 mm) is explicitly OUT of scope. Met with ~19 % margin (ADR-0017). `[assumed]` scenarios. |
 | NFR14 | **Leg spare foot speed** (for corrections)         | **≥ 4.1 m/s** — the DOMINANT term in the balance loop. Ceiling is 5.93 m/s, nominal swing uses 1.83 (ADR-0016). |
 | NFR11 | **DCM estimation accuracy**                       | **≤ 3 mm** — a steady bias becomes a PERMANENT lateral offset amplified 3.2× (ADR-0013). Sharpens NFR8/ADR-0012. |
 | NFR9  | **Paw sensor mass**                               | **≤ 20 g per paw** — binding via SWING INERTIA, not mass: 20 g costs top speed 120→96 cm/s, 40 g exceeds the motor's continuous rating (ADR-0012) |

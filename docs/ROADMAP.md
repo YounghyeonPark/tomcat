@@ -29,9 +29,11 @@ sequences the work that implements them.
 > the **lateral spine** recovers it ([ADR-0014](DESIGN_DECISIONS.md)).
 > **M10 done:** the spine is ROM- not rate-limited; abduction and a faster drive
 > both close as *not needed* ([ADR-0015](DESIGN_DECISIONS.md)).
-> **M11 done:** the latency budget — solved as a fixed point, the envelope is
-> **59 mm**, and **the electronics is not the bottleneck**
-> ([ADR-0016](DESIGN_DECISIONS.md)). 304 tests.
+> **M11 done:** the latency budget — solved as a fixed point, **the electronics is
+> not the bottleneck** ([ADR-0016](DESIGN_DECISIONS.md)).
+> **M12 done:** the actuation ramp modelled (**57 mm**), abduction costed, and the
+> missing **disturbance requirement** finally stated
+> ([ADR-0017](DESIGN_DECISIONS.md)). 308 tests.
 
 ---
 
@@ -597,12 +599,51 @@ ignoring the accelerate/decelerate ramp and torque limits during it. It is now t
 dominant term in the entire budget, which makes it the single most valuable thing
 left to measure on real hardware.
 
-## Later milestones (candidate M12+, not committed)
+## Milestone M12 — The ramp, abduction costed, and the requirement that was missing (DONE)
 
-- **Bench the actuation ramp** — now the dominant term, and the only one still
-  resting on an idealisation.
-- **Leg abduction, third look** — on actuation-time grounds this time, not
-  authority.
+**Goal.** Close M11's two follow-ups: bench the actuation ramp, and re-examine leg
+abduction on *actuation-time* grounds. Both are done — and underneath them sat a
+gap neither had named.
+
+**The ramp: modelled, and it barely matters.** A trapezoidal
+accelerate/cruise/decelerate profile moves the envelope only **59.2 → 57.0 mm**
+(−4 %). M11's caveat was over-cautious. Another P1 dividend: at 95 g the leg has
+~**107 g** of foot acceleration available, so the move is **speed**-limited, not
+acceleration-limited.
+
+⚠️ A trap worth recording: computing that limit by driving *every* joint at peak
+torque reports ~665 g — an artefact of the distal joint's near-singular inertia,
+not a usable acceleration. The operational-space form gives the defensible ~107 g.
+
+**Abduction, finally costed.** It points along the perpendicular (0.897) rather
+than obliquely (0.442), so the same correction needs 2.3× less travel — actuation
+drops **41 → 24 ms**, and the envelope rises **+42 % to +58 %** for **+4 motors,
+528 g**.
+
+⚠️ **But the decision was unanswerable as posed**, and that is the milestone's real
+finding. ADR-0015 rejected abduction because "the requirement is already met" —
+except **NFR13 was recording a *capability*, not a *requirement***. That number has
+been corrected three times (74 → 33 → 90 → 59 → 57 mm), so the rejection rested on
+a moving figure with nothing behind it.
+
+**So the requirement is now stated (NFR15):** a 15 N / 0.1 s push (48 mm), an
+unexpected 40 mm step, and a 10° lateral slope — all met by the shipped 57 mm with
+~19 % margin. A 30 N hard shove (96 mm) is explicitly **out of scope**.
+
+**Abduction therefore stays rejected, now on solid ground**, and remains a costed
+option should a future requirement need rough terrain or hard shoves.
+
+**The pattern, named.** Three corrections in a row shared one cause: **a capability
+was being used where a requirement belonged.** NFR13 is re-labelled as measured
+capability; NFR15 carries the requirement.
+
+**Honest bounds.** NFR15's cases are `[assumed]` engineering scenarios — a *stated*
+basis, which is the improvement, not a *validated* one. A real disturbance test
+would supersede them.
+
+## Later milestones (candidate M13+, not committed)
+
+
 
 
 

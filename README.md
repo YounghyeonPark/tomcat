@@ -69,11 +69,16 @@ The DCM lives *perpendicular* to the diagonal, and that direction is ~90 %
 for the *crawl's static stability*, turns out to be the trot's dominant **dynamic**
 balance actuator.
 
-Solving the loop with **real latency** then brings it back to **59 mm**
-(a 0.46 m/s lateral shove): latency is not an independent parameter, because a
-bigger correction takes the leg longer to execute and *that* is the staleness the
-controller acts on. Of the ~45 ms total, **37 ms is the leg moving** — so the
-electronics is comfortably *not* the bottleneck, and foot speed is the lever.
+Solving the loop with **real latency and the actuation ramp** brings it to
+**57 mm** (a 0.44 m/s lateral shove): latency is not an independent parameter,
+because a bigger correction takes the leg longer to execute and *that* is the
+staleness the controller acts on. Of the ~49 ms total, **41 ms is the leg moving**
+— so the electronics is comfortably *not* the bottleneck, and foot speed is the
+lever.
+
+That 57 mm is now checked against a **stated requirement** rather than quoted as a
+capability: a 15 N push, a 40 mm unexpected step, and a 10° lateral slope, met with
+~19 % margin. A hard 30 N shove is explicitly out of scope.
 
 ### The machine
 
@@ -96,7 +101,8 @@ class target the budget had assumed. A domestic cat is 4–5 kg.
 | M6 | Whole-body dynamics | **overturned M5** — tipping binds, not friction |
 | M7 | The trot | **67 cm/s**; found a C¹ defect in the foot trajectory |
 | M8–M10 | Closed-loop balance | DCM foot placement; spine is the key actuator |
-| M11 | Latency budget | rejects a **0.46 m/s** shove; the leg, not the electronics, is the limit |
+| M11 | Latency budget | the leg, not the electronics, is the limit |
+| M12 | Ramp + requirement | **57 mm** envelope, checked against a *stated* disturbance spec |
 
 Full detail in the [roadmap](docs/ROADMAP.md) and the [ADR log](docs/DESIGN_DECISIONS.md).
 

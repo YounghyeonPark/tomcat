@@ -330,29 +330,53 @@ def rejection_envelope(plant: StepPlant, beta: float = 0.0,
 SPARE_FOOT_SPEED = 4.10
 
 
+# Worst-direction foot acceleration the leg can produce, m/s^2. Computed in
+# operational space -- tau = J^T Lambda a with Lambda = (J M^-1 J^T)^-1, minimised
+# over foot-acceleration directions and over the swing -- from the motor's 1.95 N.m
+# peak through the tendon ratios and the point-mass link inertias. ~107 g. It is
+# this high because tendon drive keeps the leg at 95 g. [derived]
+#
+# ⚠️ Do NOT compute this by driving every joint at peak torque at once: the distal
+# joint's inertia is tiny, so that route reports ~665 g, which is an artefact of a
+# near-singular direction rather than a usable acceleration.
+FOOT_ACCEL_LIMIT = 1051.0
+
+
 def actuation_time(plant: StepPlant, disturbance: float,
                    spare_speed: float = SPARE_FOOT_SPEED,
-                   beta: float = 0.0) -> float:
+                   beta: float = 0.0,
+                   accel_limit: float = FOOT_ACCEL_LIMIT) -> float:
     """Time (s) the leg needs to execute the correction a disturbance demands.
 
     The placement law asks for ``(growth-beta)/(growth-1)`` times the error along
     the support-line PERPENDICULAR; the leg delivers that only through its
     ``projection``, so the fore-aft foot travel is larger by ``1/projection``.
-    Dividing by the spare foot speed gives the time.
 
-    ⚠️ OPTIMISTIC: constant-velocity correction, ignoring the accelerate/decelerate
-    ramp and any torque limit during it. A real leg needs longer, so treat this as
-    a lower bound on the actuation term.
+    The move is then run as a **trapezoidal** profile — accelerate at
+    ``accel_limit``, cruise at ``spare_speed``, decelerate — or triangular if the
+    distance is too short to reach cruise::
+
+        t = d/v + v/a          if d >= v^2/a   (trapezoidal)
+        t = 2*sqrt(d/a)        otherwise       (triangular)
+
+    Setting ``accel_limit=inf`` recovers the earlier constant-velocity model, which
+    understated the time by 10 % on a full-scale correction and ~50 % on a small
+    one — the ramp matters most when the move is short.
     """
     coeff = (plant.growth - beta) / (plant.growth - 1.0)
     perp = min(coeff * abs(disturbance), abs(plant.reach[1]))
     fore_aft = perp / plant.projection if plant.projection > 0 else perp
-    return fore_aft / spare_speed
+    if not math.isfinite(accel_limit) or accel_limit <= 0.0:
+        return fore_aft / spare_speed
+    if fore_aft >= spare_speed * spare_speed / accel_limit:
+        return fore_aft / spare_speed + spare_speed / accel_limit
+    return 2.0 * math.sqrt(fore_aft / accel_limit)
 
 
 def self_consistent_envelope(controller, pipeline: float = 0.0075,
                              spare_speed: float = SPARE_FOOT_SPEED,
-                             beta: float = 0.0, n: int = 96) -> dict:
+                             beta: float = 0.0, n: int = 96,
+                             accel_limit: float = FOOT_ACCEL_LIMIT) -> dict:
     """Envelope solved as a FIXED POINT, latency included rather than assumed.
 
     ``pipeline`` is the electronics/firmware delay — contact detection, state
@@ -376,7 +400,7 @@ def self_consistent_envelope(controller, pipeline: float = 0.0075,
     base = StepPlant.from_gait(controller, n)
 
     def envelope_for(d: float) -> tuple:
-        tau = pipeline + actuation_time(base, d, spare_speed, beta)
+        tau = pipeline + actuation_time(base, d, spare_speed, beta, accel_limit)
         plant = dataclasses.replace(base, latency=tau)
         return rejection_envelope(plant, beta=beta, use_spine=True), tau
 
