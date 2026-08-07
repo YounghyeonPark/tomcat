@@ -30,15 +30,20 @@ What IS modelled
 
 What is NOT modelled (flagged, per project convention)
 ------------------------------------------------------
-- ⚠️ **Angular momentum rate is taken as zero** (`dH/dt = 0`). The moment balance
-  is therefore the classical ZMP form. This is standard for slow gaits and is
-  reasonable *here* because the crawl is slow and the legs are light (13.7 % of
-  body mass, tendon drive keeps them so), but it is an approximation: a real
-  swing leg does change the body's angular momentum. Quantified in
-  ``angular_momentum_caveat``.
-- ⚠️ **Swing-leg inertial reaction is inside the CoM term only.** The CoM path
-  already contains the swing leg's mass moving, so its linear effect is captured;
-  its spin is not (see above).
+- **Angular momentum rate is taken as zero** (`dH/dt = 0`) in the POLYGON/ZMP path.
+  The moment balance there is the classical ZMP form. M13 quantified what that
+  costs rather than leaving it as a warning:
+  * at the **crawl** it is worth ~**1 mm** of ZMP shift -- negligible;
+  * at the **trot** it is worth ~**42 mm** -- badly violated in magnitude;
+  * BUT two point contacts can resist every moment except the one about the line
+    joining them, and the swing-leg reaction is mostly **pitch**, which they can.
+    Only ~**21 %** reaches the destabilising axis, and M7's bounded roll survives.
+  ``angular_momentum_caveat`` reports the shift; ``swing_leg_moment`` resolves the
+  component that actually matters.
+- **Swing-leg reaction is fully modelled in the LINE-support path**
+  (``swing_leg_moment``): both the **orbital** term (``m r x a``) and the **spin**
+  term (``I alpha``, slender rods). Spin turns out to be only ~3 % of gravity,
+  because tendon drive keeps the legs light *and* short.
 - No contact compliance, no impact at touchdown, no tendon stretch/friction, no
   motor dynamics. Rigid links, point contacts.
 - The force distribution is a **heuristic** (§ ``contact_forces``), not the
@@ -433,23 +438,32 @@ def angular_momentum_caveat(controller, n: int = 240) -> dict:
     for i in range(n):
         p = i / n
         st = controller.state(p)
-        if len(st.swing_legs) != 1:
+        if not st.swing_legs:
             continue
-        nm = st.swing_legs[0]
-        pos = []
-        for k in (-1, 0, 1):
-            q = controller.state((p + k * (1.0 / n)) % 1.0)
-            lq = q.legs[nm].q
-            if lq is None:
+        # Sum over ALL legs in flight. An earlier version required exactly ONE
+        # swing leg, which silently skipped every phase of a TROT (diagonal pairs
+        # mean two legs are always in flight) and returned a reassuring 0.00 mm
+        # having evaluated nothing.
+        total = np.zeros(2)
+        ok = True
+        for nm in st.swing_legs:
+            pos = []
+            for k in (-1, 0, 1):
+                q = controller.state((p + k * (1.0 / n)) % 1.0)
+                lq = q.legs[nm].q
+                if lq is None:
+                    break
+                fp = controller.body.foot_world_position(q.spine_q, nm, lq)
+                pos.append(np.array([fp[0], fp[1]]))
+            if len(pos) != 3:
+                ok = False
                 break
-            fp = controller.body.foot_world_position(q.spine_q, nm, lq)
-            pos.append(np.array([fp[0], fp[1]]))
-        if len(pos) != 3:
+            a_leg = (pos[2] - 2 * pos[1] + pos[0]) / (dt * dt)
+            total = total + controller.body.legs[nm].params.mass * a_leg
+        if not ok:
             continue
-        a_leg = (pos[2] - 2 * pos[0 + 1] + pos[0]) / (dt * dt)
-        m_leg = controller.body.legs[nm].params.mass
         # equivalent horizontal-force -> ZMP shift = F*h / (M*g)
-        shifts.append(float(np.linalg.norm(m_leg * a_leg) * height / (mass * GRAVITY)))
+        shifts.append(float(np.linalg.norm(total) * height / (mass * GRAVITY)))
     return {
         "swing_leg_zmp_shift_max": max(shifts) if shifts else 0.0,
         "swing_leg_zmp_shift_mean": float(np.mean(shifts)) if shifts else 0.0,
@@ -627,7 +641,8 @@ def trot_sweep(controller, n: int = 240) -> dict:
 
 
 def swing_leg_moment(controller, phase: float, n: int = 240,
-                     cyc: "CycleData | None" = None) -> dict:
+                     cyc: "CycleData | None" = None,
+                     include_spin: bool = True) -> dict:
     """Angular-momentum rate the SWINGING legs supply about the support line.
 
     This answers the question ``line_balance`` raises: two contacts cannot produce
@@ -641,12 +656,18 @@ def swing_leg_moment(controller, phase: float, n: int = 240,
     and the component along the support-line direction is what counts, since only
     that component can oppose the topple.
 
-    ⚠️ Point-mass approximation — a real leg also has spin angular momentum about
-    its own CoM, which this ignores. It therefore UNDER-estimates the available
-    moment, so a positive verdict here is conservative.
+    Both angular-momentum terms are included (M13):
 
-    Returns ``{"available", "required", "ratio"}`` in N·m (``ratio`` > 1 means the
-    swing legs can supply it).
+    - **orbital** — the leg's mass swinging about the body CoM, ``m r x a``;
+    - **spin** — each link rotating about its OWN CoM, ``I_i * alpha_i``, with each
+      link treated as a slender rod (``I = m L^2 / 12``). A leg link rotates about
+      the LATERAL axis, so this term is almost pure pitch; only its projection onto
+      the support line counts, and the diagonal is mostly fore-aft.
+
+    Set ``include_spin=False`` to recover the point-mass-only estimate that
+    milestones up to M12 used.
+
+    Returns ``{"available", "required", "ratio", "orbital", "spin"}`` in N·m.
     """
     if cyc is None:
         cyc = cycle(controller, n)
@@ -669,7 +690,8 @@ def swing_leg_moment(controller, phase: float, n: int = 240,
         return np.array([v[0], 0.0, v[1]]) if v.shape == (2,) else v
 
     st_now = controller.state(i / cyc.n)
-    total = np.zeros(3)
+    orbital = np.zeros(3)
+    spin = np.zeros(3)
     for name in st_now.swing_legs:
         pts = [leg_com((i + k) % cyc.n, name) for k in (-1, 0, 1)]
         if any(p is None for p in pts):
@@ -677,12 +699,39 @@ def swing_leg_moment(controller, phase: float, n: int = 240,
         a_leg = (pts[2] - 2 * pts[1] + pts[0]) / (dt * dt)
         r = pts[1] - cyc.com[i]
         m_leg = controller.body.legs[name].params.mass
-        total += m_leg * np.cross(r, a_leg - cyc.accel[i])
+        orbital = orbital + m_leg * np.cross(r, a_leg - cyc.accel[i])
 
+        if not include_spin:
+            continue
+        # SPIN term. Each link is a slender rod, I = m L^2 / 12 about its own CoM,
+        # rotating about the LATERAL (y) axis at the cumulative joint angle. So
+        # dH_spin/dt is a pure PITCH moment -- it reaches the support line only
+        # through that line's y-component, and the diagonal is mostly fore-aft.
+        lp = controller.body.leg_model_for(name).params
+        lengths = np.array([lp.l1, lp.l2, lp.l3, lp.l4], dtype=float)
+        masses = np.asarray(lp.link_mass, dtype=float)
+        qs = []
+        for k in (-1, 0, 1):
+            stk = controller.leg_state(((i + k) % cyc.n) / cyc.n, name)
+            if stk.q is None:
+                qs = []
+                break
+            qs.append(np.asarray(stk.q, dtype=float))
+        if len(qs) != 3:
+            continue
+        # absolute link angles: cumulative sums of the joint angles
+        ang = [np.cumsum(np.append(q, q[-1] * 0.0 + lp.paw_angle)) for q in qs]
+        alpha = (ang[2] - 2 * ang[1] + ang[0]) / (dt * dt)
+        I = masses * lengths * lengths / 12.0
+        spin = spin + np.array([0.0, float(np.sum(I * alpha)), 0.0])
+
+    total = orbital + spin
     available = abs(float(np.dot(total, d3)))
     required = bal.unbalanced_moment
     return {"available": available, "required": required,
-            "ratio": available / required if required > 1e-12 else float("inf")}
+            "ratio": available / required if required > 1e-12 else float("inf"),
+            "orbital": abs(float(np.dot(orbital, d3))),
+            "spin": abs(float(np.dot(spin, d3)))}
 
 
 def swing_joint_torque(controller, leg_name: str, phase: float, n: int = 240) -> np.ndarray:

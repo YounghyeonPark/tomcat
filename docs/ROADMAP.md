@@ -32,8 +32,9 @@ sequences the work that implements them.
 > **M11 done:** the latency budget — solved as a fixed point, **the electronics is
 > not the bottleneck** ([ADR-0016](DESIGN_DECISIONS.md)).
 > **M12 done:** the actuation ramp modelled (**57 mm**), abduction costed, and the
-> missing **disturbance requirement** finally stated
-> ([ADR-0017](DESIGN_DECISIONS.md)). 308 tests.
+> missing **disturbance requirement** finally stated ([ADR-0017](DESIGN_DECISIONS.md)).
+> **M13 done:** the `dH/dt = 0` caveat **closed with a number** — large at trot, but
+> mostly pitch, which the contacts resist ([ADR-0018](DESIGN_DECISIONS.md)). 312 tests.
 
 ---
 
@@ -641,7 +642,52 @@ capability; NFR15 carries the requirement.
 basis, which is the improvement, not a *validated* one. A real disturbance test
 would supersede them.
 
-## Later milestones (candidate M13+, not committed)
+## Milestone M13 — Closing the dH/dt caveat: large, but on a resistible axis (DONE)
+
+**Goal.** Every dynamics milestone since M6 carried the same warning — the moment
+balance assumes **`dH/dt = 0`**, and M6 said outright it "would not hold for a fast
+gait". The trot is that gait. Convert the warning into a number.
+
+⚠️ **A silent-zero bug, found on the way.** `angular_momentum_caveat` required
+*exactly one* swing leg. A trot moves diagonal **pairs**, so two legs are always in
+flight — every phase was skipped and it returned a reassuring **0.00 mm** having
+evaluated nothing. A zero meaning "not measured" is worse than no number; fixed,
+and a test now asserts the trot figure is non-zero.
+
+**The magnitude: badly violated at trot.**
+
+| gait | swing-leg ZMP-equivalent shift |
+|---|---|
+| Crawl | **1.0 mm** — negligible, as assumed |
+| **Trot** | **42.5 mm** — 41× larger, comparable to the entire 57 mm envelope |
+
+**The resolution: it lands mostly where the contacts can take it.** Two point
+contacts resist every moment except the one about the line joining them. The swing
+legs move mostly fore-aft, so their reaction is mostly **pitch** — and only ~**21 %**
+reaches the destabilising diagonal. **M7's bounded roll survives** (0.39 → 0.31°
+peak-to-peak, drift still small).
+
+| term about the diagonal | vs gravity |
+|---|---|
+| Swing orbital (`m r × a`) | 22 % |
+| Swing **spin** (`I α`, new in M13) | **3 %** |
+
+**A third P1 dividend.** Slender-rod inertia goes as `m L²/12`, and tendon drive
+keeps the legs at 95 g *and short* — so spin is negligible. With motors at the
+joints it would be first-order. P1 has now paid off measurably three times: swing
+torque (M7), foot acceleration (M12), link spin here.
+
+**Honest bounds.** Only the **legs** are resolved — **trunk and spine angular
+momentum is still unmodelled**, and the spine is 40 % of body mass and moves
+laterally during balance. That is the natural remaining gap. Links are slender rods
+about their own CoM: no products of inertia, adequate for a planar leg but not for
+the righting reflex.
+
+## Later milestones (candidate M14+, not committed)
+
+- **Spine/trunk angular momentum** — the last unmodelled `dH/dt` term, and the
+  spine is both heavy and actively moving during balance.
+
 
 
 

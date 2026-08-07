@@ -157,3 +157,80 @@ def test_lightly_loaded_feet_do_not_dominate_the_friction_verdict():
                 key=lambda s: s.peak_mu)
     assert worst.aggregate_mu <= worst.peak_mu
     assert worst.aggregate_mu < 0.3
+
+
+# ===================================================================
+# M13 — closing the dH/dt = 0 caveat with a number
+# ===================================================================
+
+def test_angular_momentum_caveat_evaluates_a_TROT_at_all():
+    # REGRESSION GUARD for a silent-zero bug. The estimator required EXACTLY ONE
+    # swing leg. A trot moves diagonal pairs, so two legs are always in flight --
+    # every phase was skipped and the function returned a reassuring 0.00 mm
+    # having evaluated nothing. A zero that means "not measured" is worse than no
+    # number at all.
+    from tomcat_kin.gait import trot_params
+    trot = GaitController(params=trot_params())
+    a = dyn.angular_momentum_caveat(trot, 96)
+    assert a["swing_leg_zmp_shift_max"] > 0.005          # ~42 mm, definitely not 0
+    crawl = dyn.angular_momentum_caveat(GaitController(), 96)
+    assert crawl["swing_leg_zmp_shift_max"] < 0.002      # ~1 mm, unchanged
+    assert a["swing_leg_zmp_shift_max"] > 20 * crawl["swing_leg_zmp_shift_max"]
+
+
+def test_dH_dt_is_large_at_trot_but_mostly_lands_on_PITCH():
+    # THE M13 RESULT. dH/dt = 0 is badly violated at trot speed in MAGNITUDE, but
+    # two point contacts can resist every moment except the one about the line
+    # joining them -- and the swing legs' reaction is mostly pitch, which they can.
+    from tomcat_kin.gait import trot_params
+    c = GaitController(params=trot_params())
+    cyc = dyn.cycle(c, 96)
+    grav, swing = [], []
+    for i in range(96):
+        grav.append(dyn.line_balance(c, i / 96, 96, cyc=cyc).unbalanced_moment)
+        swing.append(dyn.swing_leg_moment(c, i / 96, 96, cyc=cyc)["available"])
+    ratio = max(swing) / max(grav)
+    assert 0.10 < ratio < 0.40          # ~21 %: a real correction, not a reversal
+
+
+def test_link_SPIN_inertia_is_negligible_because_the_legs_are_light():
+    # A third P1 dividend. Slender-rod inertia goes as m*L^2/12, and tendon drive
+    # keeps the legs at 95 g and short -- so the spin term is ~3 % of gravity while
+    # the orbital term is ~22 %.
+    from tomcat_kin.gait import trot_params
+    c = GaitController(params=trot_params())
+    cyc = dyn.cycle(c, 96)
+    spins, orbs = [], []
+    for i in range(96):
+        r = dyn.swing_leg_moment(c, i / 96, 96, cyc=cyc)
+        spins.append(r["spin"])
+        orbs.append(r["orbital"])
+    assert max(spins) < 0.25 * max(orbs)
+    # and the point-mass-only path still works, for reproducing pre-M13 figures
+    off = dyn.swing_leg_moment(c, 0.25, 96, cyc=cyc, include_spin=False)
+    assert off["spin"] == 0.0
+
+
+def test_M7_bounded_roll_SURVIVES_the_swing_leg_reaction():
+    # M7 computed the trot's bounded +/-0.4 deg roll from GRAVITY ALONE. Adding the
+    # swing-leg reaction must not turn it into a divergence -- if it did, the whole
+    # trot result would fall over with it.
+    from tomcat_kin.gait import trot_params
+    c = GaitController(params=trot_params())
+    n = 96
+    cyc = dyn.cycle(c, n)
+    h = float(np.mean(cyc.com[:, 2] - cyc.ground_z))
+    I = c.body.total_mass * h * h
+    dt = c.params.period / n
+    sg = []
+    for i in range(n):
+        b = dyn.line_balance(c, i / n, n, cyc=cyc)
+        r = dyn.swing_leg_moment(c, i / n, n, cyc=cyc)
+        sg.append(np.sign(b.offset) * (b.unbalanced_moment - r["available"]))
+    sg = np.array(sg)
+    drift = float(np.sum(sg / I) * dt)
+    om = np.cumsum(sg / I) * dt
+    om -= om.mean()
+    th = np.cumsum(om) * dt
+    assert abs(drift) < 0.10                                  # still bounded
+    assert np.degrees(th.max() - th.min()) < 1.0              # still under a degree

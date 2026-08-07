@@ -880,6 +880,57 @@ context, and consequences. Status is one of: **Proposed**, **Accepted**,
     ones. They are a *stated* basis, which is the improvement -- not a validated
     one. A real disturbance test would supersede them.
 
+## ADR-0018: Close the dH/dt = 0 caveat -- large, but on an axis the contacts can resist
+- **Status:** Accepted
+- **Context:** Every dynamics milestone since M6 has carried the same warning:
+  the moment balance assumes **`dH/dt = 0`** (the classical ZMP form), and M6
+  explicitly noted it "would **not** hold for a fast or dynamic gait". The trot is
+  exactly that gait, and the warning had never been converted into a number.
+- ⚠️ **A silent-zero bug, found on the way.** `angular_momentum_caveat`
+  required **exactly one** swing leg. A trot moves *diagonal pairs*, so two legs
+  are always in flight -- every phase was skipped and the function returned a
+  reassuring **0.00 mm** having evaluated nothing. A zero that means "not measured"
+  is worse than no number at all; it is now summed over all legs in flight, and a
+  test asserts the trot figure is non-zero.
+- **The magnitude: the assumption IS badly violated at trot.**
+
+  | gait | swing-leg ZMP-equivalent shift |
+  |---|---|
+  | Crawl (5.0 s) | **1.0 mm** -- negligible, as M6 assumed |
+  | **Trot (0.3 s)** | **42.5 mm** -- 41x larger, comparable to the whole 57 mm envelope |
+
+- **The resolution: it lands mostly on an axis the contacts can resist.** Two point
+  contacts can balance *every* moment except the one about the line joining them.
+  The swing legs move mostly fore-aft, so their reaction is mostly **pitch** -- and
+  the diagonal support line is mostly fore-aft too, so only its small perpendicular
+  component couples in:
+
+  | term about the diagonal | max | vs gravity |
+  |---|---|---|
+  | Gravitational topple | 0.907 N·m | -- |
+  | Swing **orbital** (`m r x a`) | 0.197 N·m | 22 % |
+  | Swing **spin** (`I alpha`, added in M13) | 0.026 N·m | **3 %** |
+  | Swing total | 0.189 N·m | **21 %** |
+
+- **Decision: the caveat is CLOSED as quantified, not as eliminated.** `dH/dt` is a
+  ~21 % correction to the trot's roll balance -- a real term, now modelled, not a
+  reversal. **M7's bounded roll survives**: including it moves the oscillation
+  0.39 → 0.31 deg peak-to-peak and leaves the per-cycle drift small.
+  `swing_leg_moment(..., include_spin=False)` reproduces the pre-M13 figures.
+- **A third P1 dividend.** Slender-rod inertia goes as `m L^2 / 12`, and tendon
+  drive keeps the legs at **95 g and short** -- so the spin term is only 3 %. On a
+  robot with motors at the joints it would be a first-order effect. P1 has now paid
+  off measurably three times: swing torque (ADR-0011), foot acceleration
+  (ADR-0017), and link spin here.
+- **Consequences:**
+  - The polygon/ZMP path (used by the **crawl**) keeps the classical form, which is
+    justified there by the 1 mm figure rather than by assertion.
+  - ⚠️ Still not modelled: **trunk and spine** angular momentum -- only the
+    LEGS are resolved. The spine is 40 % of body mass and does move laterally
+    during balance, so this is the natural remaining gap.
+  - ⚠️ Links are slender rods about their own CoM; no products of inertia,
+    no off-axis terms. Adequate for a planar leg, not for the righting reflex.
+
 ---
 
 ### How to add an ADR
