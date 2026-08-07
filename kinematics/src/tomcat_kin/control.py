@@ -170,7 +170,13 @@ class StepPlant:
         # free DCM offset; it is not.
         if floor_mu is not None:
             budget = max(floor_mu - gait_mu, 0.0)
-            spine_auth = min(spine_auth, budget * GRAVITY * stance * stance / 4.0)
+            cost = spine_friction_cost(controller, n)
+            if cost["mu_total"] > 1e-9:
+                # Both the translation and yaw costs scale LINEARLY with the
+                # commanded shift, so the friction budget converts straight into a
+                # usable shift, then projects onto the support-line perpendicular.
+                usable_shift = budget / cost["mu_total"] * cost["shift"]
+                spine_auth = min(spine_auth, usable_shift * perp)
 
         return cls(omega=math.sqrt(GRAVITY / h), stance=stance,
                    reach=((lo - nom) * proj, (hi - nom) * proj), projection=proj,
@@ -277,6 +283,13 @@ def simulate(plant: StepPlant, steps: int = 12, xi0: float = 0.0,
         # True propagation: tau under the old (nominal) line, then the remainder.
         xi_tau = nominal + (xi - nominal) * gtau + s_assist
         xi = p + (xi_tau - p) * grem
+        # A diverging run overflows to inf/nan and floods the log with warnings
+        # during the envelope bisection. Clamp once it is unrecoverably large --
+        # the caller only needs to know it ran away, not by how many orders.
+        if not np.isfinite(xi) or abs(xi) > 1e6:
+            out.extend([math.copysign(1e6, xi if np.isfinite(xi) else 1.0)]
+                       * (steps - len(out) + 1))
+            return np.array(out[:steps + 1])
         out.append(xi)
     return np.array(out)
 
@@ -435,3 +448,68 @@ def self_consistent_envelope(controller, pipeline: float = 0.0075,
     env, tau = envelope_for(lo)
     return {"envelope": lo, "latency": tau, "pipeline": pipeline,
             "actuation": tau - pipeline}
+
+
+def spine_friction_cost(controller, n: int = 96) -> dict:
+    """What the lateral-spine balance assist costs in ground friction (M14/M15).
+
+    Bending the spine is INTERNAL motion, so it can only move the whole-body CoM
+    relative to the planted feet by pushing on the ground. Two separate costs:
+
+    - **translation** — accelerating the whole body sideways to shift the CoM::
+
+          mu_trans = (pi^2/2) * shift / (t^2 g)
+
+    - **yaw** — the swing is asymmetric (the spine's tip travels ~91 mm while its
+      base stays put), so it dumps angular momentum about the VERTICAL axis into
+      the trunk. Two contacts resist that with a friction COUPLE over their
+      separation, and a couple loads each foot with the FULL force rather than
+      half::
+
+          mu_yaw = 2 * (dHz/dt) / (d_separation * W)
+
+    Both scale linearly with the commanded shift and as ``1/t^2`` with the stance,
+    which is why a slower trot is markedly more robust.
+
+    ⚠️ Worst-case superposition: the two demands are assumed to align at one foot.
+    ⚠️ Profile shaping does NOT help — S-bend commands are more yaw-efficient per
+    degree but lose more CoM shift than they save, so the uniform command is
+    already optimal for a given friction budget. Measured, not assumed.
+
+    Returns ``{"mu_translation", "mu_yaw", "mu_total", "shift"}`` at FULL ROM.
+    """
+    from . import dynamics as dyn
+
+    body = controller.body
+    sp = body.spine.params
+    nseg = sp.n_segments
+    stance = controller.params.duty_factor * controller.params.period
+    total_mass = body.total_mass
+    weight = total_mass * GRAVITY
+
+    cyc = dyn.cycle(controller, n)
+    feet = cyc.feet[n // 4]
+    names = sorted(feet)
+    if len(names) == 2:
+        sep = float(np.linalg.norm(feet[names[0]][:2] - feet[names[1]][:2]))
+    else:
+        sep = 0.2
+
+    rom = float(min(abs(sp.lateral_q_min[0]), abs(sp.lateral_q_max[0])))
+    pts = body.spine.lateral_vertebra_xy(np.full(nseg, rom))
+    seg_c = (pts[:-1] + pts[1:]) / 2.0
+    pos = np.vstack([seg_c, pts[-1]])
+    m_fore = sum(body.legs[k].params.mass
+                 for k, mt in body.mounts.items() if mt.girdle.value == "front")
+    masses = np.append(np.asarray(sp.segment_mass, dtype=float),
+                       sp.front_girdle_mass + m_fore)
+    com_x = body.center_of_mass(np.zeros(nseg)).x
+
+    shift = float(np.sum(masses * pos[:, 1])) / total_mass
+    K = (math.pi ** 2 / 2.0) / (stance * stance)          # raised-cosine peak accel
+    dHz = float(np.sum(masses * (pos[:, 0] - com_x) * pos[:, 1])) * K
+
+    mu_t = K * shift / GRAVITY
+    mu_y = 2.0 * abs(dHz) / (sep * weight)
+    return {"mu_translation": mu_t, "mu_yaw": mu_y,
+            "mu_total": mu_t + mu_y, "shift": shift}

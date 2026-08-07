@@ -26,8 +26,9 @@ from the code.
 ![locomotion capability](docs/figures/01_speed.png)
 
 Two gaits, and the gap between them is the story. The statically stable crawl is
-a **1.1 cm/s** shuffle; the diagonal **trot reaches 67 cm/s**, sustainable to
-96 cm/s before the worst motor's RMS torque hits its continuous rating. A
+a **1.1 cm/s** shuffle; the diagonal **trot reaches 50 cm/s** — slowed from 67 because the spine's
+balance assist has to push against the ground, and that demand scales as
+1/stance². The motors would allow ~96 cm/s on a better floor. A
 domestic cat trots at roughly 1 m/s.
 
 ### Why the crawl is slow — and it is not what we first thought
@@ -102,7 +103,8 @@ class target the budget had assumed. A domestic cat is 4–5 kg.
 | M7 | The trot | **67 cm/s**; found a C¹ defect in the foot trajectory |
 | M8–M10 | Closed-loop balance | DCM foot placement; spine is the key actuator |
 | M11 | Latency budget | the leg, not the electronics, is the limit |
-| M12 | Ramp + requirement | **57 mm** envelope, checked against a *stated* disturbance spec |
+| M12 | Ramp + requirement | envelope checked against a *stated* disturbance spec |
+| M13–M15 | Full rigid-body terms | the spine assist costs **friction**; trot slows to 50 cm/s |
 
 Full detail in the [roadmap](docs/ROADMAP.md) and the [ADR log](docs/DESIGN_DECISIONS.md).
 

@@ -188,8 +188,11 @@ def test_trot_is_within_the_real_motor_envelope():
 def test_trot_is_far_faster_than_the_statically_stable_crawl():
     trot = GaitController(params=trot_params())
     crawl = GaitController()                       # the M6 shipped crawl
+    # 45x the crawl. The shipped period is 0.4 s, not the 0.3 s M7 first chose:
+    # M15 found the spine's balance assist needs ground friction, and at 0.3 s that
+    # demand exceeds a realistic floor (see ADR-0020).
     assert trot.params.body_speed > 40 * crawl.params.body_speed
-    assert trot.params.body_speed > 0.5            # m/s -- cat-like
+    assert trot.params.body_speed >= 0.5           # m/s -- still cat-like
 
 
 def test_trot_stays_well_inside_the_friction_cone():

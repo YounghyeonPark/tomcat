@@ -36,7 +36,9 @@ sequences the work that implements them.
 > **M13 done:** the `dH/dt = 0` caveat **closed with a number** — large at trot, but
 > mostly pitch, which the contacts resist ([ADR-0018](DESIGN_DECISIONS.md)).
 > **M14 done:** the spine assist is **not free** — it costs ground friction, which
-> reinstates a withdrawn μ requirement ([ADR-0019](DESIGN_DECISIONS.md)). 315 tests.
+> reinstates a withdrawn μ requirement ([ADR-0019](DESIGN_DECISIONS.md)).
+> **M15 done:** its **yaw couple** doubles that cost, so the trot slows to
+> **50 cm/s** ([ADR-0020](DESIGN_DECISIONS.md)). 315 tests.
 
 ---
 
@@ -727,10 +729,51 @@ is 0.8–1.2 so it should pass, but it is load-bearing now, not incidental.
 own **reaction torque on the trunk** — the yaw couple its lateral swing produces —
 is still unmodelled, and remains the open item.
 
-## Later milestones (candidate M15+, not committed)
+## Milestone M15 — The spine's yaw couple, and the speed it costs (DONE)
 
-- **Spine reaction torque** — the yaw couple, still open after M14 addressed only
-  the translational cost.
+**Goal.** M14 costed only the *translational* half of the spine's friction bill and
+left its **reaction torque on the trunk** open. It is not a footnote.
+
+**The second cost.** The spine's swing is **asymmetric** — its tip travels ~**91 mm**
+while its base stays put, about twice the 44 mm CoM shift — so it dumps angular
+momentum about the **vertical** axis into the trunk. Two contacts resist that with a
+friction **couple**, and a couple loads each foot with the **full** force, not half.
+
+| cost at full ROM | μ |
+|---|---|
+| Translation (M14) | 0.98 |
+| **Yaw couple** (M15) | **0.27** |
+| Gait's own | 0.145 |
+| **Total** | **~1.4** — more than any ordinary floor |
+
+⚠️ **Profile shaping does not help — measured, not assumed.** The three lateral
+spine joints can be commanded differentially, and an S-bend is up to **7.5×** more
+yaw-efficient per degree. But it loses more CoM shift than it saves in friction:
+swept over all profiles, the **uniform** command is already optimal for a given
+budget. A tempting lever that is a dead end.
+
+**So the trot slows: 0.30 → 0.40 s, 67 → 50 cm/s.** Both costs scale as
+`1/stance²`, so a longer stance buys robustness fast — and the shipped default has
+to meet its own stated requirement on a realistic μ = 0.8 floor. Same call M6 made
+when dynamics showed the 1.4 s crawl infeasible.
+
+| period | speed | usable spine @ μ 0.8 | envelope | NFR15? |
+|---|---|---|---|---|
+| 0.30 s | 66.7 cm/s | 20.5 mm | 40.2 mm | **NO** |
+| **0.40 s** | **50.0 cm/s** | **36.5 mm** | **51.8 mm** | **yes** |
+
+**The governing relationship, finally visible:** *speed and disturbance robustness
+trade against each other through friction, at a steep `1/t²` rate.* That was
+invisible while the spine assist was modelled as free.
+
+⚠️ **A side effect worth watching:** a longer stance means more time to topple, so
+per-step growth rises **3.21 → 4.73**. A DCM estimation bias that was a standing
+offset at 0.3 s now runs the loop away past **6.9 mm**. NFR11 asks ≤ 3 mm, leaving
+~2.3× margin — smaller than before, and it moved for a reason unrelated to sensing.
+
+## Later milestones (candidate M16+, not committed)
+
+
 
 
 

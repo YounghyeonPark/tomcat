@@ -119,12 +119,18 @@ def test_large_enough_disturbance_is_unrecoverable():
 def test_sensing_bias_becomes_a_PERMANENT_offset_amplified_by_the_growth():
     # THE REQUIREMENT ADR-0012 HAS TO MEET. A steady error in the estimated DCM
     # does not average out -- it settles into a fixed lateral offset, amplified by
-    # exactly the per-step growth (3.2x). A 5 mm estimation bias is a 16 mm
-    # permanent drift.
+    # exactly the per-step growth. The relationship holds while the placement is
+    # unsaturated; past that the loop runs away entirely, which is a sharper
+    # statement of the same requirement.
     p = _plant()
-    for bias in (0.002, 0.005, 0.010):
+    for bias in (0.002, 0.005):
         traj = ctl.simulate(p, 60, xi0=0.03, beta=0.0, estimation_error=bias)
         assert traj[-1] == pytest.approx(-p.growth * bias, rel=0.02)
+    # M15: the shipped 0.4 s period has growth 4.7 (up from 3.2 at 0.3 s), so a
+    # bias that was merely an offset before is now unrecoverable.
+    assert p.growth > 4.0
+    runaway = ctl.simulate(p, 60, xi0=0.03, beta=0.0, estimation_error=0.010)
+    assert abs(runaway[-1]) > 0.2
 
 
 # ===================================================================
@@ -282,8 +288,8 @@ def test_envelope_solved_as_a_fixed_point_is_smaller_than_the_zero_latency_one()
     c = GaitController(params=trot_params())
     ideal = ctl.rejection_envelope(_plant(), use_spine=True)
     real = ctl.self_consistent_envelope(c, pipeline=0.0075)
-    assert ideal > 0.085                          # ~90 mm, the published figure
-    assert 0.050 < real["envelope"] < 0.070       # ~59 mm once latency is real
+    assert ideal > 0.075                          # ~83 mm ideal (zero-latency)
+    assert 0.045 < real["envelope"] < 0.065       # ~54 mm once latency is real
     assert real["envelope"] < 0.75 * ideal
 
 
@@ -390,22 +396,33 @@ def test_spine_authority_is_ALSO_friction_limited():
     c = GaitController(params=trot_params())
     rom_only = ctl.StepPlant.from_gait(c)                       # pre-M14 behaviour
     poor = ctl.StepPlant.from_gait(c, floor_mu=0.6)
-    good = ctl.StepPlant.from_gait(c, floor_mu=1.2)
+    good = ctl.StepPlant.from_gait(c, floor_mu=1.5)
     assert poor.spine < rom_only.spine                          # friction binds
     assert good.spine == pytest.approx(rom_only.spine, rel=1e-9)  # ROM binds
     assert rom_only.spine == ctl.StepPlant.from_gait(c, floor_mu=None).spine
+    # M15: the YAW couple roughly doubles the cost, so the floor at which ROM
+    # takes over is much higher than M14's translation-only estimate suggested.
+    assert ctl.StepPlant.from_gait(c, floor_mu=0.8).spine < rom_only.spine
 
 
-def test_full_spine_authority_needs_mu_of_about_point_eight_six():
-    # 4d/(t^2 g) for the spine, plus what the gait already spends.
+def test_the_spine_costs_BOTH_translation_and_yaw_friction():
+    # M14 costed only the TRANSLATION (accelerating the body sideways). M15 adds
+    # the YAW couple: the spine's tip travels ~2x the CoM shift while its base
+    # stays put, dumping angular momentum about the vertical into the trunk, which
+    # two contacts resist with a friction COUPLE -- and a couple loads each foot
+    # with the full force, not half.
     c = GaitController(params=trot_params())
-    p = ctl.StepPlant.from_gait(c)
-    spine_mu = 4 * p.spine / (p.stance ** 2 * ctl.GRAVITY)
-    assert spine_mu == pytest.approx(0.71, abs=0.05)
-    assert spine_mu + 0.145 == pytest.approx(0.86, abs=0.05)
+    cost = ctl.spine_friction_cost(c)
+    assert cost["mu_translation"] > 0.1
+    assert cost["mu_yaw"] > 0.1                       # NOT negligible
+    assert cost["mu_total"] == pytest.approx(
+        cost["mu_translation"] + cost["mu_yaw"], rel=1e-9)
+    # and it scales as 1/stance^2, which is why a slower trot is more robust
+    slow = ctl.spine_friction_cost(GaitController(params=trot_params(period=0.8)))
+    assert slow["mu_total"] < 0.3 * cost["mu_total"]
 
 
-def test_NFR15_is_met_only_above_a_floor_friction_of_about_0_70():
+def test_NFR15_needs_a_floor_of_about_0_7_at_the_shipped_period():
     # The requirement (a 15 N / 0.1 s push = 48 mm) is NOT floor-independent.
     import dataclasses
 
@@ -424,4 +441,4 @@ def test_NFR15_is_met_only_above_a_floor_friction_of_about_0_70():
 
     c = GaitController(params=trot_params())
     assert envelope(0.6) < 0.048          # fails the requirement
-    assert envelope(0.8) > 0.048          # meets it
+    assert envelope(0.8) > 0.048          # meets it at the SHIPPED 0.4 s period

@@ -159,7 +159,7 @@ TROT_PHASE_OFFSETS: dict[str, float] = {
 }
 
 
-def trot_params(period: float = 0.3, stride_length: float = 0.10,
+def trot_params(period: float = 0.4, stride_length: float = 0.10,
                 **overrides) -> "GaitParams":
     """A balanced diagonal TROT — the project's first DYNAMIC gait (M7).
 
@@ -183,8 +183,15 @@ def trot_params(period: float = 0.3, stride_length: float = 0.10,
     swing-leg torque impulsive (9x over-stated) and landing the paw with a
     forward scuff at the full stance speed.
 
-    Defaults give **~67 cm/s**. Feasible and thermally sustainable to ~96 cm/s;
-    at ~120 cm/s the RMS motor torque reaches the continuous rating.
+    Defaults give **~50 cm/s**. Faster is possible on a good floor -- feasible and
+    thermally sustainable to ~96 cm/s -- but 0.4 s is what meets **NFR15** on a
+    realistic **mu = 0.8** floor.
+
+    ⚠️ The period is set by FRICTION, not by the motors. The lateral-spine balance
+    assist has to push against the ground to move the CoM, and that demand scales
+    as ``1/stance^2``: at 0.3 s (67 cm/s) it needs mu ~ 1.26 on top of the gait's
+    own 0.145, which no ordinary floor supplies, and the disturbance envelope falls
+    to 40 mm -- under NFR15's 48 mm. At 0.4 s it clears. See ADR-0020.
     """
     kw = dict(
         period=period,

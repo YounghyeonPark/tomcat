@@ -54,7 +54,7 @@ curve.
 | ~~NFR2g~~ | ~~Paw–ground friction μ ≥ 0.70~~ | **WITHDRAWN (ADR-0010).** The resolved per-foot demand is **μ ≈ 0.055**; friction was never the binding constraint. Any sane pad meets it. |
 | NFR2h | Statically stable walk speed                      | **~1.1 cm/s** (crawl), limited by **TIPPING** (ZMP), not friction. Faster requires a *dynamic* gait — ADR-0010 |
 | NFR2i | Dynamic (ZMP) stability margin, CRAWL             | **> 0** at every phase; currently **+6.4 mm** ⚠️ small |
-| NFR2j | **TROT** speed (the locomotion mode, ADR-0011)     | **~67 cm/s** default; sustainable to **~96 cm/s** (RMS motor torque hits the continuous rating at ~120 cm/s) |
+| NFR2j | **TROT** speed (the locomotion mode)              | **~50 cm/s** default — slowed from 67 cm/s by ADR-0020: the spine's balance assist costs ground friction as `1/stance²`, and at 0.3 s it exceeded a realistic floor. Motor-thermally capable of ~96 cm/s on a better floor. |
 | NFR2k | Trot roll oscillation                             | **bounded** — roll-rate drift ≈ 0 per cycle, ±0.4° peak. Requires `nominal_foot` x ≈ 0.005 m; the crawl's 0.05 m falls in one stride |
 | NFR8  | Paw force sensing range / survival                | **0–35 N** measured, **≥100 N** survival (×2.5 land transient), ≤0.4 N resolution, ≥1 kHz (ADR-0012) |
 | NFR10 | **Disturbance rejection envelope** (trot) — *measured capability* | **57 mm** DCM error, fixed-point with real latency AND the actuation ramp (ADR-0017). Superseded figures: 74 → 33 → 90 → 59 → **57**. |

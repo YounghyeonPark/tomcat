@@ -986,6 +986,62 @@ context, and consequences. Status is one of: **Proposed**, **Accepted**,
     modelled -- this ADR covers the *translational* cost of the assist, not the
     yaw couple its lateral swing puts into the body. That remains open.
 
+## ADR-0020: The spine's YAW couple doubles its friction cost -- the trot slows to 50 cm/s
+- **Status:** Accepted
+- **Context:** [ADR-0019](#adr-0019-the-spine-assist-is-not-free--it-costs-ground-friction-and-that-reinstates-a-withdrawn-requirement)
+  found that the lateral-spine balance assist costs ground friction, because
+  internal motion cannot move the CoM without a ground reaction. It costed only
+  the **translation**. The spine's **reaction torque on the trunk** was left as the
+  open item. It is not a footnote.
+- **The second cost.** The spine's swing is **asymmetric** -- its tip travels
+  ~**91 mm** while its base stays put, roughly twice the 44 mm CoM shift. That
+  dumps angular momentum about the **vertical** axis into the trunk. Two contacts
+  resist it with a friction **couple** over their separation, and a couple loads
+  each foot with the **full** force rather than half:
+
+  | cost at full ROM | mu |
+  |---|---|
+  | Translation (ADR-0019) | 0.98 |
+  | **Yaw couple** (this ADR) | **0.27** |
+  | Gait's own demand | 0.145 |
+  | **Total** | **~1.4** |
+
+  Peak `dHz/dt` is **2.61 N·m** (grid-converged; cross-checked by hand against the
+  front-girdle term alone at 1.32 N·m). No ordinary floor supplies mu 1.4.
+- ⚠️ **Profile shaping does NOT help -- measured, not assumed.** The spine
+  has three independent lateral joints, and an S-bend command is genuinely more
+  yaw-efficient per degree (up to **7.5x** better shift-per-yaw). But it loses more
+  CoM shift than it saves in friction: swept over all profiles, the **uniform**
+  command gives the most usable shift for a given friction budget. A tempting lever
+  that turns out to be a dead end.
+- **Decision: slow the trot from 0.30 s to 0.40 s -- 67 -> 50 cm/s.** Both friction
+  costs scale as **1/stance^2**, so a longer stance buys robustness fast:
+
+  | period | speed | spine mu at ROM | usable spine @ mu 0.8 | envelope | NFR15? |
+  |---|---|---|---|---|---|
+  | 0.30 s | 66.7 cm/s | 1.26 | 20.5 mm | 40.2 mm | **NO** |
+  | **0.40 s** | **50.0 cm/s** | **0.71** | **36.5 mm** | **51.8 mm** | **yes** |
+  | 0.50 s | 40.0 cm/s | 0.45 | 39.4 mm (ROM) | 53.5 mm | yes |
+
+  The shipped default must meet its own stated requirement on a realistic floor.
+  This is the same call M6 made when dynamics showed the 1.4 s crawl infeasible.
+- **Consequences:**
+  - **Speed and disturbance robustness trade against each other through FRICTION**,
+    at a steep `1/t^2` exchange rate. That is the governing relationship for this
+    gait, and it was invisible while the spine assist was modelled as free.
+  - NFR16 (mu >= 0.70) **stands** -- it is met at the new period. Faster running
+    remains available on a better floor; it is a *floor-dependent* capability now,
+    not a fixed one.
+  - ⚠️ **The sensing requirement tightened.** A longer stance means more
+    time to topple: per-step growth rises **3.21 -> 4.73**. A DCM estimation bias
+    that was merely a standing offset at 0.3 s now runs the loop away past
+    **6.9 mm**. NFR11 asks for <= 3 mm, so there is ~2.3x margin -- but it is a
+    smaller margin than before, and it moved for a reason unrelated to sensing.
+  - The self-consistent envelope is **53.9 mm** at the shipped period (vs 57.0 mm
+    quoted at 0.3 s with the spine assumed free).
+  - `spine_friction_cost()` reports both terms; `StepPlant.from_gait(floor_mu=...)`
+    applies them. `floor_mu=None` reproduces every pre-M14 figure.
+
 ---
 
 ### How to add an ADR
