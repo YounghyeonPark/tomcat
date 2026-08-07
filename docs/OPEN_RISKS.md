@@ -11,6 +11,12 @@ The short version:
 > and measure paw friction.** Neither needs the robot to exist. Everything else is
 > either low-consequence, or a decision rather than an unknown.
 
+⚠️ **Simulation cannot substitute for either.** M17 ([ADR-0022](DESIGN_DECISIONS.md))
+added an independent MuJoCo cross-check, and it validated the *model* — it says
+nothing about R1 or R2. No physics engine knows what a motor weighs or how grippy a
+pad is; feeding an assumed value in returns the assumed value. **Measurement checks
+the inputs, simulation checks the model.**
+
 ---
 
 ## 1. Critical — these can break the design
@@ -138,10 +144,17 @@ Small, and honestly at the point of diminishing returns:
 
 - **Regeneration** — currently credited at zero, so 27 W of mechanical work is
   written off. A backdrivable drive recovers some of it, which would improve NFR6.
-- **Trunk / dorsoventral `dH/dt`** — the last unmodelled angular-momentum terms.
-  Expected small by the same argument that made link spin 3 % (ADR-0018), but that
-  is an expectation, and this project has been wrong about exactly that kind of
-  expectation four times.
+- ~~**Trunk / dorsoventral `dH/dt`**~~ — **closed by M17** ([ADR-0022](DESIGN_DECISIONS.md)).
+  Rather than computing each term, an independent MuJoCo model measured their
+  aggregate effect on the only quantity they could change: the divergence rate is
+  **2 % SLOWER** than LIPM predicts, so the reduced-order model is conservative.
+- ⚠️ **NEW — the single-axis reduction.** M17 found the two diagonals topple along
+  axes **52.4° apart**, which `StepPlant`'s fixed `projection` cannot express. The
+  magnitudes agree exactly; the directions do not. Not yet costed.
+- ⚠️ **The feet-only envelope magnitude is UNRESOLVED.** M17's closed-loop harness
+  recovers to ~13 mm against a predicted 30.34 mm, but its undisturbed baseline
+  drifts 25 mm — the same order as the signal, so it cannot adjudicate. Needs a
+  harness that also regulates the along-line component.
 
 ---
 

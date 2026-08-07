@@ -40,7 +40,9 @@ sequences the work that implements them.
 > **M15 done:** its **yaw couple** doubles that cost, so the trot slows to
 > **50 cm/s** ([ADR-0020](DESIGN_DECISIONS.md)).
 > **M16 done:** power & runtime — **NFR6 closed** at ~30 min / 900 m, and standing
-> costs 76 % of moving for zero work ([ADR-0021](DESIGN_DECISIONS.md)). 321 tests.
+> costs 76 % of moving for zero work ([ADR-0021](DESIGN_DECISIONS.md)).
+> **M17 done:** an independent physics engine says LIPM is **conservative by ~2 %**,
+> and finds a blind spot it cannot see ([ADR-0022](DESIGN_DECISIONS.md)). 327 tests.
 
 ---
 
@@ -816,7 +818,50 @@ are `[assumed]` and could move the answer ±25 % on their own.
 > assumed by what it would break. The modelling thread has reached the point where
 > its headline numbers are gated by **procurement, not analysis**.
 
-## Later milestones (candidate M17+, not committed)
+## Milestone M17 — Checking the reduced-order model with an independent engine (DONE)
+
+**Goal.** Every balance number since M8 rests on a **Linear Inverted Pendulum
+Model** — point mass, constant height, `dH/dt = 0`. OPEN_RISKS §6 still listed the
+trunk angular-momentum terms as *expected* small. A MuJoCo model, generated from the
+live parameters, now checks that from outside.
+
+**The gate first.** A drifted physics model produces confident wrong numbers, so
+agreement is asserted before anything else — mass **0.00000 g**, all four paw tips
+**0.000000 mm**, CoM **0.0000 mm**.
+
+| what LIPM assumes | what the rigid-body model measures |
+|---|---|
+| diverges at `ω = 7.71` rad/s | **7.55 rad/s — 2 % SLOWER** |
+| constant CoM height | drops **0.5–4.5 mm** of 162 mm |
+| one topple axis | ⚠️ **two, 52.4° apart** |
+
+**The reassuring result.** Real divergence is *slower* than predicted — distributed
+inertia resists the topple a point mass cannot. **This closes the §6 `dH/dt` item**,
+not by computing each term but by measuring their aggregate effect on the only
+quantity they could change. The model errs in the safe direction.
+
+⚠️ **The new one.** `StepPlant` collapses balance onto a single axis with a fixed
+`projection = 0.4417`. Both diagonals match that *magnitude* exactly — which is why
+the 1-D reduction works — but their perpendiculars are **52.4° apart**, so
+consecutive steps correct along different directions and a disturbance handled on
+one diagonal keeps a 0.61 component on the next. Recorded as a **known structural
+limit**, not yet costed.
+
+**An old error, independently reproduced.** M8 caught by reasoning that placing the
+foot *at* the DCM arrests but does not recover. In MuJoCo the capture law fell at
+**every** disturbance including 6.5 mm, while the recover law survived.
+
+⚠️ **What this does not settle.** The closed-loop harness recovers to ~13 mm against
+a predicted 30.34 mm, but its *undisturbed* baseline drifts up to 25 mm — the same
+order as the signal. **That shortfall is not reportable**: a harness whose noise
+floor matches its signal cannot adjudicate, and claiming otherwise would repeat this
+project's own recurring mistake.
+
+⚠️ **And it validates the model, not the inputs.** No engine knows what a motor
+weighs or how grippy a pad is. **OPEN_RISKS R1 and R2 are untouched.**
+
+## Later milestones (candidate M18+, not committed)
+
 
 - **Cell selection** — the runtime now rests on two assumed battery numbers.
 - **Regeneration** — currently credited at zero; a backdrivable drive could recover

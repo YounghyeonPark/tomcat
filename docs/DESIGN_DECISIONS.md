@@ -1096,6 +1096,66 @@ context, and consequences. Status is one of: **Proposed**, **Accepted**,
   - ⚠️ Battery energy density (175 Wh/kg) and usable fraction (80 %) are
     `[assumed]`. A real cell selection could move the runtime +/-25 % on its own.
 
+## ADR-0022: An independent physics engine says LIPM is CONSERVATIVE -- and finds a blind spot it cannot see
+- **Status:** Accepted
+- **Context:** Every balance number since [ADR-0013](#adr-0013) rests on a **Linear
+  Inverted Pendulum Model**: a point mass at constant height on a massless leg with
+  `dH/dt = 0`. `control.py` is built entirely on it, and
+  [OPEN_RISKS](OPEN_RISKS.md) SS6 still listed the trunk/dorsoventral angular-momentum
+  terms as *"expected small ... but that is an expectation, and this project has been
+  wrong about exactly that kind of expectation four times."* A MuJoCo model
+  (`kinematics/src/tomcat_kin/mjcf.py`) now checks it from outside.
+- **The validation gate comes first.** A physics model that had drifted from the
+  parameter set would produce confident, wrong numbers. The MJCF is *generated from
+  the live parameters*, and reproduces the analytical model exactly:
+
+  | check | agreement |
+  |---|---|
+  | Total mass | **0.00000 g** |
+  | All four paw tips vs `LegModel.forward` | **0.000000 mm** |
+  | Whole-body CoM (x, z) | **0.0000 mm** |
+
+- **Result 1 -- the divergence rate is right, and errs SAFE.** Released near-neutral
+  on the diagonal support line with no balance control, the measured divergence in
+  the small-perturbation limit is **7.55 rad/s against LIPM's 7.71 -- about 2 %
+  SLOWER**. Distributed inertia resists the topple that a point mass cannot. Per
+  stance that is a growth of 4.53 vs 4.68.
+  **This closes the SS6 `dH/dt` item** -- not by computing each term, but by measuring
+  their aggregate effect on the only quantity they could change. The reduced-order
+  model is conservative, which is the direction a design may safely be wrong in.
+- **Result 2 -- constant CoM height holds.** LIPM assumes it; the real CoM drops
+  **0.5-4.5 mm** while toppling, on a 162 mm height.
+- ⚠️ **Result 3 (new) -- the trot has TWO topple axes, 52.4 deg apart.** `StepPlant`
+  collapses balance onto a single axis with a fixed `projection = 0.4417`. The two
+  diagonal support lines are **not parallel**: LF-RR and RF-LR give perpendiculars
+  52.4 deg apart (`p1 . p2 = 0.61`). The *magnitudes* match `projection` exactly for
+  both -- which is why the 1-D reduction works at all -- but consecutive steps
+  correct along **different directions**, and a disturbance corrected on one
+  diagonal retains a 0.61 component on the next. The 1-D model cannot express this,
+  and cannot express **direction-dependence of the envelope**.
+- **Result 4 -- the M8 capture-vs-recover correction is confirmed from outside.**
+  M8 caught, in simulation, that placing the foot *at* the DCM (`p = xi`) arrests
+  motion but leaves the body displaced. In MuJoCo the capture law **fell at every
+  disturbance tested**, including 6.5 mm; the recover law survived. An error the
+  project found by reasoning is now reproduced by an independent engine.
+- ⚠️ **What this does NOT settle: the envelope magnitude.** The closed-loop harness
+  recovers to ~13 mm against a predicted feet-only **30.34 mm**, but its own
+  *undisturbed* baseline drifts up to 25 mm over ten steps -- the same order as the
+  quantity being measured. **The shortfall is therefore not reportable as a finding.**
+  A harness whose noise floor matches its signal cannot adjudicate; saying otherwise
+  would repeat this project's own recurring error. Closing this needs a controller
+  that also regulates the along-line component.
+- ⚠️ **This validates the MODEL, not the INPUTS.** No physics engine knows what a
+  GIM3505-9 weighs or how grippy a TPU pad is. OPEN_RISKS **R1 and R2 are untouched**
+  by any of this and still need a scale and a drag test.
+- **Consequences:**
+  - `omega` and the per-step growth stand as published, now with ~2 % conservatism
+    measured rather than assumed.
+  - The single-axis reduction is recorded as a **known structural limit** rather than
+    an unexamined assumption -- the honest status for something not yet costed.
+  - `mujoco` is an **optional** dependency. The 321 analytical tests stand alone;
+    6 more run when it is present and skip when it is not.
+
 ---
 
 ### How to add an ADR
