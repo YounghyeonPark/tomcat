@@ -375,3 +375,53 @@ def test_the_shipped_design_meets_the_stated_disturbance_cases():
     assert 0.163 * np.tan(np.radians(10)) < env
     # ...but a 30 N shove is NOT, and that is a stated limit, not a surprise
     assert (30.0 * 0.1 / mass) / p.omega > env
+
+
+# ===================================================================
+# M14 — the spine assist is not free: it costs ground friction
+# ===================================================================
+
+def test_spine_authority_is_ALSO_friction_limited():
+    # THE M14 FINDING. Bending the spine is INTERNAL motion, and internal motion
+    # cannot move the whole-body CoM -- moving it relative to the planted feet
+    # needs a horizontal GROUND reaction. control.py had treated spine_assist as a
+    # free DCM offset. It is the THIRD constraint on this number: M9 wrongly
+    # clamped it by rate, M10 corrected that to ROM, and friction was never checked.
+    c = GaitController(params=trot_params())
+    rom_only = ctl.StepPlant.from_gait(c)                       # pre-M14 behaviour
+    poor = ctl.StepPlant.from_gait(c, floor_mu=0.6)
+    good = ctl.StepPlant.from_gait(c, floor_mu=1.2)
+    assert poor.spine < rom_only.spine                          # friction binds
+    assert good.spine == pytest.approx(rom_only.spine, rel=1e-9)  # ROM binds
+    assert rom_only.spine == ctl.StepPlant.from_gait(c, floor_mu=None).spine
+
+
+def test_full_spine_authority_needs_mu_of_about_point_eight_six():
+    # 4d/(t^2 g) for the spine, plus what the gait already spends.
+    c = GaitController(params=trot_params())
+    p = ctl.StepPlant.from_gait(c)
+    spine_mu = 4 * p.spine / (p.stance ** 2 * ctl.GRAVITY)
+    assert spine_mu == pytest.approx(0.71, abs=0.05)
+    assert spine_mu + 0.145 == pytest.approx(0.86, abs=0.05)
+
+
+def test_NFR15_is_met_only_above_a_floor_friction_of_about_0_70():
+    # The requirement (a 15 N / 0.1 s push = 48 mm) is NOT floor-independent.
+    import dataclasses
+
+    def envelope(mu):
+        p = ctl.StepPlant.from_gait(c, floor_mu=mu)
+        lo, hi = 0.002, 0.15
+        for _ in range(30):
+            mid = 0.5 * (lo + hi)
+            tau = 0.0075 + ctl.actuation_time(p, mid)
+            e = ctl.rejection_envelope(dataclasses.replace(p, latency=tau), use_spine=True)
+            if mid <= e:
+                lo = mid
+            else:
+                hi = mid
+        return lo
+
+    c = GaitController(params=trot_params())
+    assert envelope(0.6) < 0.048          # fails the requirement
+    assert envelope(0.8) > 0.048          # meets it

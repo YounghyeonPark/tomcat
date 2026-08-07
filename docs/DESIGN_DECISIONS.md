@@ -931,6 +931,61 @@ context, and consequences. Status is one of: **Proposed**, **Accepted**,
   - ⚠️ Links are slender rods about their own CoM; no products of inertia,
     no off-axis terms. Adequate for a planar leg, not for the righting reflex.
 
+## ADR-0019: The spine assist is not free -- it costs ground friction, and that reinstates a withdrawn requirement
+- **Status:** Accepted
+- **Context:** [ADR-0014](#adr-0014-the-lateral-spine-is-the-trots-main-balance-actuator)
+  made the lateral spine the trot's dominant balance actuator, and `control.py`
+  modelled it as a bounded **offset added straight to the DCM** -- free of charge.
+  It is not free.
+- **The physics that was missed.** Bending the spine is **internal motion**, and
+  internal motion cannot move the whole-body CoM. Moving the CoM *relative to the
+  planted feet* requires a horizontal **ground reaction** -- i.e. friction.
+  Shifting by `d` within a stance `t` needs `a ~ 4d/t^2`, hence
+
+  > `mu_spine >= 4d / (t^2 g)` **on top of** whatever the gait already spends.
+
+  For the shipped trot: the full 39.4 mm of spine authority needs
+  **mu = 0.71**, and the gait itself already spends **0.145** -- so
+  **mu = 0.86 total**, against a floor that supplies 0.8-1.2.
+- **Decision: the spine authority is clamped by friction as well as ROM.**
+  `StepPlant.from_gait(..., floor_mu=...)` takes the floor's coefficient and uses
+  the smaller of the ROM-limited and friction-limited values. This is the **third**
+  constraint on this one number, and the history is worth recording:
+  [ADR-0014](#adr-0014-the-lateral-spine-is-the-trots-main-balance-actuator)
+  clamped it by **rate** (wrongly -- that was a requirement floor, not a
+  capability), [ADR-0015](#adr-0015-both-m9-follow-ups-close-no-change-needed)
+  corrected it to **ROM**, and friction was never checked at all.
+
+  | floor mu | spine authority | envelope | binds on |
+  |---|---|---|---|
+  | 0.5 | 19.6 mm | 39.5 mm | friction |
+  | 0.6 | 25.1 mm | 43.7 mm | friction |
+  | **0.7** | **30.6 mm** | **48.2 mm** | friction |
+  | 0.8 | 36.1 mm | 53.7 mm | friction |
+  | **>= 1.0** | **39.4 mm** | **57.0 mm** | **ROM** |
+
+- ⚠️ **This reinstates a requirement that [ADR-0010](#adr-0010-mass-target-30--405-kg-and-the-walk-is-limited-by-tipping-not-friction)
+  withdrew -- at almost exactly the same number, for a completely different
+  mechanism.** ADR-0010 struck out NFR2g (mu >= 0.70) on the grounds that friction
+  was never the binding constraint for the **crawl's sway crossover**. That was
+  correct *for that mechanism*. But the **trot's spine balance action** is a
+  different use of the same actuator, and it needs **mu >= 0.70** for NFR15 to be
+  met. The agreement is not a coincidence: both are "shift the CoM laterally by
+  tens of mm inside one stance".
+- **Consequences:**
+  - **New NFR16: floor friction mu >= 0.70** for NFR15 to hold. Below it the
+    envelope falls under the 48 mm push case -- 43.7 mm at mu 0.6, 39.5 at 0.5.
+  - **The paw-pad handoff to mechanical is back on.** ADR-0010 cancelled it;
+    [TACTILE_SENSING_SPEC](../mechanical/TACTILE_SENSING_SPEC.md) and
+    [ASSEMBLY_SPEC](../mechanical/ASSEMBLY_SPEC.md) must again show TPU ~80A
+    delivers mu >= 0.70 on the intended floor. Published PU-on-concrete is
+    0.8-1.2, so it should pass -- but it is now load-bearing, not incidental.
+  - `floor_mu=None` keeps the ROM-only behaviour and reproduces every pre-M14
+    figure, which stays correct for a floor of mu >= 1.0.
+  - ⚠️ The spine's own **reaction torque on the trunk** is still not
+    modelled -- this ADR covers the *translational* cost of the assist, not the
+    yaw couple its lateral swing puts into the body. That remains open.
+
 ---
 
 ### How to add an ADR

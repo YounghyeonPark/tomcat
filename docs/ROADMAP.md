@@ -34,7 +34,9 @@ sequences the work that implements them.
 > **M12 done:** the actuation ramp modelled (**57 mm**), abduction costed, and the
 > missing **disturbance requirement** finally stated ([ADR-0017](DESIGN_DECISIONS.md)).
 > **M13 done:** the `dH/dt = 0` caveat **closed with a number** — large at trot, but
-> mostly pitch, which the contacts resist ([ADR-0018](DESIGN_DECISIONS.md)). 312 tests.
+> mostly pitch, which the contacts resist ([ADR-0018](DESIGN_DECISIONS.md)).
+> **M14 done:** the spine assist is **not free** — it costs ground friction, which
+> reinstates a withdrawn μ requirement ([ADR-0019](DESIGN_DECISIONS.md)). 315 tests.
 
 ---
 
@@ -683,10 +685,54 @@ laterally during balance. That is the natural remaining gap. Links are slender r
 about their own CoM: no products of inertia, adequate for a planar leg but not for
 the righting reflex.
 
-## Later milestones (candidate M14+, not committed)
+## Milestone M14 — The spine assist is not free (DONE)
 
-- **Spine/trunk angular momentum** — the last unmodelled `dH/dt` term, and the
-  spine is both heavy and actively moving during balance.
+**Goal.** Model the spine's reaction, flagged since ADR-0014 as "an instantaneous
+bounded CoM offset, ignoring its own dynamics". The first thing checked turned out
+to be more basic than the reaction torque, and more consequential.
+
+**The physics that was missed.** Bending the spine is **internal motion**, and
+internal motion cannot move the whole-body CoM. Moving it *relative to the planted
+feet* requires a horizontal **ground reaction** — friction. `control.py` had been
+adding the spine assist straight to the DCM, free of charge.
+
+> `mu_spine >= 4d/(t² g)`, on top of what the gait already spends.
+
+For the shipped trot: full 39.4 mm of spine authority needs **μ = 0.71**, plus the
+gait's own **0.145** → **μ = 0.86 total**, against a floor supplying 0.8–1.2.
+
+**So spine authority has a THIRD constraint.** The history of this one number is
+worth recording: M9 clamped it by **rate** (wrongly — that was a requirement floor,
+not a capability), M10 corrected it to **ROM**, and friction was never checked.
+
+| floor μ | spine authority | envelope | binds on |
+|---|---|---|---|
+| 0.6 | 25.1 mm | 43.7 mm | friction |
+| **0.7** | **30.6 mm** | **48.2 mm** | friction |
+| 0.8 | 36.1 mm | 53.7 mm | friction |
+| ≥ 1.0 | 39.4 mm | **57.0 mm** | ROM |
+
+⚠️ **This reinstates a requirement ADR-0010 withdrew — at almost the same number,
+for a different mechanism.** ADR-0010 struck out μ ≥ 0.70 because friction was not
+the binding constraint for the *crawl's sway crossover*. Correct, for that
+mechanism. But the *trot's spine balance action* is a different use of the same
+actuator, and needs **μ ≥ 0.70** for NFR15 to hold. Not a coincidence: both are
+"shift the CoM laterally by tens of mm inside one stance".
+
+**Consequences.** New **NFR16 (μ ≥ 0.70)**, and the **paw-pad handoff to mechanical
+is back on** — TPU ~80A must again be shown to deliver it. Published PU-on-concrete
+is 0.8–1.2 so it should pass, but it is load-bearing now, not incidental.
+
+**Honest bounds.** This covers the *translational* cost of the assist. The spine's
+own **reaction torque on the trunk** — the yaw couple its lateral swing produces —
+is still unmodelled, and remains the open item.
+
+## Later milestones (candidate M15+, not committed)
+
+- **Spine reaction torque** — the yaw couple, still open after M14 addressed only
+  the translational cost.
+
+
 
 
 

@@ -116,8 +116,15 @@ class StepPlant:
         return p + (xi - p) * self.growth
 
     @classmethod
-    def from_gait(cls, controller, n: int = 96, latency: float = 0.0) -> "StepPlant":
-        """Build the plant from a real gait: omega and stance from the full model."""
+    def from_gait(cls, controller, n: int = 96, latency: float = 0.0,
+                  floor_mu: "float | None" = None,
+                  gait_mu: float = 0.145) -> "StepPlant":
+        """Build the plant from a real gait: omega and stance from the full model.
+
+        ``floor_mu`` clamps the spine authority to what ground friction can supply
+        (see the note in the body). ``None`` leaves it ROM-limited, which is the
+        pre-M14 behaviour and is correct for a floor of mu >= ~1.0.
+        """
         from . import dynamics as dyn
 
         cyc = dyn.cycle(controller, n)
@@ -152,9 +159,22 @@ class StepPlant:
         usable = min(rom, joint_rate * stance)
         lateral = abs(controller.body.center_of_mass_y(np.full(sp.n_segments, usable)))
         perp = math.sqrt(max(0.0, 1.0 - proj * proj))   # y-component of the perpendicular
+        spine_auth = lateral * perp
+
+        # ⚠️ THIRD constraint on the spine, and the one that actually binds on a
+        # poor floor: FRICTION. Bending the spine is INTERNAL motion, and internal
+        # motion cannot move the whole-body CoM -- moving it relative to the
+        # planted feet requires a horizontal GROUND reaction. Shifting by d within
+        # the stance needs a ~ 4d/t^2, hence mu >= 4d/(t^2 g) ON TOP of whatever
+        # the gait already spends. Earlier revisions treated the spine assist as a
+        # free DCM offset; it is not.
+        if floor_mu is not None:
+            budget = max(floor_mu - gait_mu, 0.0)
+            spine_auth = min(spine_auth, budget * GRAVITY * stance * stance / 4.0)
+
         return cls(omega=math.sqrt(GRAVITY / h), stance=stance,
                    reach=((lo - nom) * proj, (hi - nom) * proj), projection=proj,
-                   spine=lateral * perp, latency=latency)
+                   spine=spine_auth, latency=latency)
 
 
 def capture_placement(plant: StepPlant, xi_end: float) -> float:

@@ -74,7 +74,7 @@ a long area* rather than point bearing.
 | Spine spinous-process pulley posts | **CNC-milled** | 6061-T6 | this *is* the 30 mm dorsoventral tendon moment arm |
 | Spine **lateral** pulley posts (±20 mm, per actuated vertebra) | **CNC-milled** | 6061-T6 | this *is* the 20 mm lateral moment arm (ADR-0009 f/u). Shortening it to the bare transverse process puts the base lateral joint **over motor peak** |
 | Motor / driver housings | **3D printed** | PA12 | cover plates for access, §4 |
-| Paw pads | **cast / moulded** | TPU ~80A | compliant contact + **sealed dome over a MEMS barometer** — see [TACTILE_SENSING_SPEC](TACTILE_SENSING_SPEC.md). ~~μ ≥ 0.70 stability requirement~~ **withdrawn (ADR-0010)**: the resolved friction demand is μ ≈ 0.055, so any sane pad meets it. The binding constraint on this part is **mass: ≤ 20 g per paw** (ADR-0012). |
+| Paw pads | **cast / moulded** | TPU ~80A | compliant contact + **sealed dome over a MEMS barometer** — see [TACTILE_SENSING_SPEC](TACTILE_SENSING_SPEC.md). ⚠️ **μ ≥ 0.70 is a requirement again (NFR16 / ADR-0019)** — withdrawn by ADR-0010 for the crawl crossover, reinstated because the spine's *balance* action needs ground reaction to shift the CoM. Published PU-on-concrete is 0.8–1.2 so it should pass, but it is now load-bearing. `[owed: measure on the intended floor]` Also **mass ≤ 20 g per paw** (ADR-0012). |
 
 Rationale: metal only where load or precision demands it (bearing bores, sheave
 grooves, bonded joints); printed everywhere else to keep mass and cost down.
