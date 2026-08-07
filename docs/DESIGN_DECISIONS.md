@@ -1042,6 +1042,60 @@ context, and consequences. Status is one of: **Proposed**, **Accepted**,
   - `spine_friction_cost()` reports both terms; `StepPlant.from_gait(floor_mu=...)`
     applies them. `floor_mu=None` reproduces every pre-M14 figure.
 
+## ADR-0021: Power and runtime -- standing costs 76 % of moving, for zero work
+- **Status:** Accepted
+- **Context:** Fifteen milestones established what the robot can *do*. None asked
+  how long it could do it for. **NFR6 (runtime) had read `TBD` since M1**, and the
+  300 g battery in the mass budget had never been checked against a load.
+  `kinematics/src/tomcat_kin/power.py` now computes it from the resolved gait
+  torques rather than an assumption.
+- **NFR6, answered:**
+
+  | | power | endurance |
+  |---|---|---|
+  | **Trotting** (50 cm/s) | **83.6 W** | **30 min, ~900 m** |
+  | Standing | 67.2 W | 37 min |
+  | Standing **with the ADR-0003 brake** | ~15 W (electronics only) | **168 min** |
+
+- ⚠️ **The finding: standing costs 76 % of what moving costs, and does no
+  work.** A cable can only pull, so a tendon-driven joint holds its posture with
+  **motor current**, and that current burns `I^2 R` whether or not anything moves.
+  ADR-0003 called the power-off brake "essential" on qualitative grounds; this is
+  what it is worth -- **4.5x standing endurance**. It is not an optimisation.
+- ⚠️ **The drive is only 39 % efficient.** Copper loss (42 W) exceeds the
+  useful mechanical work (27 W) at the trot operating point. That is a property of
+  the transmission, not of the gait.
+- **A lever this exposes: the joint moment arm sets EFFICIENCY, not just cable
+  tension.** Motor torque is `tau_joint * r_spool / r_joint`, so copper loss goes
+  as the **square** of that ratio:
+
+  | moment arms | copper | total | trot endurance | hip sheave |
+  |---|---|---|---|---|
+  | **1.00x** (shipped) | 42.0 W | 83.6 W | 30 min | 56 mm |
+  | **1.25x** | 26.9 W | 68.4 W | **37 min (+23 %)** | 70 mm |
+  | 1.50x | 18.7 W | 60.2 W | 42 min (+40 %) | 84 mm |
+  | 2.00x | 10.5 W | 52.0 W | 48 min (+60 %) | 112 mm |
+
+  [LEG_TENDON_SPEC](../mechanical/LEG_TENDON_SPEC.md) sized these arms for **cable
+  tension**. They have a second role it never costed. **1.25x is recorded as a
+  costed option, not adopted** -- a 70 mm hip sheave is large for a cat leg and the
+  change ripples through mass, packaging and inertia. 2.0x (112 mm) is clearly out.
+- **Consequences:**
+  - **NFR6 set to ~30 min / ~900 m** trotting, ~168 min standing *with* the brake.
+  - The brake moves from "specified" to "budgeted": without it the robot cannot
+    idle usefully, and idling is most of what a pet robot does.
+  - Peak current **2.79 A** against the driver's 4.19 A rating, RMS **0.89 A**
+    against 1.60 A rated -- comfortable, and it confirms the ADR-0008 sizing from a
+    direction (thermal/electrical) that had not been checked.
+  - ⚠️ Deliberately pessimistic and flagged: **no regeneration** (negative
+    work is treated as dissipated, though a backdrivable QDD drive could recover
+    some), `I^2 R` on the phase-to-phase resistance (matching the down-select
+    note's convention so the two agree), and **no iron, switching or gearbox
+    losses**. Real draw will be *higher* than the motor terms; the 15 W electronics
+    allowance is `[assumed]`.
+  - ⚠️ Battery energy density (175 Wh/kg) and usable fraction (80 %) are
+    `[assumed]`. A real cell selection could move the runtime +/-25 % on its own.
+
 ---
 
 ### How to add an ADR

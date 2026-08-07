@@ -67,6 +67,7 @@ from .stability import (
 )
 from . import dynamics                                    # noqa: F401  (M6)
 from . import control                                     # noqa: F401  (M8)
+from . import power                                       # noqa: F401  (M16)
 from .control import StepPlant, placement, rejection_envelope
 from .dynamics import (
     ContactSolution,
@@ -106,6 +107,7 @@ from .gait import (
 )
 
 __all__ = [
+    "power",
     "control", "StepPlant", "placement", "rejection_envelope",
     "dynamics", "ContactSolution", "ZMPResult", "CycleData",
     "contact_forces", "zero_moment_point",

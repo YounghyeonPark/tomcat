@@ -38,7 +38,9 @@ sequences the work that implements them.
 > **M14 done:** the spine assist is **not free** — it costs ground friction, which
 > reinstates a withdrawn μ requirement ([ADR-0019](DESIGN_DECISIONS.md)).
 > **M15 done:** its **yaw couple** doubles that cost, so the trot slows to
-> **50 cm/s** ([ADR-0020](DESIGN_DECISIONS.md)). 315 tests.
+> **50 cm/s** ([ADR-0020](DESIGN_DECISIONS.md)).
+> **M16 done:** power & runtime — **NFR6 closed** at ~30 min / 900 m, and standing
+> costs 76 % of moving for zero work ([ADR-0021](DESIGN_DECISIONS.md)). 321 tests.
 
 ---
 
@@ -771,7 +773,51 @@ per-step growth rises **3.21 → 4.73**. A DCM estimation bias that was a standi
 offset at 0.3 s now runs the loop away past **6.9 mm**. NFR11 asks ≤ 3 mm, leaving
 ~2.3× margin — smaller than before, and it moved for a reason unrelated to sensing.
 
-## Later milestones (candidate M16+, not committed)
+## Milestone M16 — Power and runtime: NFR6 closed after fifteen milestones (DONE)
+
+**Goal.** Fifteen milestones established what the robot can *do*; none asked how
+long it could do it for. **NFR6 read `TBD` since M1**, and the 300 g battery had
+never been checked against a load.
+
+| | power | endurance |
+|---|---|---|
+| **Trotting** (50 cm/s) | **83.6 W** | **30 min, ~900 m** |
+| Standing | 67.2 W | 37 min |
+| Standing **with the ADR-0003 brake** | ~15 W | **168 min** |
+
+⚠️ **Standing costs 76 % of what moving costs, and does no work.** A cable can
+only pull, so a tendon-driven joint holds posture with **motor current**, which
+burns `I²R` whether or not anything moves. ADR-0003 called the power-off brake
+"essential" on qualitative grounds — this is what it is worth: **4.5×** standing
+endurance. For a pet robot, idling is most of the duty cycle.
+
+⚠️ **The drive is only 39 % efficient** — copper loss (42 W) exceeds useful
+mechanical work (27 W). That is the transmission, not the gait.
+
+**A lever this exposes.** Motor torque is `τ_joint · r_spool / r_joint`, so copper
+loss goes as the **square** of that ratio — the joint moment arm sets **efficiency**
+as well as cable tension, a second role LEG_TENDON_SPEC never costed:
+
+| moment arms | total | endurance | hip sheave |
+|---|---|---|---|
+| 1.00× (shipped) | 83.6 W | 30 min | 56 mm |
+| **1.25×** | 68.4 W | **37 min (+23 %)** | 70 mm |
+| 2.00× | 52.0 W | 48 min (+60 %) | 112 mm — clearly out |
+
+**1.25× is recorded as a costed option, not adopted** — it ripples through mass,
+packaging and swing inertia, and that is a mechanical decision, not a modelling one.
+
+**Honest bounds.** Deliberately pessimistic and flagged: **no regeneration**, `I²R`
+on the phase-to-phase resistance, and **no iron, switching or gearbox losses** — so
+real draw will be *higher*. Battery density (175 Wh/kg) and usable fraction (80 %)
+are `[assumed]` and could move the answer ±25 % on their own.
+
+## Later milestones (candidate M17+, not committed)
+
+- **Cell selection** — the runtime now rests on two assumed battery numbers.
+- **Regeneration** — currently credited at zero; a backdrivable drive could recover
+  some of the 27 W of mechanical work.
+
 
 
 

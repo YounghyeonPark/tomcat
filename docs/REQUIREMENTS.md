@@ -68,7 +68,8 @@ curve.
 | NFR3  | Control loop rate (tension/position)             | ≥ 1 kHz             |
 | NFR4  | Gait / trajectory update rate                    | ≥ 100 Hz            |
 | NFR5  | Mass (total)                                     | **4.05 kg** — raised from 3.0 kg (ADR-0010) once a real motor was sourced: the lightest purchasable part is 120 g, not the 72 g class target. A domestic cat is 4–5 kg. |
-| NFR6  | Runtime on one battery charge                    | ❓ TBD               |
+| NFR6  | Runtime on one battery charge                    | **~30 min / ~900 m** trotting at 50 cm/s (83.6 W); **~168 min standing WITH the ADR-0003 brake**, 37 min without it (ADR-0021). 300 g pack, `[assumed]` 175 Wh/kg. |
+| NFR17 | **Power-off stance brake**                        | **Required, not optional** — standing costs 76 % of moving for zero work; the brake is worth **4.5×** standing endurance (ADR-0021). |
 | NFR7  | Max cable tension per tendon                     | ❓ TBD (N)           |
 
 ## 4. Constraints & assumptions
@@ -99,7 +100,7 @@ Remaining **calibration / measurement** items (not decisions):
   ≤80 g class target does not exist in this torque band; NFR5 rose to 4.05 kg as
   a result (ADR-0010). ⚠️ Still owed: buy and weigh one, and a **thermal test** —
   sustained trot is a 2.1× overload on the continuous rating.
-- ❓ Runtime (NFR6) and per-tendon force target (NFR7).
+- ❓ Per-tendon force target (NFR7). *(Runtime/NFR6 closed by ADR-0021.)*
 
 ## 6. Out of scope (for now)
 
