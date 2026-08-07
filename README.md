@@ -185,7 +185,10 @@ it.
 
 ## Status
 
-**Modelling and design.** No hardware built. Every result above comes from the
+**Modelling and design.** No hardware built. The prioritised list of what is still
+uncertain, and how each item is closed, is in **[OPEN_RISKS.md](docs/OPEN_RISKS.md)**
+— the short version being that *two cheap measurements (weigh a motor, drag-test a
+paw pad) de-risk almost the whole design*. Every result above comes from the
 `tomcat_kin` model with its assumptions stated in-line; the largest open items are
 a real motor purchased and weighed, a paw drop-test, and bench-identified tendon
 friction. See [REQUIREMENTS.md](docs/REQUIREMENTS.md) for the open questions.

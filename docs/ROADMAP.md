@@ -812,6 +812,10 @@ on the phase-to-phase resistance, and **no iron, switching or gearbox losses** �
 real draw will be *higher*. Battery density (175 Wh/kg) and usable fraction (80 %)
 are `[assumed]` and could move the answer ±25 % on their own.
 
+> **Before more milestones:** [OPEN_RISKS.md](OPEN_RISKS.md) ranks what is still
+> assumed by what it would break. The modelling thread has reached the point where
+> its headline numbers are gated by **procurement, not analysis**.
+
 ## Later milestones (candidate M17+, not committed)
 
 - **Cell selection** — the runtime now rests on two assumed battery numbers.

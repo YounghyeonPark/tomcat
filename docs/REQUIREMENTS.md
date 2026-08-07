@@ -84,6 +84,11 @@ curve.
 
 ## 5. Open questions
 
+> **Prioritised by consequence in [OPEN_RISKS.md](OPEN_RISKS.md)** — which of the
+> 48 `[owed]` / 89 `[assumed]` items can actually change a decision, and what
+> closes each. Two dominate: **motor mass** (21 % margin before the budget breaks)
+> and **paw friction** (met with none).
+
 The major architecture questions are **resolved** in the [ADR log](DESIGN_DECISIONS.md):
 - Actuator choice → tendon-drive, BLDC + FOC (ADR-0003).
 - Tension sensing → hybrid: motor-current estimate everywhere + joint-end load
