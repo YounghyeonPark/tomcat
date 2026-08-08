@@ -880,10 +880,10 @@ motors, so they do not each have free air.
 | trot, anodised | 74.9 °C | 59.7 °C |
 | stand w/o brake, polished | **134.1 °C** | 85.7 °C |
 
-⚠️ **The battery is the thermal protection, by coincidence.** The girdle's time
-constant is **53 min**; the pack feeds it for **30 min**. The robot runs out of
-energy before it overheats — and nothing in the design put that margin there.
-**Tether it and it is gone.**
+⚠️ **The battery is the thermal protection, by coincidence.** A bare girdle takes
+**~47 min** to get most of the way up; the pack feeds it for **30 min**. The robot
+runs out of energy before it overheats — and nothing in the design put that margin
+there. **Tether it and it is gone.**
 
 **Decision: anodise the girdles, worth ~39 K.** Radiation is the same order as
 still-air convection here, so ε 0.09 → 0.90 costs no mass, volume or power.
@@ -916,6 +916,19 @@ deliberately leaky pack is **refused** — an audit that cannot fail is decorati
 
 A bare girdle survives only because the pack dies first (47 % of its settled rise); an
 anodised one sits at 69 %, so **tethering it is no longer a cliff**.
+
+⚠️ **A self-caught error, of this project's oldest kind.** The 53 min first published
+for M18 was `LumpedMass::time_constant` — `C/(hA)`, **convection only**, identical for
+every emissivity. Measured from the transient it is **46.6 min polished, 25.6 min
+anodised**. Correcting it sharpens the conclusion:
+
+| | effective τ | vs 30 min | why it is safe |
+|---|---|---|---|
+| polished | 46.6 min | outlasts | **only because the pack dies first** |
+| **anodised** | 25.6 min | shorter | **on its own merits** (≈75 °C equilibrium) |
+
+A **nominal figure standing where a measured one belonged** — the fifth time, and the
+first arriving through a dependency rather than our own model. Reported upstream.
 
 ⚠️ These are **assembly-skin** temperatures — windings run hotter, and copper loss is
 the only source modelled. Reality is worse.

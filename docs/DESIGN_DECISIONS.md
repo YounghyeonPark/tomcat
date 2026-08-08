@@ -1176,12 +1176,18 @@ context, and consequences. Status is one of: **Proposed**, **Accepted**,
   | stand w/o brake, polished | **134.1 C** | 85.7 C |
   | stand w/o brake, anodised | 85.4 C | 72.5 C |
 
-- **The finding: the battery is the thermal protection, by coincidence.** The
-  girdle's time constant is **53 min**; the pack can only feed it for **30 min**
-  (ADR-0021). The robot runs out of energy before it overheats. **Tether it, or
-  hot-swap the pack, and that protection disappears** -- continuous trotting on a
-  bare girdle settles near **114 C**, past NdFeB's comfortable range. Nothing in the
+- **The finding: the battery is the thermal protection, by coincidence.** The bare
+  girdle takes **~47 min** to get most of the way up; the pack can only feed it for
+  **30 min** (ADR-0021). The robot runs out of energy before it overheats. **Tether
+  it, or hot-swap the pack, and that protection disappears** -- continuous trotting on
+  a bare girdle settles near **114 C**, past NdFeB's comfortable range. Nothing in the
   design put that margin there; it fell out of two unrelated numbers.
+- ⚠️ **Correction (see the amendment): the 53 min first published here was
+  `LumpedMass::time_constant`, which is `C/(hA)` -- convection only.** It returns the
+  same number whatever the emissivity, and radiation is the same order as still-air
+  convection here. Measured from the transient the real figure is **46.6 min
+  polished, 25.6 min anodised**. The temperatures were always computed with radiation
+  and are unaffected; it was the *mechanism* that was misstated.
 - **Decision: anodise the girdles. It is worth ~39 K** (113.7 -> 74.9 C continuous).
   Radiation is the *same order* as still-air convection at these temperatures, so
   emissivity **0.09 -> 0.90** is the cheapest thermal lever available and it needs no
@@ -1243,6 +1249,23 @@ coupling itself. On dualis 0.2 the pack is a real domain on the same bus, so
   its settled rise). An anodised one reaches 69 % -- it is close to its own
   equilibrium, so **tethering it is no longer a cliff**. That is a robustness
   argument for NFR18 that the 39 K figure alone did not make.
+- ⚠️ **And a self-caught error, of this project's oldest kind.** The `53 min`
+  above came from `LumpedMass::time_constant`, a **convection-only** convenience --
+  `C/(hA)`, no radiation, identical for every emissivity. Measured properly it is
+  **46.6 min polished and 25.6 min anodised**, so for the anodised girdle the
+  time constant is *shorter* than the runtime and the "pack dies first" mechanism
+  **does not apply to it at all**.
+
+  Correcting it sharpens the conclusion rather than weakening it:
+
+  | | effective tau | vs 30 min runtime | why it is safe |
+  |---|---|---|---|
+  | polished | 46.6 min | outlasts it | **only because the pack dies first** |
+  | **anodised** | 25.6 min | shorter | **on its own merits** -- it nearly reaches a 75 C equilibrium |
+
+  This is the same failure this project has hit five times before -- a **nominal
+  figure standing where a measured one belonged** -- arriving through a dependency
+  this time rather than through our own model. Reported upstream.
 
 ---
 

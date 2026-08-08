@@ -13,10 +13,15 @@
 //! # The finding
 //!
 //! **The battery is the thermal protection, by coincidence rather than design.**
-//! The girdle's time constant (~53 min) is longer than the runtime it can be fed
-//! for (~30 min), so the robot runs out of energy before it overheats. Tether it,
-//! or hot-swap the pack, and that protection vanishes: continuous trotting with a
-//! polished girdle settles near **114 °C**.
+//! A bare girdle's effective time constant (~47 min) is longer than the runtime it
+//! can be fed for (~30 min), so the robot runs out of energy before it overheats.
+//! Tether it, or hot-swap the pack, and that protection vanishes: continuous
+//! trotting with a polished girdle settles near **114 °C**.
+//!
+//! ⚠️ Anodised, that mechanism does **not** apply — its effective time constant is
+//! 25.6 min, *shorter* than the runtime. It is safe on its own merits, because its
+//! equilibrium is ~75 °C. See [`Part::effective_time_constant_min`]; the figure
+//! first published for M18 came from the convection-only `LumpedMass::time_constant`.
 //!
 //! # ⚠️ What this model does not see
 //!
@@ -285,6 +290,32 @@ impl Part {
         self.lumped(EMIS_POLISHED, h).time_constant().to_si() / 60.0
     }
 
+    /// Time to reach 63.2 % of the settled rise, **measured from the transient**.
+    ///
+    /// ⚠️ Use this, not [`Part::time_constant_min`]. `LumpedMass::time_constant` is
+    /// `C/(hA)` — convection only — so it reports the same number whatever the
+    /// emissivity, and radiation is the same order as still-air convection here.
+    /// For the anodised girdle the quoted 53.0 min is really **25.6 min**.
+    ///
+    /// M18's first pass took the quoted figure at face value and built the
+    /// "the pack dies before the girdle heats" mechanism on it. That is this
+    /// project's oldest recurring error — a nominal figure standing in for a
+    /// measured one — arriving via a dependency this time.
+    pub fn effective_time_constant_min(&self, emissivity: f64, h: f64, watts: f64) -> f64 {
+        let settled = self.equilibrium(emissivity, h, watts);
+        let target = 0.632 * settled;
+        let mut m = self.lumped(emissivity, h);
+        let mut bus = Exchange::new();
+        for k in 0..2_000_000 {
+            bus.publish(HEAT, watts);
+            m.step(Time::s(k as f64), Time::s(1.0), &mut bus).expect("step");
+            if m.rise().to_si() >= target {
+                return (k + 1) as f64 / 60.0;
+            }
+        }
+        f64::INFINITY
+    }
+
     /// `hL/k` — whether one temperature was an honest description.
     pub fn biot(&self, h: f64) -> f64 {
         self.lumped(EMIS_POLISHED, h).biot_number()
@@ -365,10 +396,26 @@ mod tests {
     }
 
     #[test]
-    fn the_battery_outlasts_nothing_the_girdle_outlasts_the_battery() {
-        // The protection is the girdle's thermal mass, not any deliberate margin:
-        // tau must exceed the runtime it can be fed for, or it reaches equilibrium.
-        assert!(Part::girdle().time_constant_min(STILL_AIR_H) > TROT_RUNTIME_MIN);
+    fn the_quoted_time_constant_omits_radiation_and_overstates_it() {
+        // Regression guard on a real mistake. `LumpedMass::time_constant` is C/(hA),
+        // convection only, so it returns the SAME number for a polished and an
+        // anodised body — and M18's first pass built its central mechanism on it.
+        let g = Part::girdle();
+        let quoted = g.time_constant_min(STILL_AIR_H);
+        let polished = g.effective_time_constant_min(EMIS_POLISHED, STILL_AIR_H, 6.0 * TROT_W);
+        let anodised = g.effective_time_constant_min(EMIS_ANODISED, STILL_AIR_H, 6.0 * TROT_W);
+        assert!(polished < quoted && anodised < polished);
+        // The correction that matters: anodised, the girdle does NOT outlast the pack.
+        assert!(polished > TROT_RUNTIME_MIN, "polished {polished} vs {TROT_RUNTIME_MIN}");
+        assert!(anodised < TROT_RUNTIME_MIN, "anodised {anodised} vs {TROT_RUNTIME_MIN}");
+    }
+
+    #[test]
+    fn anodised_is_safe_on_its_own_merits_not_on_the_battery_running_out() {
+        // Which is the point: once the quoted tau is corrected, the polished case is
+        // the one leaning on the coincidence, and anodising removes that lean.
+        let g = Part::girdle();
+        assert!(AMBIENT_C + g.equilibrium(EMIS_ANODISED, STILL_AIR_H, 6.0 * TROT_W) < 80.0);
     }
 
     #[test]

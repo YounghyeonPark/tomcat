@@ -1,7 +1,7 @@
 # Thermal duty — closing OPEN_RISKS R5
 
 ```
-cargo test --release      # 11 assertions on the conclusions below
+cargo test --release      # 12 assertions on the conclusions below
 cargo run  --release      # the report
 ```
 
@@ -34,10 +34,17 @@ hardware.
 | stand w/o brake, polished | **134.1 °C** | 85.7 °C |
 | stand w/o brake, anodised | 85.4 °C | 72.5 °C |
 
-**The battery is the thermal protection, and that is a coincidence.** The girdle's
-time constant (53 min) is longer than the runtime it can be fed for (30 min), so the
-robot runs out of energy before it overheats. Tether it, or hot-swap the pack, and
-the protection is gone.
+**The battery is the thermal protection, and that is a coincidence.** A bare girdle's
+effective time constant (~47 min) is longer than the runtime it can be fed for
+(30 min), so the robot runs out of energy before it overheats. Tether it, or hot-swap
+the pack, and the protection is gone.
+
+⚠️ **Corrected.** The 53 min first published came from
+`LumpedMass::time_constant`, which is `C/(hA)` — **convection only**, so it returns the
+same number for a polished and an anodised body. Measured from the transient:
+**46.6 min polished, 25.6 min anodised.** The temperatures were always computed with
+radiation and did not move; the *mechanism* was misstated. Anodised, the girdle does
+not outlast the pack at all — it is safe because its own equilibrium is ~75 °C.
 
 Three things follow that were not visible from the electrical check:
 

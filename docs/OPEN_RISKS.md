@@ -95,8 +95,9 @@ falsify instead of a blank:
 | trot, polished | **113.7 °C** | 67.1 °C |
 | trot, **anodised** | 74.9 °C | 59.7 °C |
 
-⚠️ **The battery is the thermal protection, and that is a coincidence** — the
-girdle's 53 min time constant outlasts the 30 min the pack can feed it.
+⚠️ **The battery is the thermal protection, and that is a coincidence** — a bare
+girdle's ~47 min effective time constant outlasts the 30 min the pack can feed it.
+(The 53 min first published was convection-only; see ADR-0023's correction.)
 **Tethered or hot-swapped operation is out of spec** (NFR18). Centralising the
 motors (P1) costs **38 %** of the rejection area.
 
