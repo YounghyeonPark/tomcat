@@ -1,9 +1,15 @@
 # Thermal duty — closing OPEN_RISKS R5
 
 ```
-cargo test --release      # 7 assertions on the conclusions below
+cargo test --release      # 11 assertions on the conclusions below
 cargo run  --release      # the report
 ```
+
+Built on **dualis 0.2**. The pack is a domain on the same bus as the girdle, so
+`Simulation::advance` runs the kernel's conservation audit every step and the runtime
+is **emergent** (42 Wh at 83.6 W -> 30.17 min, against `power.py`'s 30.16). One test
+feeds it a deliberately leaky pack and asserts the audit **refuses** it — an audit
+that cannot fail is decoration.
 
 ## Why this is Rust, in a Python repo
 
@@ -35,8 +41,11 @@ the protection is gone.
 
 Three things follow that were not visible from the electrical check:
 
-- **Anodising is worth ~39 K.** Radiation is the same order as still-air convection
-  at these temperatures, so emissivity 0.09 → 0.90 is the cheapest lever available.
+- **Anodising is worth ~39 K — and more than that.** Radiation is the same order as
+  still-air convection at these temperatures, so emissivity 0.09 → 0.90 is the
+  cheapest lever available. It also shrinks the gap between battery-limited and
+  continuous from **47 K to 15 K**: a bare girdle reaches only 47 % of its settled
+  rise before the pack dies, an anodised one 69 %. **Tethering stops being a cliff.**
   Surface finish is a thermal parameter here, not a cosmetic one.
 - **Centralising the motors costs 38 % of the rejection area** (486 → 302 cm²).
   This is the first measured place where design principle **P1 charges** rather

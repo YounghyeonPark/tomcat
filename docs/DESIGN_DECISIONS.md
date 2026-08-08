@@ -1213,6 +1213,37 @@ context, and consequences. Status is one of: **Proposed**, **Accepted**,
     toolchain, and `tests/test_thermal_constants.py` fails if `power.py` drifts from
     the constants copied into it.
 
+### Amendment (dualis 0.2.0): the books are now audited, and anodising is worth more than 39 K
+
+The first pass compared two numbers **by hand** -- "the girdle's 53 min time constant
+beats the 30 min runtime" -- which is a *claim about* the coupling rather than the
+coupling itself. On dualis 0.2 the pack is a real domain on the same bus, so
+`Simulation::advance` runs the kernel's **conservation audit** every step.
+
+- **The upgrade changed no number.** 0.2 swaps `Exchange::take` for
+  `take_share(HEAT, dt)`, which falls back to `take` when no scheduler interval is
+  set -- so the hand-stepped results were already right. Verified by re-running, not
+  assumed from reading the diff.
+- **The runtime is now emergent.** Nothing tells the simulation how long to run: it
+  stops when 42 Wh at 83.6 W is gone, landing at **30.17 min** against `power.py`'s
+  30.16 -- an independent cross-check of ADR-0021 that did not exist before.
+- ⚠️ **The audit has teeth, and that is tested.** A deliberately leaky pack that
+  publishes heat without debiting itself is **refused**. An audit that cannot fail is
+  decoration, and this project has been burned by exactly that shape of reassurance
+  (the silent-zero in `angular_momentum_caveat`).
+- **The finding the hand-comparison missed.** Anodising does not merely lower the
+  temperature -- it shrinks the *dependence on the coincidence*:
+
+  | | at the flat pack | continuous | gap |
+  |---|---|---|---|
+  | polished | 67.1 C | 113.7 C | **47 K** |
+  | **anodised** | 59.6 C | 74.9 C | **15 K** |
+
+  A bare girdle is only survivable because the battery dies first (it reaches 47 % of
+  its settled rise). An anodised one reaches 69 % -- it is close to its own
+  equilibrium, so **tethering it is no longer a cliff**. That is a robustness
+  argument for NFR18 that the 39 K figure alone did not make.
+
 ---
 
 ### How to add an ADR

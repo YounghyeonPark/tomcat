@@ -97,8 +97,14 @@ falsify instead of a blank:
 
 ⚠️ **The battery is the thermal protection, and that is a coincidence** — the
 girdle's 53 min time constant outlasts the 30 min the pack can feed it.
-**Tethered or hot-swapped operation is out of spec** (NFR18). Anodising is worth
-**~39 K** and centralising the motors (P1) costs **38 %** of the rejection area.
+**Tethered or hot-swapped operation is out of spec** (NFR18). Centralising the
+motors (P1) costs **38 %** of the rejection area.
+
+**Anodising is the fix, and it does two things.** It drops the continuous case ~39 K,
+*and* it shrinks the gap between battery-limited and continuous from **47 K to 15 K** —
+so the design stops depending on the coincidence. Confirmed on a coupled run under
+the kernel's conservation audit, with the runtime emergent (30.17 min vs `power.py`'s
+30.16).
 
 **What is still owed:** these are **assembly-skin** temperatures — the winding runs
 hotter and is what fails — and copper loss is the only source modelled. The bench

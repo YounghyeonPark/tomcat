@@ -44,7 +44,8 @@ sequences the work that implements them.
 > **M17 done:** an independent physics engine says LIPM is **conservative by ~2 %**,
 > and finds a blind spot it cannot see ([ADR-0022](DESIGN_DECISIONS.md)).
 > **M18 done:** the **battery is the thermal protection** — and that is a coincidence
-> ([ADR-0023](DESIGN_DECISIONS.md)). 332 Python tests + 7 Rust.
+> ([ADR-0023](DESIGN_DECISIONS.md)); on dualis 0.2 the energy books are **audited**
+> and the runtime is **emergent**. 332 Python tests + 11 Rust.
 
 ---
 
@@ -899,6 +900,22 @@ reaches it from *heat*.
 **R1 decoupled:** motor mass 132 → 200 g moves the time constant 17.4 → 26.5 min and
 leaves the equilibrium **exactly unchanged**. A heavier motor buys time, never a
 lower final temperature.
+
+**Audited (dualis 0.2).** The first pass compared two numbers by hand. The pack is now
+a domain on the same bus, so the kernel checks conservation every step, the runtime is
+**emergent** (30.17 min vs `power.py`'s 30.16 — an independent cross-check), and a
+deliberately leaky pack is **refused** — an audit that cannot fail is decoration.
+
+**And that surfaced what the hand-comparison missed:** anodising shrinks the
+*dependence on the coincidence*, not just the temperature.
+
+| | at the flat pack | continuous | gap |
+|---|---|---|---|
+| polished | 67.1 °C | 113.7 °C | **47 K** |
+| **anodised** | 59.6 °C | 74.9 °C | **15 K** |
+
+A bare girdle survives only because the pack dies first (47 % of its settled rise); an
+anodised one sits at 69 %, so **tethering it is no longer a cliff**.
 
 ⚠️ These are **assembly-skin** temperatures — windings run hotter, and copper loss is
 the only source modelled. Reality is worse.

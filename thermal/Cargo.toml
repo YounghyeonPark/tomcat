@@ -7,6 +7,6 @@ description = "Thermal duty for Project T.O.M.C.A.T. — closing OPEN_RISKS R5"
 publish = false
 
 [dependencies]
-dualis-core = "0.1.0"
-dualis-thermal = "0.1.0"
-dualis-units = "0.1.0"
+dualis-core = "0.2.0"
+dualis-thermal = "0.2.0"
+dualis-units = "0.2.0"
