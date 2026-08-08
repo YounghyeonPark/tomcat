@@ -1156,6 +1156,63 @@ context, and consequences. Status is one of: **Proposed**, **Accepted**,
   - `mujoco` is an **optional** dependency. The 321 analytical tests stand alone;
     6 more run when it is present and skip when it is not.
 
+## ADR-0023: The battery is the thermal protection -- and that is a coincidence, not a design
+- **Status:** Accepted
+- **Context:** [ADR-0021](#adr-0021-power-and-runtime--standing-costs-76--of-moving-for-zero-work)
+  checked the motor **electrically** -- 2.79 A peak against a 4.19 A rating, 0.89 A
+  RMS against 1.60 A -- and called it comfortable. That is not the thermal question.
+  The thermal question is whether the heat can *leave*.
+  [OPEN_RISKS R5](OPEN_RISKS.md) parked it as *"gated on having the motor"*.
+  **It was not gated on hardware.** A lumped-capacitance model
+  (`thermal/`, on the `dualis-thermal` crate) answers it.
+- **The result, at the boundary that actually decides it.** P1 centralises the
+  motors, so the six in a girdle do not each have free air -- the assembly skin is
+  what rejects the heat:
+
+  | front girdle, 6 motors, 21 W | continuous | one battery |
+  |---|---|---|
+  | trot, polished | **113.7 C** | 67.1 C |
+  | trot, anodised | 74.9 C | 59.7 C |
+  | stand w/o brake, polished | **134.1 C** | 85.7 C |
+  | stand w/o brake, anodised | 85.4 C | 72.5 C |
+
+- **The finding: the battery is the thermal protection, by coincidence.** The
+  girdle's time constant is **53 min**; the pack can only feed it for **30 min**
+  (ADR-0021). The robot runs out of energy before it overheats. **Tether it, or
+  hot-swap the pack, and that protection disappears** -- continuous trotting on a
+  bare girdle settles near **114 C**, past NdFeB's comfortable range. Nothing in the
+  design put that margin there; it fell out of two unrelated numbers.
+- **Decision: anodise the girdles. It is worth ~39 K** (113.7 -> 74.9 C continuous).
+  Radiation is the *same order* as still-air convection at these temperatures, so
+  emissivity **0.09 -> 0.90** is the cheapest thermal lever available and it needs no
+  mass, volume or power. **Surface finish is a thermal parameter here, not a
+  cosmetic one.**
+- ⚠️ **The first place P1 CHARGES rather than pays.** Centralising six motors costs
+  **38 % of the heat-rejection area** (486 -> 302 cm2). P1 has paid off measurably
+  four times -- swing torque, foot acceleration, link spin, light legs. This is the
+  bill, and it had not been costed.
+- **Standing without the brake is the worst thermal case**, not trotting -- 4.35 W
+  per motor against 3.50 W, because a cable can only pull and posture is held with
+  current. ADR-0021 called the brake essential from *runtime*; this reaches the same
+  place from *heat*, independently.
+- **R1's mass uncertainty is a heat-CAPACITY question, not a heat-REJECTION one.**
+  132 -> 200 g moves the time constant 17.4 -> 26.5 min and leaves the equilibrium
+  **exactly unchanged**. A clean decoupling: a heavier motor buys time, never a
+  lower final temperature.
+- **Consequences:**
+  - **NFR18 added:** girdles anodised (or otherwise high-emissivity), and
+    **continuous/tethered operation is out of spec** unless airflow is added.
+    At `h = 15` the continuous case falls to 57.5 C, so a small fan would reopen it.
+  - R5 moves from *"gated on hardware"* to **partly closed**: the bench test now has
+    a prediction to falsify rather than a blank.
+  - ⚠️ These are **assembly-SKIN** temperatures. A lumped mass has one temperature;
+    the winding runs hotter and the winding is what fails. Copper loss is the only
+    source modelled (inherited from ADR-0021), so reality is worse than this.
+    Girdle envelope, `h` and both emissivities are `[assumed]` and swept.
+  - `thermal/` is a **leaf**: nothing depends on it, the Python suite needs no Rust
+    toolchain, and `tests/test_thermal_constants.py` fails if `power.py` drifts from
+    the constants copied into it.
+
 ---
 
 ### How to add an ADR

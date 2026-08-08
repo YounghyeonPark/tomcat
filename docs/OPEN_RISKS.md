@@ -84,14 +84,25 @@ inertia model.
 **How to fix:** one leg on a bench, commanded to step its foot 74 mm mid-swing;
 measure the time. Needs a leg to exist — so it is gated on the build.
 
-### R5. Sustained trot thermal duty
+### R5. Sustained trot thermal duty — **partly closed by M18**
 
-Peak 2.79 A against a 4.19 A rating and RMS 0.89 A against 1.60 A rated look
-comfortable (ADR-0021), but that is copper loss only — no iron, switching or
-gearbox losses, and no thermal model of the girdle.
+~~Gated on having the motor.~~ It was not gated on hardware. A lumped-capacitance
+model ([ADR-0023](DESIGN_DECISIONS.md), `thermal/`) now gives a prediction to
+falsify instead of a blank:
 
-**How to fix:** run one motor at the trot duty cycle in a representative enclosure
-and log case temperature. Gated on having the motor (R1).
+| front girdle, 6 motors | continuous | one battery |
+|---|---|---|
+| trot, polished | **113.7 °C** | 67.1 °C |
+| trot, **anodised** | 74.9 °C | 59.7 °C |
+
+⚠️ **The battery is the thermal protection, and that is a coincidence** — the
+girdle's 53 min time constant outlasts the 30 min the pack can feed it.
+**Tethered or hot-swapped operation is out of spec** (NFR18). Anodising is worth
+**~39 K** and centralising the motors (P1) costs **38 %** of the rejection area.
+
+**What is still owed:** these are **assembly-skin** temperatures — the winding runs
+hotter and is what fails — and copper loss is the only source modelled. The bench
+test is still worth doing, but it now checks a number rather than discovers one.
 
 ---
 
@@ -163,8 +174,9 @@ Small, and honestly at the point of diminishing returns:
 1. **Buy and weigh a motor** (R1) — largest blast radius, ~£60.
 2. **Drag-test a TPU pad** (R2) — half a day, no equipment.
 3. **Pick a cell** (R3) — closes NFR6 properly.
-4. Then **build electronics/firmware** (§5), which is gated on none of the above.
-5. Bench R4/R5 once a leg exists.
+4. **Anodise the girdles** (NFR18, ADR-0023) — ~39 K for no mass or power.
+5. Then **build electronics/firmware** (§5), which is gated on none of the above.
+6. Bench R4/R5 once a leg exists.
 
 Steps 1–3 are perhaps a week of elapsed time and a hundred pounds, and they
 convert the three load-bearing assumptions in this project into measurements.

@@ -42,7 +42,9 @@ sequences the work that implements them.
 > **M16 done:** power & runtime — **NFR6 closed** at ~30 min / 900 m, and standing
 > costs 76 % of moving for zero work ([ADR-0021](DESIGN_DECISIONS.md)).
 > **M17 done:** an independent physics engine says LIPM is **conservative by ~2 %**,
-> and finds a blind spot it cannot see ([ADR-0022](DESIGN_DECISIONS.md)). 327 tests.
+> and finds a blind spot it cannot see ([ADR-0022](DESIGN_DECISIONS.md)).
+> **M18 done:** the **battery is the thermal protection** — and that is a coincidence
+> ([ADR-0023](DESIGN_DECISIONS.md)). 332 Python tests + 7 Rust.
 
 ---
 
@@ -860,7 +862,49 @@ project's own recurring mistake.
 ⚠️ **And it validates the model, not the inputs.** No engine knows what a motor
 weighs or how grippy a pad is. **OPEN_RISKS R1 and R2 are untouched.**
 
-## Later milestones (candidate M18+, not committed)
+## Milestone M18 — Thermal duty: the battery is what saves it (DONE)
+
+**Goal.** ADR-0021 checked the motor **electrically** (2.79 A peak vs 4.19 A rated)
+and called it comfortable. That is not the thermal question — the thermal question is
+whether the heat can *leave*. OPEN_RISKS R5 parked it as "gated on having the motor".
+**It was not.** A lumped-capacitance model answers it (`thermal/`, on the
+`dualis-thermal` crate).
+
+**The boundary that decides it** is the girdle, not the motor: P1 centralises six
+motors, so they do not each have free air.
+
+| front girdle, 6 motors, 21 W | continuous | one battery |
+|---|---|---|
+| trot, polished | **113.7 °C** | 67.1 °C |
+| trot, anodised | 74.9 °C | 59.7 °C |
+| stand w/o brake, polished | **134.1 °C** | 85.7 °C |
+
+⚠️ **The battery is the thermal protection, by coincidence.** The girdle's time
+constant is **53 min**; the pack feeds it for **30 min**. The robot runs out of
+energy before it overheats — and nothing in the design put that margin there.
+**Tether it and it is gone.**
+
+**Decision: anodise the girdles, worth ~39 K.** Radiation is the same order as
+still-air convection here, so ε 0.09 → 0.90 costs no mass, volume or power.
+**Surface finish is a thermal parameter, not a cosmetic one.**
+
+⚠️ **The first place P1 charges rather than pays.** Centralising six motors costs
+**38 % of the rejection area** (486 → 302 cm²). P1 has paid off four times — swing
+torque, foot acceleration, link spin, light legs. This is the bill.
+
+**And standing without the brake is the worst case**, not trotting: 4.35 W/motor vs
+3.50, because a cable can only pull. ADR-0021 reached the brake from *runtime*; this
+reaches it from *heat*.
+
+**R1 decoupled:** motor mass 132 → 200 g moves the time constant 17.4 → 26.5 min and
+leaves the equilibrium **exactly unchanged**. A heavier motor buys time, never a
+lower final temperature.
+
+⚠️ These are **assembly-skin** temperatures — windings run hotter, and copper loss is
+the only source modelled. Reality is worse.
+
+## Later milestones (candidate M19+, not committed)
+
 
 
 - **Cell selection** — the runtime now rests on two assumed battery numbers.
