@@ -107,9 +107,16 @@ so the design stops depending on the coincidence. Confirmed on a coupled run und
 the kernel's conservation audit, with the runtime emergent (30.17 min vs `power.py`'s
 30.16).
 
-**What is still owed:** these are **assembly-skin** temperatures — the winding runs
-hotter and is what fails — and copper loss is the only source modelled. The bench
-test is still worth doing, but it now checks a number rather than discovers one.
+**The skin/winding gap is now answered** (M19, [ADR-0024](DESIGN_DECISIONS.md)):
+the winding runs **+7.7 K** above the published skin at nominal joints, and
+**1.9–30.7 K** across plausible ones. Anodised that puts the winding at 82.6 °C
+continuous and the stator — which the rotor magnets sit against — at 78.7 °C.
+Polished, the stator reaches 117.5 °C, past ordinary NdFeB grades.
+
+**What is still owed:** the joint conductances are `[assumed]` and set the whole
+gradient; copper loss is still the only source modelled (iron loss lands in the
+*stator*, so it would redistribute as well as raise). The bench test is still worth
+doing, but it now checks numbers rather than discovers them.
 
 ---
 

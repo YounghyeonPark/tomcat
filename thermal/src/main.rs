@@ -18,13 +18,13 @@ fn main() {
         "  motor   {:5.1} cm2 skin, Biot {:.4}, tau {:4.1} min",
         motor.area_m2 * 1e4,
         motor.biot(STILL_AIR_H),
-        motor.time_constant_min(STILL_AIR_H)
+        motor.time_constant_min(EMIS_POLISHED, STILL_AIR_H)
     );
     println!(
         "  girdle  {:5.1} cm2 skin, Biot {:.4}, tau {:4.1} min",
         girdle.area_m2 * 1e4,
         girdle.biot(STILL_AIR_H),
-        girdle.time_constant_min(STILL_AIR_H)
+        girdle.time_constant_min(EMIS_POLISHED, STILL_AIR_H)
     );
     println!(
         "  centralising 6 motors costs {:.0} % of the rejection area ({:.0} -> {:.0} cm2)",

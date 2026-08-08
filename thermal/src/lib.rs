@@ -38,6 +38,8 @@
 //! - The girdle envelope, `h`, emissivities and motor geometry are all `[assumed]`,
 //!   which is why every result is swept rather than stated once.
 
+pub mod winding;
+
 use dualis_core::conserved::quantity;
 use dualis_core::substance::ThermalProps;
 use dualis_core::{Domain, Exchange, Kind, Ledger, Schedule, Simulation, Substance, Violation};
@@ -281,13 +283,19 @@ impl Part {
 
     /// Settled rise (K) — 10 time constants is plenty.
     pub fn equilibrium(&self, emissivity: f64, h: f64, watts: f64) -> f64 {
-        let tau = self.time_constant_min(h);
+        let tau = self.time_constant_min(emissivity, h);
         self.rise_after(emissivity, h, watts, tau * 10.0)
     }
 
-    /// `C/(hA)` in minutes.
-    pub fn time_constant_min(&self, h: f64) -> f64 {
-        self.lumped(EMIS_POLISHED, h).time_constant().to_si() / 60.0
+    /// `C/(hA + linearised radiative)` in minutes, as dualis 0.3 reports it.
+    ///
+    /// ⚠️ Took an emissivity argument only from 0.3 on. Before that
+    /// `LumpedMass::time_constant` was convection-only, so this helper hardcoded
+    /// `EMIS_POLISHED` and it made no difference. On 0.3 it makes a large one
+    /// (49.2 min polished vs 29.9 anodised), and leaving the hardcode in would have
+    /// been a silent regression introduced by an upgrade that fixed a bug.
+    pub fn time_constant_min(&self, emissivity: f64, h: f64) -> f64 {
+        self.lumped(emissivity, h).time_constant().to_si() / 60.0
     }
 
     /// Time to reach 63.2 % of the settled rise, **measured from the transient**.
@@ -321,9 +329,16 @@ impl Part {
         self.lumped(EMIS_POLISHED, h).biot_number()
     }
 
-    /// Convection-only steady rise, `P/(hA)`.
-    pub fn equilibrium_no_radiation(&self, h: f64, watts: f64) -> f64 {
-        self.lumped(EMIS_POLISHED, h)
+    /// Steady rise from `LumpedMass::equilibrium_rise`.
+    ///
+    /// ⚠️ Renamed from `equilibrium_no_radiation` on the dualis 0.3 upgrade. That
+    /// name described 0.2's behaviour and became false when upstream
+    /// [#1](https://github.com/YounghyeonPark/dualis/issues/1) landed — it now solves
+    /// `P = hA·ΔT + εσA((Tₐ+ΔT)⁴ − Tₐ⁴)` and agrees with the stepped transient to
+    /// three figures. A function whose name outlives its behaviour is worse than no
+    /// helper, so the emissivity is explicit here too.
+    pub fn equilibrium_quoted(&self, emissivity: f64, h: f64, watts: f64) -> f64 {
+        self.lumped(emissivity, h)
             .equilibrium_rise(Power::w(watts))
             .to_si()
     }
@@ -396,18 +411,30 @@ mod tests {
     }
 
     #[test]
-    fn the_quoted_time_constant_omits_radiation_and_overstates_it() {
-        // Regression guard on a real mistake. `LumpedMass::time_constant` is C/(hA),
-        // convection only, so it returns the SAME number for a polished and an
-        // anodised body — and M18's first pass built its central mechanism on it.
+    fn the_quoted_time_constant_now_tracks_emissivity_and_stays_conservative() {
+        // Rewritten on the dualis 0.3 upgrade, and the inversion is the point.
+        //
+        // It used to assert that `time_constant` IGNORED emissivity and overstated
+        // the real figure by ~2x — upstream #1, which this project reported after
+        // being caught by it (see the M18 correction). 0.3 carries a linearised
+        // radiative term, so the assertion flips shape: tau must now MOVE with
+        // emissivity, and stay slightly conservative because the linearisation is
+        // taken at ambient rather than at the operating point.
         let g = Part::girdle();
-        let quoted = g.time_constant_min(STILL_AIR_H);
-        let polished = g.effective_time_constant_min(EMIS_POLISHED, STILL_AIR_H, 6.0 * TROT_W);
-        let anodised = g.effective_time_constant_min(EMIS_ANODISED, STILL_AIR_H, 6.0 * TROT_W);
-        assert!(polished < quoted && anodised < polished);
-        // The correction that matters: anodised, the girdle does NOT outlast the pack.
-        assert!(polished > TROT_RUNTIME_MIN, "polished {polished} vs {TROT_RUNTIME_MIN}");
-        assert!(anodised < TROT_RUNTIME_MIN, "anodised {anodised} vs {TROT_RUNTIME_MIN}");
+        let w = 6.0 * TROT_W;
+        let q_pol = g.time_constant_min(EMIS_POLISHED, STILL_AIR_H);
+        let q_ano = g.time_constant_min(EMIS_ANODISED, STILL_AIR_H);
+        assert!(q_ano < q_pol * 0.75, "tau must track emissivity: {q_pol} vs {q_ano}");
+
+        for (e, quoted) in [(EMIS_POLISHED, q_pol), (EMIS_ANODISED, q_ano)] {
+            let measured = g.effective_time_constant_min(e, STILL_AIR_H, w);
+            assert!(measured < quoted, "measured {measured} >= quoted {quoted}");
+            assert!(quoted < measured * 1.25, "quoted {quoted} too far over {measured}");
+        }
+        // And the M18 correction still stands, now on upstream's own numbers:
+        // a bare girdle outlasts the pack, an anodised one does not.
+        assert!(g.effective_time_constant_min(EMIS_POLISHED, STILL_AIR_H, w) > TROT_RUNTIME_MIN);
+        assert!(g.effective_time_constant_min(EMIS_ANODISED, STILL_AIR_H, w) < TROT_RUNTIME_MIN);
     }
 
     #[test]
@@ -455,10 +482,13 @@ mod tests {
         // it changes how fast you get there, never where you end up.
         let light = Part::motor();
         let heavy = Part { mass_kg: 0.200, ..light };
-        assert!(heavy.time_constant_min(STILL_AIR_H) > light.time_constant_min(STILL_AIR_H));
         assert!(
-            (heavy.equilibrium_no_radiation(STILL_AIR_H, TROT_W)
-                - light.equilibrium_no_radiation(STILL_AIR_H, TROT_W))
+            heavy.time_constant_min(EMIS_POLISHED, STILL_AIR_H)
+                > light.time_constant_min(EMIS_POLISHED, STILL_AIR_H)
+        );
+        assert!(
+            (heavy.equilibrium_quoted(EMIS_POLISHED, STILL_AIR_H, TROT_W)
+                - light.equilibrium_quoted(EMIS_POLISHED, STILL_AIR_H, TROT_W))
             .abs()
                 < 1e-9
         );

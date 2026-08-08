@@ -45,7 +45,9 @@ sequences the work that implements them.
 > and finds a blind spot it cannot see ([ADR-0022](DESIGN_DECISIONS.md)).
 > **M18 done:** the **battery is the thermal protection** — and that is a coincidence
 > ([ADR-0023](DESIGN_DECISIONS.md)); on dualis 0.2 the energy books are **audited**
-> and the runtime is **emergent**. 332 Python tests + 11 Rust.
+> and the runtime is **emergent**.
+> **M19 done:** the winding runs **7.7 K above the skin** — M18's caveat answered,
+> not restated ([ADR-0024](DESIGN_DECISIONS.md)). 332 Python tests + 17 Rust.
 
 ---
 
@@ -933,7 +935,43 @@ first arriving through a dependency rather than our own model. Reported upstream
 ⚠️ These are **assembly-skin** temperatures — windings run hotter, and copper loss is
 the only source modelled. Reality is worse.
 
-## Later milestones (candidate M19+, not committed)
+## Milestone M19 — The winding temperature: a caveat discharged (DONE)
+
+**Goal.** Every M18 number carried the same warning — *"a lumped mass has ONE
+temperature; the real winding is hotter, and the winding is what fails."* That was a
+limit of the tool, not a judgement: two `LumpedMass` bodies could not be joined by a
+conductance. Reported upstream ([dualis#2](https://github.com/YounghyeonPark/dualis/issues/2)),
+`ThermalNetwork` shipped in 0.3, and **winding → stator → housing → girdle → air**
+became expressible.
+
+| | winding | stator | housing | skin (M18's figure) |
+|---|---|---|---|---|
+| polished, continuous | **121.4 °C** | 117.5 | 116.1 | 113.7 |
+| anodised, continuous | **82.6 °C** | 78.7 | 77.2 | 74.9 |
+| anodised, one battery | **62.0 °C** | — | — | 55.4 |
+
+**+7.7 K, and identical for both finishes.** The skin finish sets where the stack
+sits; the joints set how far it spreads. **Two independent levers, and only the
+second is uncertain** — which is why the sweep is the deliverable:
+
+| joints | above skin |
+|---|---|
+| 0.25× | **30.7 K** |
+| 1.00× | 7.7 K |
+| 4.00× | 1.9 K |
+
+**The verdict holds, which is the useful part.** Anodised, the winding is at 82.6 °C
+— inside class F — and the stator at 78.7 °C, which matters because the rotor magnets
+sit against it. Polished, the stator hits **117.5 °C**, past ordinary NdFeB grades.
+**NFR18 was a 39 K saving; it is also what keeps the magnets in range.**
+
+⚠️ **And a trap named.** M18 leaned on a reassuring Biot number of 5e-4 for the whole
+assembly — which is the Biot number of a *solid block*, not of a structure with motors
+and air gaps in it. 0.3 returns `None` for an interior node rather than a comforting
+figure.
+
+## Later milestones (candidate M20+, not committed)
+
 
 
 

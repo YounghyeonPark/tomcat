@@ -1267,6 +1267,63 @@ coupling itself. On dualis 0.2 the pack is a real domain on the same bus, so
   figure standing where a measured one belonged** -- arriving through a dependency
   this time rather than through our own model. Reported upstream.
 
+## ADR-0024: The winding runs 7.7 K above the skin -- the caveat, answered
+- **Status:** Accepted
+- **Context:** Every temperature in [ADR-0023](#adr-0023) carried the same warning:
+
+  > ⚠️ A lumped mass has ONE temperature. The real winding is hotter than the skin
+  > these numbers describe, and **the winding is what fails**.
+
+  That was a limitation of the tool, not a judgement: a `LumpedMass` could not be
+  joined to another by a conductance, so **winding -> stator -> housing -> girdle**
+  was not expressible. Reported upstream
+  ([dualis#2](https://github.com/YounghyeonPark/dualis/issues/2)); `ThermalNetwork`
+  shipped in dualis-thermal 0.3. **A warning is not an answer, and now there is one.**
+- **The answer:**
+
+  | | winding | stator | housing | skin (what ADR-0023 published) |
+  |---|---|---|---|---|
+  | polished, continuous | **121.4 C** | 117.5 | 116.1 | 113.7 |
+  | anodised, continuous | **82.6 C** | 78.7 | 77.2 | 74.9 |
+  | anodised, one battery | **62.0 C** | -- | -- | 55.4 |
+
+- **The gradient is +7.7 K, and it is the SAME for both finishes.** That is not a
+  coincidence: the skin finish sets where the whole stack sits, the joints set how far
+  it spreads. **Two independent levers, and only the second is uncertain.**
+- ⚠️ **Which is why the sweep is the result and a single number would be false
+  precision.** The joint conductances are `[assumed]` -- slot insulation, an
+  interference fit, a bolted mount -- and the gradient is roughly `P/UA` in each:
+
+  | joints | winding | above skin |
+  |---|---|---|
+  | 0.25x | 105.7 C | **30.7 K** |
+  | 1.00x (nominal) | 82.6 C | 7.7 K |
+  | 4.00x | 76.8 C | 1.9 K |
+
+- **The verdict does not move, which is the useful part.** Anodised, the winding sits
+  at **82.6 C** continuous -- comfortably inside class F (155 C) -- and the *stator*
+  at 78.7 C, which matters because the rotor magnets sit against it. Polished, the
+  stator reaches **117.5 C**, past where ordinary NdFeB grades are happy. **NFR18
+  strengthens: anodising was a 39 K saving, and it is also what keeps the magnets in
+  range.**
+- **A near-coincidence worth naming, so nobody reads meaning into it.** ADR-0023's
+  published battery-case skin figure (67.1 C) is almost exactly the new *winding*
+  figure (67.0 C, polished). Those are different quantities that happen to land
+  together for this geometry. **It is luck, not a check** -- but it does mean the
+  published numbers were never misleading in practice.
+- **Consequences:**
+  - The ADR-0023 caveat is **discharged**, not merely restated: +7.7 K nominal,
+    1.9-30.7 K across plausible joints.
+  - The network is cross-checked against the single lump: same mass, same skin area,
+    same emissivity, and the settled skin agrees within 2 K. If that drifts, the
+    network has stopped modelling the same girdle.
+  - ⚠️ **`biot_number` returns `None` for an interior node** in 0.3, deliberately.
+    ADR-0023 leaned on a reassuring 5e-4 for the whole assembly -- which is the Biot
+    number of a *solid block*, not of a structure with motors and air gaps in it.
+    Upstream called that the sharpest thing in the report and documented it.
+  - ⚠️ Still copper loss only (ADR-0021). Iron loss lands in the **stator**, so
+    adding it would redistribute this gradient as well as raise it.
+
 ---
 
 ### How to add an ADR

@@ -4,9 +4,9 @@ version = 4
 
 [[package]]
 name = "dualis-core"
-version = "0.2.0"
+version = "0.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c7344fcac6f7f5b5fdb70b3f31c4d0040c69583798fc2023808382679d316ce1"
+checksum = "7def108f2aba3f7925ccf08aec06312226004f8a0088176e5a6e6aca8bce246b"
 dependencies = [
  "dualis-units",
  "glam",
@@ -15,9 +15,9 @@ dependencies = [
 
 [[package]]
 name = "dualis-thermal"
-version = "0.2.0"
+version = "0.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6e8a68f55f59061b2ab2cdda89aee146ea4df1d41101d8c520031e58befa9cb5"
+checksum = "2e212c08970d8dd6775d34213813de16b9c181e05ff89ca8fe0fd0ec11ed062f"
 dependencies = [
  "dualis-core",
  "dualis-units",
@@ -27,9 +27,9 @@ dependencies = [
 
 [[package]]
 name = "dualis-units"
-version = "0.2.0"
+version = "0.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0117c71b3dde5718a3ac700a9c73e445c9cef19c5bb50faf0d3cebfe6e1809dc"
+checksum = "c85144230a6a8f5e2cf5bad6687c0696dc10bbe2722cf08ccb4dd631087bddff"
 dependencies = [
  "glam",
  "serde",

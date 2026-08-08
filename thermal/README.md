@@ -1,11 +1,12 @@
 # Thermal duty — closing OPEN_RISKS R5
 
 ```
-cargo test --release      # 12 assertions on the conclusions below
+cargo test --release      # 17 assertions on the conclusions below
 cargo run  --release      # the report
+cargo run  --release --example winding   # the winding gradient
 ```
 
-Built on **dualis 0.2**. The pack is a domain on the same bus as the girdle, so
+Built on **dualis 0.3**. The pack is a domain on the same bus as the girdle, so
 `Simulation::advance` runs the kernel's conservation audit every step and the runtime
 is **emergent** (42 Wh at 83.6 W -> 30.17 min, against `power.py`'s 30.16). One test
 feeds it a deliberately leaky pack and asserts the audit **refuses** it — an audit
@@ -61,10 +62,24 @@ Three things follow that were not visible from the electrical check:
   cable can only pull. ADR-0021 reached the same conclusion about the brake from
   runtime; this reaches it from heat.
 
+## The winding
+
+`winding.rs` answers what this file used to warn about. dualis 0.3's `ThermalNetwork`
+(from [upstream #2](https://github.com/YounghyeonPark/dualis/issues/2)) makes
+**winding → stator → housing → girdle → air** expressible:
+
+| | winding | stator | skin |
+|---|---|---|---|
+| polished, continuous | **121.4 °C** | 117.5 | 113.7 |
+| anodised, continuous | **82.6 °C** | 78.7 | 74.9 |
+
+**+7.7 K, the same for both finishes** — the finish sets where the stack sits, the
+joints set the spread. The joints are `[assumed]`, so the sweep (1.9–30.7 K) is the
+result rather than any single number.
+
 ## ⚠️ Limits
 
-These are **assembly-skin** temperatures. A lumped mass has one temperature; the
-real winding is hotter, and the winding is what fails. Copper loss is the only
+The joint conductances set the entire gradient and are guesses. Copper loss is the only
 source (inherited from ADR-0021), so the real dissipation is higher. The girdle
 envelope, `h`, and both emissivities are `[assumed]` — every result is swept rather
 than stated once.

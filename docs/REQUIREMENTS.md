@@ -70,7 +70,7 @@ curve.
 | NFR5  | Mass (total)                                     | **4.05 kg** — raised from 3.0 kg (ADR-0010) once a real motor was sourced: the lightest purchasable part is 120 g, not the 72 g class target. A domestic cat is 4–5 kg. |
 | NFR6  | Runtime on one battery charge                    | **~30 min / ~900 m** trotting at 50 cm/s (83.6 W); **~168 min standing WITH the ADR-0003 brake**, 37 min without it (ADR-0021). 300 g pack, `[assumed]` 175 Wh/kg. |
 | NFR17 | **Power-off stance brake**                        | **Required, not optional** — standing costs 76 % of moving for zero work; the brake is worth **4.5×** standing endurance (ADR-0021). |
-| NFR18 | **Girdle surface finish + duty limit**            | Girdles **anodised** (ε ≥ 0.9) — worth **~39 K** (ADR-0023). **Continuous/tethered trotting is OUT OF SPEC** in still air: the 30 min battery, not the design, is what keeps the girdle below 70 °C. Forced air (h ≈ 15) would reopen it. |
+| NFR18 | **Girdle surface finish + duty limit**            | Girdles **anodised** (ε ≥ 0.9) — worth **~39 K** (ADR-0023). **Continuous/tethered trotting is OUT OF SPEC** in still air: the 30 min battery, not the design, is what keeps the girdle below 70 °C. Forced air (h ≈ 15) would reopen it. **Also what keeps the rotor magnets in range**: polished, the stator reaches 117.5 °C (ADR-0024). |
 | NFR7  | Max cable tension per tendon                     | ❓ TBD (N)           |
 
 ## 4. Constraints & assumptions
