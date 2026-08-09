@@ -224,3 +224,65 @@ def test_spine_dof_does_not_disturb_the_rigid_model(rig):
         float(mujoco.mj_getTotalmass(rigid)), abs=1e-12)
     assert flex.nq == rigid.nq + 3
     assert flex.nu == rigid.nu + 3
+
+
+def test_holding_a_sway_costs_almost_no_friction(rig):
+    """Cross-checks the premise `lateral_spine_loads` is built on.
+
+    > the lateral bend axis is VERTICAL, so gravity exerts no moment about it and
+    > holding a sway costs essentially nothing. What costs torque is *reversing* it.
+
+    Against a real friction cone, a full-ROM sway held statically needs μ ≈ 0.006 —
+    three orders below the μ 0.7 floor NFR16 asks for. The analytical claim is exact.
+
+    ⚠️ This is the STATIC half only. ADR-0019/0020's *dynamic* costs (0.98
+    translation + 0.27 yaw) are not testable this way: a diagonal stance topples in
+    well under one stance time, so a sweep cannot be run without a balance
+    controller in the loop. See ADR-0025.
+    """
+    c, q, _, _, h = rig
+    xml = mjcf.build_mjcf(c, q, height=h, mu=5.0, timestep=1e-4, spine_dof=True,
+                          planar_root=True)
+    xml = xml.replace('kp="120" kv="4"', 'kp="600" kv="16"')
+    xml = xml.replace('kp="30" kv="1.5"', 'kp="200" kv="10"')
+    m = mujoco.MjModel.from_xml_string(xml)
+    d = mujoco.MjData(m)
+
+    def adr(n):
+        return m.jnt_qposadr[mujoco.mj_name2id(m, mujoco.mjtObj.mjOBJ_JOINT, n)]
+
+    def aid(n):
+        return mujoco.mj_name2id(m, mujoco.mjtObj.mjOBJ_ACTUATOR, n)
+
+    rom = abs(c.body.spine.params.lateral_q_min[0])
+    for nm in c.body.leg_names:
+        for i, v in enumerate(q[nm], start=1):
+            d.qpos[adr(f"{nm}_q{i}")] = v
+            d.ctrl[aid(f"{nm}_a{i}")] = v
+    for i in (1, 2, 3):
+        d.qpos[adr(f"spine_y{i}")] = -rom
+        d.ctrl[aid(f"spine_a{i}")] = -rom
+    mujoco.mj_forward(m, d)
+    # ⚠️ `planar_root` is doing real work here. A free-root diagonal stance is
+    # statically unstable — it topples at e^(7.77 t) (M17) and the contact forces
+    # never settle, swinging between 0.74x and 1.57x body weight — so there is no
+    # static state to measure. Locking roll/pitch stands in for the balance
+    # controller. It is valid ONLY because nothing moves in this test.
+    for _ in range(6000):
+        mujoco.mj_step(m, d)
+
+    assert d.ncon == 2, f"lost the diagonal stance before measuring ({d.ncon})"
+    force = np.zeros(6)
+    worst, normal = 0.0, 0.0
+    for i in range(d.ncon):
+        mujoco.mj_contactForce(m, d, i, force)
+        normal += float(force[0])
+        worst = max(worst, math.hypot(float(force[1]), float(force[2])) / float(force[0]))
+
+    assert normal == pytest.approx(c.body.total_mass * 9.81, rel=2e-3)
+    assert worst < 0.02, f"holding a full sway needed μ {worst:.3f}"
+
+    # And the sway it is holding is the corrected one, not the naive one.
+    mujoco.mj_comPos(m, d)
+    assert abs(float(d.subtree_com[0][1])) == pytest.approx(
+        abs(c.body.center_of_mass_y(np.full(3, -rom), q)), abs=2e-4)

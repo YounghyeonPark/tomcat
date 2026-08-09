@@ -1324,6 +1324,68 @@ coupling itself. On dualis 0.2 the pack is a real domain on the same bus, so
   - ⚠️ Still copper loss only (ADR-0021). Iron loss lands in the **stator**, so
     adding it would redistribute this gradient as well as raise it.
 
+## ADR-0025: The sway was 4 % optimistic -- and the friction cost cannot be measured without a balance controller
+- **Status:** Accepted
+- **Context:** M17 ran a **rigid trunk**, so it could only test the feet-only
+  envelope. The spine supplies ~23 mm of the ~53 mm headline, so **44 % of the number
+  NFR15 is checked against sat outside the simulation entirely.** M20 added the three
+  lateral spine joints to close that gap. It found a bug on the way in, and a wall on
+  the way out.
+- **Finding 1 -- the fore legs are not at the spine tip.** `center_of_mass_y` argued
+  that *"left/right legs sit at symmetric track offsets, so their own +/-y
+  contributions cancel"*. The **track** offsets do cancel. The **fore-aft** offset of
+  a leg's CoM does not: the spine's yaw rotates it into y, and **both** fore legs
+  contribute the same sign. In a trot stance that CoM sits ~52 mm *behind* the hip.
+
+  | | full-ROM sway |
+  |---|---|
+  | as published | 43.97 mm |
+  | **corrected** | **42.22 mm** |
+  | MuJoCo, independent | 42.219 mm |
+
+  **4.0 % optimistic**, and the corrected form agrees with the independent model to
+  **0.0005 mm**. Discriminated rather than guessed: folding the legs straight down
+  (CoM under the hip) collapses the gap to 0.02 mm.
+- **Consequence:** self-consistent envelope **53.90 -> 52.72 mm**. NFR15 needs 48 mm,
+  so it still **passes with 4.72 mm** -- the conclusion holds, the margin shrinks.
+  `p.spine` at `floor_mu=0.8` is unchanged, because friction binds first.
+- **Finding 2 -- the STATIC premise of ADR-0009/0019 is exact.** Holding a full-ROM
+  sway against a real friction cone needs **mu 0.006**, three orders below NFR16's
+  0.70, and the contacts carry exactly body weight. `lateral_spine_loads` says
+  holding a sway costs essentially nothing; measured, it does.
+- ⚠️ **Finding 3 -- ADR-0019/0020's DYNAMIC costs are NOT testable this way, and
+  that is a fact about the mechanism rather than about the harness.** Three attempts,
+  all rejected:
+  1. **Free root, sweep the spine.** The robot topples. A diagonal stance diverges at
+     `e^(7.77 t)`, so within one 0.2 s stance the contacts unload and it leaves the
+     ground -- contact is lost for 57 % of a full-ROM sweep, and for **13 % even at
+     quarter amplitude over three times the duration**. It is gravity, not the spine.
+  2. **Lock roll and pitch to remove toppling.** This *breaks the mechanism*. The
+     legs are **planar** -- ADR-0017 rejected abduction -- so a body sway over
+     planted feet needs either foot slip or body roll. Locking roll leaves neither,
+     and the model levers itself off the ground.
+  3. **Read the required mu during a sweep anyway.** Every configuration slides at
+     the cone limit, and "foot slip" *rises* with friction -- the signature of
+     measuring a fall.
+
+  **So the translation cost (0.98) and the yaw couple (0.27) that together slowed the
+  shipped trot from 67 to 50 cm/s remain un-cross-checked.** They are not refuted;
+  they are untested, and the test needs a closed-loop balance controller in the sim.
+- **What this sharpens.** M17 left the envelope magnitude open and blamed harness
+  drift, suggesting the fix was *"regulate the along-line component"*. That was too
+  small a diagnosis. **Both** the envelope and the friction costs are gated on the
+  same missing piece: a controller that keeps the robot up while the measurement is
+  taken. Recorded as the single blocking item rather than two vague ones.
+- **Consequences:**
+  - `build_mjcf(spine_dof=True)` adds the lateral chain, validated against
+    `center_of_mass_y` across eight postures to **< 1e-5 m**, with the naive form
+    asserted still wrong so the size of the error stays recorded.
+  - `build_mjcf(planar_root=True)` exists for **static** questions only, and its
+    docstring says why using it on a moving spine is invalid.
+  - ⚠️ A free-root diagonal stance has **no settled state to measure** -- contact
+    forces swing between 0.74x and 1.57x body weight indefinitely. Any future test
+    that quietly "settles" one is measuring a fall.
+
 ---
 
 ### How to add an ADR

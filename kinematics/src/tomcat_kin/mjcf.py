@@ -145,7 +145,8 @@ def _girdle_block(name: str, mass: float, indent: int) -> str:
 
 def build_mjcf(controller, leg_q: dict, height: float = 0.17,
                mu: float = 0.8, timestep: float = 5e-4,
-               armature: float = 0.0, spine_dof: bool = False) -> str:
+               armature: float = 0.0, spine_dof: bool = False,
+               planar_root: bool = False) -> str:
     """MJCF for the whole robot, generated from the live parameter set.
 
     Parameters
@@ -170,6 +171,19 @@ def build_mjcf(controller, leg_q: dict, height: float = 0.17,
         M17 ran a rigid trunk, so it could only test the **feet-only** envelope.
         The spine supplies 23.6 mm of the 53.9 mm headline, which means 44 % of the
         number NFR15 is checked against sat outside the simulation entirely.
+
+    planar_root : bool
+        Replace the free joint with x/y/z slides plus a yaw hinge, so the trunk
+        **cannot roll or pitch**.
+
+        ⚠️ For STATIC questions only, where it stands in for the balance controller
+        holding attitude. A diagonal stance is statically unstable — it topples at
+        `e^(7.77 t)` (M17) and the contact forces never settle, swinging between
+        0.74x and 1.57x body weight — so a free-root model has no static state to
+        measure. It must NOT be used for a moving spine: the legs are planar
+        (ADR-0017 rejected abduction), so a sway over planted feet needs foot slip
+        or body roll, and locking roll leaves neither. The model then levers itself
+        off the ground. That coupling is the mechanism, not an artefact.
 
     Notes
     -----
@@ -220,6 +234,16 @@ def build_mjcf(controller, leg_q: dict, height: float = 0.17,
             f'{pad}</body>'
         )
 
+    if planar_root:
+        root = "\n".join([
+            '      <joint name="rx" type="slide" axis="1 0 0"/>',
+            '      <joint name="ry" type="slide" axis="0 1 0"/>',
+            '      <joint name="rz" type="slide" axis="0 0 1"/>',
+            '      <joint name="ryaw" type="hinge" axis="0 0 1"/>',
+        ])
+    else:
+        root = '      <freejoint name="root"/>'
+
     acts = [f'    <position name="{nm}_a{i}" joint="{nm}_q{i}" kp="120" kv="4"/>'
             for nm in body.leg_names for i in (1, 2, 3)]
     if spine_dof:
@@ -237,7 +261,7 @@ def build_mjcf(controller, leg_q: dict, height: float = 0.17,
   <worldbody>
     <geom name="floor" type="plane" size="5 5 0.1" rgba="0.9 0.9 0.9 1"/>
     <body name="trunk" pos="0 0 {height}">
-      <freejoint name="root"/>
+{root}
 {_girdle_block("rear_girdle_g", sp.rear_girdle_mass, 6)}
 {legs_on("rear", 6)}
 {chain}

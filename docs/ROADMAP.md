@@ -47,7 +47,9 @@ sequences the work that implements them.
 > ([ADR-0023](DESIGN_DECISIONS.md)); on dualis 0.2 the energy books are **audited**
 > and the runtime is **emergent**.
 > **M19 done:** the winding runs **7.7 K above the skin** — M18's caveat answered,
-> not restated ([ADR-0024](DESIGN_DECISIONS.md)). 332 Python tests + 17 Rust.
+> not restated ([ADR-0024](DESIGN_DECISIONS.md)).
+> **M20 done:** the sway was **4 % optimistic**; the friction cost needs a balance
+> controller to measure at all ([ADR-0025](DESIGN_DECISIONS.md)). 335 Python + 17 Rust.
 
 ---
 
@@ -970,7 +972,48 @@ assembly — which is the Biot number of a *solid block*, not of a structure wit
 and air gaps in it. 0.3 returns `None` for an interior node rather than a comforting
 figure.
 
-## Later milestones (candidate M20+, not committed)
+## Milestone M20 — The spine in simulation: a bug, and a wall (DONE)
+
+**Goal.** M17 ran a rigid trunk, so it tested only the feet-only envelope. The spine
+supplies ~23 mm of the ~53 mm headline — **44 % of what NFR15 is checked against was
+outside the simulation.** Adding the three lateral joints found a bug going in and a
+wall coming out.
+
+**The bug: the fore legs are not at the spine tip.** `center_of_mass_y` argued that
+symmetric left/right track offsets cancel. They do — but the **fore-aft** offset of a
+leg's CoM does not: the yaw rotates it into y and **both** fore legs push the same
+way. In a trot stance that CoM sits ~52 mm behind the hip.
+
+| | full-ROM sway |
+|---|---|
+| as published | 43.97 mm |
+| **corrected** | **42.22 mm** |
+| MuJoCo | 42.219 mm |
+
+**4.0 % optimistic.** Envelope **53.90 → 52.72 mm** — NFR15 still passes, with
+4.72 mm of margin instead of 5.90.
+
+**The static premise checks out exactly.** Holding a full sway needs **μ 0.006**,
+three orders under NFR16. `lateral_spine_loads` said holding costs nothing; it does.
+
+⚠️ **The wall: ADR-0019/0020's dynamic friction costs cannot be measured without a
+balance controller.** Three designs, all rejected — a free root topples inside one
+stance (contact lost 13 % of the time even at quarter amplitude over 3× the
+duration); locking roll *breaks the mechanism*, because the legs are planar and a
+sway over planted feet needs slip or roll; and reading μ during a sweep just measures
+a fall. **The 0.98 + 0.27 that slowed the trot from 67 to 50 cm/s is untested, not
+refuted.**
+
+**What that sharpens.** M17 blamed harness drift and suggested regulating the
+along-line component. Too small a diagnosis: **both** the envelope magnitude and the
+friction costs are gated on the same missing piece — a closed-loop balance controller
+in the simulation. That is now one blocking item instead of two vague ones.
+
+## Later milestones (candidate M21+, not committed)
+
+- **A closed-loop balance controller in MuJoCo** — unblocks the envelope magnitude
+  AND the ADR-0019/0020 friction costs. The single highest-value modelling item left.
+
 
 
 

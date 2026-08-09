@@ -176,10 +176,18 @@ Small, and honestly at the point of diminishing returns:
 - ⚠️ **NEW — the single-axis reduction.** M17 found the two diagonals topple along
   axes **52.4° apart**, which `StepPlant`'s fixed `projection` cannot express. The
   magnitudes agree exactly; the directions do not. Not yet costed.
-- ⚠️ **The feet-only envelope magnitude is UNRESOLVED.** M17's closed-loop harness
-  recovers to ~13 mm against a predicted 30.34 mm, but its undisturbed baseline
-  drifts 25 mm — the same order as the signal, so it cannot adjudicate. Needs a
-  harness that also regulates the along-line component.
+- ⚠️ **BLOCKING: there is no closed-loop balance controller in the simulation**, and
+  M20 showed that **two** open items are gated on it, not one:
+  - the **envelope magnitude** (M17's harness drifts 25 mm against a 30 mm signal), and
+  - **ADR-0019/0020's friction costs** — 0.98 translation + 0.27 yaw, the numbers that
+    slowed the shipped trot from 67 to 50 cm/s, which are **untested, not refuted**.
+    A diagonal stance topples inside one stance time, so no open-loop test can hold
+    the robot up long enough to read the friction demand (ADR-0025).
+
+  M17 diagnosed this as "regulate the along-line component". That was too small.
+  **This is the single highest-value modelling item left.**
+- The **sway authority was 4 % optimistic** and is now corrected (M20): envelope
+  53.90 → **52.72 mm**, NFR15 still met with 4.72 mm of margin.
 
 ---
 
