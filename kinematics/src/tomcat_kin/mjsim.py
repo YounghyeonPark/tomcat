@@ -85,13 +85,27 @@ SPINE_SWAY_PER_RAD = 0.169
 #: Proportional gain on the spine assist. 1.0 would command the sway that cancels
 #: the current lateral DCM offset outright.
 #:
-#: ⚠️ **0.2, and the window is narrow.** `control.py` credits the spine as a static
-#: 36.6 mm of DCM offset, available for free. In dynamics it is not free: the sway
-#: swings the whole forequarters, and the reaction is destabilising above ~0.3. Worst
-#: direction measured 19.7 mm at gain 0, 22.5 mm at 0.2, and **0 mm at 0.4** — the
-#: robot falls at the smallest disturbance. A static authority credit cannot express
-#: that.
-SPINE_GAIN = 0.2
+#: ⚠️ **0.0 — the proportional assist is HARMFUL and is off by default (M24).**
+#:
+#: The law is `q = -gain * e / SPINE_SWAY_PER_RAD`, and a sway of `q` moves the CoM
+#: by `SPINE_SWAY_PER_RAD * q = -gain * e`. **The loop gain is therefore `gain`
+#: exactly, by construction**, so with any actuator lag it is marginal near 1 — and
+#: measured, even 0.2 degrades the UNDISTURBED baseline 5x (2.15 -> 11.43 mm mean
+#: DCM). At 0.5 and 1.0 the robot falls with no disturbance at all.
+#:
+#: The authority itself is real and is not the problem: a held sway realises 104 % of
+#: its kinematic value against planted feet, and an open-loop ramp to full ROM
+#: survives at 300 deg/s. What fails is *reactive* use of it. Deploying the spine
+#: needs a planned/feedforward scheme, not a gain.
+SPINE_GAIN = 0.0
+
+#: Rate limit on the spine command, rad/s per joint.
+#:
+#: ⚠️ Not a motor limit. The drive does ~912 deg/s (ADR-0019) and an open-loop ramp
+#: to full ROM survives at 300 deg/s. What destabilises is the *feedback* law
+#: chattering: the sway perturbs the very DCM it is reacting to. Slew-limiting the
+#: command breaks that loop without touching the authority.
+SPINE_SLEW = 3.0
 
 
 class BalanceHarness:
@@ -145,6 +159,7 @@ class BalanceHarness:
         self.site = {nm: name2id(model, obj.mjOBJ_SITE, f"{nm}_site")
                      for nm in self.b.leg_names}
         self._f = np.zeros(6)
+        self._spine_cmd = 0.0
 
         # The spine is optional: a model built without `spine_dof` simply has no
         # such actuators, and the assist switches itself off rather than erroring.
@@ -225,6 +240,10 @@ class BalanceHarness:
         e = float((xi - support) @ yhat)
         q = float(np.clip(-self.spine_gain * e / SPINE_SWAY_PER_RAD,
                           -self.spine_rom, self.spine_rom))
+        # Rate-limit, so the assist cannot chase its own reaction.
+        step = SPINE_SLEW * self.dt
+        q = float(np.clip(q, self._spine_cmd - step, self._spine_cmd + step))
+        self._spine_cmd = q
         for a in self.spine_act:
             data.ctrl[a] = q
         return q
@@ -238,6 +257,7 @@ class BalanceHarness:
 
     # -------------------------------------------------------------------- init
     def reset(self, settle: float = 0.06):
+        self._spine_cmd = 0.0
         d = self.mj.MjData(self.m)
         for nm in self.b.leg_names:
             q = (self.q0[nm] if nm in DIAGONALS["A"]

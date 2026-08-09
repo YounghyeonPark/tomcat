@@ -200,32 +200,67 @@ def test_the_spine_wants_stiffness_where_the_legs_want_compliance(controller):
     assert _mean_dcm(bb, slice(None)) < 0.005
 
 
-def test_the_spine_assist_is_not_the_free_offset_the_plant_credits(controller):
-    """⚠️ The finding. `control.py` books the spine as a static 36.6 mm of DCM
-    authority. In dynamics it has a **narrow usable gain window**: it helps a little
-    at 0.2 and is catastrophic by 0.4, because the sway swings the forequarters and
-    the reaction destabilises. A static credit cannot express that.
-    """
-    import math
+def test_the_proportional_spine_assist_has_unity_loop_gain_and_is_harmful(controller):
+    """⚠️ M24, and it retracts M22/M23's "+14 % from the spine".
 
+    The law is `q = -gain * e / SPINE_SWAY_PER_RAD`, and a sway of `q` moves the CoM
+    by `SPINE_SWAY_PER_RAD * q = -gain * e`. **The loop gain is `gain` exactly, by
+    construction.** With actuator lag that is marginal near 1 — and measured, even
+    0.2 degrades the *undisturbed* baseline fivefold. The apparent envelope gain
+    reported earlier was inside the noise the assist itself created.
+
+    The authority is not the problem (see the held-sway test); reactive use of it is.
+    """
     plant = control.StepPlant.from_gait(controller, n=96, latency=0.0075, floor_mu=0.8)
     assert plant.spine == pytest.approx(0.0366, abs=5e-4)
 
     model = mjsim.build(controller, mujoco, kp=80, spine=True, spine_kp=1000)
-    u = np.array([0.0, 1.0])
 
-    def envelope(gain):
+    def baseline(gain):
         h = mjsim.BalanceHarness(controller, mujoco, model, spine_gain=gain,
                                  use_spine=gain != 0.0)
-        lo, hi = 0.0, 1.0
-        for _ in range(5):
-            mid = 0.5 * (lo + hi)
-            hist, fell = h.run(h.reset(), steps=8, disturbance=mid * u)
-            if not fell and len(hist) == 8:
-                lo = mid
-            else:
-                hi = mid
-        return lo
+        hist, fell = h.run(h.reset(), steps=18)
+        return (_mean_dcm(hist, slice(None)) if len(hist) == 18 else float("inf")), fell
 
-    assert envelope(0.2) >= envelope(0.0), "a gentle assist should not hurt"
-    assert envelope(0.7) < envelope(0.2), "a hard assist must be worse, not better"
+    quiet, fell_off = baseline(0.0)
+    gentle, _ = baseline(0.2)
+    hard, fell_hard = baseline(1.0)
+
+    assert not fell_off and quiet < 0.004, "the spine-off baseline must stay clean"
+    assert gentle > 3.0 * quiet, "a 0.2 assist should visibly degrade the baseline"
+    assert hard > gentle or fell_hard, "unity loop gain must be worse still"
+
+
+def test_the_spines_realisable_authority_is_NOT_established(controller):
+    """⚠️ A deliberate non-result, recorded so it is not re-derived by accident.
+
+    I tried to show the spine's 36.6 mm credit is physically realised by holding a
+    full-ROM sway while trotting and reading the CoM offset from the support line.
+    **Two runs of that measurement disagreed (44.0 mm and 16.5 mm)**, and the reason
+    is that `perp` does not hold a steady offset at all — it oscillates through zero
+    and drifts (+8, +19, −2.8, −10, −26, −71 mm over 14 steps). Averaging its
+    magnitude reads a drift as a bias.
+
+    So: the assist is harmful (see above) and the motor rate is not the limit
+    (open-loop ramps survive 300 deg/s), but **how much offset the spine can actually
+    hold against planted feet is unmeasured.** This test pins the obstacle any future
+    attempt has to deal with.
+    """
+    model = mjsim.build(controller, mujoco, kp=80, spine=True, spine_kp=1000)
+    rom = abs(controller.body.spine.params.lateral_q_min[0])
+
+    class Held(mjsim.BalanceHarness):
+        def spine_assist(self, data, xi, support):
+            for act in self.spine_act:
+                data.ctrl[act] = rom
+            return rom
+
+    h = Held(controller, mujoco, model, use_spine=True)
+    hist, _ = h.run(h.reset(), steps=14)
+    assert len(hist) >= 10, "a HELD sway should not fell the robot outright"
+
+    perp = np.array([r["perp"] for r in hist])
+    assert perp.min() < 0 < perp.max(), (
+        "perp held one sign — the offset may be steady after all, so the authority "
+        "question is reopenable; re-measure before trusting either figure"
+    )

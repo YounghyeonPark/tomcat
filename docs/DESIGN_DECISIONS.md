@@ -1560,6 +1560,59 @@ coupling itself. On dualis 0.2 the pack is a real domain on the same bus, so
     model, produced the wrong number -- after M17's drift. **A harness is an
     experiment and needs its own controls.**
 
+## ADR-0029: The proportional spine assist has unity loop gain -- it is harmful, and M22/M23's "+14 %" is withdrawn
+- **Status:** Accepted. **Retracts the spine benefit claimed in
+  [ADR-0027](#adr-0027) and [ADR-0028](#adr-0028).**
+- **Context:** ADR-0028 localised the envelope gap to the spine term and asked
+  whether a better controller could extract more than 3.6 mm from `control.py`'s
+  36.6 mm credit. Before building one, I measured why the existing assist did so
+  little. It does **worse than little**.
+- **The finding, and it is derivable rather than empirical.** The law is
+  `q = -gain * e / SPINE_SWAY_PER_RAD`, and a sway of `q` moves the CoM by
+  `SPINE_SWAY_PER_RAD * q = -gain * e`. **The loop gain is `gain` exactly, by
+  construction** -- the actuator sits directly in the position feedback path with no
+  attenuation. With any lag it is marginal near 1. Measured on the *undisturbed*
+  baseline:
+
+  | spine gain | mean \|DCM\| over 20 steps | |
+  |---|---|---|
+  | **0.0** | **2.15 mm** | clean |
+  | 0.2 | **11.43 mm** | **5x worse, with no disturbance at all** |
+  | 0.5 | -- | falls at step 6 |
+  | 1.0 | -- | falls at step 4 |
+
+- ⚠️ **So the "+14 % worst case from the spine" reported in ADR-0027/0028 is
+  withdrawn.** It was measured inside the noise the assist itself created. On a
+  settled cycle the worst direction is **28.9 mm with the assist and 28.9 mm
+  without** -- the spine contributes nothing to the worst case, and degrades every
+  other measurement's resolution.
+- **Two things this does NOT show, and the distinction matters:**
+  - **The motor is not the limit.** An open-loop ramp to full ROM survives at
+    **300 deg/s**, against `control.py`'s 912 deg/s capability and the ~200 deg/s a
+    full traverse needs. ADR-0019's "ROM-limited, not rate-limited" stands as far as
+    the *drive* is concerned.
+  - **Slew-limiting does not rescue it.** Adding a 3 rad/s rate limit to break the
+    chatter left gain 0.5 and above still collapsing in every direction. This is a
+    loop-gain problem, not a bandwidth one.
+- ⚠️ **And one thing I could NOT measure, recorded as a non-result.** I tried to
+  show the 36.6 mm credit is physically realisable by holding a full-ROM sway while
+  trotting and reading the CoM offset from the support line. **Two runs disagreed:
+  44.0 mm and 16.5 mm.** The cause is that the offset is not steady -- it oscillates
+  through zero and drifts (+8, +19, -2.8, -10, -26, -71 mm over 14 steps), so
+  averaging its magnitude reads a drift as a bias. **How much offset the spine can
+  hold against planted feet remains unmeasured**, and the first attempt's answer was
+  an artefact of the statistic, not a result.
+- **Consequences:**
+  - `SPINE_GAIN` defaults to **0.0**. The assist is off, and the docstring gives the
+    unity-loop-gain derivation so it is not switched back on hopefully.
+  - The M24 question is unchanged but its premise is corrected: the spine credit is
+    **not being spent at all**, rather than being spent inefficiently. A planned or
+    feedforward deployment is the next thing to try -- reactive proportional control
+    is structurally the wrong shape for an actuator that sits in its own feedback
+    path.
+  - **NFR15's status is unaffected**: still not demonstrated, at 28.9 mm against
+    48 mm. Only the attribution changes.
+
 ---
 
 ### How to add an ADR

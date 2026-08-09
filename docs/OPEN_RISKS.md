@@ -197,10 +197,17 @@ Small, and honestly at the point of diminishing returns:
   shortfall**. The spine is in the loop and helps (+14 % worst case at gain 0.2), but
   by gain 0.4 the robot falls at the smallest disturbance tested.
   ⚠️ **This refutes neither the requirement nor the model.** The prediction assumes
-  optimal control on one axis; the measurement uses a proportional law across all
-  directions. Separating them needs a better controller — now the highest-value
-  modelling item, and sharply aimed: **can it extract more than 3.6 mm from a 36.6 mm
-  spine credit?**
+  optimal control on one axis; the measurement uses a proportional law.
+- ⚠️ **The spine credit is not being spent AT ALL** (M24, [ADR-0029](DESIGN_DECISIONS.md)).
+  The proportional assist has **unity loop gain by construction** — the actuator sits
+  in its own position feedback path — so even gain 0.2 degrades the *undisturbed*
+  baseline 5× (2.15 → 11.43 mm) and 0.5 falls unaided. **M22/M23's "+14 % from the
+  spine" is withdrawn**; worst case is 28.9 mm with and without it.
+  The motor is not the limit (open-loop ramps survive 300°/s) and slew-limiting does
+  not help. **Next: a planned/feedforward deployment**, not a gain.
+- ⚠️ **UNMEASURED: how much offset the spine can actually hold.** Two attempts gave
+  44.0 mm and 16.5 mm because the offset drifts rather than holding, so averaging its
+  magnitude reads drift as bias. The 36.6 mm credit is neither confirmed nor refuted.
 - ⚠️ **ADR-0019/0020's friction costs** (0.98 + 0.27, the numbers that slowed the
   trot from 67 to 50 cm/s) are still **untested** — but no longer unreachable: the
   harness now holds the robot up long enough to read contact forces.

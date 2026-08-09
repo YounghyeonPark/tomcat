@@ -55,7 +55,9 @@ sequences the work that implements them.
 > **M22 done:** the spine assist is **not a free offset**, and **NFR15 is not
 > demonstrated** ([ADR-0027](DESIGN_DECISIONS.md)).
 > **M23 done:** M21/M22 measured before the limit cycle — corrected, and the gap
-> localises to the **spine term** ([ADR-0028](DESIGN_DECISIONS.md)). 344 Python + 17 Rust.
+> localises to the **spine term** ([ADR-0028](DESIGN_DECISIONS.md)).
+> **M24 done:** the spine assist has **unity loop gain** — it is harmful and the
+> "+14 %" is withdrawn ([ADR-0029](DESIGN_DECISIONS.md)). 345 Python + 17 Rust.
 
 ---
 
@@ -1108,7 +1110,49 @@ spine buys **3.6 mm** of worst-case envelope. The gap is one term, not the model
 ⚠️ Second time in this project that the **harness**, not the model, produced the
 wrong number — after M17's drift. A harness is an experiment and needs its own controls.
 
-## Later milestones (candidate M24+, not committed)
+## Milestone M24 — Why the spine credit is not being spent (DONE)
+
+M23 localised the envelope gap to the spine term and asked whether better control
+could extract more than 3.6 mm from `control.py`'s 36.6 mm credit. Before building a
+controller, I measured why the existing assist did so little. **It does worse than
+little.**
+
+**The law has unity loop gain by construction.** `q = -gain · e / 0.169`, and a sway
+of `q` moves the CoM by `0.169 · q = -gain · e`. The actuator sits directly in the
+position feedback path with no attenuation, so with any lag it is marginal near 1.
+On the **undisturbed** baseline:
+
+| spine gain | mean \|DCM\| over 20 steps | |
+|---|---|---|
+| **0.0** | **2.15 mm** | clean |
+| 0.2 | **11.43 mm** | **5× worse, with no disturbance at all** |
+| 0.5 | — | falls at step 6 |
+| 1.0 | — | falls at step 4 |
+
+⚠️ **So M22/M23's "+14 % from the spine" is withdrawn** — measured inside the noise
+the assist itself created. On a settled cycle the worst direction is **28.9 mm with
+the assist and 28.9 mm without**.
+
+**Two things this does not show.** The **motor is not the limit** (open-loop ramps to
+full ROM survive 300°/s, so ADR-0019's "ROM-limited, not rate-limited" stands for the
+drive), and **slew-limiting does not rescue it** (a 3 rad/s limit left gain 0.5 still
+collapsing). It is a loop-gain problem, not a bandwidth one.
+
+⚠️ **And a non-result, recorded.** I tried to show the 36.6 mm is physically
+realisable by holding a full sway while trotting. **Two runs disagreed — 44.0 mm and
+16.5 mm** — because the offset is not steady: it oscillates through zero and drifts.
+Averaging its magnitude reads a drift as a bias. **How much the spine can hold
+against planted feet is unmeasured**, and my first answer was an artefact of the
+statistic.
+
+## Later milestones (candidate M25+, not committed)
+
+- **Planned/feedforward spine deployment** — reactive proportional control is
+  structurally wrong for an actuator sitting in its own feedback path.
+- **A steady measurement of the spine's realisable offset**, which the drifting
+  `perp` signal defeated.
+- **ADR-0019/0020's friction costs**, still unmeasured.
+
 
 - **Whole-body QP / step-MPC** — now sharply aimed: can better control extract more
   than 3.6 mm from a 36.6 mm spine credit?
