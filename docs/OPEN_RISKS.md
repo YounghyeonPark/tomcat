@@ -219,8 +219,25 @@ Small, and honestly at the point of diminishing returns:
   defect is the single-axis `StepPlant`, which cannot tell the two apart.
   Also: `ncon = 1` through most of a recovery — the robot is on **one foot**, so the
   support-*line* geometry the model rests on does not hold while it recovers.
-- ⚠️ **CORRECTED (M27, [ADR-0032](DESIGN_DECISIONS.md)): the next step IS a better
-  controller.** The free along-line actuator — differential stance-leg extension,
+- ✅ **SETTLED (M28, [ADR-0033](DESIGN_DECISIONS.md)): NFR15 is ACHIEVABLE, and the
+  model was never the problem.** The **viable set** — what *any* controller could
+  recover from — is computable in closed form, and it reverses three earlier
+  conclusions:
+
+  | | worst direction |
+  |---|---|
+  | Viable, feet only (exact) | **29.8 mm** |
+  | `control.py` feet-only | 30.3 mm (within 2 %) |
+  | MuJoCo measured | 28.9 mm (**97 % of optimal**) |
+  | Viable, + spine (exact) | **62.7 mm** |
+  | NFR15 requires | 48.0 mm |
+
+  The reduced-order model is **not optimistic** (its spine figure is *conservative*),
+  the foot-placement controller is **near-optimal**, and the authority to meet NFR15
+  **exists**. What remains is a controller that can spend it — now justified work
+  with a proven target rather than a hope.
+- ⚠️ (superseded reasoning, kept for the record) M27's finding that the free
+  along-line actuator exists but delivers little: The free along-line actuator — differential stance-leg extension,
   shifting the CoP along the support line — **does exist** on compliant legs (linear,
   −39.3 mm/mm, 5 of 7 test points keeping two contacts). M21 wrote it off at stiff
   gains and never rechecked. It buys **+1.8 mm** at best while degrading the baseline

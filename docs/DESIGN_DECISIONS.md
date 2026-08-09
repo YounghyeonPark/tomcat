@@ -1773,6 +1773,69 @@ coupling itself. On dualis 0.2 the pack is a real domain on the same bus, so
     factor is known to be the controller architecture.*
   - The modelling has reached the end of what this control structure can settle.
 
+## ADR-0033: The viable set, computed exactly -- NFR15 is ACHIEVABLE, and the model was never the problem
+- **Status:** Accepted. **Settles the M17-M27 arc. Corrects
+  [ADR-0028](#adr-0028), [ADR-0031](#adr-0031) and [ADR-0032](#adr-0032).**
+- **Context:** Every envelope figure in this project has been the achievement of
+  *some controller*. That made the recurring question unanswerable: when a
+  measurement falls short of a prediction, is the model optimistic or the controller
+  poor? M27 ended with three actuators failing to deliver credited authority --
+  suggestive, but not proof. `viable.py` removes the controller from the question.
+- **It is exact, not optimised.** Over one stance with the CoP free inside the
+  support set `S`, `xi(T) = g xi(0) - (g-1) u` with `u` the exponentially-weighted
+  mean of the CoP -- and since `S` is convex, `u` ranges over exactly `S`. So the
+  recoverable set follows in closed form:
+
+      R_0 = {0},   R_(k+1) = (R_k + (g-1) S_k) / g
+
+  a Minkowski sum of scaled polygons. `S_k` is the segment between the stance feet
+  swept along `x` by the reach range -- a **parallelogram**, because the legs are
+  planar (ADR-0017). Converges by 6 steps; the 1-step case matches the closed form
+  to **9e-14**.
+- **The result, and it reverses three conclusions:**
+
+  | | worst direction |
+  |---|---|
+  | **Viable set, feet only (exact, ANY controller)** | **29.8 mm** |
+  | `control.py` feet-only, 1-D | 30.3 mm |
+  | MuJoCo harness measured (ADR-0028) | 28.9 mm |
+  | **Viable set, + spine (exact)** | **62.7 mm** |
+  | `control.py` + spine, 1-D | 52.7 mm |
+  | **NFR15 requires** | **48.0 mm** |
+
+- ⚠️ **1. The reduced-order model was never optimistic.** Its feet-only envelope is
+  within **2 %** of the exact worst-direction limit, and its with-spine figure is
+  **conservative** (52.7 against 62.7). ADR-0028 concluded "the foot-placement model
+  is nearly right; the spine credit is what does not materialise" -- the first half
+  holds, the second is **wrong in sign**.
+- ⚠️ **2. The foot-placement controller is near-OPTIMAL.** 28.9 mm measured against
+  a 29.8 mm true limit is **97 %**, not the "84 % of prediction" ADR-0028 read as a
+  shortfall. ADR-0032's blanket indictment of "the control architecture" holds for
+  the spine and **not for the feet**.
+- ⚠️ **3. NFR15 is ACHIEVABLE.** 62.7 mm viable against 48 mm required. The
+  authority exists; M24-M27's failure to spend it is a control problem **with a
+  proven target**. Building the whole-body controller is now justified work rather
+  than a hope.
+- **And a geometric correction to ADR-0031.** It called the spine "authority in the
+  wrong axis". Along its own axis the credit adds exactly its length (36.6 mm, to the
+  millimetre). But the viable set is **slanted**, because the trot's support is a
+  diagonal -- so sliding that boundary sideways moves where the fore-aft ray exits,
+  and the gain in **x is larger still (63 mm)**. ADR-0031's mechanism stands (the
+  spine cannot act *along* the support line); "it only helps laterally" does not
+  follow from it.
+- **Consequences:**
+  - **Leg abduction stays rejected, now on solid ground.** ADR-0032 said "do not buy
+    it because the controller cannot use what it has"; the stronger statement is that
+    **the existing authority is sufficient for the requirement**. ADR-0017's original
+    conclusion was right, though its stated reason had lapsed.
+  - **NFR15**: achievable, **not yet demonstrated**. Those are different claims and
+    the requirement table should carry both.
+  - ⚠️ Still LIPM-class: constant CoM height, `dH/dt = 0`. M17 measured that as
+    ~2 % **conservative**, so the bound is if anything slightly pessimistic -- but it
+    is a bound within a model class, not a theorem about the robot.
+  - The one thing this does not give is a controller. It gives the target to build one
+    against, which is what every prior milestone lacked.
+
 ---
 
 ### How to add an ADR

@@ -63,7 +63,9 @@ sequences the work that implements them.
 > **M26 done:** the spine credit is authority in the **wrong axis** — the binding
 > mode is **along-line** ([ADR-0031](DESIGN_DECISIONS.md)).
 > **M27 done:** three actuators, three failures — the **architecture** is the limit,
-> so **do not buy abduction yet** ([ADR-0032](DESIGN_DECISIONS.md)). 345 Python + 17 Rust.
+> so **do not buy abduction yet** ([ADR-0032](DESIGN_DECISIONS.md)).
+> **M28 done:** the **viable set**, computed exactly — **NFR15 is achievable** and the
+> model was never the problem ([ADR-0033](DESIGN_DECISIONS.md)). 353 Python + 17 Rust.
 
 ---
 
@@ -1263,7 +1265,55 @@ to a controller that cannot exploit what it already has is mass spent on a probl
 does not solve. ADR-0017's rejection stands — on new reasoning, since its original
 basis ("NFR15 already met") no longer holds.
 
-## Later milestones (candidate M28+, not committed)
+## Milestone M28 — The viable set: what ANY controller could do (DONE)
+
+Every envelope so far has been the achievement of *some controller*, which left the
+recurring question unanswerable: model optimistic, or controller poor? This removes
+the controller from the question — and it is **exact**, not optimised.
+
+Over one stance with the CoP free inside the support set `S`,
+`ξ(T) = g·ξ(0) − (g−1)·u` where `u` is the exponentially-weighted mean of the CoP.
+`S` is convex, so `u` ranges over exactly `S`. The recoverable set follows in closed
+form as a Minkowski recursion `Rₖ₊₁ = (Rₖ + (g−1)Sₖ)/g`. Converges by 6 steps;
+the 1-step case matches the closed form to **9×10⁻¹⁴**.
+
+| | worst direction |
+|---|---|
+| **Viable, feet only (exact, ANY controller)** | **29.8 mm** |
+| `control.py` feet-only, 1-D | 30.3 mm |
+| MuJoCo harness measured | 28.9 mm |
+| **Viable, + spine (exact)** | **62.7 mm** |
+| `control.py` + spine, 1-D | 52.7 mm |
+| **NFR15 requires** | **48.0 mm** |
+
+⚠️ **Three conclusions reverse.**
+
+**1. The reduced-order model was never optimistic.** Feet-only is within **2 %** of
+the exact limit; with-spine is **conservative** (52.7 vs 62.7). M23's "the spine
+credit does not materialise" is **wrong in sign**.
+
+**2. The foot-placement controller is near-optimal** — 28.9 against a true 29.8 mm is
+**97 %**, not the 84 % "shortfall" M23 read. M27's indictment of the architecture
+holds for the spine, **not** the feet.
+
+**3. NFR15 is ACHIEVABLE** — 62.7 mm viable against 48 mm required. The authority
+exists, so M24–M27's failure to spend it is a control problem **with a proven
+target**. Building the whole-body controller is now justified work, not a hope.
+
+**And a geometric correction to M26:** along its own axis the spine credit adds
+exactly its length (36.6 mm, to the millimetre) — but the viable set is **slanted**,
+because the trot's support is diagonal, so the fore-aft gain is **larger still
+(63 mm)**. M26's mechanism stands; "it only helps laterally" does not follow.
+
+**Leg abduction stays rejected, now on solid ground:** not "the controller cannot use
+what it has", but **the existing authority is sufficient for the requirement**.
+
+## Later milestones (candidate M29+, not committed)
+
+- **The whole-body controller** — now with a proven 62.7 mm target to close against
+  the 28.9 mm achieved.
+- **ADR-0019/0020's friction costs**, still unmeasured.
+
 
 ⚠️ **Prerequisite for everything else here: a whole-body controller** (QP or
 step-MPC) allocating across placement, CoP and spine simultaneously. Until then both
