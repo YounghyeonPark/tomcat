@@ -131,14 +131,54 @@ def test_the_envelope_is_strongly_direction_dependent(controller, angle_deg, flo
     assert xi_mm > floor_mm, f"{angle_deg} deg gave only {xi_mm:.1f} mm"
 
 
+def test_the_envelope_must_be_measured_on_a_settled_cycle(controller):
+    """⚠️ The M23 correction, as a regression guard.
+
+    M21 and M22 disturbed the robot at `t = 0` — one settle after being placed,
+    before it had entered its limit cycle. That is not a trotting robot, and it made
+    every envelope pessimistic: worst-case read 19.3 mm where a settled cycle gives
+    25.3 mm. `run(disturbance=...)` applies the push immediately, so this is easy to
+    get wrong; pre-run first.
+    """
+    import math
+
+    h = _harness(controller, COMPLIANT_KP)
+    u = np.array([math.cos(math.pi), math.sin(math.pi)])   # 180 deg, worst affected
+
+    def envelope(pre_steps):
+        lo, hi = 0.0, 1.6
+        for _ in range(5):
+            mid = 0.5 * (lo + hi)
+            data = h.reset()
+            ok = True
+            if pre_steps:
+                hist, fell = h.run(data, steps=pre_steps)
+                ok = not fell and len(hist) == pre_steps
+            if ok:
+                hist, fell = h.run(data, steps=8, disturbance=mid * u)
+                ok = not fell and len(hist) == 8
+            lo, hi = (mid, hi) if ok else (lo, mid)
+        return lo
+
+    assert envelope(4) > envelope(0), "settling must not make the robot weaker"
+
+
 def test_measured_worst_case_is_below_the_reduced_order_prediction(controller):
-    """The result. The single-axis model promises one number in every direction; the
-    worst direction does not deliver it."""
+    """The result, on the corrected numbers (ADR-0028).
+
+    Split by term the model is not uniformly optimistic: **foot placement achieves
+    84 %** of its prediction, the **spine only 55 %**. The gap is one term.
+    """
     plant = control.StepPlant.from_gait(controller, n=96, latency=0.0075, floor_mu=0.8)
-    predicted = control.rejection_envelope(plant)
-    assert predicted == pytest.approx(0.0303, abs=5e-4)
-    # 19.3 mm measured at 300 deg (ADR-0026) against 30.3 mm predicted.
-    assert 0.0193 < predicted * 0.75
+    feet_only = control.rejection_envelope(plant)
+    with_spine = control.self_consistent_envelope(controller)["envelope"]
+    assert feet_only == pytest.approx(0.0303, abs=5e-4)
+    assert with_spine == pytest.approx(0.0527, abs=1e-3)
+
+    measured_feet, measured_spine = 0.0253, 0.0289      # settled cycle, worst of 18
+    assert measured_feet / feet_only == pytest.approx(0.84, abs=0.03)
+    assert measured_spine / with_spine == pytest.approx(0.55, abs=0.03)
+    assert measured_spine < 0.048, "NFR15 would be demonstrated — recheck the claim"
 
 
 def test_the_spine_wants_stiffness_where_the_legs_want_compliance(controller):

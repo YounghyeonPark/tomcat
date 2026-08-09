@@ -50,8 +50,12 @@ sequences the work that implements them.
 > not restated ([ADR-0024](DESIGN_DECISIONS.md)).
 > **M20 done:** the sway was **4 % optimistic**; the friction cost needs a balance
 > controller to measure at all ([ADR-0025](DESIGN_DECISIONS.md)).
-> **M21 done:** the envelope is **direction-dependent (3.4×)** and balance needs
-> **compliant legs** ([ADR-0026](DESIGN_DECISIONS.md)). 341 Python + 17 Rust.
+> **M21 done:** the envelope is **direction-dependent** and balance needs
+> **compliant legs** ([ADR-0026](DESIGN_DECISIONS.md)).
+> **M22 done:** the spine assist is **not a free offset**, and **NFR15 is not
+> demonstrated** ([ADR-0027](DESIGN_DECISIONS.md)).
+> **M23 done:** M21/M22 measured before the limit cycle — corrected, and the gap
+> localises to the **spine term** ([ADR-0028](DESIGN_DECISIONS.md)). 344 Python + 17 Rust.
 
 ---
 
@@ -1053,7 +1057,62 @@ spine's ~22 mm is not in the loop; the spine acts most strongly in the lateral
 directions where the feet are weakest. **Whether NFR15's 48 mm survives is the next
 question, not this one's answer.**
 
-## Later milestones (candidate M22+, not committed)
+## Milestone M22 — The spine in the balance loop (DONE)
+
+**Goal.** M21 measured with a **rigid trunk**, so the spine's ~22 mm was outside the
+loop and NFR15 stayed open. This puts it in.
+
+**The legs and the spine want opposite gains.** M21 found balance needs *compliant*
+legs. The lateral spine is the reverse — it carries the whole forequarters, and at
+the leg's gain it wobbles enough to fell a clean baseline in **10 steps**. At
+`kp = 1000` it is quiet again. **A single "servo gain" would have hidden this.**
+
+⚠️ **The spine's authority is not a static offset.** `control.py` books 36.6 mm as
+free and always available. In dynamics the usable window is narrow: a gentle assist
+(gain 0.2) helps, and by gain 0.4 the robot falls at the *smallest* disturbance
+tested. The sway swings the whole forequarters and the reaction destabilises.
+
+## Milestone M23 — Correcting my own measurement, and localising the gap (DONE)
+
+⚠️ **M21 and M22 disturbed the robot at `t = 0`** — one settle after being placed,
+before it had entered its limit cycle. That is not a trotting robot. Disturbing after
+2, 4 or 6 undisturbed steps gives **systematically larger** envelopes; the +0 column
+was the lowest in every direction.
+
+Found while trying to *explain* the direction dependence, not while re-checking it.
+The tell: opposite directions on the same axis disagreed wildly (0° = 41.8 mm,
+180° = 19.3 mm), which no property of the robot explains and an unsettled start does.
+
+| | published | **corrected** |
+|---|---|---|
+| worst direction, feet only | 19.3 mm | **25.3 mm** |
+| worst direction, spine at 0.2 | 22.5 mm | **28.9 mm** |
+| direction spread | 3.4× | **2.6×** |
+| NFR15 shortfall | 2.3× | **1.66×** |
+
+**Every qualitative conclusion survives** — direction-dependent, worst direction short
+of prediction, spine helps modestly (+14 %), narrow gain window, NFR15 not
+demonstrated.
+
+**And the correction sharpens it.** Split by term:
+
+| | predicted | measured worst | achieved |
+|---|---|---|---|
+| **feet only** | 30.3 mm | 25.3 mm | **84 %** |
+| **with spine** | 52.7 mm | 28.9 mm | **55 %** |
+
+⚠️ **The foot-placement model is nearly right; the spine credit is what does not
+materialise.** `control.py` books 36.6 mm of static spine authority; measured, the
+spine buys **3.6 mm** of worst-case envelope. The gap is one term, not the model.
+
+⚠️ Second time in this project that the **harness**, not the model, produced the
+wrong number — after M17's drift. A harness is an experiment and needs its own controls.
+
+## Later milestones (candidate M24+, not committed)
+
+- **Whole-body QP / step-MPC** — now sharply aimed: can better control extract more
+  than 3.6 mm from a 36.6 mm spine credit?
+- **ADR-0019/0020's friction costs**, still unmeasured but reachable.
 
 - **The spine in the balance loop** — the direct NFR15 question, and the one thing
   that could close the direction dependence.

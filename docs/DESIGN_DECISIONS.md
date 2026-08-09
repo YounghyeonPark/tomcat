@@ -1387,7 +1387,7 @@ coupling itself. On dualis 0.2 the pack is a real domain on the same bus, so
     that quietly "settles" one is measuring a fall.
 
 ## ADR-0026: The envelope, measured -- it is direction-dependent, and balance needs compliant legs
-- **Status:** Accepted
+- **Status:** Accepted; **numbers superseded by [ADR-0028](#adr-0028)** -- they were measured before the robot entered its limit cycle and are pessimistic. Worst direction is **25.3 mm**, not 19.3; spread **2.6x**, not 3.4. Conclusions unchanged.
 - **Context:** [ADR-0025](#adr-0025) named one blocking item: a closed-loop balance
   controller in simulation, without which neither the **envelope magnitude** nor
   ADR-0019/0020's **friction costs** could be measured. `mjsim.BalanceHarness` is
@@ -1458,7 +1458,7 @@ coupling itself. On dualis 0.2 the pack is a real domain on the same bus, so
     adjudicate, so the noise floor is asserted before any result built on it.
 
 ## ADR-0027: The spine assist is not the free offset the plant credits -- and NFR15 is not demonstrated
-- **Status:** Accepted
+- **Status:** Accepted; **numbers superseded by [ADR-0028](#adr-0028)**. Worst direction with the spine is **28.9 mm**, not 22.5, and the NFR15 shortfall is **1.66x**, not 2.3x. Conclusions unchanged, and the gap is now localised to the spine term.
 - **Context:** [ADR-0026](#adr-0026) measured the envelope with a **rigid trunk**, so
   the spine's ~22 mm share was outside the loop and the NFR15 question stayed open.
   This puts it in. The answer is not the one the reduced-order model promises.
@@ -1506,6 +1506,59 @@ coupling itself. On dualis 0.2 the pack is a real domain on the same bus, so
   - The open question is now sharp and answerable: **does a better controller close
     the gap, or is the reduced-order envelope optimistic?** A whole-body QP or an MPC
     over the step would separate them.
+
+## ADR-0028: Correcting M21/M22 -- I measured before the robot was trotting, and the model's optimism is in the SPINE term
+- **Status:** Accepted. **Supersedes the numbers in [ADR-0026](#adr-0026) and
+  [ADR-0027](#adr-0027); their conclusions stand.**
+- **The error.** Every envelope in M21 and M22 was measured by disturbing the robot
+  at `t = 0`, one settle after being placed. That is not a trotting robot -- it has
+  not entered its limit cycle. Disturbing after 2, 4 or 6 undisturbed steps instead
+  gives **systematically larger** figures, and the +0 column is the lowest in every
+  direction tested. My numbers were pessimistic by construction.
+
+  I found this while trying to explain the direction dependence, not by re-checking
+  the result. The tell was that opposite directions on the same axis disagreed
+  wildly (0 deg gave 41.8 mm, 180 deg gave 19.3 mm), which no property of the robot
+  explains but an unsettled initial condition does.
+- **The corrected measurements** (settled cycle, worst over 3 phases x 6 directions):
+
+  | | published | **corrected** |
+  |---|---|---|
+  | worst direction, feet only | 19.3 mm | **25.3 mm** |
+  | worst direction, spine at 0.2 | 22.5 mm | **28.9 mm** |
+  | direction spread | 3.4x | **2.6x** |
+  | NFR15 shortfall | 2.3x | **1.66x** |
+
+- **Every qualitative conclusion of ADR-0026/0027 survives**, which is the reason
+  they are corrected rather than withdrawn: the envelope is direction-dependent, the
+  worst direction falls short of the prediction, the spine helps modestly (**+14 %**,
+  25.3 -> 28.9 mm), its usable gain window is narrow, and **NFR15 is not
+  demonstrated**.
+- **And the correction sharpens the finding, which is the useful part.** Split by
+  term, the model is not uniformly optimistic:
+
+  | | predicted | measured worst | achieved |
+  |---|---|---|---|
+  | **feet only** | 30.3 mm | 25.3 mm | **84 %** |
+  | **with spine** | 52.7 mm | 28.9 mm | **55 %** |
+
+  ⚠️ **The foot-placement model is nearly right. The spine credit is what does not
+  materialise.** `control.py` books `plant.spine = 36.6 mm` as a static DCM offset;
+  measured, the spine buys **3.6 mm** of worst-case envelope. That localises the gap
+  to one term instead of leaving it spread across the whole model, and it is
+  consistent with ADR-0027's independent finding that the assist has a narrow stable
+  gain window.
+- **Consequences:**
+  - **Envelopes must be measured on a settled cycle.** The harness makes this easy to
+    get wrong -- `run(disturbance=...)` applies it immediately -- so the tests now
+    pre-run before disturbing, and the docstring says why.
+  - NFR15 remains **not demonstrated**, at 28.9 mm against 48 mm required.
+  - The next question is unchanged but better aimed: the gap is **in the spine term**,
+    so a better controller should be judged on whether it can extract more than
+    3.6 mm from a 36.6 mm credit.
+  - ⚠️ This is the second time in this project that a measurement harness, not the
+    model, produced the wrong number -- after M17's drift. **A harness is an
+    experiment and needs its own controls.**
 
 ---
 

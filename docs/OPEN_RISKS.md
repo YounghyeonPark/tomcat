@@ -181,13 +181,26 @@ Small, and honestly at the point of diminishing returns:
   over 40 steps, against M17's 25 mm and growing.
 - ⚠️ **NEW — the envelope is direction-dependent, and the reduced-order model
   over-promises.** `StepPlant` quotes one number (30.34 mm feet-only) for every
-  direction. Measured: **19.3 mm worst, 65.7 mm best — a 3.4× spread, worst case
-  64 % of the prediction.** This is the cost of the single-axis reduction M17 found
-  but could not price.
-- ⚠️ **OPEN — does NFR15's 48 mm survive that?** Unknown. M21's model has a rigid
-  trunk, so the spine's ~22 mm share is not in the loop, and the spine acts hardest
-  in the lateral directions where the feet are weakest. **Putting the spine in the
-  balance loop is now the highest-value modelling item.**
+  direction. Measured on a **settled cycle** (M23, [ADR-0028](DESIGN_DECISIONS.md)) —
+  M21/M22's figures were taken before the limit cycle and were pessimistic:
+
+  | | predicted | measured worst | achieved |
+  |---|---|---|---|
+  | feet only | 30.3 mm | **25.3 mm** | **84 %** |
+  | with spine | 52.7 mm | **28.9 mm** | **55 %** |
+
+  ⚠️ **The foot-placement model is nearly right; the gap is in the SPINE term.**
+  `control.py` books 36.6 mm of static spine authority; measured, the spine buys
+  **3.6 mm** of worst-case envelope.
+- ⚠️ **NFR15 is NOT demonstrated in simulation** (ADR-0027, corrected by ADR-0028).
+  48 mm required, **28.9 mm** measured worst-case, 52.7 mm predicted — a **1.66×
+  shortfall**. The spine is in the loop and helps (+14 % worst case at gain 0.2), but
+  by gain 0.4 the robot falls at the smallest disturbance tested.
+  ⚠️ **This refutes neither the requirement nor the model.** The prediction assumes
+  optimal control on one axis; the measurement uses a proportional law across all
+  directions. Separating them needs a better controller — now the highest-value
+  modelling item, and sharply aimed: **can it extract more than 3.6 mm from a 36.6 mm
+  spine credit?**
 - ⚠️ **ADR-0019/0020's friction costs** (0.98 + 0.27, the numbers that slowed the
   trot from 67 to 50 cm/s) are still **untested** — but no longer unreachable: the
   harness now holds the robot up long enough to read contact forces.
