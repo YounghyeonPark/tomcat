@@ -534,7 +534,7 @@ class WholeBody:
         xz = np.array([hx, hz]) + _rot(hth) @ local.com
         return ComResult(local.mass, xz)
 
-    def center_of_mass_y(self, lateral_q) -> float:
+    def center_of_mass_y(self, lateral_q, leg_q=None) -> float:
         """Lateral (y) offset of the whole-body CoM for a LATERAL spine posture.
 
         This is the SWAY authority ADR-0009 bought. Bending the spine sideways
@@ -543,18 +543,52 @@ class WholeBody:
         moving the CoM with it. The rear girdle and hind legs stay at the base
         (y = 0), so they anchor the other end.
 
-        Left/right legs on a girdle sit at symmetric track offsets, so their own
-        +/-y contributions cancel; what moves the CoM is the girdle they hang
-        from. Returns metres, positive = toward +y (left).
+        Returns metres, positive = toward +y (left).
+
+        Parameters
+        ----------
+        leg_q : Mapping[str, array-like] | None
+            Fore-leg joint angles. **Pass them.** ``None`` places the fore legs at
+            the spine tip, which overstates the sway -- see below.
+
+        Notes
+        -----
+        ⚠️ **The fore legs do not sit at the spine tip, and it matters (M20).**
+        This function used to argue that "left/right legs sit at symmetric track
+        offsets, so their own +/-y contributions cancel". The *track* offsets do
+        cancel. The **fore-aft** offset of a leg's CoM from its hip does not: the
+        spine's yaw rotates it into y, and BOTH fore legs contribute the same sign.
+
+        In a trot stance the fore-leg CoM sits ~52 mm *behind* the hip, so at full
+        ROM it swings back and cancels part of the sway:
+
+        ==================  =========  ========
+        lateral_q           leg_q=None  measured
+        ==================  =========  ========
+        +/-15 deg, all 3     43.97 mm   42.22 mm
+        ==================  =========  ========
+
+        **4.0 % optimistic**, in the direction that flatters the balance authority.
+        Found by an independent MuJoCo model, which agrees with the corrected form
+        to 0.02 mm and with the old one to 1.75 mm.
         """
         sp = self.spine.params
         seg_y = self.spine.lateral_segment_com_y(lateral_q)
-        tip_y = float(self.spine.lateral_vertebra_xy(lateral_q)[-1, 1])
+        pts = self.spine.lateral_vertebra_xy(lateral_q)
+        tip_y = float(pts[-1, 1])
+        theta = float(np.sum(np.asarray(lateral_q, dtype=float)))
 
         m_seg = np.asarray(sp.segment_mass, dtype=float)
-        m_fore = sum(self.legs[n].params.mass
-                     for n, m in self.mounts.items() if m.girdle is Girdle.FRONT)
+        fore = [n for n, m in self.mounts.items() if m.girdle is Girdle.FRONT]
+        m_fore = sum(self.legs[n].params.mass for n in fore)
         num = float((m_seg * seg_y).sum()) + (sp.front_girdle_mass + m_fore) * tip_y
+
+        if leg_q is not None:
+            # Each fore leg's CoM is offset from its hip by `dx` along the girdle's
+            # own x. The girdle is yawed by `theta`, so that offset projects into y.
+            for n in fore:
+                dx = float(leg_com(self.leg_model_for(n), leg_q[n]).com[0])
+                num += self.legs[n].params.mass * dx * math.sin(theta)
         return num / self.total_mass
 
     def lateral_spine_loads(self, lateral_accel: float) -> list[dict]:

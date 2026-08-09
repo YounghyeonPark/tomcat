@@ -175,3 +175,52 @@ def test_the_two_diagonals_topple_along_different_axes():
 
     angle = math.degrees(math.acos(abs(float(pa @ pb))))
     assert angle == pytest.approx(52.4, abs=0.5)
+
+
+def test_lateral_spine_sway_matches_the_analytical_model(rig):
+    """M20's validation gate: the spine is the balance actuator, so it must agree.
+
+    ⚠️ This is the test that found the bug. `center_of_mass_y` used to place the
+    fore legs at the spine tip, arguing that left/right track offsets cancel. They
+    do — but the **fore-aft** offset of a leg's CoM does not: the yaw rotates it
+    into y and both fore legs contribute the same sign. In a trot stance that CoM
+    sits ~52 mm behind the hip, so the analytical sway was **4 % optimistic**.
+
+    Passing the real pose closes it to sub-micron. The naive form is checked too,
+    so the size of the error stays recorded rather than becoming folklore.
+    """
+    c, q, _, _, _ = rig
+    h = mjcf.rest_height(c, q, STANCE)
+    m = mujoco.MjModel.from_xml_string(mjcf.build_mjcf(c, q, height=h, spine_dof=True))
+    d = mujoco.MjData(m)
+
+    def adr(name):
+        return m.jnt_qposadr[mujoco.mj_name2id(m, mujoco.mjtObj.mjOBJ_JOINT, name)]
+
+    worst_fixed = worst_naive = 0.0
+    for lat in ([0.0, 0.0, 0.0], [0.262, 0.0, 0.0], [0.0, 0.262, 0.0],
+                [0.262] * 3, [-0.262] * 3, [0.15, -0.10, 0.20]):
+        for nm in c.body.leg_names:
+            for i, v in enumerate(q[nm], start=1):
+                d.qpos[adr(f"{nm}_q{i}")] = v
+        for i, v in enumerate(lat, start=1):
+            d.qpos[adr(f"spine_y{i}")] = v
+        mujoco.mj_forward(m, d)
+        mujoco.mj_comPos(m, d)
+        sim = float(d.subtree_com[0][1])
+        worst_fixed = max(worst_fixed, abs(sim - c.body.center_of_mass_y(np.array(lat), q)))
+        worst_naive = max(worst_naive, abs(sim - c.body.center_of_mass_y(np.array(lat))))
+
+    assert worst_fixed < 1e-5, f"corrected form off by {1000 * worst_fixed:.4f} mm"
+    assert worst_naive > 1e-3, "the naive form's 4 % error has vanished — check why"
+
+
+def test_spine_dof_does_not_disturb_the_rigid_model(rig):
+    """`spine_dof=True` must add freedom, not change the body it is added to."""
+    c, q, _, _, h = rig
+    rigid = mujoco.MjModel.from_xml_string(mjcf.build_mjcf(c, q, height=h))
+    flex = mujoco.MjModel.from_xml_string(mjcf.build_mjcf(c, q, height=h, spine_dof=True))
+    assert float(mujoco.mj_getTotalmass(flex)) == pytest.approx(
+        float(mujoco.mj_getTotalmass(rigid)), abs=1e-12)
+    assert flex.nq == rigid.nq + 3
+    assert flex.nu == rigid.nu + 3

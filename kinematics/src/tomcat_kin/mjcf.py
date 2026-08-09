@@ -13,8 +13,8 @@ find out what each one costs:
    LIPM has no rotational degree of freedom at all.
 2. **Constant CoM height.** The real CoM rises and falls as the legs work.
 3. **Massless legs.** They are 0.095–0.110 kg each and swing.
-4. **`dH/dt = 0`.** ADR-0018 measured link *spin* at 3 %, and `OPEN_RISKS.md` §6
-   still lists the trunk/dorsoventral terms as unquantified.
+4. **`dH/dt = 0`.** ADR-0018 measured link *spin* at 3 %, and M17 measured the
+   aggregate of the rest: the real divergence is ~2 % SLOWER than LIPM predicts.
 
 ⚠️ **This does not validate any [assumed] parameter.** Feeding the assumed 132 g
 motor mass into a physics engine returns the assumed 132 g motor mass. Simulation
@@ -29,8 +29,8 @@ Fidelity notes — where this model differs from the analytical one, deliberatel
   test, so it is not suppressed.
 - Contact is a **finite friction cone** at a paw sphere, not the Coulomb
   hand-calculation of ADR-0019/0020.
-- ``mujoco`` is an **optional** dependency. Nothing in the shipped test suite
-  requires it; the 321 analytical tests stand alone.
+- ``mujoco`` is an **optional** dependency. Nothing in the shipped analytical test
+  suite requires it.
 """
 
 from __future__ import annotations
@@ -57,6 +57,8 @@ PAW_RADIUS = 0.002
 
 LINK_RADIUS = 0.006
 
+SPINE_RADIUS = 0.018
+
 
 def _rod_inertia(mass: float, length: float, radius: float) -> tuple:
     """Slender-rod diagonal inertia about the link COM, long axis = local x."""
@@ -74,7 +76,7 @@ def _box_inertia(mass: float, hx: float, hy: float, hz: float) -> tuple:
     )
 
 
-def _leg_xml(name: str, mount, leg_p, q0) -> str:
+def _leg_xml(name: str, track_y: float, leg_p, indent: int) -> str:
     """One planar leg as a serial chain of hinges about the -y axis.
 
     The repo's `LegModel.forward` builds the paw tip from *cumulative* angles
@@ -82,17 +84,18 @@ def _leg_xml(name: str, mount, leg_p, q0) -> str:
     joints relatively, so the joint values map straight across — provided the
     hinge axis is ``(0, -1, 0)``, which makes a positive joint angle rotate +x
     toward +z exactly as the analytical convention does.
+
+    The hip sits at the girdle origin: the spine chain already carries the x.
     """
     lens = (leg_p.l1, leg_p.l2, leg_p.l3)
     fracs = leg_p.link_com_frac
     masses = leg_p.link_mass
 
     out = []
-    hx, hy = mount.hip_offset[0], mount.track_y
-    out.append(f'      <body name="{name}_L1" pos="{hx} {hy} 0">')
+    out.append(f'{" " * indent}<body name="{name}_L1" pos="0 {track_y} 0">')
 
     for i, (ln, m, fr) in enumerate(zip(lens, masses, fracs), start=1):
-        pad = " " * (6 + 2 * i)
+        pad = " " * (indent + 2 * i)
         if i > 1:
             out.append(f'{pad}<body name="{name}_L{i}" pos="{lens[i - 2]} 0 0">')
         out.append(
@@ -113,11 +116,9 @@ def _leg_xml(name: str, mount, leg_p, q0) -> str:
     pa = leg_p.paw_angle
     l4 = leg_p.l4
     m4 = masses[3]
-    px, pz = l4 * math.cos(pa), l4 * math.sin(pa)
-    pad = " " * (6 + 2 * len(lens) + 2)
+    pad = " " * (indent + 2 * len(lens) + 2)
     ix, iy, iz = _rod_inertia(m4, l4, LINK_RADIUS)
-    out.append(f'{pad}<body name="{name}_paw" pos="{lens[-1]} 0 0" '
-               f'euler="0 {-pa} 0">')
+    out.append(f'{pad}<body name="{name}_paw" pos="{lens[-1]} 0 0" euler="0 {-pa} 0">')
     out.append(f'{pad}  <inertial pos="{0.5 * l4} 0 0" mass="{m4}" '
                f'diaginertia="{ix:.9g} {iy:.9g} {iz:.9g}"/>')
     out.append(f'{pad}  <geom name="{name}_tip" type="sphere" pos="{l4} 0 0" '
@@ -126,13 +127,25 @@ def _leg_xml(name: str, mount, leg_p, q0) -> str:
     out.append(f'{pad}</body>')
 
     for i in range(len(lens), 0, -1):
-        out.append(" " * (6 + 2 * i) + "</body>")
+        out.append(" " * (indent + 2 * i) + "</body>")
     return "\n".join(out)
+
+
+def _girdle_block(name: str, mass: float, indent: int) -> str:
+    pad = " " * indent
+    ix, iy, iz = _box_inertia(mass, 0.030, TRUNK_HALF_W, TRUNK_HALF_H)
+    return (
+        f'{pad}<inertial pos="0 0 0" mass="{mass}" '
+        f'diaginertia="{ix:.9g} {iy:.9g} {iz:.9g}"/>\n'
+        f'{pad}<geom name="{name}" type="box" '
+        f'size="0.030 {TRUNK_HALF_W} {TRUNK_HALF_H}" mass="0" '
+        f'contype="0" conaffinity="0" rgba="0.6 0.6 0.65 0.35"/>'
+    )
 
 
 def build_mjcf(controller, leg_q: dict, height: float = 0.17,
                mu: float = 0.8, timestep: float = 5e-4,
-               armature: float = 0.0) -> str:
+               armature: float = 0.0, spine_dof: bool = False) -> str:
     """MJCF for the whole robot, generated from the live parameter set.
 
     Parameters
@@ -142,55 +155,76 @@ def build_mjcf(controller, leg_q: dict, height: float = 0.17,
     leg_q : dict
         Per-leg joint angles defining the pose the model is built around.
     height : float
-        Initial trunk height. The stance legs put the paws at ``-0.17``.
+        Trunk-origin height. Use `rest_height` to put the stance paws on z = 0.
     mu : float
         Floor friction. ⚠️ The `[assumed]` NFR16 value is 0.70; ADR-0020 sizes the
         trot against 0.80. Neither is measured — see OPEN_RISKS R2.
     armature : float
         Reflected rotor inertia per joint. Left at 0 by default so the test
         isolates *rigid-body* effects from *drivetrain* ones.
+    spine_dof : bool
+        Give the three spine joints a **lateral (yaw)** degree of freedom, matching
+        `SpineModel.lateral_vertebra_xy` — the same planar serial chain as a leg but
+        in the horizontal plane, about the vertical axis (ADR-0009).
+
+        M17 ran a rigid trunk, so it could only test the **feet-only** envelope.
+        The spine supplies 23.6 mm of the 53.9 mm headline, which means 44 % of the
+        number NFR15 is checked against sat outside the simulation entirely.
+
+    Notes
+    -----
+    The body tree is a real chain — rear girdle → 3 spine segments → front girdle —
+    so the fore legs ride on the spine's far end and a lateral bend carries them
+    with it. That is exactly the mechanism `center_of_mass_y` describes and the
+    balance authority ADR-0009 bought. With ``spine_dof=False`` the joints are
+    omitted and the trunk is rigid, reproducing every M17 figure.
     """
     body = controller.body
     sp = DEFAULT_SPINE
 
-    # Trunk = rear girdle + 3 spine segments + front girdle, rigid.
-    # Spine segments run from the rear girdle (x=0) forward.
-    comps = [("rear_girdle", 0.0, sp.rear_girdle_mass)]
-    x = 0.0
-    for i, (ln, m) in enumerate(zip(sp.segment_lengths, sp.segment_mass)):
-        comps.append((f"spine{i + 1}", x + sp.segment_com_frac[i] * ln, m))
-        x += ln
-    comps.append(("front_girdle", x, sp.front_girdle_mass))
-
-    parts = []
-    for nm, cx, m in comps:
-        half = 0.030
-        ix, iy, iz = _box_inertia(m, half, TRUNK_HALF_W, TRUNK_HALF_H)
-        parts.append(
-            f'      <body name="{nm}" pos="{cx} 0 0">\n'
-            f'        <inertial pos="0 0 0" mass="{m}" '
-            f'diaginertia="{ix:.9g} {iy:.9g} {iz:.9g}"/>\n'
-            f'        <geom type="box" size="{half} {TRUNK_HALF_W} {TRUNK_HALF_H}" '
-            f'mass="0" contype="0" conaffinity="0" rgba="0.6 0.6 0.65 0.35"/>\n'
-            f'      </body>'
+    def legs_on(girdle_value: str, indent: int) -> str:
+        p = DEFAULT_FORELEG if girdle_value == "front" else DEFAULT_HINDLEG
+        return "\n".join(
+            _leg_xml(nm, body.mounts[nm].track_y, p, indent)
+            for nm in body.leg_names
+            if body.mounts[nm].girdle.value == girdle_value
         )
 
-    legs = []
-    for nm in body.leg_names:
-        mount = body.mounts[nm]
-        p = DEFAULT_FORELEG if mount.girdle.value == "front" else DEFAULT_HINDLEG
-        # Fore legs mount on the front girdle, which sits at the spine's far end.
-        m2 = type(mount)(name=mount.name, girdle=mount.girdle,
-                         hip_offset=(x if mount.girdle.value == "front" else 0.0,
-                                     mount.hip_offset[1]),
-                         track_y=mount.track_y)
-        legs.append(_leg_xml(nm, m2, p, leg_q[nm]))
+    # --- spine chain, built innermost-out ------------------------------------
+    n = sp.n_segments
+    depth = 6 + 2 * n
+    chain = "\n".join([
+        f'{" " * depth}<body name="front_girdle" pos="{sp.segment_lengths[-1]} 0 0">',
+        _girdle_block("front_girdle_g", sp.front_girdle_mass, depth + 2),
+        legs_on("front", depth + 2),
+        f'{" " * depth}</body>',
+    ])
+    for i in range(n - 1, -1, -1):
+        pad = " " * (6 + 2 * i)
+        pos = 0.0 if i == 0 else sp.segment_lengths[i - 1]
+        ln, m = sp.segment_lengths[i], sp.segment_mass[i]
+        ix, iy, iz = _box_inertia(m, ln / 2, TRUNK_HALF_W, TRUNK_HALF_H)
+        jnt = ""
+        if spine_dof:
+            jnt = (f'{pad}  <joint name="spine_y{i + 1}" type="hinge" axis="0 0 1" '
+                   f'range="{sp.lateral_q_min[i]} {sp.lateral_q_max[i]}"/>\n')
+        chain = (
+            f'{pad}<body name="spine{i + 1}" pos="{pos} 0 0">\n'
+            f'{jnt}'
+            f'{pad}  <inertial pos="{sp.segment_com_frac[i] * ln} 0 0" mass="{m}" '
+            f'diaginertia="{ix:.9g} {iy:.9g} {iz:.9g}"/>\n'
+            f'{pad}  <geom type="capsule" fromto="0 0 0 {ln} 0 0" '
+            f'size="{SPINE_RADIUS}" mass="0" contype="0" conaffinity="0" '
+            f'rgba="0.7 0.6 0.6 0.35"/>\n'
+            f'{chain}\n'
+            f'{pad}</body>'
+        )
 
-    acts = []
-    for nm in body.leg_names:
-        for i in (1, 2, 3):
-            acts.append(f'    <position name="{nm}_a{i}" joint="{nm}_q{i}" '
-                        f'kp="120" kv="4"/>')
+    acts = [f'    <position name="{nm}_a{i}" joint="{nm}_q{i}" kp="120" kv="4"/>'
+            for nm in body.leg_names for i in (1, 2, 3)]
+    if spine_dof:
+        acts += [f'    <position name="spine_a{i + 1}" joint="spine_y{i + 1}" '
+                 f'kp="30" kv="1.5"/>' for i in range(n)]
 
     return f"""<mujoco model="tomcat">
   <compiler angle="radian" autolimits="true"/>
@@ -204,9 +238,9 @@ def build_mjcf(controller, leg_q: dict, height: float = 0.17,
     <geom name="floor" type="plane" size="5 5 0.1" rgba="0.9 0.9 0.9 1"/>
     <body name="trunk" pos="0 0 {height}">
       <freejoint name="root"/>
-      <inertial pos="0 0 0" mass="1e-9" diaginertia="1e-9 1e-9 1e-9"/>
-{chr(10).join(parts)}
-{chr(10).join(legs)}
+{_girdle_block("rear_girdle_g", sp.rear_girdle_mass, 6)}
+{legs_on("rear", 6)}
+{chain}
     </body>
   </worldbody>
   <actuator>
@@ -241,7 +275,8 @@ def support_line(controller, leg_q: dict, stance_legs) -> tuple:
     """Ground-plane unit vector along the diagonal support line, and its normal.
 
     The normal is the direction the body topples in — the axis every envelope in
-    `control.py` is quoted along.
+    `control.py` is quoted along. ⚠️ The two diagonals' normals are **52.4° apart**
+    (M17), which the single-axis `StepPlant` cannot express.
     """
     body = controller.body
     pts = []

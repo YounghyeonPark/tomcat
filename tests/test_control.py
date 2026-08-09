@@ -229,9 +229,19 @@ def test_spine_is_ROM_limited_not_RATE_limited():
     p = _plant()
     rom = abs(sp.lateral_q_min[0])
     c = GaitController(params=trot_params())
-    full = abs(c.body.center_of_mass_y(np.full(3, rom)))
+    # M20: the sway must be evaluated with the fore legs where they actually are.
+    # `center_of_mass_y` defaults to putting them at the spine tip, which overstates
+    # it by 4 % — their CoM sits ~52 mm behind the hip and the yaw swings it back.
+    mid = c.state(0.25)
+    pose = {nm: mid.legs[nm].q for nm in c.body.leg_names if mid.legs[nm].q is not None}
+    full = abs(c.body.center_of_mass_y(np.full(3, rom), pose))
     perp = math.sqrt(1.0 - p.projection ** 2)
     assert p.spine == pytest.approx(full * perp, rel=1e-6)   # the FULL ROM is usable
+
+    # And the correction is real, not a rounding change.
+    naive = abs(c.body.center_of_mass_y(np.full(3, rom)))
+    assert naive > full
+    assert (naive - full) / naive == pytest.approx(0.040, abs=0.005)
 
 
 def test_envelope_in_physical_units_is_a_real_shove():
@@ -251,7 +261,11 @@ def test_spine_dominates_foot_placement_for_lateral_balance():
     feet_only = ctl.rejection_envelope(p, use_spine=False)
     with_spine = ctl.rejection_envelope(p, use_spine=True)
     assert p.spine > abs(p.reach[0])             # spine beats the binding reach
-    assert with_spine > 2.5 * feet_only
+    # M20 moved this from 2.53x to 2.47x: the sway correction took 4 % off the
+    # spine and none off the feet. The threshold is loosened because the FINDING
+    # moved it, not to make a failure go away -- the claim under test is that the
+    # spine dominates, and 2.47x says so as plainly as 2.53x did.
+    assert with_spine > 2.4 * feet_only
 
 
 # ===================================================================

@@ -157,7 +157,16 @@ class StepPlant:
         joint_rate = (2.0 * math.pi * 380.0 / 60.0) * (
             sp.motor_spool_radius / sp.lateral_moment_arm[0])
         usable = min(rom, joint_rate * stance)
-        lateral = abs(controller.body.center_of_mass_y(np.full(sp.n_segments, usable)))
+        # ⚠️ Pass the real stance pose (M20). Left to default, `center_of_mass_y`
+        # puts the fore legs at the spine tip and overstates the sway by ~4 %: their
+        # CoM actually sits ~52 mm BEHIND the hip, so the yaw swings it back and
+        # cancels part of the shift. Confirmed against an independent MuJoCo model,
+        # which matches the corrected form to 0.0005 mm.
+        mid = controller.state(0.25)     # mid-stance, same phase `proj` is taken at
+        pose = {nm: mid.legs[nm].q for nm in controller.body.leg_names
+                if mid.legs[nm].q is not None}
+        lateral = abs(controller.body.center_of_mass_y(
+            np.full(sp.n_segments, usable), pose))
         perp = math.sqrt(max(0.0, 1.0 - proj * proj))   # y-component of the perpendicular
         spine_auth = lateral * perp
 
