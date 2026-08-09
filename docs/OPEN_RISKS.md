@@ -176,16 +176,21 @@ Small, and honestly at the point of diminishing returns:
 - ⚠️ **NEW — the single-axis reduction.** M17 found the two diagonals topple along
   axes **52.4° apart**, which `StepPlant`'s fixed `projection` cannot express. The
   magnitudes agree exactly; the directions do not. Not yet costed.
-- ⚠️ **BLOCKING: there is no closed-loop balance controller in the simulation**, and
-  M20 showed that **two** open items are gated on it, not one:
-  - the **envelope magnitude** (M17's harness drifts 25 mm against a 30 mm signal), and
-  - **ADR-0019/0020's friction costs** — 0.98 translation + 0.27 yaw, the numbers that
-    slowed the shipped trot from 67 to 50 cm/s, which are **untested, not refuted**.
-    A diagonal stance topples inside one stance time, so no open-loop test can hold
-    the robot up long enough to read the friction demand (ADR-0025).
-
-  M17 diagnosed this as "regulate the along-line component". That was too small.
-  **This is the single highest-value modelling item left.**
+- ~~**BLOCKING: no closed-loop balance controller**~~ — **built in M21**
+  ([ADR-0026](DESIGN_DECISIONS.md)). The baseline is now bounded at ~2 mm mean drift
+  over 40 steps, against M17's 25 mm and growing.
+- ⚠️ **NEW — the envelope is direction-dependent, and the reduced-order model
+  over-promises.** `StepPlant` quotes one number (30.34 mm feet-only) for every
+  direction. Measured: **19.3 mm worst, 65.7 mm best — a 3.4× spread, worst case
+  64 % of the prediction.** This is the cost of the single-axis reduction M17 found
+  but could not price.
+- ⚠️ **OPEN — does NFR15's 48 mm survive that?** Unknown. M21's model has a rigid
+  trunk, so the spine's ~22 mm share is not in the loop, and the spine acts hardest
+  in the lateral directions where the feet are weakest. **Putting the spine in the
+  balance loop is now the highest-value modelling item.**
+- ⚠️ **ADR-0019/0020's friction costs** (0.98 + 0.27, the numbers that slowed the
+  trot from 67 to 50 cm/s) are still **untested** — but no longer unreachable: the
+  harness now holds the robot up long enough to read contact forces.
 - The **sway authority was 4 % optimistic** and is now corrected (M20): envelope
   53.90 → **52.72 mm**, NFR15 still met with 4.72 mm of margin.
 

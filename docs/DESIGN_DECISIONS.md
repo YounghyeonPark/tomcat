@@ -1386,6 +1386,77 @@ coupling itself. On dualis 0.2 the pack is a real domain on the same bus, so
     forces swing between 0.74x and 1.57x body weight indefinitely. Any future test
     that quietly "settles" one is measuring a fall.
 
+## ADR-0026: The envelope, measured -- it is direction-dependent, and balance needs compliant legs
+- **Status:** Accepted
+- **Context:** [ADR-0025](#adr-0025) named one blocking item: a closed-loop balance
+  controller in simulation, without which neither the **envelope magnitude** nor
+  ADR-0019/0020's **friction costs** could be measured. `mjsim.BalanceHarness` is
+  that controller. Building it corrected my own diagnosis twice.
+- **Correction 1 -- the along-line component was NOT the main problem.** M17 blamed
+  its drift on the unregulated along-line DCM, and instrumenting confirmed that
+  component ran +1.7 -> +22 -> +43 -> +90 mm. But the cause was upstream: **my swing
+  profile landed the foot at 0.31 m/s.** A `sin(pi u)` arc peaks correctly and has a
+  non-zero slope at touchdown; it hammered the contact so the stance never settled
+  at two feet. Replacing it with `(1 - cos(2 pi u))/2` -- zero vertical speed at both
+  ends -- took the run from 14 steps to 40 with **no along-line regulation at all**.
+
+  ⚠️ This is the same C0 defect **M5 and M6 already fixed** in the shipped gait,
+  reintroduced by hand in a new harness. It is why `GaitParams.swing_profile`
+  defaults to `"matched"`.
+- **Correction 2 -- explicit CoP regulation is not available, and that is a finding.**
+  Differential stance-leg extension was supposed to steer the centre of pressure. It
+  cannot, with stiff position servos: **+/-1 mm of differential swings the CoP across
+  the entire +/-109 mm foot separation**, and past ~2 mm the light foot simply
+  unloads. The authority is effectively bang-bang, and switching it on made things
+  *worse*.
+- **The enabling result: balance needs COMPLIANT legs.**
+
+  | leg `kp` | steps survived | mean \|DCM\| first 10 -> last 10 |
+  |---|---|---|
+  | **80** | **40, never fell** | 1.99 -> **1.52 mm** |
+  | **150** | **40, never fell** | 1.88 -> 2.63 mm |
+  | 250 | 23 | 6.50 -> 45.8 (diverging) |
+  | 500 | 24 | 8.36 -> 28.1 (diverging) |
+  | 900 | 7 | -- |
+
+  The mechanical design already specifies passive compliance (series elastic
+  elements / return springs). **This validates that choice from a direction it was
+  never chosen for** -- it was bought for impact tolerance, and it turns out the
+  balance loop does not close without it.
+- **The result: the envelope is strongly DIRECTION-DEPENDENT.** `StepPlant` quotes a
+  single **30.34 mm** (feet only) for every direction. Measured at `kp = 80`:
+
+  | disturbance | envelope |
+  |---|---|
+  | 60 deg | **65.7 mm** (best) |
+  | 180 deg | 44.6 mm |
+  | 0 deg | 42.8 mm |
+  | 240 deg | 37.4 mm |
+  | 120 deg | 22.3 mm |
+  | **300 deg** | **19.3 mm** (worst) |
+
+  A **3.4x spread**, and the **worst direction is 64 % of the prediction**. M17 found
+  the two diagonals topple along axes 52.4 deg apart but could not cost it. This is
+  the cost: the single-axis reduction does not merely lose direction information, it
+  **over-promises in the direction that matters**.
+- ⚠️ **What this does NOT settle.** The peak baseline excursion is ~11 mm against a
+  19.3 mm worst-direction envelope -- only **1.75x**. Comfortable for the mid and
+  high directions, **marginal at the worst one**, so the 19.3 mm figure carries real
+  uncertainty. It is a large improvement on M17 (25 mm of *growing* drift against a
+  30 mm signal) but it is not a tight measurement.
+- ⚠️ **And it is feet-only.** The trunk is rigid here, so the spine's ~22 mm share
+  is not available to the controller. Whether **NFR15's 48 mm** survives the
+  direction dependence depends on the spine, which acts most strongly in the lateral
+  directions where the feet are weakest. **That is the next question, and it is not
+  answered.** Do not read a requirement verdict out of this ADR.
+- **Consequences:**
+  - `mjsim.BalanceHarness` ships with `regulate_along_line=False` by default and the
+    docstring says why the option exists and why it is off.
+  - The friction costs of ADR-0019/0020 are now *reachable* -- the harness holds the
+    robot up long enough to read contact forces -- but were not measured here.
+  - Six tests, gated on the baseline: a harness whose noise matches its signal cannot
+    adjudicate, so the noise floor is asserted before any result built on it.
+
 ---
 
 ### How to add an ADR

@@ -49,7 +49,9 @@ sequences the work that implements them.
 > **M19 done:** the winding runs **7.7 K above the skin** — M18's caveat answered,
 > not restated ([ADR-0024](DESIGN_DECISIONS.md)).
 > **M20 done:** the sway was **4 % optimistic**; the friction cost needs a balance
-> controller to measure at all ([ADR-0025](DESIGN_DECISIONS.md)). 335 Python + 17 Rust.
+> controller to measure at all ([ADR-0025](DESIGN_DECISIONS.md)).
+> **M21 done:** the envelope is **direction-dependent (3.4×)** and balance needs
+> **compliant legs** ([ADR-0026](DESIGN_DECISIONS.md)). 341 Python + 17 Rust.
 
 ---
 
@@ -1009,7 +1011,55 @@ along-line component. Too small a diagnosis: **both** the envelope magnitude and
 friction costs are gated on the same missing piece — a closed-loop balance controller
 in the simulation. That is now one blocking item instead of two vague ones.
 
-## Later milestones (candidate M21+, not committed)
+## Milestone M21 — Closed-loop balance: the envelope, measured (DONE)
+
+**Goal.** M20 named one blocking item — a balance controller in simulation. Building
+it corrected my own diagnosis twice before it produced a number.
+
+⚠️ **My swing profile was the real bug, not the along-line DCM.** M17 blamed its
+drift on the unregulated along-line component, and that component *did* run
++1.7 → +22 → +43 → +90 mm. But upstream of it, **my foot landed at 0.31 m/s**: a
+`sin(πu)` arc has non-zero slope at touchdown. Swapping to `(1-cos(2πu))/2` took the
+run from 14 steps to 40 with **no along-line regulation at all**. This is the same
+C⁰ defect **M5 and M6 already fixed** in the shipped gait, reintroduced by hand.
+
+**Balance needs compliant legs — the enabling result.**
+
+| leg `kp` | steps | mean \|DCM\| first 10 → last 10 |
+|---|---|---|
+| **80** | **40, never fell** | 1.99 → **1.52 mm** |
+| 250 | 23 | 6.50 → 45.8 (diverging) |
+| 500 | 24 | 8.36 → 28.1 (diverging) |
+
+Stiff servos make load transfer bang-bang — ±1 mm of differential leg extension
+swings the CoP across the whole ±109 mm foot separation. The mechanical design
+already specifies passive compliance for impact tolerance; **the balance loop does
+not close without it**, which is a reason it was never chosen for.
+
+**The result: the envelope is direction-dependent.** `StepPlant` quotes one number,
+30.34 mm, for every direction. Measured:
+
+| 60° | 180° | 0° | 240° | 120° | 300° |
+|---|---|---|---|---|---|
+| **65.7** | 44.6 | 42.8 | 37.4 | 22.3 | **19.3 mm** |
+
+**3.4× spread, and the worst direction is 64 % of the prediction.** M17 found the
+52.4° axis split but could not cost it — this is the cost, and the reduction
+**over-promises in the direction that matters**.
+
+⚠️ **Not a requirement verdict.** Peak baseline noise is ~11 mm against a 19.3 mm
+worst case — only 1.75×, so that figure is uncertain. And the trunk is rigid, so the
+spine's ~22 mm is not in the loop; the spine acts most strongly in the lateral
+directions where the feet are weakest. **Whether NFR15's 48 mm survives is the next
+question, not this one's answer.**
+
+## Later milestones (candidate M22+, not committed)
+
+- **The spine in the balance loop** — the direct NFR15 question, and the one thing
+  that could close the direction dependence.
+- **ADR-0019/0020's friction costs**, now reachable: the harness holds the robot up
+  long enough to read contact forces during a recovery.
+
 
 - **A closed-loop balance controller in MuJoCo** — unblocks the envelope magnitude
   AND the ADR-0019/0020 friction costs. The single highest-value modelling item left.
