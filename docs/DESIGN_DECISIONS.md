@@ -1721,6 +1721,58 @@ coupling itself. On dualis 0.2 the pack is a real domain on the same bus, so
     ADR-0017's rejected **leg abduction** would have supplied, at +4 motors and 528 g.
     That decision was taken on the basis that NFR15 was already met.
 
+## ADR-0032: Three actuators, three failures to deliver -- the architecture is the limit, so do NOT buy abduction yet
+- **Status:** Accepted
+- **Context:** [ADR-0031](#adr-0031) found the binding failure mode is the
+  **along-line** DCM component, which neither fore-aft foot placement nor the lateral
+  spine can address, and pointed at ADR-0017's rejected **leg abduction** (+4 motors,
+  **528 g**, 13 % of the mass budget) as the only costed option that would supply it.
+  Before recommending that, the free option had to be exhausted.
+- **The free option exists, and M21 wrote it off wrongly.** Differential stance-leg
+  extension shifts the centre of pressure **along** the support line -- exactly the
+  missing axis. M21 measured it at `kp = 500` and found it bang-bang (1 of 7 points
+  kept two contacts), then discovered compliance is what makes balance work at all
+  and **never came back to it**. Re-measured at the shipped `kp = 80`:
+
+  | | stiff (`kp` 500) | **compliant (`kp` 80)** |
+  |---|---|---|
+  | points keeping 2 contacts | 1 of 7 | **5 of 7** |
+  | normal force | collapses to 1.5-11 N | **39.67 N throughout** |
+  | CoP response | saturated at a foot | **linear, -39.3 mm/mm** |
+
+  The along-line actuator is real, proportional, costs nothing, and covers most of
+  the +/-109 mm foot separation.
+- ⚠️ **And it buys no envelope either.** Swept across both signs and four gains at
+  the worst direction, the best result was **+1.8 mm** -- about two bisection steps --
+  while degrading the undisturbed baseline from **1.38 mm to 5.53 mm**.
+- **The pattern is the finding.** Three independent actuators, three different axes,
+  three ways of failing to deliver credited authority:
+
+  | actuator | credited | delivered | how it failed |
+  |---|---|---|---|
+  | Lateral spine | 36.6 mm | **+0.23 mm** | wrong axis (ADR-0031) |
+  | CoP / weight shift | +/-109 mm of CoP | **+1.8 mm** | degrades the baseline |
+  | Foot placement | 30.3 mm | 25.3 mm (84 %) | the one that mostly works |
+
+  **Only the actuator my controller was designed around delivers.** That is not three
+  coincidences about three actuators; it is one fact about the controller.
+- **Decision: do NOT reopen leg abduction on these grounds.** Adding 528 g and four
+  motors of authority to a controller that cannot exploit the authority it already
+  has would be **mass spent on a problem it does not solve**. ADR-0017's rejection
+  stands for now -- but on new reasoning, since its original basis ("NFR15 already
+  met") no longer holds.
+- **The prerequisite is a whole-body controller.** A QP or step-MPC that allocates
+  across placement, CoP and spine *simultaneously* is now the only way to answer
+  whether the authority is unusable or merely unused by me. Until then, both "the
+  reduced-order model is optimistic" and "the robot needs abduction" are unsupported.
+- **Consequences:**
+  - `regulate_along_line` stays **off** by default, with the measurement recorded so
+    it is not rediscovered a third time.
+  - ⚠️ **NFR15 remains not demonstrated at 28.9 mm against 48 mm**, and the honest
+    statement is now: *the simulation cannot yet demonstrate it, and the limiting
+    factor is known to be the controller architecture.*
+  - The modelling has reached the end of what this control structure can settle.
+
 ---
 
 ### How to add an ADR

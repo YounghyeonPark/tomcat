@@ -142,7 +142,7 @@ judgement, not an experiment.
 | decision | the trade | status |
 |---|---|---|
 | **Joint moment arms 1.25×** | +23 % runtime (30 → 37 min) for a 70 mm hip sheave, plus mass/packaging/inertia ripple | ADR-0021, **not adopted** |
-| **Leg abduction** | +42–58 % disturbance envelope for +4 motors, 528 g (13 % of budget) | ADR-0017, **rejected** — ⚠️ **on the basis that NFR15 was already met, which M26 no longer supports.** It is the only costed option that would supply *along-line* authority. **Reopen.** |
+| **Leg abduction** | +42–58 % disturbance envelope for +4 motors, 528 g (13 % of budget) | ADR-0017, **rejected** — original basis ("NFR15 already met") no longer holds, but M27 says **do not reopen yet**: the controller cannot exploit the authority it already has, so more would be wasted mass (ADR-0032). |
 | **Trot speed 50 cm/s** | slowed from 67 by the spine's friction cost; faster is available on a grippier floor | ADR-0020, **floor-dependent** |
 | **Spine lateral ROM ±15°** | ±25° would give 119 mm envelope, no extra motors — but fights the biomechanics (lateral is the stiffest spine axis) | ADR-0015, **held** |
 
@@ -219,11 +219,23 @@ Small, and honestly at the point of diminishing returns:
   defect is the single-axis `StepPlant`, which cannot tell the two apart.
   Also: `ncon = 1` through most of a recovery — the robot is on **one foot**, so the
   support-*line* geometry the model rests on does not hold while it recovers.
-- ⚠️ **Therefore the next step is NOT a better controller.** It is deciding whether
-  the robot needs an actuator with **along-line authority** — which is what ADR-0017's
-  rejected **leg abduction** (+4 motors, 528 g) would have supplied. That rejection
-  was taken on the basis that NFR15 was already met, and NFR15 is no longer
-  demonstrated.
+- ⚠️ **CORRECTED (M27, [ADR-0032](DESIGN_DECISIONS.md)): the next step IS a better
+  controller.** The free along-line actuator — differential stance-leg extension,
+  shifting the CoP along the support line — **does exist** on compliant legs (linear,
+  −39.3 mm/mm, 5 of 7 test points keeping two contacts). M21 wrote it off at stiff
+  gains and never rechecked. It buys **+1.8 mm** at best while degrading the baseline
+  4×.
+
+  | actuator | credited | delivered |
+  |---|---|---|
+  | Lateral spine | 36.6 mm | **+0.23 mm** |
+  | CoP / weight shift | ±109 mm of CoP | **+1.8 mm** |
+  | Foot placement | 30.3 mm | 25.3 mm (**84 %**) |
+
+  **Only the actuator the controller was designed around delivers.** That is one fact
+  about the controller, not three about the actuators. **Do NOT buy abduction**
+  (+528 g) for a controller that cannot use the authority it has. A whole-body QP or
+  step-MPC is the prerequisite for settling any of this.
 - ⚠️ **UNMEASURED: how much offset the spine can actually hold.** Two attempts gave
   44.0 mm and 16.5 mm because the offset drifts rather than holding, so averaging its
   magnitude reads drift as bias. The 36.6 mm credit is neither confirmed nor refuted.

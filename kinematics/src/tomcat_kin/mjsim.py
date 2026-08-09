@@ -63,15 +63,29 @@ COP_GAIN = 1.0
 
 #: Metres of differential stance-leg extension per metre of CoP error.
 #:
-#: ⚠️ Measured, not chosen. The CoP is violently sensitive to extension — 4 mm of
-#: differential swings it the full +/-108.7 mm to a single foot, i.e. **27 mm of CoP
-#: per mm of leg**. A gain picked by eye saturates instantly and reads as a fall.
-COP_TRACK = 1.0 / 27.0
+#: ⚠️ **Re-measured on COMPLIANT legs (M27), and the sign is negative.** M21 measured
+#: this at `kp = 500` and found the centre of pressure bang-bang — 1 of 7 test points
+#: kept two contacts, and the light foot unloaded past 1 mm — so along-line
+#: regulation was written off. That was an artefact of the stiff gain, and M21 then
+#: discovered compliance is what makes balance work at all without coming back to it.
+#:
+#: At `kp = 80` the same sweep is **linear and usable**: 5 of 7 points keep two
+#: contacts, the total normal force stays at body weight throughout (no unloading),
+#: and the CoP tracks at **-39.3 mm per mm of differential extension** across most of
+#: the ±109 mm foot separation. Extending the FIRST leg of the pair moves the CoP
+#: toward it, i.e. *against* `dhat` — hence the sign.
+#:
+#: ⚠️ **The authority is real and it still buys no envelope.** Closed-loop, the best
+#: any sign or magnitude managed at the worst direction was **+1.8 mm** (about two
+#: bisection steps) while degrading the undisturbed baseline from 1.38 to 5.53 mm.
+#: `regulate_along_line` therefore stays **off** by default. See ADR-0032: this is
+#: the third independent actuator to behave this way, and the pattern indicts the
+#: control architecture rather than any of them.
+COP_TRACK = -1.0 / 39.3
 
-#: Clamp on the differential. Past ~2 mm the light foot unloads (ncon drops to 1) and
-#: the CoP is pinned at the other foot, so more command buys nothing and costs
-#: contact. Measured on the same sweep.
-COP_EXTENSION_LIMIT = 0.002
+#: Clamp on the differential. At `kp = 80` two contacts survive to at least ±4 mm,
+#: which is most of the CoP range; the stiff-leg 2 mm limit no longer applies.
+COP_EXTENSION_LIMIT = 0.004
 
 #: Metres of whole-body CoM sway per radian of per-joint lateral spine angle,
 #: uniform across the three joints.
