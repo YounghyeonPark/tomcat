@@ -142,7 +142,7 @@ judgement, not an experiment.
 | decision | the trade | status |
 |---|---|---|
 | **Joint moment arms 1.25×** | +23 % runtime (30 → 37 min) for a 70 mm hip sheave, plus mass/packaging/inertia ripple | ADR-0021, **not adopted** |
-| **Leg abduction** | +42–58 % disturbance envelope for +4 motors, 528 g (13 % of budget) | ADR-0017, **rejected** — requirement already met |
+| **Leg abduction** | +42–58 % disturbance envelope for +4 motors, 528 g (13 % of budget) | ADR-0017, **rejected** — ⚠️ **on the basis that NFR15 was already met, which M26 no longer supports.** It is the only costed option that would supply *along-line* authority. **Reopen.** |
 | **Trot speed 50 cm/s** | slowed from 67 by the spine's friction cost; faster is available on a grippier floor | ADR-0020, **floor-dependent** |
 | **Spine lateral ROM ±15°** | ±25° would give 119 mm envelope, no extra motors — but fights the biomechanics (lateral is the stiffest spine axis) | ADR-0015, **held** |
 
@@ -210,8 +210,20 @@ Small, and honestly at the point of diminishing returns:
   is stable to gain 1.0 and slightly *improves* the baseline — so the fault was the
   structure, not the actuator. But at 0.23 mm resolution it adds **+0.23 mm** to the
   worst direction against a credited 36.6 mm, and at gain 1.0 it *costs* 12 mm in
-  another. **`plant.spine = 36.6 mm` should be treated as unsupported until something
-  demonstrates otherwise** — it sits in the middle of NFR15's margin.
+  another.
+- ⚠️ **WHY: the credit is authority in the wrong axis** (M26,
+  [ADR-0031](DESIGN_DECISIONS.md)). At the envelope limit the **along-line** DCM
+  component is 2–4× the perpendicular one and **nothing controls it** — feet move
+  fore-aft, the spine acts laterally. `plant.spine` is a correct lateral figure booked
+  against a failure mode that is not lateral. It is **re-scoped, not withdrawn**; the
+  defect is the single-axis `StepPlant`, which cannot tell the two apart.
+  Also: `ncon = 1` through most of a recovery — the robot is on **one foot**, so the
+  support-*line* geometry the model rests on does not hold while it recovers.
+- ⚠️ **Therefore the next step is NOT a better controller.** It is deciding whether
+  the robot needs an actuator with **along-line authority** — which is what ADR-0017's
+  rejected **leg abduction** (+4 motors, 528 g) would have supplied. That rejection
+  was taken on the basis that NFR15 was already met, and NFR15 is no longer
+  demonstrated.
 - ⚠️ **UNMEASURED: how much offset the spine can actually hold.** Two attempts gave
   44.0 mm and 16.5 mm because the offset drifts rather than holding, so averaging its
   magnitude reads drift as bias. The 36.6 mm credit is neither confirmed nor refuted.

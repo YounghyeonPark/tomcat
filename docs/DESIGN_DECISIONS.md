@@ -1670,6 +1670,57 @@ coupling itself. On dualis 0.2 the pack is a real domain on the same bus, so
     **3.6 mm of quantisation**, enough to hide the whole effect being argued about.
     Resolution is now stated with every envelope figure.
 
+## ADR-0031: The spine credit is authority in the WRONG AXIS -- the binding mode is along-line
+- **Status:** Accepted. Resolves the question left open by [ADR-0030](#adr-0030).
+- **Context:** ADR-0030 established that a *stable* implementation of the spine
+  assist, at full authority, adds **0.23 mm** to the worst-case envelope against a
+  credited **36.6 mm** -- and left `plant.spine` to be justified or withdrawn. Two
+  candidate explanations were open: the credit is double-spent across a multi-step
+  recovery, or it is unreachable. **Both are wrong.**
+- **Not double-spent.** Instrumented, `simulate` invokes `spine_assist` on exactly
+  **1 of 400 steps** of a recovery at the envelope limit -- the deadbeat placement
+  nulls the error immediately afterwards, so the assist is never asked for again.
+  Cumulative demand is **1.0x** full ROM. The arithmetic is internally consistent and
+  I was wrong to suspect it.
+- **The actual reason, from the failure mode.** At the envelope limit in the worst
+  direction, logging every step of a failing recovery:
+
+  | step | perp | **para** | foot dx | contacts |
+  |---|---|---|---|---|
+  | 0 | -19.0 mm | **+71.4 mm** | 35.6 mm | 1 |
+  | 1 | -63.2 | **-115.2** | **saturated** | 1 |
+  | 2 | -134.2 | **+114.3** | **saturated** | 1 |
+
+  ⚠️ **The along-line component is consistently 2-4x the perpendicular one, and
+  nothing controls it.** Foot placement moves both feet fore-aft, so it acts on the
+  line's position; the spine acts **laterally**. Neither addresses motion *along* the
+  support line. `plant.spine` is real lateral authority credited against a failure
+  mode that is not lateral.
+- ⚠️ **And the support is barely a line.** `ncon = 1` through most of a recovery --
+  the robot is on **one foot**, not two, so the support-line geometry the whole
+  reduced-order model rests on does not hold while it is actually recovering.
+- **This also corrects M21.** [ADR-0026](#adr-0026) concluded that along-line
+  regulation was unnecessary once the C1 swing profile was fixed. That was measured
+  on the **undisturbed baseline**, where it is true. Under a **disturbance** the
+  along-line component is exactly what runs away. I conflated "the baseline is quiet"
+  with "the axis is controlled", and they are different claims.
+- **Decision: `plant.spine = 36.6 mm` is NOT withdrawn, but it is re-scoped.** The
+  number is a correct statement about lateral CoM authority. What is unsupported is
+  **adding it to a single-axis envelope as though the binding constraint were
+  perpendicular**. `StepPlant` has one axis and cannot distinguish the two; that is
+  the defect, not the spine figure.
+- **Consequences:**
+  - The arc M17 -> M26 resolves into one statement: **the trot's balance problem is
+    two-dimensional with two uncontrolled-to-different-degrees axes, and the
+    reduced-order model collapses it to one.** M17 found the 52.4 deg axis split,
+    M21 mis-scoped it, M25 showed the spine cannot close it, M26 says why.
+  - `NFR15` remains **not demonstrated** (28.9 mm vs 48 mm), and the reason is now
+    named rather than attributed to controller quality.
+  - ⚠️ The next honest step is **not** a better controller. It is deciding whether
+    the robot needs an actuator with along-line authority at all -- which is what
+    ADR-0017's rejected **leg abduction** would have supplied, at +4 motors and 528 g.
+    That decision was taken on the basis that NFR15 was already met.
+
 ---
 
 ### How to add an ADR

@@ -59,7 +59,9 @@ sequences the work that implements them.
 > **M24 done:** the spine assist has **unity loop gain** — it is harmful and the
 > "+14 %" is withdrawn ([ADR-0029](DESIGN_DECISIONS.md)).
 > **M25 done:** planned deployment fixes the stability — and the spine **still
-> buys nothing** ([ADR-0030](DESIGN_DECISIONS.md)). 345 Python + 17 Rust.
+> buys nothing** ([ADR-0030](DESIGN_DECISIONS.md)).
+> **M26 done:** the spine credit is authority in the **wrong axis** — the binding
+> mode is **along-line** ([ADR-0031](DESIGN_DECISIONS.md)). 345 Python + 17 Rust.
 
 ---
 
@@ -1182,7 +1184,56 @@ attribute the gap; this one can. **The credit is unsupported, not merely unreach
 ⚠️ Still not an optimal controller — but the burden has moved: `plant.spine` is a
 modelling claim with no supporting measurement, sitting in the middle of NFR15's margin.
 
-## Later milestones (candidate M26+, not committed)
+## Milestone M26 — Why the spine credit does not materialise (DONE)
+
+M25 left `plant.spine = 36.6 mm` to be justified or withdrawn, with two candidate
+explanations. **Both are wrong.**
+
+**Not double-spent.** Instrumented, `simulate` invokes the assist on **1 of 400
+steps** of a recovery — the deadbeat placement nulls the error immediately after, so
+it is never asked for again. Cumulative demand is 1.0× full ROM. I was wrong to
+suspect the arithmetic.
+
+**The real reason is the failure mode.** Logging a failing recovery at the worst
+direction:
+
+| step | perp | **para** | foot dx | contacts |
+|---|---|---|---|---|
+| 0 | -19.0 mm | **+71.4 mm** | 35.6 mm | 1 |
+| 1 | -63.2 | **-115.2** | **saturated** | 1 |
+| 2 | -134.2 | **+114.3** | **saturated** | 1 |
+
+⚠️ **The along-line component is 2–4× the perpendicular one, and nothing controls
+it.** Feet move fore-aft (acting on the line's position); the spine acts laterally.
+Neither addresses motion *along* the support line. The credit is real lateral
+authority booked against a failure mode that is not lateral.
+
+⚠️ **And the support is barely a line** — `ncon = 1` through most of a recovery. The
+robot is on **one foot**, so the geometry the reduced-order model rests on does not
+hold while it is recovering.
+
+**This corrects M21.** ADR-0026 concluded along-line regulation was unnecessary once
+the C¹ swing was fixed. True for the **undisturbed baseline**; false under a
+**disturbance**, where that axis is exactly what runs away. I conflated "the baseline
+is quiet" with "the axis is controlled".
+
+**Decision: `plant.spine` is re-scoped, not withdrawn.** The number is a correct
+statement about lateral authority. What is unsupported is adding it to a
+**single-axis** envelope as though the binding constraint were perpendicular.
+
+**The whole M17→M26 arc resolves into one statement:** the trot's balance problem is
+two-dimensional with two differently-controlled axes, and the reduced-order model
+collapses it to one.
+
+## Later milestones (candidate M27+, not committed)
+
+⚠️ **The next honest step is NOT a better controller.** It is deciding whether the
+robot needs an actuator with **along-line authority** — which is what ADR-0017's
+rejected **leg abduction** would have supplied (+4 motors, 528 g). That rejection was
+taken on the basis that NFR15 was already met.
+
+- **ADR-0019/0020's friction costs**, still unmeasured.
+
 
 - **Justify or withdraw `plant.spine = 36.6 mm`** — it now sits unsupported.
 - **ADR-0019/0020's friction costs**, still unmeasured.
