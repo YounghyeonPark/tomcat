@@ -139,3 +139,53 @@ def test_measured_worst_case_is_below_the_reduced_order_prediction(controller):
     assert predicted == pytest.approx(0.0303, abs=5e-4)
     # 19.3 mm measured at 300 deg (ADR-0026) against 30.3 mm predicted.
     assert 0.0193 < predicted * 0.75
+
+
+def test_the_spine_wants_stiffness_where_the_legs_want_compliance(controller):
+    """Two joint groups, opposite tuning — and getting it wrong looks identical.
+
+    The lateral spine chain carries the whole forequarters. At the leg's compliant
+    gain it wobbles enough to fell an otherwise-clean baseline in 10 steps; stiffened
+    it is quiet again. A single "servo gain" knob would have hidden this.
+    """
+    soft = mjsim.build(controller, mujoco, kp=80, spine=True, spine_kp=150)
+    firm = mjsim.build(controller, mujoco, kp=80, spine=True, spine_kp=1000)
+    h_soft = mjsim.BalanceHarness(controller, mujoco, soft, use_spine=False)
+    h_firm = mjsim.BalanceHarness(controller, mujoco, firm, use_spine=False)
+
+    a, fell_a = h_soft.run(h_soft.reset(), steps=20)
+    bb, fell_b = h_firm.run(h_firm.reset(), steps=20)
+    assert fell_a and len(a) < 20, "a soft spine used to fell the baseline"
+    assert not fell_b and len(bb) == 20
+    assert _mean_dcm(bb, slice(None)) < 0.005
+
+
+def test_the_spine_assist_is_not_the_free_offset_the_plant_credits(controller):
+    """⚠️ The finding. `control.py` books the spine as a static 36.6 mm of DCM
+    authority. In dynamics it has a **narrow usable gain window**: it helps a little
+    at 0.2 and is catastrophic by 0.4, because the sway swings the forequarters and
+    the reaction destabilises. A static credit cannot express that.
+    """
+    import math
+
+    plant = control.StepPlant.from_gait(controller, n=96, latency=0.0075, floor_mu=0.8)
+    assert plant.spine == pytest.approx(0.0366, abs=5e-4)
+
+    model = mjsim.build(controller, mujoco, kp=80, spine=True, spine_kp=1000)
+    u = np.array([0.0, 1.0])
+
+    def envelope(gain):
+        h = mjsim.BalanceHarness(controller, mujoco, model, spine_gain=gain,
+                                 use_spine=gain != 0.0)
+        lo, hi = 0.0, 1.0
+        for _ in range(5):
+            mid = 0.5 * (lo + hi)
+            hist, fell = h.run(h.reset(), steps=8, disturbance=mid * u)
+            if not fell and len(hist) == 8:
+                lo = mid
+            else:
+                hi = mid
+        return lo
+
+    assert envelope(0.2) >= envelope(0.0), "a gentle assist should not hurt"
+    assert envelope(0.7) < envelope(0.2), "a hard assist must be worse, not better"

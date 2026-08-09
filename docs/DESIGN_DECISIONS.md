@@ -1457,6 +1457,56 @@ coupling itself. On dualis 0.2 the pack is a real domain on the same bus, so
   - Six tests, gated on the baseline: a harness whose noise matches its signal cannot
     adjudicate, so the noise floor is asserted before any result built on it.
 
+## ADR-0027: The spine assist is not the free offset the plant credits -- and NFR15 is not demonstrated
+- **Status:** Accepted
+- **Context:** [ADR-0026](#adr-0026) measured the envelope with a **rigid trunk**, so
+  the spine's ~22 mm share was outside the loop and the NFR15 question stayed open.
+  This puts it in. The answer is not the one the reduced-order model promises.
+- **First, a tuning finding that is really a design one: the legs and the spine want
+  OPPOSITE gains.** ADR-0026 established that balance needs *compliant* legs. The
+  lateral spine is the reverse -- it carries the whole forequarters, and at the leg's
+  compliant gain it wobbles hard enough to fell an otherwise-clean baseline in **10
+  steps**. Stiffened to `kp = 1000` the baseline is quiet again (2.1 mm mean over 25
+  steps). **A single "servo gain" would have hidden this**, and the two groups are
+  not interchangeable.
+- **The result, with the spine finally in the loop:**
+
+  | spine gain | worst direction | best direction |
+  |---|---|---|
+  | 0.0 (present, unused) | 19.7 mm | 39.4 mm |
+  | **0.2** | **22.5 mm** | **50.7 mm** |
+  | 0.4 | **0 mm** -- falls at the smallest disturbance | 50.7 mm |
+  | 0.7 | 0 mm | 25.3 mm |
+
+- ⚠️ **The finding: the spine's authority is not a static offset.** `control.py`
+  books `plant.spine = 36.6 mm` of DCM authority as if it were free and always
+  available. In dynamics it has a **narrow usable window**: a gentle assist helps
+  (19.7 -> 22.5 mm worst case, +14 %), and by gain 0.4 the robot falls at the
+  *smallest* disturbance tested. The sway swings the entire forequarters and the
+  reaction destabilises. **A static credit cannot express a stability boundary.**
+- ⚠️ **NFR15 is NOT demonstrated.** The requirement is 48 mm; the best measured
+  worst-direction figure is **22.5 mm**, against a predicted 52.7 mm. That is a
+  **2.3x shortfall**, and it is the number a requirement should be judged on because
+  a disturbance does not choose a convenient direction.
+- **What that does and does not mean.** `control.py`'s envelope assumes an *optimal*
+  controller using the full authority; this is a **proportional foot-placement law
+  plus a proportional spine assist**, which is a long way from optimal. The gap is
+  therefore an upper bound on the model's optimism and a lower bound on what better
+  control could recover -- **the two cannot be separated with this harness.** What it
+  does establish is that the margin is **not free**: a straightforward implementation
+  gets less than half the promised envelope in its worst direction.
+- **Consequences:**
+  - `mjsim` defaults: legs `kp = 80` (compliant), spine `kp = 1000` (stiff),
+    `SPINE_GAIN = 0.2`. Each is a measurement with the sweep behind it, and the
+    docstrings say what breaks on either side.
+  - ⚠️ **NFR15's status changes from "met with 4.72 mm margin" to "met in the
+    reduced-order model, not demonstrated in simulation".** The requirement is not
+    withdrawn and the model is not refuted -- but the margin quoted against it is a
+    single-axis, optimal-control figure, and neither qualifier was ever attached.
+  - The open question is now sharp and answerable: **does a better controller close
+    the gap, or is the reduced-order envelope optimistic?** A whole-body QP or an MPC
+    over the step would separate them.
+
 ---
 
 ### How to add an ADR

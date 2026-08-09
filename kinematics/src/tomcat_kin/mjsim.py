@@ -73,6 +73,26 @@ COP_TRACK = 1.0 / 27.0
 #: contact. Measured on the same sweep.
 COP_EXTENSION_LIMIT = 0.002
 
+#: Metres of whole-body CoM sway per radian of per-joint lateral spine angle,
+#: uniform across the three joints.
+#:
+#: Taken from `WholeBody.center_of_mass_y` with the real stance pose, not fitted:
+#: 0.169 near zero, falling to 0.161 at full ROM as the chain curls. The small-angle
+#: value is used and the command is clamped to ROM, so the mild softening only ever
+#: makes the assist slightly weaker than commanded.
+SPINE_SWAY_PER_RAD = 0.169
+
+#: Proportional gain on the spine assist. 1.0 would command the sway that cancels
+#: the current lateral DCM offset outright.
+#:
+#: ⚠️ **0.2, and the window is narrow.** `control.py` credits the spine as a static
+#: 36.6 mm of DCM offset, available for free. In dynamics it is not free: the sway
+#: swings the whole forequarters, and the reaction is destabilising above ~0.3. Worst
+#: direction measured 19.7 mm at gain 0, 22.5 mm at 0.2, and **0 mm at 0.4** — the
+#: robot falls at the smallest disturbance. A static authority credit cannot express
+#: that.
+SPINE_GAIN = 0.2
+
 
 class BalanceHarness:
     """A trot-in-place balance controller running against a MuJoCo model.
@@ -83,7 +103,8 @@ class BalanceHarness:
 
     def __init__(self, controller, mujoco, model, phase: float = 0.25,
                  cop_gain: float = COP_GAIN, regulate_along_line: bool = False,
-                 latency: float | None = None):
+                 latency: float | None = None, spine_gain: float = SPINE_GAIN,
+                 use_spine: bool = True):
         from . import control as ctl
 
         self.c = controller
@@ -125,6 +146,16 @@ class BalanceHarness:
                      for nm in self.b.leg_names}
         self._f = np.zeros(6)
 
+        # The spine is optional: a model built without `spine_dof` simply has no
+        # such actuators, and the assist switches itself off rather than erroring.
+        sp = self.b.spine.params
+        self.spine_rom = float(min(abs(sp.lateral_q_min[0]), abs(sp.lateral_q_max[0])))
+        self.spine_act = [name2id(model, obj.mjOBJ_ACTUATOR, f"spine_a{i}")
+                          for i in range(1, sp.n_segments + 1)]
+        self.has_spine = all(a >= 0 for a in self.spine_act)
+        self.spine_gain = spine_gain
+        self.use_spine = use_spine
+
     # ---------------------------------------------------------------- geometry
     def axes(self, pair, data):
         """Unit vector along the support line, and its normal, from LIVE contacts.
@@ -162,6 +193,41 @@ class BalanceHarness:
                 num += data.contact[i].pos[:2] * self._f[0]
                 den += float(self._f[0])
         return (num / den, den) if den > 1e-6 else (fallback, 0.0)
+
+    def body_lateral_axis(self, data):
+        """The trunk's own +y in world coordinates — the axis the spine sways along.
+
+        Read from the live orientation rather than assumed, because the trunk yaws
+        during a recovery and a fixed axis would point the assist sideways.
+        """
+        r = np.zeros(9)
+        self.mj.mju_quat2Mat(r, data.qpos[3:7])
+        v = r.reshape(3, 3)[:, 1][:2]
+        n = np.linalg.norm(v)
+        return v / n if n > 1e-9 else np.array([0.0, 1.0])
+
+    def spine_assist(self, data, xi, support):
+        """Command the lateral spine to pull the CoM back over the support line.
+
+        The spine cannot move the centre of pressure — that is pinned to the support
+        line — so it does the other thing: it moves the **CoM toward the CoP**. An
+        offset of `e` along the trunk's lateral axis is cancelled by a sway of `-e`,
+        which is `-e / SPINE_SWAY_PER_RAD` at each of the three joints.
+
+        ⚠️ This is the balance authority ADR-0009 bought and `control.py` credits as
+        `plant.spine`. Until M21 it had never been exercised in a physics model at
+        all: M17 and M20's harnesses ran a rigid trunk, so ~22 mm of the ~53 mm
+        envelope was outside the simulation.
+        """
+        if not (self.has_spine and self.use_spine):
+            return 0.0
+        yhat = self.body_lateral_axis(data)
+        e = float((xi - support) @ yhat)
+        q = float(np.clip(-self.spine_gain * e / SPINE_SWAY_PER_RAD,
+                          -self.spine_rom, self.spine_rom))
+        for a in self.spine_act:
+            data.ctrl[a] = q
+        return q
 
     def feet_mid(self, data, pair):
         return np.mean([data.site_xpos[self.site[nm]][:2] for nm in pair], axis=0)
@@ -232,6 +298,9 @@ class BalanceHarness:
                     self.command(data, a, xoff[a], self.nom_z - ext)
                     self.command(data, bb, xoff[bb], self.nom_z + ext)
 
+                # --- the spine: move the CoM, since the CoP cannot move -------
+                self.spine_assist(data, xi, self.feet_mid(data, DIAGONALS[cur]))
+
                 # --- swing ----------------------------------------------------
                 # ⚠️ Vertical profile must be C1 at BOTH ends. `sin(pi u)` peaks
                 # correctly but lands with -pi h / T = -0.31 m/s of downward foot
@@ -273,12 +342,26 @@ class BalanceHarness:
 
 
 def build(controller, mujoco, mu: float = 0.9, timestep: float = 1e-4,
-          kp: int = 500, phase: float = 0.25):
-    """A model wired for balance work: stiff servos, the diagonal pair on the floor."""
+          kp: int = 80, phase: float = 0.25, spine: bool = False,
+          spine_kp: int = 1000):
+    """A model wired for balance work, with the diagonal pair on the floor.
+
+    ``kp`` defaults to a **compliant** 80. Stiff servos do not merely track better —
+    they make ground-reaction distribution bang-bang and the balance loop does not
+    close at all (ADR-0026). This is a physical choice, not a solver tolerance.
+
+    ⚠️ ``spine_kp`` is the opposite: it wants to be **stiff**. The lateral chain
+    carries the whole forequarters, and at 150 it wobbles badly enough to fell an
+    otherwise-clean baseline in 10 steps. At 1000 the baseline is quiet again
+    (2.1 mm mean over 25 steps). The legs want compliance; the spine wants
+    stiffness, and they are not the same knob.
+    """
     from . import mjcf
 
     q = mjcf.stance_pose(controller, phase)
     h = mjcf.rest_height(controller, q, DIAGONALS["A"])
-    xml = mjcf.build_mjcf(controller, q, height=h, mu=mu, timestep=timestep)
-    xml = xml.replace('kp="120" kv="4"', f'kp="{kp}" kv="{kp // 36}"')
+    xml = mjcf.build_mjcf(controller, q, height=h, mu=mu, timestep=timestep,
+                          spine_dof=spine)
+    xml = xml.replace('kp="120" kv="4"', f'kp="{kp}" kv="{max(2, kp // 36)}"')
+    xml = xml.replace('kp="30" kv="1.5"', f'kp="{spine_kp}" kv="{max(2, spine_kp // 20)}"')
     return mujoco.MjModel.from_xml_string(xml)
