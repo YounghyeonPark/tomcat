@@ -1613,6 +1613,63 @@ coupling itself. On dualis 0.2 the pack is a real domain on the same bus, so
   - **NFR15's status is unaffected**: still not demonstrated, at 28.9 mm against
     48 mm. Only the attribution changes.
 
+## ADR-0030: Planned deployment fixes the spine's stability -- and it still buys nothing
+- **Status:** Accepted
+- **Context:** [ADR-0029](#adr-0029) showed the reactive spine assist has **unity
+  loop gain by construction** and is harmful. That left the question open in the
+  best possible way: was the spine credit unreachable, or merely unreachable *by
+  that control structure*? M25 changes the structure.
+- **The fix, and it is structural rather than a tuning.** The spine target is now
+  decided **once per stance**, at the same instant the foot placement is committed,
+  and executed **open-loop** as a C1 ramp across the stance. The loop closes at the
+  step rate, exactly like the foot placement -- the one control structure in this
+  harness that demonstrably works.
+
+  | spine gain | reactive baseline | **planned baseline** |
+  |---|---|---|
+  | 0.0 | 2.15 mm | 2.15 mm |
+  | 0.2 | 11.43 mm | **1.64 mm** |
+  | 0.5 | falls at step 6 | **1.38 mm** |
+  | 1.0 | falls at step 4 | **1.55 mm** |
+  | 1.5 | falls at step 3 | 7.30 mm |
+
+  **Stable to gain 1.0, and it slightly IMPROVES the undisturbed baseline.** So
+  ADR-0029's instability was the control structure, not the actuator -- which is the
+  cleanest possible confirmation of that diagnosis.
+- ⚠️ **And it still buys nothing.** Measured at **0.23 mm** resolution (10 bisection
+  steps; earlier sweeps ran at ~3.6 mm and were quantising the answer):
+
+  | direction | gain 0.0 | gain 0.5 | gain 1.0 | best gain |
+  |---|---|---|---|---|
+  | **120 deg (worst)** | 29.62 mm | 29.85 | 28.26 | **+0.23 mm** |
+  | 300 deg | 35.27 | 33.92 | 37.31 | +2.04 |
+  | 0 deg | 54.95 | 56.08 | 59.02 | +4.07 |
+  | 180 deg | 65.35 | 63.31 | **53.14** | 0.00 -- gain 1.0 *costs* 12 mm |
+
+  **A stable implementation of the model's own mechanism, driven at full authority,
+  adds 0.23 mm to the worst case against a credited 36.6 mm.**
+- **What that finally settles.** M23 could not attribute the gap; M24 could not
+  either, because the assist was unstable and an unstable controller proves nothing.
+  This one is stable, uses the authority the way `control.py` describes it (a DCM
+  offset), and still does not deliver. **That is evidence the credit is wrong, not
+  merely unreached.** `plant.spine = 36.6 mm` should be treated as unsupported until
+  something demonstrates otherwise.
+- ⚠️ **The honest residue.** This controller is still not optimal, and "a stable
+  proportional feedforward finds 0.23 mm" is not a proof that no controller can find
+  more. But the burden has moved: the credit is a *modelling* claim with no
+  supporting measurement, sitting in the middle of the NFR15 margin.
+- **Consequences:**
+  - `spine_mode` defaults to `"planned"`; `"reactive"` is kept only so the ADR-0029
+    test can demonstrate the failure it describes.
+  - `SPINE_GAIN = 0.5`, chosen for the quietest baseline -- **explicitly not for
+    envelope**, and the docstring says so.
+  - **NFR15 is unchanged and now better supported as a concern**: 28.9 mm worst-case
+    against 48 mm required, with the spine term measured at ~0 rather than assumed
+    to be recoverable by better control.
+  - ⚠️ Earlier envelope sweeps ran a 6-step bisection over a 1.8 m/s bracket --
+    **3.6 mm of quantisation**, enough to hide the whole effect being argued about.
+    Resolution is now stated with every envelope figure.
+
 ---
 
 ### How to add an ADR

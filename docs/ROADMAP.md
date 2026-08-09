@@ -57,7 +57,9 @@ sequences the work that implements them.
 > **M23 done:** M21/M22 measured before the limit cycle — corrected, and the gap
 > localises to the **spine term** ([ADR-0028](DESIGN_DECISIONS.md)).
 > **M24 done:** the spine assist has **unity loop gain** — it is harmful and the
-> "+14 %" is withdrawn ([ADR-0029](DESIGN_DECISIONS.md)). 345 Python + 17 Rust.
+> "+14 %" is withdrawn ([ADR-0029](DESIGN_DECISIONS.md)).
+> **M25 done:** planned deployment fixes the stability — and the spine **still
+> buys nothing** ([ADR-0030](DESIGN_DECISIONS.md)). 345 Python + 17 Rust.
 
 ---
 
@@ -1145,7 +1147,46 @@ Averaging its magnitude reads a drift as a bias. **How much the spine can hold
 against planted feet is unmeasured**, and my first answer was an artefact of the
 statistic.
 
-## Later milestones (candidate M25+, not committed)
+## Milestone M25 — Planned spine deployment: the structure was the fault, the credit still is (DONE)
+
+M24 showed the reactive assist has unity loop gain and is harmful. That left the good
+version of the question open: unreachable credit, or unreachable *by that structure*?
+
+**The fix is structural.** The spine target is decided **once per stance**, at the
+same instant the foot placement is committed, then executed **open-loop** as a C¹ ramp.
+The loop closes at the step rate — exactly like the foot placement, the one structure
+in this harness that works.
+
+| spine gain | reactive baseline | **planned baseline** |
+|---|---|---|
+| 0.2 | 11.43 mm | **1.64 mm** |
+| 0.5 | falls at step 6 | **1.38 mm** |
+| 1.0 | falls at step 4 | **1.55 mm** |
+
+**Stable to gain 1.0, and it slightly improves the baseline** — the cleanest possible
+confirmation that ADR-0029's instability was the structure, not the actuator.
+
+⚠️ **And it still buys nothing.** At **0.23 mm** resolution (earlier sweeps ran at
+~3.6 mm and were quantising the answer):
+
+| direction | gain 0.0 | gain 1.0 | best gain |
+|---|---|---|---|
+| **120° (worst)** | 29.62 mm | 28.26 | **+0.23 mm** |
+| 0° | 54.95 | 59.02 | +4.07 |
+| 180° | 65.35 | **53.14** | 0.00 — gain 1.0 *costs* 12 mm |
+
+**A stable implementation of the model's own mechanism, at full authority, adds
+0.23 mm to the worst case against a credited 36.6 mm.** M23 and M24 could not
+attribute the gap; this one can. **The credit is unsupported, not merely unreached.**
+
+⚠️ Still not an optimal controller — but the burden has moved: `plant.spine` is a
+modelling claim with no supporting measurement, sitting in the middle of NFR15's margin.
+
+## Later milestones (candidate M26+, not committed)
+
+- **Justify or withdraw `plant.spine = 36.6 mm`** — it now sits unsupported.
+- **ADR-0019/0020's friction costs**, still unmeasured.
+
 
 - **Planned/feedforward spine deployment** — reactive proportional control is
   structurally wrong for an actuator sitting in its own feedback path.

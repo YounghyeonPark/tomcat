@@ -93,11 +93,15 @@ SPINE_SWAY_PER_RAD = 0.169
 #: measured, even 0.2 degrades the UNDISTURBED baseline 5x (2.15 -> 11.43 mm mean
 #: DCM). At 0.5 and 1.0 the robot falls with no disturbance at all.
 #:
-#: The authority itself is real and is not the problem: a held sway realises 104 % of
-#: its kinematic value against planted feet, and an open-loop ramp to full ROM
-#: survives at 300 deg/s. What fails is *reactive* use of it. Deploying the spine
-#: needs a planned/feedforward scheme, not a gain.
-SPINE_GAIN = 0.0
+#: M25 fixed the structure: planned once per stance and executed open-loop, the same
+#: gain is stable to 1.0 and slightly IMPROVES the baseline (2.15 -> 1.38 mm). So the
+#: instability was the control structure, not the actuator.
+#:
+#: ⚠️ **And it still buys nothing.** At 0.23 mm measurement resolution the planned
+#: assist adds **+0.23 mm** to the worst-direction envelope against a credited
+#: 36.6 mm, and at gain 1.0 it *costs* 12 mm in one direction. 0.5 is kept as the
+#: default only because it is the quietest baseline — not because it buys envelope.
+SPINE_GAIN = 0.5
 
 #: Rate limit on the spine command, rad/s per joint.
 #:
@@ -118,7 +122,7 @@ class BalanceHarness:
     def __init__(self, controller, mujoco, model, phase: float = 0.25,
                  cop_gain: float = COP_GAIN, regulate_along_line: bool = False,
                  latency: float | None = None, spine_gain: float = SPINE_GAIN,
-                 use_spine: bool = True):
+                 use_spine: bool = True, spine_mode: str = "planned"):
         from . import control as ctl
 
         self.c = controller
@@ -160,6 +164,9 @@ class BalanceHarness:
                      for nm in self.b.leg_names}
         self._f = np.zeros(6)
         self._spine_cmd = 0.0
+        self._spine_from = 0.0
+        self._spine_to = 0.0
+        self._spine_next = 0.0
 
         # The spine is optional: a model built without `spine_dof` simply has no
         # such actuators, and the assist switches itself off rather than erroring.
@@ -170,6 +177,7 @@ class BalanceHarness:
         self.has_spine = all(a >= 0 for a in self.spine_act)
         self.spine_gain = spine_gain
         self.use_spine = use_spine
+        self.spine_mode = spine_mode
 
     # ---------------------------------------------------------------- geometry
     def axes(self, pair, data):
@@ -221,8 +229,35 @@ class BalanceHarness:
         n = np.linalg.norm(v)
         return v / n if n > 1e-9 else np.array([0.0, 1.0])
 
+    def plan_spine(self, data, xi_end, support):
+        """Decide the spine offset ONCE per stance, from the predicted end state.
+
+        ⚠️ This is the M25 structure, and the reason it exists is ADR-0029: a
+        per-timestep proportional law puts the actuator in its own position feedback
+        path with **unity loop gain**, so even a 0.2 gain degraded the undisturbed
+        baseline fivefold. Deciding once per step and executing open-loop closes the
+        loop at the same rate the foot placement already does — which is the one
+        control structure in this harness that demonstrably works.
+        """
+        if not (self.has_spine and self.use_spine):
+            return 0.0
+        yhat = self.body_lateral_axis(data)
+        e = float((xi_end - support) @ yhat)
+        return float(np.clip(-self.spine_gain * e / SPINE_SWAY_PER_RAD,
+                             -self.spine_rom, self.spine_rom))
+
+    def drive_spine(self, data, u: float):
+        """Execute the planned offset open-loop: a C1 ramp across the stance."""
+        if not (self.has_spine and self.use_spine):
+            return 0.0
+        blend = u * u * (3.0 - 2.0 * u)
+        q = self._spine_from + (self._spine_to - self._spine_from) * blend
+        for a in self.spine_act:
+            data.ctrl[a] = q
+        return q
+
     def spine_assist(self, data, xi, support):
-        """Command the lateral spine to pull the CoM back over the support line.
+        """Reactive per-timestep assist. ⚠️ HARMFUL — kept only for the ADR-0029 test.
 
         The spine cannot move the centre of pressure — that is pinned to the support
         line — so it does the other thing: it moves the **CoM toward the CoP**. An
@@ -258,6 +293,9 @@ class BalanceHarness:
     # -------------------------------------------------------------------- init
     def reset(self, settle: float = 0.06):
         self._spine_cmd = 0.0
+        self._spine_from = 0.0
+        self._spine_to = 0.0
+        self._spine_next = 0.0
         d = self.mj.MjData(self.m)
         for nm in self.b.leg_names:
             q = (self.q0[nm] if nm in DIAGONALS["A"]
@@ -304,6 +342,10 @@ class BalanceHarness:
                         dx = float(np.clip(self.deadbeat * err / pn[0], *self.reach))
                     if left <= self.latency:
                         frozen = True
+                        if self.spine_mode == "planned":
+                            # Same instant the foot target is committed.
+                            self._spine_next = self.plan_spine(
+                                data, end, self.feet_mid(data, DIAGONALS[nxt]))
 
                 # --- along the line: where the CoP sits -----------------------
                 if self.regulate and load > 1.0:
@@ -318,8 +360,11 @@ class BalanceHarness:
                     self.command(data, a, xoff[a], self.nom_z - ext)
                     self.command(data, bb, xoff[bb], self.nom_z + ext)
 
-                # --- the spine: move the CoM, since the CoP cannot move -------
-                self.spine_assist(data, xi, self.feet_mid(data, DIAGONALS[cur]))
+                # --- the spine: PLANNED at the freeze point, then open-loop ---
+                if self.spine_mode == "reactive":
+                    self.spine_assist(data, xi, self.feet_mid(data, DIAGONALS[cur]))
+                else:
+                    self.drive_spine(data, k / n)
 
                 # --- swing ----------------------------------------------------
                 # ⚠️ Vertical profile must be C1 at BOTH ends. `sin(pi u)` peaks
@@ -345,6 +390,8 @@ class BalanceHarness:
 
             for nm in DIAGONALS[nxt]:
                 xoff[nm] = self.nom_x + dx
+            self._spine_from = self._spine_to
+            self._spine_to = self._spine_next
             for nm in DIAGONALS[cur]:
                 self.command(data, nm, xoff[nm], self.nom_z + self.step_h)
 

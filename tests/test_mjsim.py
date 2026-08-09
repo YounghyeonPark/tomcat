@@ -222,13 +222,25 @@ def test_the_proportional_spine_assist_has_unity_loop_gain_and_is_harmful(contro
         hist, fell = h.run(h.reset(), steps=18)
         return (_mean_dcm(hist, slice(None)) if len(hist) == 18 else float("inf")), fell
 
-    quiet, fell_off = baseline(0.0)
-    gentle, _ = baseline(0.2)
-    hard, fell_hard = baseline(1.0)
+    def baseline_mode(gain, mode):
+        h = mjsim.BalanceHarness(controller, mujoco, model, spine_gain=gain,
+                                 use_spine=gain != 0.0, spine_mode=mode)
+        hist, fell = h.run(h.reset(), steps=18)
+        return (_mean_dcm(hist, slice(None)) if len(hist) == 18 else float("inf")), fell
+
+    quiet, fell_off = baseline_mode(0.0, "reactive")
+    gentle, _ = baseline_mode(0.2, "reactive")
+    hard, fell_hard = baseline_mode(1.0, "reactive")
 
     assert not fell_off and quiet < 0.004, "the spine-off baseline must stay clean"
-    assert gentle > 3.0 * quiet, "a 0.2 assist should visibly degrade the baseline"
+    assert gentle > 3.0 * quiet, "a 0.2 reactive assist should degrade the baseline"
     assert hard > gentle or fell_hard, "unity loop gain must be worse still"
+
+    # M25: the SAME gain, planned once per stance and executed open-loop, is fine.
+    # That is what identifies the structure — not the actuator — as the fault.
+    planned, fell_planned = baseline_mode(1.0, "planned")
+    assert not fell_planned, "planned deployment must survive where reactive fell"
+    assert planned < gentle, "planned at gain 1.0 must beat reactive at 0.2"
 
 
 def test_the_spines_realisable_authority_is_NOT_established(controller):

@@ -204,7 +204,14 @@ Small, and honestly at the point of diminishing returns:
   baseline 5× (2.15 → 11.43 mm) and 0.5 falls unaided. **M22/M23's "+14 % from the
   spine" is withdrawn**; worst case is 28.9 mm with and without it.
   The motor is not the limit (open-loop ramps survive 300°/s) and slew-limiting does
-  not help. **Next: a planned/feedforward deployment**, not a gain.
+  not help.
+- ⚠️ **And a planned deployment fixes the stability without buying envelope** (M25,
+  [ADR-0030](DESIGN_DECISIONS.md)). Deciding once per stance and executing open-loop
+  is stable to gain 1.0 and slightly *improves* the baseline — so the fault was the
+  structure, not the actuator. But at 0.23 mm resolution it adds **+0.23 mm** to the
+  worst direction against a credited 36.6 mm, and at gain 1.0 it *costs* 12 mm in
+  another. **`plant.spine = 36.6 mm` should be treated as unsupported until something
+  demonstrates otherwise** — it sits in the middle of NFR15's margin.
 - ⚠️ **UNMEASURED: how much offset the spine can actually hold.** Two attempts gave
   44.0 mm and 16.5 mm because the offset drifts rather than holding, so averaging its
   magnitude reads drift as bias. The 36.6 mm credit is neither confirmed nor refuted.
