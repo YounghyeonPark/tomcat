@@ -157,7 +157,7 @@ judgement, not an experiment.
 |---|---|---|
 | **Joint moment arms 1.25×** | +23 % runtime (30 → 37 min) for a 70 mm hip sheave, plus mass/packaging/inertia ripple | ADR-0021, **not adopted** |
 | **Leg abduction** | +42–58 % disturbance envelope for +4 motors, 528 g (13 % of budget) | ADR-0017, **rejected** — original basis ("NFR15 already met") no longer holds, but M27 says **do not reopen yet**: the controller cannot exploit the authority it already has, so more would be wasted mass (ADR-0032). |
-| **Trot speed 50 cm/s** | slowed from 67 by the spine's friction cost | ADR-0020 — ⚠️ **NFR15 is no longer a reason** (M29: the fast gait meets it at μ ≥ 0.6, *and* has a better sensing margin). **Blocked on one measurement**: ADR-0019/0020's friction accounting, still un-cross-checked. |
+| **Trot speed 50 cm/s** | slowed from 67 by the spine's friction cost | ADR-0020 — ⚠️ **NFR15 is no longer a reason** (M29: the fast gait meets it at μ ≥ 0.6, *and* has a better sensing margin). **Partly measured (M30, [ADR-0035](DESIGN_DECISIONS.md))**: the mechanism is confirmed but the cost is **~14 % at μ 0.70, not ~100 %**. Significance is marginal (n = 11, capped by low-μ runs falling), so **50 cm/s stands** — now blocked on controller quality, not on the model. |
 | **Spine lateral ROM ±15°** | ±25° would give 119 mm envelope, no extra motors — but fights the biomechanics (lateral is the stiffest spine axis) | ADR-0015, **held** |
 
 ---

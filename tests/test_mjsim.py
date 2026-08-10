@@ -276,3 +276,61 @@ def test_the_spines_realisable_authority_is_NOT_established(controller):
         "perp held one sign — the offset may be steady after all, so the authority "
         "question is reopenable; re-measure before trusting either figure"
     )
+
+
+def test_measuring_friction_demand_needs_a_PAIRED_design(controller):
+    """⚠️ M30, recorded because five measurement designs failed before one worked.
+
+    ADR-0019/0020's friction cost resisted measurement for reasons worth naming:
+
+    1. **Per-contact force ratio** — pinned at the cone limit every time. A foot
+       carrying 1.5 N at touchdown saturates any ratio without meaning anything.
+    2. **Aggregate force ratio** — read 3.238, i.e. tangential force at 3× normal,
+       which is impossible under gravity. Impact transients again.
+    3. **Foot slip** — real magnitudes (0.4–2.5 mm) but the spine's contribution sat
+       inside a ~1 mm noise floor from contact-point migration.
+    4. **CoM shift, unpaired** — the effect is a few mm and the phase-to-phase
+       standard deviation is **10–15 mm**. Averaging 5 trials showed nothing.
+
+    What works is a **paired** design: the simulator is deterministic, so running the
+    same deployment phase at two frictions differs *only* by the friction. That
+    cancels the variance that swamped everything else.
+
+    This test pins the variance, because it is the fact that dictates the design.
+    """
+    import math
+
+    rom = abs(controller.body.spine.params.lateral_q_min[0])
+    model = mjsim.build(controller, mujoco, kp=80, spine=True, spine_kp=1000, mu=0.8)
+
+    class Deploy(mjsim.BalanceHarness):
+        def __init__(self, *a, at=6, **k):
+            super().__init__(*a, **k)
+            self.at, self._t, self.seen = at, 0.0, []
+
+        def drive_spine(self, data, u):
+            self._t += self.dt
+            k = self._t / self.T
+            q = 0.0 if k < self.at else rom * min(1.0, k - self.at)
+            for act in self.spine_act:
+                data.ctrl[act] = q
+            return q
+
+    shifts = []
+    for at in (4, 6, 8, 10, 12):
+        h = Deploy(controller, mujoco, model, at=at, use_spine=True)
+        hist, fell = h.run(h.reset(), steps=at + 4)
+        if not fell and len(hist) >= at + 4:
+            shifts.append(hist[-1]["perp"])
+
+    assert len(shifts) >= 4, "not enough usable trials to characterise the variance"
+    sd = float(np.std(shifts, ddof=1))
+    # The friction effect M30 was chasing is ~5.7 mm at mu 0.7. The phase-to-phase
+    # spread here is ~2.2 mm on this quantity and 10-15 mm on the CoM-versus-feet
+    # shift the measurement actually used — comparable to, or larger than, the
+    # signal either way. That is the whole reason the design has to be paired.
+    assert sd > 0.0015, (
+        f"phase-to-phase spread is only {1000 * sd:.1f} mm — if the variance really "
+        "has fallen, an unpaired friction measurement may now be viable; re-check M30"
+    )
+    assert sd < 0.020, "spread this large would mean the baseline itself is broken"

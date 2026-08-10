@@ -1887,6 +1887,64 @@ coupling itself. On dualis 0.2 the pack is a real domain on the same bus, so
     friction accounting. It re-derives the *envelope* exactly; it does not
     re-derive the *friction cost*, which remains the single un-cross-checked block.
 
+## ADR-0035: The spine's friction cost is REAL but far smaller than claimed -- and it took five failed measurements to see
+- **Status:** Accepted. Partially answers the item [ADR-0025](#adr-0025) and
+  [ADR-0034](#adr-0034) left as the single blocking measurement.
+- **Context:** ADR-0034 removed NFR15 as a reason for the 50 cm/s trot and left the
+  speed decision blocked on one thing: **is ADR-0019/0020's friction accounting
+  right?** M20 could not measure it because the robot fell. The M21 harness holds a
+  settled trot, so it should now be readable.
+- ⚠️ **Four designs failed, and the failures are the useful part:**
+
+  | design | what it read | why it is wrong |
+  |---|---|---|
+  | Per-contact `|f_t|/f_n` | pinned at the cone limit every time | a foot with 1.5 N at touchdown saturates any ratio |
+  | Aggregate `|sum f_t|/sum f_n` | **3.238** | tangential at 3x normal is impossible under gravity -- impact transients |
+  | Foot slip while loaded | 0.4-2.5 mm, no trend | the spine's share sits inside a ~1 mm floor from contact-point migration |
+  | CoM shift, unpaired | mean 0.5-6 mm, **sd 10-15 mm** | the effect is a few mm; averaging 5 trials showed nothing |
+
+  **Force is the wrong observable for a legged robot in contact.** Impacts dominate
+  every ratio, and no threshold separates them cleanly.
+- **What works: a PAIRED design.** The simulator is deterministic, so the same
+  deployment phase run at two frictions differs *only* by the friction. That cancels
+  the phase-to-phase variance that swamped everything else:
+
+  | floor mu | CoM shift lost vs mu 5.0 | t (n = 11) |
+  |---|---|---|
+  | 0.20 | **-9.64 mm** | -2.23 |
+  | 0.40 | -8.01 mm | -1.83 |
+  | 0.70 | -5.71 mm | -1.32 |
+  | 1.20 | -1.11 mm | -0.22 |
+
+- **Finding 1 -- the mechanism is confirmed.** Monotone across five conditions, with
+  exactly the sign ADR-0019 predicts: less friction, less achieved CoM shift.
+  Internal motion really does need a ground reaction.
+- ⚠️ **Finding 2 -- the cost is far smaller than ADR-0019/0020 claim.** At mu 0.70
+  the loss is **5.7 mm of a 42.2 mm sway, i.e. 14 %**. ADR-0020's accounting implies
+  the spine needs mu ~0.71 just to deliver its authority, i.e. near-total loss below
+  that. Measured, even mu 0.20 costs only ~23 %.
+- **This corroborates ADR-0034 independently.** That milestone found NFR15 met from
+  mu 0.6 rather than "0.70 with no margin", from the envelope side. This finds the
+  friction penalty overstated, from the mechanism side. Two different routes, same
+  direction.
+- ⚠️ **Significance is marginal and the decision does not move.** Only mu 0.20
+  reaches `|t| > 2.1`, and `n` is capped at **11** because low-friction runs fall
+  before the later phases can be sampled. The monotone ordering across five
+  conditions is supporting evidence, not a substitute for power.
+
+  **So ADR-0020's 50 cm/s stands.** ADR-0034 said reinstating 67 cm/s on half an
+  argument would repeat the error it was correcting; doing it on a marginal
+  `t = -2.23` would be the same mistake wearing a statistic.
+- **Consequences:**
+  - The friction accounting is **not refuted** -- its direction is confirmed and its
+    magnitude is doubted. NFR16's `mu >= 0.70` remains as a conservative floor.
+  - What would settle it: more samples at low friction, which needs the harness to
+    survive longer there -- i.e. **it is now gated on controller quality again**,
+    the same wall as ADR-0032.
+  - ⚠️ Recorded as a method note, because it will recur: **in contact-rich
+    simulation, measure displacements, and pair the trials.** Four of five designs
+    here failed on impact transients or run-to-run variance, not on physics.
+
 ---
 
 ### How to add an ADR

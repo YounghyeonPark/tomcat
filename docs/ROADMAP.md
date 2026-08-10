@@ -67,7 +67,9 @@ sequences the work that implements them.
 > **M28 done:** the **viable set**, computed exactly — **NFR15 is achievable** and the
 > model was never the problem ([ADR-0033](DESIGN_DECISIONS.md)).
 > **M29 done:** R2’s critical table was **stale** — NFR15 is met from **μ 0.6**, and it
-> no longer justifies the 50 cm/s trot ([ADR-0034](DESIGN_DECISIONS.md)). 356 Python + 17 Rust.
+> no longer justifies the 50 cm/s trot ([ADR-0034](DESIGN_DECISIONS.md)).
+> **M30 done:** the spine’s friction cost is **real but ~14 % not ~100 %** — after
+> four failed measurement designs ([ADR-0035](DESIGN_DECISIONS.md)). 357 Python + 17 Rust.
 
 ---
 
@@ -1348,7 +1350,50 @@ blocked on a model.
 **R2 drops from CRITICAL to SIGNIFICANT** — the drag test still matters, but the
 threshold moved from "μ 0.70, no margin" to "μ 0.6", which a typical dry floor clears.
 
-## Later milestones (candidate M30+, not committed)
+## Milestone M30 — The friction cost, measured at last (DONE)
+
+M29 left the trot-speed decision blocked on one thing: **is ADR-0019/0020's friction
+accounting right?** M20 could not measure it because the robot fell; the M21 harness
+holds a settled trot.
+
+⚠️ **Four designs failed first, and the failures are the useful part:**
+
+| design | read | why it is wrong |
+|---|---|---|
+| per-contact \|fₜ\|/fₙ | pinned at the cone limit | a foot with 1.5 N at touchdown saturates any ratio |
+| aggregate \|Σfₜ\|/Σfₙ | **3.238** | tangential at 3× normal is impossible — impact transients |
+| foot slip | 0.4–2.5 mm, no trend | the spine's share sits inside a ~1 mm noise floor |
+| CoM shift, unpaired | **sd 10–15 mm** | the effect is a few mm; averaging 5 trials showed nothing |
+
+**Force is the wrong observable for a legged robot in contact.** What works is a
+**paired** design — the simulator is deterministic, so the same deployment phase at
+two frictions differs *only* by the friction:
+
+| floor μ | CoM shift lost vs μ 5.0 | t (n = 11) |
+|---|---|---|
+| 0.20 | **−9.64 mm** | −2.23 |
+| 0.40 | −8.01 mm | −1.83 |
+| 0.70 | −5.71 mm | −1.32 |
+| 1.20 | −1.11 mm | −0.22 |
+
+**The mechanism is confirmed** — monotone across five conditions, exactly the sign
+ADR-0019 predicts. ⚠️ **But the cost is far smaller than claimed**: at μ 0.70 the loss
+is **5.7 mm of a 42.2 mm sway (14 %)**, where ADR-0020's accounting implies near-total
+loss below μ 0.71. Even μ 0.20 costs only ~23 %.
+
+**This corroborates M29 independently** — that found NFR15 met from μ 0.6 from the
+*envelope* side; this finds the penalty overstated from the *mechanism* side.
+
+⚠️ **The decision does not move.** Only μ 0.20 reaches |t| > 2.1, and n is capped at
+11 because low-friction runs fall before later phases can be sampled. **50 cm/s
+stands** — reinstating 67 on a marginal statistic would be M29's error wearing a
+t-value.
+
+## Later milestones (candidate M31+, not committed)
+
+- **The whole-body controller** — now blocking two things: the 62.7 mm envelope
+  target, and enough low-friction survival to give M30's measurement statistical power.
+
 
 - **ADR-0019/0020's friction cost** — now the single blocking measurement, gating the
   trot speed. Reachable with the M21 harness.
