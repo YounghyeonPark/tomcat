@@ -166,3 +166,56 @@ def test_a_lateral_credit_helps_in_more_than_the_lateral_direction(setup):
     assert lateral == pytest.approx(plant.spine, rel=1e-6)
     # And the slant carries more of it into fore-aft than into lateral.
     assert fore_aft > lateral
+
+
+@pytest.mark.parametrize("period,speed_cm_s", [(0.40, 50), (0.30, 67)])
+def test_NFR15_is_met_from_floor_mu_0_6_at_both_trot_speeds(period, speed_cm_s):
+    """⚠️ M29. Re-derives OPEN_RISKS **R2**, one of the two critical risks.
+
+    R2's published table (40.2 / 48.1 / 53.9 mm at μ 0.5 / 0.7 / 0.9) **cannot be
+    reproduced from the current code** — it predates M20's sway correction, and
+    `self_consistent_envelope` takes no `floor_mu` at all, so it cannot produce a
+    μ-dependent column. A stale table in a CRITICAL risk section.
+
+    On the exact viable set, NFR15's 48 mm is met from **μ ≥ 0.6 at both speeds** —
+    where R2 implied μ 0.70 was needed with no margin at all.
+    """
+    c = gait.GaitController(gait.trot_params(period=period))
+    q = mjcf.stance_pose(c, 0.25)
+    assert c.params.body_speed == pytest.approx(speed_cm_s / 100.0, abs=0.02)
+
+    def envelope(mu):
+        plant = control.StepPlant.from_gait(c, n=96, latency=0.0075, floor_mu=mu)
+        reach = (float(plant.reach[0]), float(plant.reach[1]))
+        region = viable.viable_set(c, q, plant.omega, plant.stance, reach,
+                                   steps=20, spine=plant.spine)
+        return _worst(region)
+
+    assert envelope(0.5) < 0.048, "mu 0.5 should still fail — do not overclaim"
+    assert envelope(0.6) >= 0.048, "mu 0.6 must meet NFR15"
+    assert envelope(0.7) >= 0.048
+    # Monotone in friction, or the spine clamp is wired backwards.
+    assert envelope(0.4) < envelope(0.6) < envelope(0.8)
+
+
+def test_the_ADR_0020_slowdown_is_not_required_by_NFR15():
+    """⚠️ M29. ADR-0020 slowed the shipped trot **67 → 50 cm/s** because the spine's
+    friction demand exceeded a realistic floor. On the exact viable set the faster
+    gait **also meets NFR15** at μ ≥ 0.6 (48.1 mm), and it carries a *better* sensing
+    margin besides — per-step growth is 3.21 at 0.30 s against 4.73 at 0.40 s.
+
+    This does not reinstate 67 cm/s by itself: ADR-0020's friction accounting is
+    still un-cross-checked (ADR-0025). It removes NFR15 as the reason.
+    """
+    fast = gait.GaitController(gait.trot_params(period=0.30))
+    q = mjcf.stance_pose(fast, 0.25)
+    plant = control.StepPlant.from_gait(fast, n=96, latency=0.0075, floor_mu=0.6)
+    reach = (float(plant.reach[0]), float(plant.reach[1]))
+    region = viable.viable_set(fast, q, plant.omega, plant.stance, reach,
+                               steps=20, spine=plant.spine)
+    assert _worst(region) >= 0.048
+
+    slow = gait.GaitController(gait.trot_params(period=0.40))
+    slow_plant = control.StepPlant.from_gait(slow, n=96, latency=0.0075, floor_mu=0.6)
+    assert math.exp(plant.omega * plant.stance) < math.exp(
+        slow_plant.omega * slow_plant.stance), "the fast gait should diverge less per step"

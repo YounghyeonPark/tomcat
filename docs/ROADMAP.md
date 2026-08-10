@@ -65,7 +65,9 @@ sequences the work that implements them.
 > **M27 done:** three actuators, three failures — the **architecture** is the limit,
 > so **do not buy abduction yet** ([ADR-0032](DESIGN_DECISIONS.md)).
 > **M28 done:** the **viable set**, computed exactly — **NFR15 is achievable** and the
-> model was never the problem ([ADR-0033](DESIGN_DECISIONS.md)). 353 Python + 17 Rust.
+> model was never the problem ([ADR-0033](DESIGN_DECISIONS.md)).
+> **M29 done:** R2’s critical table was **stale** — NFR15 is met from **μ 0.6**, and it
+> no longer justifies the 50 cm/s trot ([ADR-0034](DESIGN_DECISIONS.md)). 356 Python + 17 Rust.
 
 ---
 
@@ -1308,7 +1310,50 @@ because the trot's support is diagonal, so the fore-aft gain is **larger still
 **Leg abduction stays rejected, now on solid ground:** not "the controller cannot use
 what it has", but **the existing authority is sufficient for the requirement**.
 
-## Later milestones (candidate M29+, not committed)
+## Milestone M29 — Re-deriving the critical risk, and unblocking a shipped decision (DONE)
+
+M28 made the viable set exact and instant. The first thing worth re-deriving with it
+is **R2 (paw friction)** — one of only two CRITICAL risks, and the table that drove
+both the NFR16 friction floor and ADR-0020's trot slowdown.
+
+⚠️ **The published R2 table cannot be reproduced.** It quotes 40.2 / 48.1 / 53.9 mm
+at μ 0.5 / 0.7 / 0.9. Neither current function produces those — and
+`self_consistent_envelope` **takes no `floor_mu` at all**, so it cannot produce a
+μ-dependent column. The table predates M20's sway correction and has been stale in a
+CRITICAL section since. **Stale numbers in a risk register are worse than missing
+ones: they are load-bearing and they look checked.**
+
+**Re-derived exactly** (worst over 24 directions):
+
+| stance | speed | μ 0.4 | 0.5 | **0.6** | 0.7 | 0.8 |
+|---|---|---|---|---|---|---|
+| 0.40 s | 50 cm/s | 42.6 | 47.6 | **52.6** | 57.7 | 62.7 |
+| **0.30 s** | **67 cm/s** | 42.5 | 45.3 | **48.1** | 50.9 | 53.7 |
+
+**NFR15's 48 mm is met from μ ≥ 0.6 at both speeds** — where R2 implied μ 0.70 with
+*no margin*. At the NFR16 floor of 0.70 the margin is **20 %**, not zero.
+
+⚠️ **And NFR15 no longer justifies the 50 cm/s trot.** ADR-0020 slowed the gait
+67 → 50 cm/s partly because the envelope fell short. It does not. The fast gait is
+*better* on the other axis ADR-0020 flagged too — per-step growth **3.21 at 0.30 s vs
+4.73 at 0.40 s**, which widens the sensing margin.
+
+**But the slowdown is NOT reversed.** ADR-0020 rested on two things and only one is
+answered; its **friction accounting is still un-cross-checked** (ADR-0025 could not
+measure it, and the viable set inherits rather than tests it). Reinstating 67 cm/s on
+half an argument would repeat the error this milestone is correcting. **The speed
+decision is now blocked on one specific measurement**, which is a better place than
+blocked on a model.
+
+**R2 drops from CRITICAL to SIGNIFICANT** — the drag test still matters, but the
+threshold moved from "μ 0.70, no margin" to "μ 0.6", which a typical dry floor clears.
+
+## Later milestones (candidate M30+, not committed)
+
+- **ADR-0019/0020's friction cost** — now the single blocking measurement, gating the
+  trot speed. Reachable with the M21 harness.
+- **The whole-body controller** — 62.7 mm target against 28.9 mm achieved.
+
 
 - **The whole-body controller** — now with a proven 62.7 mm target to close against
   the 28.9 mm achieved.

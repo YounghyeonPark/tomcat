@@ -45,13 +45,27 @@ Also weigh the driver separately to settle whether the 131.7 g figure includes i
 
 ### R2. Paw friction μ — assumed ≥ 0.70 `[from literature, never measured]`
 
-**Why it is critical.** μ ≥ 0.70 (NFR16) is met with **no margin at all**:
+> ⬇️ **DOWNGRADED to SIGNIFICANT by M29** ([ADR-0034](DESIGN_DECISIONS.md)).
+> The table below was **stale** — it predates M20's sway correction and cannot be
+> reproduced from the current code. Re-derived on the exact viable set, **NFR15 is
+> met from μ ≥ 0.6**, not μ 0.70-with-no-margin:
+>
+> | stance | speed | μ 0.5 | **0.6** | 0.7 | 0.8 |
+> |---|---|---|---|---|---|
+> | 0.40 s | 50 cm/s | 47.6 | **52.6 ✅** | 57.7 | 62.7 |
+> | 0.30 s | 67 cm/s | 45.3 | **48.1 ✅** | 50.9 | 53.7 |
+>
+> At the NFR16 floor of 0.70 the margin is **20 %**, not zero. A typical dry floor
+> clears 0.6 comfortably, so this is no longer a design-breaker. The drag test is
+> still worth doing; it is no longer urgent.
 
-| floor μ | envelope | NFR15 (48 mm)? |
+~~**Why it is critical.** μ ≥ 0.70 (NFR16) is met with **no margin at all**:~~
+
+| floor μ | ~~envelope~~ **(stale, unreproducible)** | ~~NFR15?~~ |
 |---|---|---|
-| 0.5 | 40.2 mm | **fails** |
-| **0.70** | **48.1 mm** | **exactly meets** |
-| 0.9 | 53.9 mm | meets |
+| 0.5 | ~~40.2 mm~~ | ~~fails~~ |
+| **0.70** | ~~48.1 mm~~ | ~~exactly meets~~ |
+| 0.9 | ~~53.9 mm~~ | ~~meets~~ |
 
 This number has had a strange history — withdrawn by ADR-0010 as a non-constraint,
 then reinstated by ADR-0019 for a *different mechanism* (the spine's balance action
@@ -143,7 +157,7 @@ judgement, not an experiment.
 |---|---|---|
 | **Joint moment arms 1.25×** | +23 % runtime (30 → 37 min) for a 70 mm hip sheave, plus mass/packaging/inertia ripple | ADR-0021, **not adopted** |
 | **Leg abduction** | +42–58 % disturbance envelope for +4 motors, 528 g (13 % of budget) | ADR-0017, **rejected** — original basis ("NFR15 already met") no longer holds, but M27 says **do not reopen yet**: the controller cannot exploit the authority it already has, so more would be wasted mass (ADR-0032). |
-| **Trot speed 50 cm/s** | slowed from 67 by the spine's friction cost; faster is available on a grippier floor | ADR-0020, **floor-dependent** |
+| **Trot speed 50 cm/s** | slowed from 67 by the spine's friction cost | ADR-0020 — ⚠️ **NFR15 is no longer a reason** (M29: the fast gait meets it at μ ≥ 0.6, *and* has a better sensing margin). **Blocked on one measurement**: ADR-0019/0020's friction accounting, still un-cross-checked. |
 | **Spine lateral ROM ±15°** | ±25° would give 119 mm envelope, no extra motors — but fights the biomechanics (lateral is the stiffest spine axis) | ADR-0015, **held** |
 
 ---

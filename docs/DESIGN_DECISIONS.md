@@ -1836,6 +1836,57 @@ coupling itself. On dualis 0.2 the pack is a real domain on the same bus, so
   - The one thing this does not give is a controller. It gives the target to build one
     against, which is what every prior milestone lacked.
 
+## ADR-0034: R2's critical table was stale -- NFR15 is met from mu 0.6, and NFR15 is no longer the reason for the 50 cm/s trot
+- **Status:** Accepted. **Supersedes the R2 table in [OPEN_RISKS](OPEN_RISKS.md) and
+  removes NFR15 as the justification in [ADR-0020](#adr-0020).**
+- **Context:** [ADR-0033](#adr-0033) made the viable set computable exactly and
+  instantly. The first thing worth re-deriving with it is **R2 (paw friction)** --
+  one of only two CRITICAL risks, and the one whose table drove both the NFR16
+  friction floor and ADR-0020's trot slowdown.
+- ⚠️ **First finding: the published R2 table cannot be reproduced.** It quotes
+  40.2 / 48.1 / 53.9 mm at mu 0.5 / 0.7 / 0.9. Neither `rejection_envelope(use_spine)`
+  (54.1 / 67.4 / 75.7) nor `self_consistent_envelope` reproduces it -- and the latter
+  **takes no `floor_mu` at all**, so it cannot produce a mu-dependent column. The
+  table predates M20's 4 % sway correction and has been stale in a CRITICAL risk
+  section since. **Stale numbers in the risk register are worse than missing ones:
+  they are load-bearing and they look checked.**
+- **Re-derived on the exact viable set** (worst over 24 directions, converged horizon):
+
+  | stance | speed | mu 0.4 | 0.5 | **0.6** | 0.7 | 0.8 |
+  |---|---|---|---|---|---|---|
+  | 0.40 s | 50 cm/s | 42.6 | 47.6 | **52.6** | 57.7 | 62.7 |
+  | **0.30 s** | **67 cm/s** | 42.5 | 45.3 | **48.1** | 50.9 | 53.7 |
+
+  **NFR15's 48 mm is met from mu >= 0.6 at BOTH speeds** -- where R2 implied mu 0.70
+  was needed and met "with no margin at all". At the NFR16 floor of 0.70 the margin
+  is **20 %** at 50 cm/s, not zero.
+- ⚠️ **Second finding: NFR15 no longer justifies the 50 cm/s trot.** ADR-0020 slowed
+  the shipped gait from **67 to 50 cm/s** because the spine's friction demand
+  exceeded a realistic floor and the envelope fell short. On the exact set the fast
+  gait **also meets NFR15** at mu >= 0.6 -- and it is *better* on the other axis
+  ADR-0020 flagged, since per-step growth is **3.21 at 0.30 s against 4.73 at
+  0.40 s**, which widens the DCM-estimation margin rather than narrowing it.
+- **Decision: NFR15 is removed as a reason for the slowdown; the slowdown is NOT yet
+  reversed.** ADR-0020 rested on two things, and only one is now answered:
+  - *the envelope falls short* -- **no longer true** on the exact model;
+  - *the spine's friction cost is ~1.4 mu at full ROM* -- **still un-cross-checked**
+    (ADR-0025 could not measure it without a balance controller, and ADR-0033's
+    viable set inherits the same Coulomb accounting rather than testing it).
+
+  Reinstating 67 cm/s on half an argument would repeat exactly the error this ADR is
+  correcting. **The speed decision is now blocked on one specific measurement**, which
+  is a better place than "blocked on a model".
+- **Consequences:**
+  - **R2 is downgraded from CRITICAL to SIGNIFICANT.** The drag test is still worth
+    doing, but the failure threshold moved from "mu 0.70, no margin" to "mu 0.6", and
+    a typical dry floor clears that comfortably. It is no longer a design-breaker.
+  - **NFR16 (mu >= 0.70) is now conservative rather than exact.** Not lowered -- the
+    friction accounting behind it is the thing ADR-0025 could not verify -- but it is
+    no longer the razor's edge the register described.
+  - ⚠️ Everything here inherits ADR-0033's LIPM class **and** ADR-0019/0020's
+    friction accounting. It re-derives the *envelope* exactly; it does not
+    re-derive the *friction cost*, which remains the single un-cross-checked block.
+
 ---
 
 ### How to add an ADR
