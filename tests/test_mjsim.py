@@ -394,3 +394,51 @@ def test_the_envelope_is_horizon_limited_and_must_be_converged(controller):
         f"{1000 * bound:.1f} mm — no controller can do that, so one of them is wrong"
     )
     assert long > 0.7 * bound, "the controller should still be within ~30 % of optimal"
+
+
+def test_realising_the_load_split_makes_it_worse_not_better(controller):
+    """⚠️ M32, and the fourth consecutive result of this shape.
+
+    M31 identified the load split along the support line (`lam`) as *the* missing
+    degree of freedom: the 2-D projection solves for it, and M27 measured the
+    authority as available on compliant legs (linear, −39.3 mm/mm). Realising it —
+    planned once per stance, executed open-loop, the structure that fixed the spine
+    (ADR-0030) — makes the controller **much worse**:
+
+    | 300 deg, converged | envelope |
+    |---|---|
+    | axis (shipped) | **25.6 mm** |
+    | projected + lam | **0.8 mm** |
+
+    That is now four DOFs measured as available and four that degrade the loop when
+    engaged: reactive spine, planned spine, reactive CoP, and this. Only foot
+    placement — what the controller was designed around — delivers, and it reaches
+    **86 %** of the theoretical bound. The pattern is about the architecture.
+    """
+    import math
+
+    model = mjsim.build(controller, mujoco, kp=80)
+    u = np.array([math.cos(math.radians(300)), math.sin(math.radians(300))])
+
+    def envelope(**kw):
+        h = mjsim.BalanceHarness(controller, mujoco, model, **kw)
+        lo, hi = 0.0, 1.5
+        for _ in range(6):
+            mid = 0.5 * (lo + hi)
+            data = h.reset()
+            hist, fell = h.run(data, steps=4)
+            ok = not fell and len(hist) == 4
+            if ok:
+                hist, fell = h.run(data, steps=20, disturbance=mid * u)
+                ok = not fell and len(hist) == 20
+            lo, hi = (mid, hi) if ok else (lo, mid)
+        return lo / h.omega
+
+    shipped = envelope(placement_mode="axis")
+    with_lam = envelope(placement_mode="projected", realise_lambda=True)
+    # The margin itself grows with the horizon — 2.7x at 20 steps, 32x at 32 —
+    # which is ADR-0036's point again. 2x is the robust floor.
+    assert shipped > 2.0 * with_lam, (
+        f"lam realisation now gives {1000 * with_lam:.1f} mm against the shipped "
+        f"{1000 * shipped:.1f} mm — if it has stopped hurting, re-open ADR-0037"
+    )

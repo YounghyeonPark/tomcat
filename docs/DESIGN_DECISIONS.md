@@ -1997,6 +1997,56 @@ coupling itself. On dualis 0.2 the pack is a real domain on the same bus, so
     authority as available on compliant legs (linear, -39.3 mm/mm) but could not
     close a loop on it. It is the missing degree of freedom, not a missing actuator.
 
+## ADR-0037: Four degrees of freedom, four failures -- the controller is at 86 % of optimal and the gap is NOT the feet
+- **Status:** Accepted. Closes the line of work opened by [ADR-0026](#adr-0026).
+- **Context:** [ADR-0036](#adr-0036) named the load split along the support line
+  (`lam`) as *the* missing degree of freedom: the 2-D projection solves for it, and
+  ADR-0032 measured the authority as available on compliant legs (linear,
+  -39.3 mm/mm). This realises it -- planned once per stance, executed open-loop, the
+  structure that fixed the spine in ADR-0030.
+- ⚠️ **It makes the controller much worse.**
+
+  | 300 deg, converged horizon | envelope |
+  |---|---|
+  | axis (shipped) | **25.6 mm** |
+  | projected + `lam` | **0.8 mm** |
+
+  And it took two horizon-limited readings to see. At 4 mm of differential the worst
+  direction collapsed to 6.0 mm; at 1 mm it read **33.2 mm and looked like a win**,
+  until the horizon was converged and it fell to 24.1 mm at 120 deg and 0.8 mm at
+  300 deg. **ADR-0036's lesson, applied to ADR-0036's own successor.**
+- **The pattern, stated plainly.** Four degrees of freedom have now been measured as
+  physically available and then engaged in the loop:
+
+  | DOF | static authority | effect on the loop |
+  |---|---|---|
+  | Spine, reactive | 36.6 mm | baseline 5x worse; falls at gain 0.5 |
+  | Spine, planned | 36.6 mm | stable, **+0.23 mm** of envelope |
+  | CoP, reactive | +/-109 mm | **+1.8 mm**, baseline 4x worse |
+  | Load split `lam`, planned | +/-109 mm | **worst case 25.6 -> 0.8 mm** |
+  | **Foot placement** | 30.3 mm | **the one that works: 86 % of the bound** |
+
+  **Only the actuator the controller was designed around delivers.** Four
+  independent attempts, four different mechanisms, one common factor.
+- **And the useful reframing: 86 % is a good controller.** The feet reach 25.6 mm
+  against a 29.8 mm feet-only bound. The remaining 4.2 mm is not where NFR15's gap
+  lives. **The gap is entirely the spine credit** -- 62.7 mm viable *with* the spine
+  against 25.6 mm achieved -- and four attempts say a hand-designed per-step
+  controller does not reach it.
+- **Decision: stop adding degrees of freedom to this controller.** The next honest
+  step is a genuine simultaneous optimisation (whole-body MPC over the step horizon,
+  with contact and friction constraints), or accepting the feet-only capability and
+  revisiting NFR15. **Incremental additions have been tried four times and the result
+  has been the same each time.**
+- **Consequences:**
+  - `placement_mode="projected"` and `realise_lambda` ship, both **off**, so the
+    finding is reproducible rather than folklore. A test asserts `lam` still hurts,
+    and says to reopen this ADR if it ever stops.
+  - ⚠️ **The modelling arc M17-M32 is complete for this architecture.** What it
+    established: the reduced-order model is **sound** (ADR-0033), the feet-only
+    controller is **near-optimal**, NFR15 is **achievable but needs the spine**, and
+    the spine is **not reachable by this class of controller**.
+
 ---
 
 ### How to add an ADR

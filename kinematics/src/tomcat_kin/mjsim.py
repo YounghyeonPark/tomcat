@@ -85,6 +85,11 @@ COP_TRACK = -1.0 / 39.3
 
 #: Clamp on the differential. At `kp = 80` two contacts survive to at least ±4 mm,
 #: which is most of the CoP range; the stiff-leg 2 mm limit no longer applies.
+#:
+#: ⚠️ M32: the clamp turned out to matter more than the sign. Realising the planned
+#: load split at 4 mm collapsed the worst-direction envelope to 6.0 mm; at 1 mm it
+#: read 33.2 mm and looked like a win — until the horizon was converged, at which
+#: point it fell to 0.8 mm. Both readings were horizon-limited (ADR-0036).
 COP_EXTENSION_LIMIT = 0.004
 
 #: Metres of whole-body CoM sway per radian of per-joint lateral spine angle,
@@ -137,7 +142,7 @@ class BalanceHarness:
                  cop_gain: float = COP_GAIN, regulate_along_line: bool = False,
                  latency: float | None = None, spine_gain: float = SPINE_GAIN,
                  use_spine: bool = True, spine_mode: str = "planned",
-                 placement_mode: str = "axis"):
+                 placement_mode: str = "axis", realise_lambda: bool = False):
         from . import control as ctl
 
         self.c = controller
@@ -194,7 +199,10 @@ class BalanceHarness:
         self.use_spine = use_spine
         self.spine_mode = spine_mode
         self.placement_mode = placement_mode
+        self.realise_lambda = realise_lambda
         self._xoff = {}
+        self._lam = None
+        self._lam_next = None
 
     # ---------------------------------------------------------------- geometry
     def reachable_set(self, data, pair):
@@ -214,6 +222,10 @@ class BalanceHarness:
 
     def projected_placement(self, data, xi_end, pair):
         """2-D optimal foot placement: project the deadbeat CoP onto what is reachable.
+
+        ⚠️ Neither this nor `realise_lambda` is adopted — both are **worse** than the
+        shipped axis law at a converged horizon (ADR-0037). They ship so the finding
+        is reproducible, not because they work.
 
         ⚠️ **This is the M31 law, and the difference from M8–M30 is one word.** Every
         earlier controller projected onto a single **axis** — the next diagonal's
@@ -356,6 +368,8 @@ class BalanceHarness:
         self._spine_from = 0.0
         self._spine_to = 0.0
         self._spine_next = 0.0
+        self._lam = None
+        self._lam_next = None
         d = self.mj.MjData(self.m)
         for nm in self.b.leg_names:
             q = (self.q0[nm] if nm in DIAGONALS["A"]
@@ -396,7 +410,7 @@ class BalanceHarness:
                 if not frozen:
                     end = p + (xi - p) * math.exp(self.omega * left)
                     if self.placement_mode == "projected":
-                        dx, _lam = self.projected_placement(data, end, DIAGONALS[nxt])
+                        dx, lam_next = self.projected_placement(data, end, DIAGONALS[nxt])
                     else:
                         dhat_n, pn = self.axes(DIAGONALS[nxt], data)
                         nominal = float(self.feet_mid(data, DIAGONALS[nxt]) @ pn) \
@@ -410,8 +424,28 @@ class BalanceHarness:
                             # Same instant the foot target is committed.
                             self._spine_next = self.plan_spine(
                                 data, end, self.feet_mid(data, DIAGONALS[nxt]))
+                        if self.realise_lambda:
+                            self._lam_next = lam_next
 
-                # --- along the line: where the CoP sits -----------------------
+                # --- along the line: the PLANNED load split, open-loop ---------
+                # ⚠️ M32. M27 established this authority exists on compliant legs
+                # (linear, -39.3 mm/mm) but could not close a reactive loop on it —
+                # the same failure mode the spine had (ADR-0029). So it is planned
+                # once per stance and executed open-loop, which is the one structure
+                # in this harness that has worked twice.
+                if self.realise_lambda and self._lam is not None:
+                    pair_c = DIAGONALS[cur]
+                    pa = data.site_xpos[self.site[pair_c[0]]][:2]
+                    pb = data.site_xpos[self.site[pair_c[1]]][:2]
+                    sep = float(np.linalg.norm(pa - pb))
+                    want_off = (self._lam - 0.5) * sep      # CoP offset from midpoint
+                    phase = k / n
+                    blend = phase * phase * (3.0 - 2.0 * phase)
+                    ext = float(np.clip(COP_TRACK * want_off * blend,
+                                        -COP_EXTENSION_LIMIT, COP_EXTENSION_LIMIT))
+                    self.command(data, pair_c[0], xoff[pair_c[0]], self.nom_z - ext)
+                    self.command(data, pair_c[1], xoff[pair_c[1]], self.nom_z + ext)
+
                 if self.regulate and load > 1.0:
                     dhat_c, _ = self.axes(DIAGONALS[cur], data)
                     mid = self.feet_mid(data, DIAGONALS[cur])
@@ -456,6 +490,7 @@ class BalanceHarness:
                 xoff[nm] = self.nom_x + dx
             self._spine_from = self._spine_to
             self._spine_to = self._spine_next
+            self._lam = self._lam_next
             for nm in DIAGONALS[cur]:
                 self.command(data, nm, xoff[nm], self.nom_z + self.step_h)
 

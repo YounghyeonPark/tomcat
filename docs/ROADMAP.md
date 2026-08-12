@@ -71,7 +71,10 @@ sequences the work that implements them.
 > **M30 done:** the spine’s friction cost is **real but ~14 % not ~100 %** — after
 > four failed measurement designs ([ADR-0035](DESIGN_DECISIONS.md)).
 > **M31 done:** my envelopes were **horizon-limited**; the 2-D optimal law helps some
-> directions and hurts the worst ([ADR-0036](DESIGN_DECISIONS.md)). 358 Python + 17 Rust.
+> directions and hurts the worst ([ADR-0036](DESIGN_DECISIONS.md)).
+> **M32 done:** four DOFs, four failures — the controller is at **86 % of optimal**
+> and the gap is the **spine**, not the feet ([ADR-0037](DESIGN_DECISIONS.md)).
+> 359 Python + 17 Rust.
 
 ---
 
@@ -1427,7 +1430,50 @@ specific: the projection assumes **both** freedoms of the support parallelogram
 (placement `dx` *and* the load position `λ` along the line), but **only `dx` is
 actuated**. Solving 2 DOF and realising 1 mis-allocates.
 
-## Later milestones (candidate M32+, not committed)
+## Milestone M32 — The last degree of freedom, and where this arc ends (DONE)
+
+M31 named the load split `λ` as *the* missing degree of freedom. Realising it —
+planned once per stance, open-loop, the structure that fixed the spine — **makes the
+controller much worse**: the 300° worst case falls from **25.6 mm to 0.8 mm**.
+
+⚠️ And it took two horizon-limited readings to see. At 4 mm of differential the worst
+direction collapsed to 6.0 mm; at 1 mm it read **33.2 mm and looked like a win**,
+until the horizon converged and it fell to 24.1 (120°) and 0.8 (300°). **M31's lesson,
+applied to M31's own successor.**
+
+**The pattern, stated plainly:**
+
+| DOF | static authority | effect on the loop |
+|---|---|---|
+| Spine, reactive | 36.6 mm | baseline 5× worse; falls at gain 0.5 |
+| Spine, planned | 36.6 mm | stable, **+0.23 mm** |
+| CoP, reactive | ±109 mm | **+1.8 mm**, baseline 4× worse |
+| Load split `λ`, planned | ±109 mm | **25.6 → 0.8 mm** |
+| **Foot placement** | 30.3 mm | **works: 86 % of the bound** |
+
+Four independent attempts, four mechanisms, one common factor: **only the actuator
+the controller was designed around delivers.**
+
+**And the useful reframing: 86 % is a good controller.** The feet reach 25.6 mm
+against a 29.8 mm feet-only bound — the remaining 4.2 mm is not where NFR15's gap
+lives. **The gap is entirely the spine credit** (62.7 mm viable *with* spine vs
+25.6 achieved), and four attempts say a hand-designed per-step controller cannot
+reach it.
+
+**Decision: stop adding degrees of freedom to this controller.** Next is either a
+genuine simultaneous optimisation (whole-body MPC with contact and friction
+constraints) or accepting the feet-only capability and revisiting NFR15.
+
+⚠️ **The modelling arc M17–M32 is complete for this architecture.** What it
+established: the reduced-order model is **sound**, the feet-only controller is
+**near-optimal**, NFR15 is **achievable but needs the spine**, and the spine is
+**not reachable by this class of controller**.
+
+## Later milestones (candidate M33+, not committed)
+
+- **Whole-body MPC**, or a decision to accept feet-only capability and revisit NFR15.
+- **Electronics and firmware** — still the largest unbuilt piece, gated on nothing.
+
 
 - **Realise `λ`** — the load split along the support line. M27 measured it as
   available on compliant legs (linear, −39.3 mm/mm) but could not close a loop on it.
