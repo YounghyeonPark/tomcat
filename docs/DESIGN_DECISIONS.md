@@ -2047,6 +2047,63 @@ coupling itself. On dualis 0.2 the pack is a real domain on the same bus, so
     controller is **near-optimal**, NFR15 is **achievable but needs the spine**, and
     the spine is **not reachable by this class of controller**.
 
+## ADR-0038: Torque control makes the contact force a decision -- and names why a diagonal stance cannot be held
+- **Status:** Accepted. First step of the whole-body controller
+  [ADR-0037](#adr-0037) called for.
+- **Context:** ADR-0037 ended four attempts to give a per-step position controller
+  extra degrees of freedom. The common cause is structural, not tuning:
+  **position servos do not command force.** You command where the foot goes and the
+  ground reaction is whatever the contact and leg compliance produce. Every "allocate
+  the load between the feet" scheme in M21-M32 commanded a *proxy* -- differential
+  leg extension -- and hoped the force followed. It did statically (-39.3 mm of CoP
+  per mm, ADR-0032); in the loop it fought the placement it was meant to help.
+- **`wbc.py` makes the force a decision variable.** The DCM law asks for a centre of
+  pressure; `allocate` finds foot forces producing the required net wrench inside the
+  friction cones; `stance_torque` maps them back with `tau = -J^T f`. Six variables,
+  a regularised least-squares and a closed-form cone projection -- **not** a solver
+  call, because it runs every timestep.
+- **Gate passed, on the static case.** Standing on a diagonal pair, CoP commanded
+  under the CoM: forces sum to **39.6795 N against a 39.681 N** weight, net moment
+  under 0.01 N.m, and the resulting CoP lands at **(0.1030, 0.0002)** against a CoM
+  at (0.1031, 0). Torque control then holds the stance with **sub-millimetre CoP
+  error** for about a second.
+- **Two things had to be added, and both are worth recording:**
+  - ⚠️ **Height must be regulated.** Commanding exactly `m g` vertically balances
+    the weight and regulates nothing -- the first run drifted **0.165 -> 0.185 m in
+    0.6 s** with no disturbance. LIPM *assumes* constant CoM height; a torque
+    controller has to **make** it true.
+  - ⚠️ **`p = c` is a neutral command, not a balance law.** With the CoP under the
+    CoM, `xi_dot = c_dot` -- the DCM simply runs. The law has to be
+    `p = xi + k (xi - ref)`.
+- ⚠️ **And the finding: a diagonal stance is not holdable, and now that is
+  measurable.** Two point contacts confine the CoP to the **segment between them** --
+  a trot has no support polygon, only a support **line**. A DCM law commanding a free
+  2-D point asks for something no allocation can deliver, and the regularised solve
+  quietly returns the nearest thing instead of failing. `realisable_cop` clamps it,
+  and the residual is the signal:
+
+  | t | CoP demanded off the segment |
+  |---|---|
+  | 0.25 s | 0.5 mm |
+  | 0.75 s | 17.5 mm |
+  | 1.00 s | **104.6 mm** |
+  | 1.25 s | **591 mm** |
+
+  **That residual is a "you must step now" measure**, and it is the quantity M20 and
+  M30 were missing when they tried to hold a stance open-loop. The robot does not
+  fall because the force allocation is poor; it falls because it is being asked for a
+  centre of pressure that does not exist.
+- **Consequences:**
+  - `wbc.py` ships with five tests gating the static case, the cone projection, the
+    height requirement, and the segment confinement.
+  - **Next is integration**, not more allocation: drive the existing gait from the
+    infeasibility residual so a step is taken when the CoP demand leaves the segment.
+    That is the whole-body controller ADR-0037 asked for, and the allocation half of
+    it is now built and gated.
+  - ⚠️ Nothing here moves the bound. ADR-0033's viable set (29.8 mm feet-only,
+    62.7 mm with the spine) stands, and the honest test of this work remains whether
+    it beats the **25.6 mm** the shipped position controller already achieves.
+
 ---
 
 ### How to add an ADR

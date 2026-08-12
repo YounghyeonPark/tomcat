@@ -74,7 +74,8 @@ sequences the work that implements them.
 > directions and hurts the worst ([ADR-0036](DESIGN_DECISIONS.md)).
 > **M32 done:** four DOFs, four failures — the controller is at **86 % of optimal**
 > and the gap is the **spine**, not the feet ([ADR-0037](DESIGN_DECISIONS.md)).
-> 359 Python + 17 Rust.
+> **M33 done:** torque control makes contact force a **decision**, and names why a
+> diagonal stance cannot be held ([ADR-0038](DESIGN_DECISIONS.md)). 364 Python + 17 Rust.
 
 ---
 
@@ -1469,7 +1470,56 @@ established: the reduced-order model is **sound**, the feet-only controller is
 **near-optimal**, NFR15 is **achievable but needs the spine**, and the spine is
 **not reachable by this class of controller**.
 
-## Later milestones (candidate M33+, not committed)
+## Milestone M33 — Whole-body force allocation: the first half, built and gated (DONE)
+
+M32 ended four attempts to give a per-step **position** controller extra degrees of
+freedom. The common cause is structural: **position servos do not command force.**
+You command where the foot goes and the reaction is whatever the contact gives you.
+Every load-allocation scheme in M21–M32 commanded a *proxy* and hoped.
+
+`wbc.py` makes the force a decision variable — DCM law asks for a CoP, `allocate`
+finds foot forces inside the friction cones, `stance_torque` maps back with
+`τ = −Jᵀf`. Six variables, regularised least-squares plus a closed-form cone
+projection; no solver call, because it runs every timestep.
+
+**Gate passed on the static case:** forces sum to **39.6795 N** against a 39.681 N
+weight, net moment under 0.01 N·m, CoP lands at (0.1030, 0.0002) against a CoM at
+(0.1031, 0). Torque control then holds the stance with **sub-millimetre CoP error**
+for about a second.
+
+⚠️ **Two things had to be added.** Height must be regulated — commanding exactly
+`mg` balances the weight and regulates *nothing*, and the first run drifted
+0.165 → 0.185 m in 0.6 s undisturbed. And `p = c` is a **neutral** command, not a
+balance law: with the CoP under the CoM, `ξ̇ = ċ` and the DCM simply runs.
+
+⚠️ **The finding: a diagonal stance is not holdable, and now that is measurable.**
+Two point contacts confine the CoP to the **segment between them** — a trot has no
+support polygon, only a support **line**. Commanding a free 2-D point asks for
+something no allocation can deliver:
+
+| t | CoP demanded off the segment |
+|---|---|
+| 0.25 s | 0.5 mm |
+| 1.00 s | **104.6 mm** |
+| 1.25 s | **591 mm** |
+
+**That residual is a "step now" measure** — the quantity M20 and M30 were missing
+when they tried to hold a stance open-loop. The robot does not fall because the
+allocation is poor; it falls because it is asked for a centre of pressure that does
+not exist.
+
+**Next is integration, not more allocation:** drive the existing gait from that
+residual so a step is taken when the demand leaves the segment.
+
+⚠️ Nothing here moves the bound. The honest test remains whether it beats the
+**25.6 mm** the shipped position controller already achieves.
+
+## Later milestones (candidate M34+, not committed)
+
+- **Integrate the allocation with the gait** — step when the CoP demand goes
+  infeasible. The second half of the whole-body controller.
+- **Electronics and firmware** — still the largest unbuilt piece, gated on nothing.
+
 
 - **Whole-body MPC**, or a decision to accept feet-only capability and revisit NFR15.
 - **Electronics and firmware** — still the largest unbuilt piece, gated on nothing.
