@@ -136,7 +136,8 @@ class BalanceHarness:
     def __init__(self, controller, mujoco, model, phase: float = 0.25,
                  cop_gain: float = COP_GAIN, regulate_along_line: bool = False,
                  latency: float | None = None, spine_gain: float = SPINE_GAIN,
-                 use_spine: bool = True, spine_mode: str = "planned"):
+                 use_spine: bool = True, spine_mode: str = "planned",
+                 placement_mode: str = "axis"):
         from . import control as ctl
 
         self.c = controller
@@ -192,8 +193,53 @@ class BalanceHarness:
         self.spine_gain = spine_gain
         self.use_spine = use_spine
         self.spine_mode = spine_mode
+        self.placement_mode = placement_mode
+        self._xoff = {}
 
     # ---------------------------------------------------------------- geometry
+    def reachable_set(self, data, pair):
+        """The parallelogram of CoP positions the NEXT stance can reach, in world.
+
+        The same set `viable.support_set` builds, but around where the feet actually
+        are now rather than around the nominal pose. Any placement already applied is
+        undone first, so the sweep is measured from the nominal footfall.
+        """
+        pts = []
+        for nm in pair:
+            base = data.site_xpos[self.site[nm]][:2].copy()
+            base[0] -= self._xoff.get(nm, self.nom_x) - self.nom_x
+            pts.append(base + np.array([self.reach[0], 0.0]))
+            pts.append(base + np.array([self.reach[1], 0.0]))
+        return np.array(pts)
+
+    def projected_placement(self, data, xi_end, pair):
+        """2-D optimal foot placement: project the deadbeat CoP onto what is reachable.
+
+        ⚠️ **This is the M31 law, and the difference from M8–M30 is one word.** Every
+        earlier controller projected onto a single **axis** — the next diagonal's
+        normal — which is where ADR-0031's "1-D collapse" actually lived.
+        `viable.optimal_cop` solves the real 2-D problem: the deadbeat target is
+        `g/(g-1) · ξ`, and when that is unreachable the best available choice is its
+        projection onto the reachable **set**. A polygon projection, not a solver.
+
+        Returns `(dx, lam)` — the fore-aft offset, and where along the support line
+        the load would have to sit for the projection to be realised exactly.
+        """
+        from . import viable
+
+        quad = viable._hull(self.reachable_set(data, pair))
+        mid = self.feet_mid(data, pair)
+        u = viable.optimal_cop(quad - mid, np.asarray(xi_end) - mid, self.growth) + mid
+
+        a = data.site_xpos[self.site[pair[0]]][:2].copy()
+        b = data.site_xpos[self.site[pair[1]]][:2].copy()
+        a[0] -= self._xoff.get(pair[0], self.nom_x) - self.nom_x
+        b[0] -= self._xoff.get(pair[1], self.nom_x) - self.nom_x
+        dy = a[1] - b[1]
+        lam = 0.5 if abs(dy) < 1e-9 else float(np.clip((u[1] - b[1]) / dy, 0.0, 1.0))
+        dx = float(np.clip(u[0] - (lam * a[0] + (1 - lam) * b[0]), *self.reach))
+        return dx, lam
+
     def axes(self, pair, data):
         """Unit vector along the support line, and its normal, from LIVE contacts.
 
@@ -333,6 +379,7 @@ class BalanceHarness:
 
         cur, nxt = "A", "B"
         xoff = {nm: self.nom_x for nm in self.b.leg_names}
+        self._xoff = xoff
         out, fell = [], False
 
         for step in range(steps):
@@ -347,13 +394,16 @@ class BalanceHarness:
 
                 # --- across the line: where the NEXT pair lands ---------------
                 if not frozen:
-                    dhat_n, pn = self.axes(DIAGONALS[nxt], data)
                     end = p + (xi - p) * math.exp(self.omega * left)
-                    nominal = float(self.feet_mid(data, DIAGONALS[nxt]) @ pn) \
-                        - (lift[DIAGONALS[nxt][0]] - self.nom_x) * pn[0]
-                    err = float(end @ pn) - nominal
-                    if abs(pn[0]) > 1e-6:
-                        dx = float(np.clip(self.deadbeat * err / pn[0], *self.reach))
+                    if self.placement_mode == "projected":
+                        dx, _lam = self.projected_placement(data, end, DIAGONALS[nxt])
+                    else:
+                        dhat_n, pn = self.axes(DIAGONALS[nxt], data)
+                        nominal = float(self.feet_mid(data, DIAGONALS[nxt]) @ pn) \
+                            - (lift[DIAGONALS[nxt][0]] - self.nom_x) * pn[0]
+                        err = float(end @ pn) - nominal
+                        if abs(pn[0]) > 1e-6:
+                            dx = float(np.clip(self.deadbeat * err / pn[0], *self.reach))
                     if left <= self.latency:
                         frozen = True
                         if self.spine_mode == "planned":

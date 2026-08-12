@@ -193,3 +193,42 @@ def contains(region: np.ndarray, point) -> bool:
         if (b[0] - a[0]) * (p[1] - a[1]) - (b[1] - a[1]) * (p[0] - a[0]) < -1e-12:
             return False
     return True
+
+def project(region: np.ndarray, point) -> np.ndarray:
+    """Closest point of a convex polygon to `point`. Used as a control law.
+
+    ⚠️ This is the whole optimal controller for the LIPM class. From
+    `xi_next = g xi - (g-1) u`, driving `xi_next` to the origin wants
+    `u* = g/(g-1) . xi`; when that is unreachable the best available choice is its
+    projection onto the reachable set. No solver — a convex polygon projection is a
+    scan over edges.
+
+    M8-M27's controller projected onto a single AXIS (the next diagonal's normal)
+    instead, which is where the 1-D collapse ADR-0031 identified actually lives.
+    """
+    p = np.asarray(point, dtype=float)
+    poly = np.asarray(region, dtype=float)
+    if len(poly) == 1:
+        return poly[0].copy()
+    if contains(poly, p):
+        return p.copy()
+    best, bd = poly[0], math.inf
+    n = len(poly)
+    for i in range(n):
+        a, b = poly[i], poly[(i + 1) % n]
+        e = b - a
+        L = float(e @ e)
+        t = 0.0 if L < 1e-18 else float(np.clip((p - a) @ e / L, 0.0, 1.0))
+        q = a + t * e
+        d = float((q - p) @ (q - p))
+        if d < bd:
+            best, bd = q, d
+    return np.asarray(best, dtype=float)
+
+
+def optimal_cop(region: np.ndarray, xi, growth: float) -> np.ndarray:
+    """The best reachable centre of pressure for a DCM of `xi`, both relative to the
+    nominal equilibrium. Deadbeat when reachable, closest-approach when not."""
+    g = float(growth)
+    target = (g / (g - 1.0)) * np.asarray(xi, dtype=float)
+    return project(region, target)

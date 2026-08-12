@@ -69,7 +69,9 @@ sequences the work that implements them.
 > **M29 done:** R2’s critical table was **stale** — NFR15 is met from **μ 0.6**, and it
 > no longer justifies the 50 cm/s trot ([ADR-0034](DESIGN_DECISIONS.md)).
 > **M30 done:** the spine’s friction cost is **real but ~14 % not ~100 %** — after
-> four failed measurement designs ([ADR-0035](DESIGN_DECISIONS.md)). 357 Python + 17 Rust.
+> four failed measurement designs ([ADR-0035](DESIGN_DECISIONS.md)).
+> **M31 done:** my envelopes were **horizon-limited**; the 2-D optimal law helps some
+> directions and hurts the worst ([ADR-0036](DESIGN_DECISIONS.md)). 358 Python + 17 Rust.
 
 ---
 
@@ -1389,7 +1391,48 @@ loss below μ 0.71. Even μ 0.20 costs only ~23 %.
 stands** — reinstating 67 on a marginal statistic would be M29's error wearing a
 t-value.
 
-## Later milestones (candidate M31+, not committed)
+## Milestone M31 — The optimal law, and a correction to how I measured (DONE)
+
+M28's derivation hands over the optimal LIPM policy for free: the deadbeat target is
+`g/(g−1)·ξ`, so when unreachable the best choice is its **projection onto the
+reachable set**. Every controller from M8 to M30 projected onto a single **axis**
+instead. Implementing the real thing found something more useful first.
+
+⚠️ **The measured envelope is HORIZON-LIMITED.** The viable set asks *can it
+recover*; a simulation asks *does it survive N steps*:
+
+| survival horizon | measured envelope |
+|---|---|
+| 4, 6, 8 steps | 39.2 mm |
+| 12 | 34.7 mm |
+| **16, 24** | **28.6 mm** (converged) |
+
+**M21–M30 all used 8 steps.** `control.py`'s docstring records making this exact
+mistake with `steps=12` — *"horizon-limited, not reach-limited, which is a different
+and misleading statement"* — and I repeated it in simulation.
+
+Converged, the shipped controller's worst direction is **25.6 mm = 86 %** of the
+viable bound, against the **97 %** M28 claimed from an 8-step run. Still near-optimal;
+the number moves. Every converged figure sits **below** the bound, as it must.
+
+**The 2-D law: better in some directions, worse where it counts.**
+
+| controller (16 steps) | 120° | 300° | worst, vs viable |
+|---|---|---|---|
+| axis (M8–M30) | 28.6 mm | 25.6 mm | **86 %** |
+| projected 2-D | 22.6 mm | **36.2 mm** | 76 % |
+
+**Not adopted** — a requirement is judged on the worst case. And the reason is
+specific: the projection assumes **both** freedoms of the support parallelogram
+(placement `dx` *and* the load position `λ` along the line), but **only `dx` is
+actuated**. Solving 2 DOF and realising 1 mis-allocates.
+
+## Later milestones (candidate M32+, not committed)
+
+- **Realise `λ`** — the load split along the support line. M27 measured it as
+  available on compliant legs (linear, −39.3 mm/mm) but could not close a loop on it.
+  It is the missing degree of freedom, not a missing actuator.
+
 
 - **The whole-body controller** — now blocking two things: the 62.7 mm envelope
   target, and enough low-friction survival to give M30's measurement statistical power.

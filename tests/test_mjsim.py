@@ -334,3 +334,63 @@ def test_measuring_friction_demand_needs_a_PAIRED_design(controller):
         "has fallen, an unpaired friction measurement may now be viable; re-check M30"
     )
     assert sd < 0.020, "spread this large would mean the baseline itself is broken"
+
+
+def test_the_envelope_is_horizon_limited_and_must_be_converged(controller):
+    """⚠️ M31, and it corrects the precision of every figure in M21–M30.
+
+    The viable set asks *can the robot RECOVER* (reach the origin). A simulation asks
+    *does it SURVIVE N more steps*. Those are different questions, and the second
+    depends on N:
+
+    | survival horizon | measured envelope |
+    |---|---|
+    | 4, 6, 8 steps | 39.2 mm |
+    | 12 | 34.7 mm |
+    | **16, 24** | **28.6 mm** (converged) |
+
+    M21–M30 all used an **8-step** horizon, so their envelopes were horizon-limited —
+    `control.py`'s own docstring records making exactly this mistake with `steps=12`
+    in `rejection_envelope`, and I repeated it in the simulation.
+
+    Converged, the worst direction is **25.6 mm = 86 %** of the viable bound, not the
+    **97 %** ADR-0033 claimed from an 8-step measurement. Still near-optimal, and
+    still — necessarily — *below* the bound, which validates both.
+    """
+    import math
+
+    from tomcat_kin import mjcf, viable
+
+    plant = control.StepPlant.from_gait(controller, n=96, latency=0.0075, floor_mu=0.8)
+    q = mjcf.stance_pose(controller, 0.25)
+    reach = (float(plant.reach[0]), float(plant.reach[1]))
+    bound = min(
+        viable.reach_in_direction(
+            viable.viable_set(controller, q, plant.omega, plant.stance, reach, steps=20),
+            (math.cos(math.radians(a)), math.sin(math.radians(a))))
+        for a in range(0, 360, 15))
+
+    model = mjsim.build(controller, mujoco, kp=80)
+    h = mjsim.BalanceHarness(controller, mujoco, model)
+    u = np.array([math.cos(math.radians(120)), math.sin(math.radians(120))])
+
+    def envelope(steps):
+        lo, hi = 0.0, 1.5
+        for _ in range(7):
+            mid = 0.5 * (lo + hi)
+            data = h.reset()
+            hist, fell = h.run(data, steps=4)
+            ok = not fell and len(hist) == 4
+            if ok:
+                hist, fell = h.run(data, steps=steps, disturbance=mid * u)
+                ok = not fell and len(hist) == steps
+            lo, hi = (mid, hi) if ok else (lo, mid)
+        return lo / h.omega
+
+    short, long = envelope(8), envelope(16)
+    assert short > long, "a longer horizon must be a HARDER test, not an easier one"
+    assert long <= bound * 1.02, (
+        f"converged envelope {1000 * long:.1f} mm exceeds the viability bound "
+        f"{1000 * bound:.1f} mm — no controller can do that, so one of them is wrong"
+    )
+    assert long > 0.7 * bound, "the controller should still be within ~30 % of optimal"

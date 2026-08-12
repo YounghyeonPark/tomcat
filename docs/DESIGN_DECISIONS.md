@@ -1945,6 +1945,58 @@ coupling itself. On dualis 0.2 the pack is a real domain on the same bus, so
     simulation, measure displacements, and pair the trials.** Four of five designs
     here failed on impact transients or run-to-run variance, not on physics.
 
+## ADR-0036: My envelopes were horizon-limited -- and the 2-D optimal law is not adoptable yet
+- **Status:** Accepted. **Corrects the precision of every envelope figure in
+  [ADR-0026](#adr-0026) through [ADR-0035](#adr-0035).**
+- **Context:** ADR-0033's derivation hands over the optimal LIPM policy for free:
+  `xi_next = g xi - (g-1) u` wants `u* = g/(g-1) . xi`, so when that is unreachable
+  the best choice is its **projection onto the reachable set**. Every controller from
+  M8 to M30 projected onto a single **axis** instead. Implementing the real thing was
+  meant to close the gap to the 29.8 mm bound. It did something more useful first.
+- ⚠️ **The methodological finding: the measured envelope is HORIZON-LIMITED.** The
+  viable set asks *can the robot recover*; a simulation asks *does it survive N more
+  steps*. Those are different questions, and the second depends on N:
+
+  | survival horizon | measured envelope |
+  |---|---|
+  | 4, 6, 8 steps | 39.2 mm |
+  | 12 | 34.7 mm |
+  | **16, 24** | **28.6 mm** (converged) |
+
+  **M21-M30 all used an 8-step horizon.** `control.py`'s own docstring records making
+  exactly this mistake with `steps=12` in `rejection_envelope` -- *"the result was
+  horizon-limited, not reach-limited, which is a different and misleading
+  statement"* -- and I repeated it in the simulation without noticing.
+- **What that changes, and what it does not.** Converged, the shipped controller's
+  worst direction is **25.6 mm = 86 %** of the viable bound, against the **97 %**
+  ADR-0033 claimed from an 8-step measurement. Still near-optimal; the number moves.
+  Every converged figure sits **below** the bound, as it must -- which is a mutual
+  check on the harness and the bound rather than a coincidence.
+- **The 2-D projection law: better in some directions, worse where it counts.**
+
+  | controller (16-step horizon) | 120 deg | 300 deg | worst, vs viable |
+  |---|---|---|---|
+  | axis (M8-M30) | 28.6 mm | 25.6 mm | **86 %** |
+  | projected 2-D | 22.6 mm | **36.2 mm** | 76 % |
+
+  **+41 % at 300 deg and -21 % at 120 deg.** Not adopted: the worst case is what a
+  requirement is judged on.
+- **And the reason is specific, not a tuning failure.** The projection assumes both
+  degrees of freedom of the support parallelogram are available -- the fore-aft
+  placement `dx` **and** where the load sits along the support line. **Only `dx` is
+  actuated.** Solving a 2-DOF problem and realising 1 DOF mis-allocates: it gives up
+  perpendicular authority the deadbeat law was using well, in exchange for along-line
+  correction it cannot deliver.
+- **Consequences:**
+  - `placement_mode="projected"` ships but defaults **off**, with the decomposition
+    (`dx`, `lam`) exposed so a caller that can actuate the load split may use it.
+  - ⚠️ **Envelope figures now carry their horizon.** A regression test asserts a
+    longer horizon is a *harder* test and that the converged value stays under the
+    viability bound -- the two ways this can silently go wrong.
+  - The unlock is unchanged and now sharper: **realise `lam`.** M27 measured that
+    authority as available on compliant legs (linear, -39.3 mm/mm) but could not
+    close a loop on it. It is the missing degree of freedom, not a missing actuator.
+
 ---
 
 ### How to add an ADR
