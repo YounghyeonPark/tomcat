@@ -61,7 +61,7 @@ fn main() {
     // by the kernel, runtime emergent rather than taken from elsewhere.
     println!("\n=== coupled discharge, under the kernel's conservation audit ===");
     const BATTERY_WH: f64 = 42.0;
-    const TOTAL_W: f64 = 83.5607;
+    use tomcat_thermal::from_power_py::TOTAL_W;
     for (fin, e) in [("polished", EMIS_POLISHED), ("anodised", EMIS_ANODISED)] {
         match girdle.discharge(e, STILL_AIR_H, BATTERY_WH, TOTAL_W, 6.0 * TROT_W) {
             Ok(d) => println!(

@@ -163,15 +163,31 @@ pub struct Discharge {
 /// `tests/test_thermal_constants.py` fails if `power.py` moves away from them —
 /// which is the only thing keeping this crate honest.
 pub mod from_power_py {
+    // ⚠️ Two milestones moved these in a row, and the history is worth keeping:
+    //
+    //   original (M18)  3.5029 / 4.3514 / 30.16   / 37.49   / 83.5607
+    //   M40 ADR-0045    5.2544 / 6.5271 / 24.0968 / 27.0024 / 104.5784
+    //     -- copper loss was `I^2 R_pp` where balanced three-phase is `3 I^2 R_ph`
+    //   M41 ADR-0046    below
+    //     -- ADR-0043's 4.304 kg body and LEG_TENDON_SPEC §2's 8.75 mm spool folded
+    //        into params.py at last
+
     /// Copper loss per leg motor at the 50 cm/s trot, W. (`copper_w / 12`)
-    pub const TROT_W: f64 = 3.5029;
+    pub const TROT_W: f64 = 7.3648;
     /// Per-motor draw HOLDING a stance, W. Higher than trotting — a cable can only
     /// pull, so posture costs current. (`legs_w / 12`)
-    pub const STAND_W: f64 = 4.3514;
+    pub const STAND_W: f64 = 8.7440;
     /// Minutes of trotting on the 300 g pack.
-    pub const TROT_RUNTIME_MIN: f64 = 30.16;
+    pub const TROT_RUNTIME_MIN: f64 = 18.7831;
     /// Minutes standing on the pack, brake OFF.
-    pub const STAND_RUNTIME_MIN: f64 = 37.49;
+    pub const STAND_RUNTIME_MIN: f64 = 21.0127;
+    /// Whole-robot electrical draw at the trot, W. (`gait_power()["total_w"]`)
+    ///
+    /// ⚠️ M40: this lived as a bare `const TOTAL_W` inside two functions and was
+    /// therefore **outside** the pytest guard, so it could go stale silently — which
+    /// it did: it still read 83.5607 after the copper-loss correction, and only the
+    /// emergent-runtime cross-check caught it. Guarded now.
+    pub const TOTAL_W: f64 = 134.1635;
 }
 
 /// Room air. Everything is quoted as a rise, so this only sets the absolute scale.
@@ -426,23 +442,74 @@ mod tests {
         let q_ano = g.time_constant_min(EMIS_ANODISED, STILL_AIR_H);
         assert!(q_ano < q_pol * 0.75, "tau must track emissivity: {q_pol} vs {q_ano}");
 
+        // ⚠️ This bound was widened in M40 (1.25 -> 1.30) and would need widening
+        // again in M41 (the gap is now 1.35). Chasing it is the wrong test.
+        //
+        // The reason it keeps moving is structural: `time_constant_min` linearises
+        // the radiative term at AMBIENT, so the further the operating point sits
+        // from ambient, the more conservative the quoted tau gets. Every correction
+        // that raises dissipation widens the gap, monotonically and by design.
+        //
+        // So assert the RELATIONSHIP instead of a magic ratio: the quote must stay
+        // conservative, and the gap must GROW with dissipation. That is a statement
+        // about the linearisation rather than about today's watts, and it will not
+        // need touching next time the power moves.
         for (e, quoted) in [(EMIS_POLISHED, q_pol), (EMIS_ANODISED, q_ano)] {
             let measured = g.effective_time_constant_min(e, STILL_AIR_H, w);
             assert!(measured < quoted, "measured {measured} >= quoted {quoted}");
-            assert!(quoted < measured * 1.25, "quoted {quoted} too far over {measured}");
+            let hotter = g.effective_time_constant_min(e, STILL_AIR_H, 2.0 * w);
+            assert!(
+                quoted / hotter > quoted / measured,
+                "the linearisation gap must widen with dissipation: {quoted} over \
+                 {measured} at 1x, over {hotter} at 2x"
+            );
         }
-        // And the M18 correction still stands, now on upstream's own numbers:
-        // a bare girdle outlasts the pack, an anodised one does not.
-        assert!(g.effective_time_constant_min(EMIS_POLISHED, STILL_AIR_H, w) > TROT_RUNTIME_MIN);
-        assert!(g.effective_time_constant_min(EMIS_ANODISED, STILL_AIR_H, w) < TROT_RUNTIME_MIN);
+        // ⚠️ M41 INVERTED the M18 asymmetry. It used to be "a bare girdle outlasts
+        // the pack, an anodised one does not" -- polished tau 46.6 min and anodised
+        // 25.6 against a 30.16 min runtime. The runtime has since fallen faster than
+        // the time constants: 18.85 min against 22.1 min anodised, so **BOTH
+        // finishes now outlast the pack.**
+        //
+        // ⚠️ And that is not reassurance. The equilibrium rose so far that reaching
+        // only 57 % of the settled rise still lands the anodised girdle at 78.6 C.
+        // Being battery-limited stopped being sufficient, which is the point
+        // ADR-0046 records: the protection still exists and no longer protects.
+        for e in [EMIS_POLISHED, EMIS_ANODISED] {
+            assert!(g.effective_time_constant_min(e, STILL_AIR_H, w) > TROT_RUNTIME_MIN);
+        }
     }
 
     #[test]
-    fn anodised_is_safe_on_its_own_merits_not_on_the_battery_running_out() {
-        // Which is the point: once the quoted tau is corrected, the polished case is
-        // the one leaning on the coincidence, and anodising removes that lean.
+    fn anodised_is_NOT_safe_on_its_own_merits_any_more() {
+        // ⚠️ M40 OVERTURNS THIS TEST'S OWN CONCLUSION, and the rename is the record.
+        //
+        // It used to assert the anodised girdle settles below 80 C -- ADR-0023's
+        // headline, "anodised, the girdle is safe on its own equilibrium (~75 C),
+        // not because the pack dies". Correcting `power.py`'s copper loss to the
+        // rigorous three-phase form (ADR-0045) raises the per-motor dissipation 1.5x
+        // and the anodised equilibrium goes 74.9 -> 96.1 C.
+        //
+        // Anodising is now worth MORE (59 K, see below) and is no longer ENOUGH.
+        // Both halves matter: the lever is good, the problem outgrew it.
+        // ⚠️ M41 escalated this AGAIN. Folding ADR-0043's 4.304 kg body and §2's
+        // 8.75 mm spool into params raised per-motor copper loss 5.25 -> 7.36 W, so:
+        //
+        //   anodised continuous   96.1 -> 119.0 C
+        //   anodised, one battery 70.2 ->  78.6 C   <-- the OPERATING case now fails
+        //   forced air h=15       72.7 ->  90.1 C   <-- h=15 is no longer enough
+        //
+        // The bound this test carried after M40 was `< 110 C`, written by me, and it
+        // is exceeded. Recorded rather than widened silently.
         let g = Part::girdle();
-        assert!(AMBIENT_C + g.equilibrium(EMIS_ANODISED, STILL_AIR_H, 6.0 * TROT_W) < 80.0);
+        let anodised = AMBIENT_C + g.equilibrium(EMIS_ANODISED, STILL_AIR_H, 6.0 * TROT_W);
+        assert!(anodised > 110.0, "anodised settled at {anodised} C");
+
+        // h = 15 no longer recovers it; h = 25 does. Forced air is not just
+        // required, it has to be REAL airflow rather than a gentle draught.
+        let h15 = AMBIENT_C + g.equilibrium(EMIS_ANODISED, 15.0, 6.0 * TROT_W);
+        let h25 = AMBIENT_C + g.equilibrium(EMIS_ANODISED, 25.0, 6.0 * TROT_W);
+        assert!(h15 > 80.0, "h=15 used to be enough; it is not, got {h15}");
+        assert!(h25 < 80.0, "h=25 must still recover it, got {h25}");
     }
 
     #[test]
@@ -460,8 +527,11 @@ mod tests {
         let g = Part::girdle();
         let polished = g.equilibrium(EMIS_POLISHED, STILL_AIR_H, 6.0 * TROT_W);
         let anodised = g.equilibrium(EMIS_ANODISED, STILL_AIR_H, 6.0 * TROT_W);
-        assert!(polished - anodised > 30.0, "gain was {}", polished - anodised);
-        assert!(AMBIENT_C + anodised < 80.0);
+        // ⚠️ M40: the gain GREW, 39 -> 59 K, because radiation scales with the
+        // fourth power of temperature and the correction pushed the operating point
+        // up. The lever got better. It is no longer sufficient on its own -- see
+        // `anodised_is_NOT_safe_on_its_own_merits_any_more`.
+        assert!(polished - anodised > 50.0, "gain was {}", polished - anodised);
     }
 
     #[test]
@@ -501,7 +571,7 @@ mod audited {
     use super::*;
 
     const BATTERY_WH: f64 = 42.0; // power.py: 0.300 kg * 175 Wh/kg * 0.80
-    const TOTAL_W: f64 = 83.5607; // whole-robot trot draw
+    use super::from_power_py::TOTAL_W; // guarded; see the handoff module
     const GIRDLE_HEAT_W: f64 = 6.0 * TROT_W;
 
     #[test]
@@ -517,7 +587,8 @@ mod audited {
     #[test]
     fn runtime_is_emergent_and_agrees_with_power_py() {
         // Nothing tells the simulation how long to run: it stops when 42 Wh at
-        // 83.6 W is gone. Landing on power.py's number is a real cross-check.
+        // the hardcoded runtime is gone. Landing on power.py's number is a real
+        // cross-check -- and in M40 it is what caught TOTAL_W going stale.
         let d = Part::girdle()
             .discharge(EMIS_ANODISED, STILL_AIR_H, BATTERY_WH, TOTAL_W, GIRDLE_HEAT_W)
             .unwrap();

@@ -33,9 +33,17 @@ def test_the_power_off_brake_multiplies_standing_endurance():
 
 
 def test_copper_loss_dominates_so_the_drive_is_inefficient():
+    """⚠️ M40 (ADR-0045) moved this. Copper loss was computed as `I^2 R_pp` where
+    balanced three-phase is `3 I^2 R_ph` = 1.5x that, so the drive is worse than
+    published: copper **63 W against 27 W** of useful work, efficiency **29.6 %**
+    rather than the 39 % ADR-0021 quoted.
+
+    Copper is now 2.4x the mechanical work, not 1.6x — which sharpens ADR-0021's
+    own point that this is a property of the transmission, not of the gait.
+    """
     g = power.gait_power(_trot())
-    assert g["copper_w"] > g["mechanical_w"]        # ~42 W vs ~27 W
-    assert 0.30 < g["efficiency"] < 0.50            # ~39 %
+    assert g["copper_w"] > 2.0 * g["mechanical_w"]   # ~63 W vs ~27 W
+    assert 0.25 < g["efficiency"] < 0.33             # ~29.6 %
 
 
 def test_currents_stay_inside_the_driver_rating():
@@ -46,8 +54,12 @@ def test_currents_stay_inside_the_driver_rating():
 
 def test_NFR6_has_an_answer_at_last():
     r = power.runtime(_trot())
-    assert 20.0 < r["trot_minutes"] < 45.0          # ~30 min
-    assert 600.0 < r["trot_range_m"] < 1400.0       # ~900 m
+    # ⚠️ M41 (ADR-0046): ~30 min -> **18.85 min**. Three corrections stacked --
+    # the three-phase copper-loss formula (ADR-0045), ADR-0043's 4.304 kg body, and
+    # LEG_TENDON_SPEC §2's 8.75 mm spool. NFR6 is re-stated as a range because the
+    # vendor's Kt is still ambiguous (ADR-0044); this is the optimistic branch.
+    assert 17.0 < r["trot_minutes"] < 21.0          # ~18.85 min
+    assert 480.0 < r["trot_range_m"] < 700.0        # ~565 m, was ~900
     assert r["battery_wh"] == pytest.approx(
         power.BATTERY_KG * power.BATTERY_WH_PER_KG * power.BATTERY_USABLE)
 

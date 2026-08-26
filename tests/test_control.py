@@ -241,7 +241,13 @@ def test_spine_is_ROM_limited_not_RATE_limited():
     # And the correction is real, not a rounding change.
     naive = abs(c.body.center_of_mass_y(np.full(3, rom)))
     assert naive > full
-    assert (naive - full) / naive == pytest.approx(0.040, abs=0.005)
+    # ⚠️ M41 (ADR-0046): **4.0 % -> 7.1 %.** ADR-0025's correction is the fore
+    # legs' fore-aft CoM offset being rotated into y by the spine's yaw, so its size
+    # is set by WHERE the leg mass sits. The manufacturing model moved that mass
+    # distally (the metatarsus more than doubled), which lengthens the lever and
+    # nearly doubles the error the naive form makes. The finding is unchanged and
+    # its magnitude grew.
+    assert (naive - full) / naive == pytest.approx(0.071, abs=0.006)
 
 
 def test_envelope_in_physical_units_is_a_real_shove():
@@ -249,7 +255,10 @@ def test_envelope_in_physical_units_is_a_real_shove():
     # disturbance v maps to xi = v/omega. That is the number to judge.
     p = _plant()
     env = ctl.rejection_envelope(p, use_spine=True)
-    assert env > 0.08                            # ~90 mm
+    # ⚠️ M41: ~90 -> **73 mm**. The zero-latency with-spine figure fell with the
+    # spine's own authority (42.2 -> 37.0 mm of sway, below), and this is the
+    # idealised number ADR-0014/0015 quoted before latency was modelled at all.
+    assert env > 0.065                           # ~73 mm
     assert env * p.omega > 0.6                   # rejects a >0.6 m/s lateral shove
 
 
@@ -302,8 +311,8 @@ def test_envelope_solved_as_a_fixed_point_is_smaller_than_the_zero_latency_one()
     c = GaitController(params=trot_params())
     ideal = ctl.rejection_envelope(_plant(), use_spine=True)
     real = ctl.self_consistent_envelope(c, pipeline=0.0075)
-    assert ideal > 0.075                          # ~83 mm ideal (zero-latency)
-    assert 0.045 < real["envelope"] < 0.065       # ~54 mm once latency is real
+    assert ideal > 0.075                          # ~81 mm ideal (zero-latency)
+    assert 0.045 < real["envelope"] < 0.065       # ~52.7 mm once latency is real
     assert real["envelope"] < 0.75 * ideal
 
 
@@ -357,7 +366,7 @@ def test_trapezoidal_actuation_costs_little_on_large_moves_and_more_on_small():
 
 
 def test_the_ramp_barely_moves_the_envelope():
-    # 57 vs 59 mm. The M11 caveat was over-cautious: the leg is light enough
+    # 52.7 vs 54.4 mm. The M11 caveat was over-cautious: the leg is light enough
     # (tendon drive) that ~107 g of foot acceleration is available, so the move is
     # SPEED limited, not acceleration limited.
     import math
@@ -416,7 +425,27 @@ def test_spine_authority_is_ALSO_friction_limited():
     assert rom_only.spine == ctl.StepPlant.from_gait(c, floor_mu=None).spine
     # M15: the YAW couple roughly doubles the cost, so the floor at which ROM
     # takes over is much higher than M14's translation-only estimate suggested.
-    assert ctl.StepPlant.from_gait(c, floor_mu=0.8).spine < rom_only.spine
+    # ⚠️ M41 (ADR-0046) INVERTED this at mu 0.8, and the crossover is the result.
+    #
+    # ADR-0019's claim is that ground friction, not spine ROM, is what limits the
+    # sway. It was true at the old mass because the ROM-limited sway was 42.2 mm and
+    # mu 0.8 clipped it to 36.6. The measured leg masses moved the whole-body CoM
+    # and the ROM-limited sway fell to **37.0 mm** -- at which point mu 0.8 no longer
+    # reaches it:
+    #
+    #   mu 0.4 -> 14.9 mm   FRICTION binds
+    #   mu 0.6 -> 26.6 mm   FRICTION binds
+    #   mu 0.7 -> 32.5 mm   FRICTION binds
+    #   mu 0.8 -> 37.0 mm   **ROM binds**
+    #
+    # So the mechanism is intact and the crossover moved: friction is the limit
+    # below mu ~0.8 and ROM above it. NFR16's floor of 0.70 sits just inside the
+    # friction-limited region, which is the useful reading.
+    assert ctl.StepPlant.from_gait(c, floor_mu=0.7).spine < rom_only.spine
+    assert ctl.StepPlant.from_gait(c, floor_mu=0.8).spine == pytest.approx(
+        rom_only.spine, rel=1e-9), "at mu 0.8 the ROM is what binds now"
+    assert ctl.StepPlant.from_gait(c, floor_mu=0.4).spine < \
+        ctl.StepPlant.from_gait(c, floor_mu=0.7).spine, "and it is monotone in mu"
 
 
 def test_the_spine_costs_BOTH_translation_and_yaw_friction():

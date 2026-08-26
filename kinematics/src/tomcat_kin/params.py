@@ -164,15 +164,28 @@ class LegParams:
         math.radians(150.0),    # hock
     )
 
-    # --- MASS PROPERTIES (M4).  ❓ ALL PLACEHOLDER; see the module docstring for
-    #     how the 3.0 kg body was apportioned.
+    # --- MASS PROPERTIES.  M4 apportioned these top-down; M41 replaced them
+    #     with the manufacturing model's bottom-up figures (ADR-0043/0046).
     #
     # Per-link mass (kg), same order as the link lengths: femur, tibia,
-    # metatarsus, paw.  These defaults are the HIND leg (0.200 kg total, 6.7% of
-    # a 3 kg body); ``DEFAULT_FORELEG`` overrides them with a lighter 0.160 kg
-    # columnar limb.  Proximal-heavy (47.5 / 30 / 15 / 7.5 %) because both feline
-    # anatomy and the ADR-0003 tendon drive push mass toward the body.
-    link_mass: tuple[float, float, float, float] = (0.052, 0.033, 0.017, 0.008)
+    # metatarsus, paw.  These defaults are the HIND leg; ``DEFAULT_FORELEG``
+    # overrides them.
+    #
+    # `[derived: mechanical/cad/tomcat_leg_detail.py per_link_mass()]` — NOT
+    # measured hardware.  Bonded inserts, clevises, turned sheaves, bearings
+    # (catalogue masses), the tendons and the tactile pad, apportioned to the
+    # DISTAL link of each joint per ASSEMBLY_SPEC §2.  Girdle motors excluded:
+    # they are not in the leg (P1).
+    #
+    # ⚠️ The old values were (0.052, 0.033, 0.017, 0.008) = 0.110 kg, justified as
+    # "proximal-heavy (47.5 / 30 / 15 / 7.5 %) because both feline anatomy and the
+    # ADR-0003 tendon drive push mass toward the body".  **That rationale was wrong
+    # as written**: the tendon drive pushes the MOTORS toward the body, not the
+    # PULLEYS.  Drawn as parts the split is 39.5 / 35.3 / 20.7 / 4.5 — the
+    # metatarsus more than DOUBLES — and leg swing inertia about the hip rises
+    # **+62 %** (ADR-0043).
+    link_mass: tuple[float, float, float, float] = (0.06604, 0.05893, 0.03460,
+                                                    0.00759)
 
     # Fraction of each link's LENGTH, measured from that link's PROXIMAL joint,
     # at which its centre of mass sits (dimensionless, 0 = proximal joint,
@@ -222,8 +235,17 @@ class TendonParams:
     # land-case peak vs. the original (0.015,0.012,0.010).  Still ❓ TBD.
     joint_moment_arm: tuple[float, ...] = (0.028, 0.025, 0.014)
 
-    # Motor spool radius (m) — converts motor torque to cable tension.  ❓ TBD
-    motor_spool_radius: float = 0.008
+    # Motor spool radius (m) — converts motor torque to cable tension.
+    #
+    # ⚠️ M41: 0.008 -> 0.00875.  LEG_TENDON_SPEC §2 raised it when ADR-0010's mass
+    # increase forced the cable from Ø1.5 to Ø1.75 mm, whose minimum bend DIAMETER
+    # is 10x the cable = Ø17.5, i.e. r >= 8.75 mm.  The spec said so and `params`
+    # was never updated, so every motor torque and motor angle the model published
+    # was **9 % low** for ten milestones (ADR-0042/0046).
+    #
+    # It is a trade, not a loss: `tau_motor = T * r_spool` costs 9.4 % of peak
+    # margin, `v_cable = omega * r_spool` buys the same 9.4 % of foot speed.
+    motor_spool_radius: float = 0.00875
 
     # Minimum tension kept in every cable so it never goes slack (N).  ❓ TBD
     # In antagonistic mode this is the co-contraction floor on the "slack" side.
@@ -339,10 +361,15 @@ class SpineParams:
     # bone geometry. +/-20 mm sits well inside the +/-34 mm thoracic rib cavity.
     lateral_moment_arm: tuple[float, ...] = (0.020, 0.020, 0.020)
 
-    # Motor spool radius for the spine tendons (m).  ❓ TBD.
-    # FLOORED at ~0.0075 m by the 1.5 mm UHMWPE cable's minimum bend diameter
-    # (motor-downselect note) — torque cannot be bought back by shrinking it.
-    motor_spool_radius: float = 0.008
+    # Motor spool radius for the spine tendons (m).
+    # FLOORED by the UHMWPE cable's minimum bend diameter (10x the cable) —
+    # torque cannot be bought back by shrinking it.
+    #
+    # ⚠️ M41: 0.008 -> 0.00875.  The floor quoted here was ~0.0075 m for a Ø1.5 mm
+    # cable; ADR-0010 re-sized the cable to Ø1.75 mm, which floors it at
+    # **0.00875**.  The leg spool moved for the same reason and on the same date it
+    # should have.
+    motor_spool_radius: float = 0.00875
 
     # Minimum cable tension / mechanical slack floor (N).  ❓ TBD.
     # Kept at the leg's 5 N so the two budgets are comparable.  Note: the AIC
@@ -439,8 +466,11 @@ class LoadCase:
     """A static loading scenario for the torque budget."""
 
     name: str
-    body_mass_kg: float = 4.045        # total robot mass -- RAISED from 3.0 once a
-                                       # real motor was sourced (motor-reality-check).
+    # Total robot mass. History: 3.0 (M1 placeholder) -> 4.045 (ADR-0010, once a
+     # real 132 g motor was sourced) -> **4.3041** (ADR-0046/M41, once the leg was
+     # drawn as manufacturable parts and came out 167 g rather than 110).
+     # Kept in sync with DEFAULT_BODY_MASS_KG by test_mass.py.
+    body_mass_kg: float = 4.3041
     n_stance_legs: int = 2             # legs sharing the load (e.g. trot => 2).
     dynamic_factor: float = 1.5        # peak/static impact multiplier.  ❓ TBD
 
@@ -469,7 +499,7 @@ class WholeBodyLoadCase:
     """
 
     name: str
-    body_mass_kg: float = 4.045
+    body_mass_kg: float = 4.3041      # see LoadCase; ADR-0046 raised it from 4.045
     dynamic_factor: float = 1.0
     # Spine posture for this case (rad per segment).  Length must match the
     # SpineParams used in the budget.  Straight = zeros; arch = uniform positive.
@@ -526,10 +556,15 @@ DEFAULT_FORELEG = LegParams(
     # elbow +69..+103, carpus -6..+32 deg.  ❓ TBD placeholders with margin.
     q_min=(math.radians(-170.0), 0.0, math.radians(-30.0)),
     q_max=(math.radians(30.0), math.radians(150.0), math.radians(150.0)),
-    # 0.160 kg total vs. the hind leg's 0.200 kg: the fore limb is the lighter,
-    # more columnar limb; the hind limb carries the propulsion musculature. Same
-    # proximal-heavy 47.5 / 30 / 15 / 7.5 % split.  ❓ TBD
-    link_mass=(0.045, 0.029, 0.014, 0.007),
+    # `[derived: cad/tomcat_leg_detail.py]` at the FORE link lengths.
+    #
+    # ⚠️ M41: was (0.045, 0.029, 0.014, 0.007) = 0.095 kg, an ASSUMED 1.16x
+    # fore/hind asymmetry ("the fore limb is the lighter, more columnar limb").
+    # Drawn as parts the asymmetry is **1.00x** — 0.167 kg both ends — because the
+    # joint hardware dominates and it is the SAME hardware on both, so the shorter
+    # fore links barely register.  Design review F2 settled the fore/hind weight
+    # split using the assumed asymmetry and needs re-checking (ADR-0043).
+    link_mass=(0.06662, 0.05873, 0.03445, 0.00759),
 )
 
 # Total mass of the default body, for cross-checking against LoadCase.body_mass_kg.

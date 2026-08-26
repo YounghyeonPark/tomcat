@@ -28,3 +28,10 @@ venv/
 *~
 .DS_Store
 Thumbs.db
+
+# Development reference image with an unestablished licence -- NOTICE records that
+# this is deliberately untracked; ignoring it makes that enforceable, not just stated.
+Felis_silvestris_restoration_&_skeleton.jpg
+
+# MuJoCo writes this next to the working directory on every run.
+MUJOCO_LOG.TXT

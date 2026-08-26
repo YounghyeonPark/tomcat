@@ -134,6 +134,96 @@ def stance_torque(mujoco, model, data, site_ids, forces, dof_of) -> dict:
         out[nm] = np.array([tau[d] for d in dof_of[nm]])
     return out
 
+def nnls(a, b, max_iter: int | None = None, tol: float = 1e-12) -> np.ndarray:
+    """Lawson-Hanson non-negative least squares: min ||a x - b|| subject to x >= 0.
+
+    Written out rather than imported because the project has no scipy dependency,
+    and because a tendon controller needs this in firmware where there will be no
+    scipy either. Finite: the active set strictly decreases the residual, so it
+    terminates. `max_iter` is a belt-and-braces cap.
+
+    ⚠️ **Clipping an unconstrained solve is not this**, and the difference is not
+    cosmetic. [ADR-0047](../../../docs/DESIGN_DECISIONS.md) measured it as about a
+    degree of joint error at a co-contraction floor; ADR-0049 measured it at
+    standing loads as a **1.14 N.m residual and a 20.7 deg lean**. The constraint
+    has to be in the solve.
+    """
+    a = np.asarray(a, dtype=float)
+    b = np.asarray(b, dtype=float)
+    n = a.shape[1]
+    x = np.zeros(n)
+    passive = np.zeros(n, dtype=bool)
+    w = a.T @ (b - a @ x)
+    it = 0
+    cap = 3 * n if max_iter is None else max_iter
+    while (not passive.all()) and np.any(w[~passive] > tol):
+        j = int(np.argmax(np.where(passive, -np.inf, w)))
+        passive[j] = True
+        while True:
+            it += 1
+            if it > cap:
+                return np.maximum(x, 0.0)
+            idx = np.flatnonzero(passive)
+            sol = np.zeros(n)
+            sol[idx] = np.linalg.lstsq(a[:, idx], b, rcond=None)[0]
+            if np.all(sol[idx] > tol):
+                x = sol
+                break
+            neg = idx[sol[idx] <= tol]
+            alpha = float(np.min(x[neg] / (x[neg] - sol[neg])))
+            x = x + alpha * (sol - x)
+            passive &= x > tol
+            if not passive.any():
+                return np.maximum(x, 0.0)
+        w = a.T @ (b - a @ x)
+    return x
+
+
+def tendon_tension(gain: np.ndarray, tau, t_min: float = 0.0,
+                   t_max: float = np.inf) -> np.ndarray:
+    """Pull-only tendon tensions for a desired joint torque.
+
+    `gain[k, i]` is the torque on joint `k` per newton on tendon `i`, i.e.
+    `-J_tendon^T`. Solves `min ||gain T - tau||` subject to `t_min <= T <= t_max`,
+    by substituting `T = t_min + u` with `u >= 0` and running `nnls`.
+
+    `t_min` is the co-contraction floor: a cable must stay taut to be a cable, and
+    ADR-0049 found the floor also keeps the solution interior so the upper clamp is
+    rarely reached.
+
+    ⚠️ **A zero residual is not guaranteed and its absence is a design finding, not
+    a solver failure.** A joint with one tendon can only be driven one way, so a
+    torque of the wrong sign is unreachable at any tension -- which is exactly how
+    ADR-0049 found the hind ankle unable to hold a stance. Check the residual.
+    """
+    gain = np.asarray(gain, dtype=float)
+    n = gain.shape[1]
+    floor = np.full(n, float(t_min))
+    u = nnls(gain, np.asarray(tau, dtype=float) - gain @ floor)
+    return np.clip(floor + u, t_min, t_max)
+
+
+def actuator_torque(data, dof, stance_tau) -> np.ndarray:
+    """What the ACTUATORS must supply, from MuJoCo's own equation of motion.
+
+    `M qdd + qfrc_bias = qfrc_passive + qfrc_actuator + J_c^T f_c`, so holding a
+    pose needs
+
+        qfrc_actuator = qfrc_bias - qfrc_passive + stance_torque
+
+    with `stance_torque = -J_c^T f_c` as `stance_torque()` returns it.
+
+    ⚠️ **`qfrc_passive` is the term that gets forgotten, and it is not small.** Left
+    out, ADR-0049's driver asked the hind ankle tendon for 0.508 N.m that the
+    ADR-0002 Option-B return spring was already supplying -- 54 % of that joint's
+    whole demand.
+    """
+    idx = list(dof)
+    bias = np.array([data.qfrc_bias[k] for k in idx])
+    passive = np.array([data.qfrc_passive[k] for k in idx])
+    return bias - passive + np.asarray(stance_tau, dtype=float)
+
+
 def realisable_cop(feet: np.ndarray, cop) -> np.ndarray:
     """Clamp a commanded centre of pressure onto what the contacts can actually make.
 
@@ -144,6 +234,20 @@ def realisable_cop(feet: np.ndarray, cop) -> np.ndarray:
 
     Clamping here makes the infeasibility visible to the caller: when the projection
     moves the command, the balance problem needs a **step**, not more force.
+
+    ⚠️ **The three-or-more-contact branch was wrong until M44, in two ways, because
+    M33 only ever ran a diagonal two-foot trot and never exercised it.**
+
+    1. **There was no inside test.** It walked the boundary and returned the nearest
+       point *on an edge*, so a perfectly feasible CoP in the middle of a four-foot
+       support polygon was pushed **48 mm out to the rail**. For a standing robot
+       that is not a clamp, it is a command to lean.
+    2. **It assumed the caller's point order was hull order.** It is not:
+       `("LF", "RF", "LR", "RR")` traverses a rectangle as a **bowtie**, so two of
+       the four "edges" it measured against were diagonals. That bug partly masked
+       the first one -- it moved the interior point 16.6 mm instead of 48.
+
+    Both are fixed by taking a real convex hull and testing containment first.
     """
     p = np.asarray(cop, dtype=float)[:2]
     pts = np.asarray(feet, dtype=float)[:, :2]
@@ -157,11 +261,23 @@ def realisable_cop(feet: np.ndarray, cop) -> np.ndarray:
             return a.copy()
         t = float(np.clip((p - a) @ e / L, 0.0, 1.0))
         return a + t * e
-    # Three or more: fall back to the convex hull's nearest point.
-    best, bd = pts[0], math.inf
-    n = len(pts)
+    # Three or more contacts: there is a real support POLYGON, so a point inside it
+    # is feasible and must be returned untouched.
+    hull = _convex_hull(pts)
+    if len(hull) < 3:                       # collinear feet: still only a segment
+        a, b = hull[0], hull[-1]
+        e = b - a
+        L = float(e @ e)
+        if L < 1e-18:
+            return a.copy()
+        t = float(np.clip((p - a) @ e / L, 0.0, 1.0))
+        return a + t * e
+    if _inside_hull(hull, p):
+        return p.copy()
+    best, bd = hull[0], math.inf
+    n = len(hull)
     for i in range(n):
-        a, b = pts[i], pts[(i + 1) % n]
+        a, b = hull[i], hull[(i + 1) % n]
         e = b - a
         L = float(e @ e)
         t = 0.0 if L < 1e-18 else float(np.clip((p - a) @ e / L, 0.0, 1.0))
@@ -170,4 +286,41 @@ def realisable_cop(feet: np.ndarray, cop) -> np.ndarray:
         if dd < bd:
             best, bd = qy, dd
     return best
+
+
+def _convex_hull(pts: np.ndarray) -> np.ndarray:
+    """Counter-clockwise convex hull, monotone chain. Small n, so simplicity wins.
+
+    ⚠️ The caller's point order is NOT hull order and must not be assumed to be.
+    `("LF", "RF", "LR", "RR")` walks a rectangle as a **bowtie**, whose "edges"
+    include the two diagonals -- see `realisable_cop`.
+    """
+    q = sorted({(float(x), float(y)) for x, y in pts})
+    if len(q) < 3:
+        return np.array(q, dtype=float).reshape(-1, 2)
+
+    def half(seq):
+        out = []
+        for r in seq:
+            while len(out) >= 2:
+                (ax, ay), (bx, by) = out[-2], out[-1]
+                if (bx - ax) * (r[1] - ay) - (by - ay) * (r[0] - ax) > 1e-15:
+                    break
+                out.pop()
+            out.append(r)
+        return out
+
+    lower = half(q)
+    upper = half(list(reversed(q)))
+    return np.array(lower[:-1] + upper[:-1], dtype=float)
+
+
+def _inside_hull(hull: np.ndarray, p: np.ndarray, tol: float = 1e-12) -> bool:
+    """True if `p` is inside or on a counter-clockwise convex hull."""
+    n = len(hull)
+    for i in range(n):
+        a, b = hull[i], hull[(i + 1) % n]
+        if (b[0] - a[0]) * (p[1] - a[1]) - (b[1] - a[1]) * (p[0] - a[0]) < -tol:
+            return False
+    return True
 

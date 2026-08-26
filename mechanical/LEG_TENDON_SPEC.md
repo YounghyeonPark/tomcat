@@ -57,6 +57,16 @@ Torque scales linearly with foot support force. All three columns are now taken
 directly from the **post-M4 whole-body budget** in the digitigrade posture
 `[sourced: whole_body_budget]` (trot scaled from the same sweep at 22.08 N).
 
+
+> ⚠️ **STALE — corrected by M36 ([ADR-0041](../docs/DESIGN_DECISIONS.md)).** This
+> table is the **pre-ADR-0010** budget, computed at the 3.0 kg body. The live
+> `torque_budget.evaluate` at the shipped 4.045 kg returns **hip 16.67 / stifle
+> 10.23 / hock 6.46 N·m** — every entry low by the mass ratio 4.045/3.0 = **1.35**.
+> §2 *was* re-run (it says "~600 N at the hip land transient", which is exactly
+> 16.67 / 0.028) so this document has contradicted itself since ADR-0010.
+> **§1.3, §1.3a, §3.5 and ASSEMBLY_SPEC §0.1 are all derived from the numbers
+> below and inherit the error.** Gated by `tests/test_leg_detail.py`.
+
 | Joint | Stand (4-leg, ×1.0) | Trot (2-leg, ×1.5) | **Land (1-leg, ×2.5)** | Source |
 |---|---|---|---|---|
 | **Hip** | 1.24 N·m | 3.71 N·m | **12.36 N·m** ← worst | `[sourced: budget]` |
@@ -86,6 +96,20 @@ the smallest defensible value distally.
 Trade-study guidance was "knee arm **≥ ~25 mm** to cap tension near ~500 N"
 `[sourced: leg-actuator-tradeoff §4]` — the 25 mm recommendation meets that
 exactly.
+
+> ⚠️ **M36 closed the other half of this trade, and it closes shut.** Turned as
+> real parts the three sheaves are **41 g of a 110 g leg** — §1.3a priced only the
+> ankle's *inertia*, from a 6 g-at-14 mm estimate scaling as `r²`, and never priced
+> the set's mass. So there is now a reason to want the arms **smaller**, and there
+> is no room: at the shipped arms the **trot** case already sits at **81 %** of the
+> GIM3505-9's 1.95 N·m peak (agreeing with §2's own "0.82× peak"), and 0.85× the
+> arms puts it **over 100 %**. The arms are pinned by the actuator.
+>
+> | arm scale | sheave set | T land | T trot | trot / motor peak |
+> |---|---|---|---|---|
+> | **1.00** (shipped) | **41.3 g** | 615 N | 198 N | **81 %** |
+> | 0.85 | 32.9 g | 720 N | 230 N | **101 %** ❌ |
+> | 0.70 | 25.4 g | 870 N | 275 N | 133 % ❌ |
 
 ### 1.3 Resulting cable tension (T = τ/r + pretension)
 
@@ -159,6 +183,14 @@ thing tendon-drive exists to protect:
 measured pulley mass comes in far below the `r²` estimate.
 
 ### 1.4 Cable-travel / spool sanity check
+
+> ⚠️ **UNDERSTATED for the knee and ankle — M37 ([ADR-0042](../docs/DESIGN_DECISIONS.md)).**
+> The table below computes `r x ROM` **per joint**, which assumes the tendon map is
+> diagonal. It is not: a via-pulley concentric with a proximal axis couples the
+> joints by its own radius per radian (8.75 mm, the cable's minimum bend). Real
+> worst-case travels are **117 / 102 / 104 mm**, not 117 / 65 / 44 — the knee
+> understated 56 %, the ankle 135 %. The hip remains the sizing case, but the three
+> spools are one class rather than 2.7x apart.
 
 At `motor_spool_radius = 0.008 m`, using the **post-M4 negative-fold limits**
 (hip ±120°, stifle −150…0°, hock −30…+150°):
@@ -251,8 +283,10 @@ per-tendon path length, not a single constant. Placeholder: `cable_stiffness ≈
 - **Sheave diameters** follow §1.2 arms: hip Ø56 mm, knee Ø50 mm, ankle Ø28 mm
   (radius = moment arm; the cable pitch line sits at `r`). All comfortably exceed
   the ≥15 mm UHMWPE min-bend.
-- **Groove:** round-bottom, radius ~0.55× cable dia (≈0.85 mm) to seat the 1.5 mm
-  cable without pinch; anodized aluminum or hard-anodized with a smooth groove to
+- **Groove:** round-bottom, radius ~0.55× cable dia — **≈0.96 mm for the
+  Ø1.75 mm cable §2 actually specifies.** ⚠️ The ~~0.85 mm / 1.5 mm~~ figure here
+  predates ADR-0010's cable re-size and would pinch the specified cable (M36).
+  The *rule* is what holds, not the literal; anodized aluminum or hard-anodized with a smooth groove to
   keep μ low.
 - **Structural:** aluminum sheave for the ~1 kN transient; a steel bushing/insert
   at high-load hip/knee if wear shows.
@@ -307,6 +341,12 @@ per-pulley wrap to model the tension the **motor** must supply vs. what the
 | Knee idler (ankle pass-through) | ~30–45° | redirect only | `[assumed]` |
 | Ankle sheave | ~60–90° | `[assumed]` |
 
+> ⚠️ **OVER-estimated — M37 ([ADR-0042](../docs/DESIGN_DECISIONS.md)).** Solved
+> rather than assumed, the wrap angles are much smaller than tabulated here: the
+> ankle path sums to **~108°**, not 360°, so its capstan penalty is **~1.21x**, not
+> 1.87x. Good news — the motor-side tension margin this was inflating can come back.
+> Wraps are computed by `cad/tendon_route.py` from the real station geometry.
+
 **Friction coefficient:** UHMWPE over anodized-aluminum pulley, lightly
 lubricated: **μ ≈ 0.08–0.12**; over a PTFE-lined sheath μ ≈ 0.05–0.10 but with
 much larger effective wrap. Placeholder `friction_coeff = 0.10` `[assumed]`.
@@ -342,6 +382,19 @@ At the original uniform **8 × 1 mm** tube the femur reached **364 MPa → SF �
 — effectively no margin on the landing transient. Adopt a **graded set, thickest
 proximally**, which equalises the safety factor and keeps added mass off the
 distal links (P1):
+
+> ⚠️ **SUPERSEDED by M36 ([ADR-0041](../docs/DESIGN_DECISIONS.md)).** The table
+> below uses §1.1's stale torques *and* omits the torsion the joint sheave's real
+> lateral offset imposes. Re-derived from the live budget at the offsets the 3D
+> layout produces (12.2 / 12.2 / 9.2 mm), the same sections give
+> **SF 1.97 / 2.08 / 1.84** — the femur and metatarsus fall below the SF 2 floor
+> that ASSEMBLY_SPEC §0.1's argument rested on.
+>
+> **Remedy, and it is nearly free:** one step up in stock tube each. Bending
+> strength goes as the *cube* of diameter while tube mass goes as the first power,
+> so **Ø12→Ø14, Ø10→Ø12, Ø8→Ø10** restores **SF 2.78 / 3.16 / 3.11** for **under
+> 4 g on the whole leg**. Computed by `size_tubes()` in
+> `cad/tomcat_leg_detail.py`, gated by `tests/test_leg_detail.py`.
 
 | Link | Torque | **Section** | Z (mm³) | σ (MPa) | **SF** | mass |
 |---|---|---|---|---|---|---|
@@ -411,6 +464,16 @@ dataclasses; proposed **new** fields are flagged.
 | `spring_rest_angle` | `(0.0,0.4,0.0)` | keep | rad | `[assumed]` |
 
 ### 5.2 Proposed **new** `TendonParams` fields
+
+> ⚠️ **Still not folded in, ten milestones later — M37.** None of `cable_diameter`,
+> `cable_break_strength` or `cable_stiffness` exists on `TendonParams`. And
+> `motor_spool_radius` is still **0.008** where §2 requires **0.00875** for the
+> Ø1.75 cable's minimum bend, so every motor angle and motor torque the model
+> computes is **9 % out**. Gated by `tests/test_tendon_route.py`.
+>
+> ⚠️ **A field that is now known to be missing:** the map itself. `cable_lengths`
+> is `delta = r * q`, diagonal; the routed hardware is lower-triangular with
+> **±8.75 mm/rad** off-diagonals. See [ADR-0042](../docs/DESIGN_DECISIONS.md).
 
 | Field (proposed) | Value | Unit | Source label |
 |---|---|---|---|

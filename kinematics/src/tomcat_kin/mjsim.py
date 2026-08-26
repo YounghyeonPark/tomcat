@@ -131,18 +131,69 @@ SPINE_GAIN = 0.5
 SPINE_SLEW = 3.0
 
 
+# --------------------------------------------------------------- M34: timing
+#: Metres by which the demanded centre of pressure may fall outside the support
+#: **segment** before the stance is cut short.
+#:
+#: ADR-0038 built the residual and left it unused. Two point contacts confine the
+#: CoP to the segment joining them, so a diagonal stance has no support polygon and
+#: the perpendicular component of any DCM offset is **unbalanceable by force** --
+#: only a step fixes it. The residual measures exactly how far past that the DCM law
+#: is asking, and it grows as `e^(omega t)`.
+#:
+#: ⚠️ `[assumed]` -- swept rather than tuned, because there is no principled value.
+#: 10 mm is roughly a third of the converged 25.6 mm envelope.
+#:
+#: ⚠️ **And the sweep is the result: the tolerance barely matters.** 5 / 10 / 20 mm
+#: give worst-direction envelopes of 28.6 / 31.7 / 31.7 mm, because at any
+#: disturbance near the limit the trigger saturates within the first stance and the
+#: planner sits on its floor (`T_mean` 0.117 s against a 0.100 floor). A knob that
+#: saturates immediately is not a controller; it is a constant. See ADR-0039.
+COP_RESIDUAL_TOL = 0.010
+
+#: Floor on the adapted stance time, as a fraction of the nominal stance.
+#:
+#: ⚠️ **Two floors apply and the binding one is not the physical one.** The leg
+#: can execute a full-reach swing in ~30 ms (`ctl.SPARE_FOOT_SPEED` through the M12
+#: trapezoid), which is 15 % of the 200 ms stance -- so foot speed does *not* bind,
+#: and letting the planner use that would buy envelope by trotting at 16 Hz. This
+#: fraction is a **gait-plausibility** bound, chosen not derived, and the tests sweep
+#: it so no result rests on the choice.
+#:
+#: ⚠️ **The real bound is neither of those -- it is ground friction.**
+#: `control.spine_friction_cost` scales as 1/stance^2, so the spine's full-ROM demand
+#: goes 0.71 (0.200 s) -> 1.44 (0.140) -> **2.07** (0.117). A shorter stance is the
+#: most expensive currency this robot has for buying balance, in exactly the coin
+#: ADR-0020 slowed the trot from 67 to 50 cm/s to protect. Foot speed, by contrast,
+#: does not bind at all: 1.20 m/s mean against 4.10 m/s spare.
+STANCE_TIME_MIN_FRAC = 0.5
+
+
 class BalanceHarness:
     """A trot-in-place balance controller running against a MuJoCo model.
 
     Trot **in place** deliberately: the question is whether the robot stays up under
     a disturbance, and propulsion only adds a second thing to get wrong.
+
+    ⚠️ **`adapt_timing` is NOT adopted (M34).** It ships off by default and exists so
+    ADR-0039 is reproducible, the same way `placement_mode="projected"` and
+    `realise_lambda` do for ADR-0037. Residual-driven step timing reads +24 % on the
+    worst direction (25.6 -> 31.7 mm at an equal 3.2 s horizon) and then fails two
+    checks: a **fixed** 0.140 s stance does better (37.7 mm) with no trigger at all,
+    and the harness's undisturbed drift doubles at short stances, so the noise floor
+    is the same order as the claimed gain. Step timing may well be real authority on
+    the robot; this harness cannot adjudicate it.
     """
 
     def __init__(self, controller, mujoco, model, phase: float = 0.25,
                  cop_gain: float = COP_GAIN, regulate_along_line: bool = False,
                  latency: float | None = None, spine_gain: float = SPINE_GAIN,
                  use_spine: bool = True, spine_mode: str = "planned",
-                 placement_mode: str = "axis", realise_lambda: bool = False):
+                 placement_mode: str = "axis", realise_lambda: bool = False,
+                 adapt_timing: bool = False,
+                 residual_tol: float = COP_RESIDUAL_TOL,
+                 min_stance_frac: float = STANCE_TIME_MIN_FRAC,
+                 placement_gain: float = 1.0):
         from . import control as ctl
 
         self.c = controller
@@ -203,6 +254,11 @@ class BalanceHarness:
         self._xoff = {}
         self._lam = None
         self._lam_next = None
+        self.adapt_timing = adapt_timing
+        self.residual_tol = residual_tol
+        self.min_stance_frac = min_stance_frac
+        self.placement_gain = placement_gain
+        self._T_next = self.T
 
     # ---------------------------------------------------------------- geometry
     def reachable_set(self, data, pair):
@@ -355,6 +411,75 @@ class BalanceHarness:
             data.ctrl[a] = q
         return q
 
+    # ------------------------------------------------------------ M34: timing
+    def cop_residual(self, data, xi, pair, ref=None):
+        """How far the DCM law's demanded CoP falls **outside** the support segment.
+
+        This is ADR-0038's quantity, read from the live contact geometry rather than
+        predicted: the law asks for ``p = xi + k (xi - ref)``, `wbc.realisable_cop`
+        clamps that onto the segment joining the two stance feet, and what the clamp
+        moves is the part no force allocation can deliver.
+
+        Returns ``(residual, demanded, realisable)``, all in world metres.
+        """
+        from . import wbc
+
+        mid = self.feet_mid(data, pair) if ref is None else np.asarray(ref, float)
+        demand = np.asarray(xi, float)[:2] + self.cop_gain * (np.asarray(xi, float)[:2] - mid)
+        feet = np.array([data.site_xpos[self.site[nm]][:2] for nm in pair])
+        real = wbc.realisable_cop(feet, demand)
+        return float(np.linalg.norm(demand - real)), demand, real
+
+    def swing_time_floor(self, dx: float) -> float:
+        """Shortest stance the LEG could support, from foot speed (M12's trapezoid).
+
+        The swing must cover ``|dx|`` fore-aft plus the up-and-down of the step
+        height inside the stance. ``ctl.SPARE_FOOT_SPEED`` is used rather than the
+        5.93 m/s ceiling because the nominal swing is still being executed
+        underneath -- this is the *spare* capacity, which is the conservative read.
+        """
+        from . import control as ctl
+
+        d = abs(float(dx) - self.nom_x) + 2.0 * self.step_h
+        v, a = ctl.SPARE_FOOT_SPEED, ctl.FOOT_ACCEL_LIMIT
+        t = (d / v + v / a) if d >= v * v / a else 2.0 * math.sqrt(d / a)
+        return t + self.latency
+
+    def plan_stance_time(self, data, xi_end, pair) -> float:
+        """How long the NEXT stance may run before the CoP demand leaves the segment.
+
+        ⚠️ **Closed form, and it is a derivation rather than a fit.** The support
+        segment has zero extent across itself, so the perpendicular component of the
+        DCM offset is the part the contacts can never balance. With the CoP pinned on
+        the segment it grows as ``e(t) = e(0) exp(omega t)``, and the law
+        ``p = xi + k (xi - ref)`` demands ``(1 + k)`` times it. Setting that equal to
+        the tolerance and solving::
+
+            T* = ln( tol / ((1 + k) |e0|) ) / omega
+
+        That is ADR-0038's table, in the direction that produced it -- the 0.5 ->
+        104.6 -> 591 mm growth there is this exponential, sampled.
+
+        **Planned once per stance and executed open-loop**, which is the one control
+        structure in this harness that has worked (ADR-0030). The swing is generated
+        over the returned duration, so it still lands at rest: re-timing is not
+        truncation, and truncating would reintroduce the C1 defect that cost M17 its
+        stance.
+
+        ⚠️ Measured from the *swinging* pair's current sites, which at the freeze
+        point are within a millimetre of where they will land (blend = 0.995). Same
+        approximation `plan_spine` already ships with.
+        """
+        _, pn = self.axes(pair, data)
+        mid = self.feet_mid(data, pair)
+        e0 = abs(float((np.asarray(xi_end, float)[:2] - mid) @ pn))
+        gain = 1.0 + self.cop_gain
+        floor = max(self.min_stance_frac * self.T, self.swing_time_floor(self.nom_x))
+        if gain * e0 <= 1e-9:
+            return self.T
+        t_star = math.log(self.residual_tol / (gain * e0)) / self.omega
+        return float(min(self.T, max(floor, t_star)))
+
     def feet_mid(self, data, pair):
         return np.mean([data.site_xpos[self.site[nm]][:2] for nm in pair], axis=0)
 
@@ -370,6 +495,7 @@ class BalanceHarness:
         self._spine_next = 0.0
         self._lam = None
         self._lam_next = None
+        self._T_next = self.T
         d = self.mj.MjData(self.m)
         for nm in self.b.leg_names:
             q = (self.q0[nm] if nm in DIAGONALS["A"]
@@ -385,8 +511,17 @@ class BalanceHarness:
         return d
 
     # -------------------------------------------------------------------- loop
-    def run(self, data, steps: int = 12, disturbance=None, record: bool = False):
-        """Trot in place for `steps` stances. Returns per-step diagnostics."""
+    def run(self, data, steps: int = 12, disturbance=None, record: bool = False,
+            until: float | None = None):
+        """Trot in place for `steps` stances. Returns per-step diagnostics.
+
+        ⚠️ ``until`` terminates on **simulated seconds** rather than step count, and
+        a variable-timing controller cannot be measured fairly without it. Sixteen
+        re-timed stances are less time on the floor than sixteen nominal ones, so a
+        step-count horizon rewards a controller for stepping faster instead of for
+        balancing better -- the same horizon error ADR-0036 found in M21-M30, wearing
+        different clothes. ``steps`` stays as the upper bound on the loop.
+        """
         if disturbance is not None:
             data.qvel[0] += disturbance[0]
             data.qvel[1] += disturbance[1]
@@ -395,16 +530,44 @@ class BalanceHarness:
         xoff = {nm: self.nom_x for nm in self.b.leg_names}
         self._xoff = xoff
         out, fell = [], False
+        T_cur, elapsed = self.T, 0.0
 
         for step in range(steps):
             lift = {nm: xoff[nm] for nm in DIAGONALS[nxt]}
             dx, frozen, ext = 0.0, False, 0.0
-            n = int(self.T / self.dt)
+            n = int(T_cur / self.dt)
+            # ⚠️ M34: the deadbeat coefficient is a function of the stance, so a
+            # re-timed step must re-derive it. Carrying the nominal value would ask
+            # for a correction sized to a stance the robot is no longer taking.
+            #
+            # ⚠️ Derived from `plant.omega`, NOT the `self.omega` that `reset`
+            # measures from the settled model, so that an unadapted stance reproduces
+            # the shipped `self.deadbeat` exactly. The two omegas differ by 0.1 %
+            # (7.7652 vs 7.7732) and the shipped controller mixes them -- the DCM uses
+            # the measured one, the deadbeat the analytical one. That inconsistency
+            # predates M34 and is left alone here deliberately: closing it moves every
+            # envelope figure, so it is a milestone of its own, not a side effect of
+            # this one. Recorded in ROADMAP's reconciliation items.
+            if T_cur == self.T:
+                growth, deadbeat = self.growth, self.deadbeat
+            else:
+                growth = math.exp(self.plant.omega * T_cur)
+                deadbeat = growth / (growth - 1.0)
+            # ⚠️ M35. A deadbeat law has no phase margin to spare: it asks for the
+            # whole correction in one step, so any lag the plant adds beyond the one
+            # step it models is uncompensated. The lag is fixed (7.5 ms pipeline plus
+            # the kp=80 servo) while the stance is not, so as the stance shortens the
+            # lag grows as a FRACTION of it and the loop chatters. `placement_gain`
+            # is the detune; 1.0 is the shipped controller, unchanged.
+            deadbeat *= self.placement_gain
+            residual = 0.0
 
             for k in range(n):
-                left = self.T - k * self.dt
+                left = T_cur - k * self.dt
                 xi, c3 = self.dcm(data, self.omega)
                 p, load = self.cop(data, xi)
+                if self.adapt_timing or record:
+                    residual = self.cop_residual(data, xi, DIAGONALS[cur])[0]
 
                 # --- across the line: where the NEXT pair lands ---------------
                 if not frozen:
@@ -417,7 +580,7 @@ class BalanceHarness:
                             - (lift[DIAGONALS[nxt][0]] - self.nom_x) * pn[0]
                         err = float(end @ pn) - nominal
                         if abs(pn[0]) > 1e-6:
-                            dx = float(np.clip(self.deadbeat * err / pn[0], *self.reach))
+                            dx = float(np.clip(deadbeat * err / pn[0], *self.reach))
                     if left <= self.latency:
                         frozen = True
                         if self.spine_mode == "planned":
@@ -426,6 +589,9 @@ class BalanceHarness:
                                 data, end, self.feet_mid(data, DIAGONALS[nxt]))
                         if self.realise_lambda:
                             self._lam_next = lam_next
+                        if self.adapt_timing:
+                            self._T_next = self.plan_stance_time(
+                                data, end, DIAGONALS[nxt])
 
                 # --- along the line: the PLANNED load split, open-loop ---------
                 # ⚠️ M32. M27 established this authority exists on compliant legs
@@ -497,14 +663,88 @@ class BalanceHarness:
             xi, c3 = self.dcm(data, self.omega)
             dhat, pn = self.axes(DIAGONALS[nxt], data)
             mid = self.feet_mid(data, DIAGONALS[nxt])
+            elapsed += n * self.dt
             out.append({
                 "step": step, "pair": nxt,
                 "perp": float((xi - mid) @ pn),
                 "para": float((xi - mid) @ dhat),
                 "dx": dx, "ncon": int(data.ncon), "height": float(c3[2]),
+                # ⚠️ M34. `T` and `t` are what make a variable-timing controller
+                # comparable at all: 16 steps of a re-timed gait is LESS simulated
+                # time than 16 nominal ones, so a step-count horizon would flatter
+                # it -- exactly the horizon error ADR-0036 corrected.
+                "T": n * self.dt, "t": elapsed, "residual": residual,
             })
+            if self.adapt_timing:
+                T_cur = self._T_next
             cur, nxt = nxt, cur
+            if until is not None and elapsed >= until:
+                break
         return out, fell
+
+
+#: How close to its OWN undisturbed drift a run must return to count as recovered.
+#:
+#: ⚠️ `[assumed]` — chosen, then swept. Normalising against the configuration's own
+#: noise floor rather than an absolute threshold is the point: a detuned or re-timed
+#: controller has a different floor, and an absolute threshold would score them on
+#: their quietness instead of on their recovery.
+RECOVERY_FACTOR = 2.0
+
+
+def undisturbed_drift(harness, horizon: float = 3.2) -> float:
+    """Mean DCM offset over the back half of an undisturbed run — the noise floor."""
+    data = harness.reset()
+    hist, fell = harness.run(data, steps=400, until=horizon)
+    if fell or not hist:
+        return float("nan")
+    tail = hist[len(hist) // 2:]
+    return float(np.mean([math.hypot(e["perp"], e["para"]) for e in tail]))
+
+
+def measure_envelope(harness, angle_deg: float, horizon: float = 3.2, bits: int = 7,
+                     recover: bool = True, settle: float = 0.8,
+                     factor: float = RECOVERY_FACTOR, hi: float = 1.5) -> float:
+    """Largest disturbance (as a DCM offset, m) the harness can take, by bisection.
+
+    ⚠️ **`recover` is the M35 correction, and it changes what the number means.**
+
+    Every envelope figure in M21–M34 was measured with the survival criterion: a
+    trial passed if the CoM never dropped below 0.11 m inside the horizon. That is
+    *did not fall*, and it is **not** what `viable.py` computes — the viable set is
+    the set of disturbances the robot can **recover** from. The two were compared to
+    each other as though they were the same quantity, and the comparison held only
+    because at the shipped configuration they happened not to cross.
+
+    They do cross. Detuned at a 0.117 s stance the survival criterion certifies
+    **42.2 mm against an exact 39.5 mm bound** — impossible, and therefore proof
+    about the criterion rather than about the controller. Probed directly, *every*
+    configuration is still wandering at its own certified envelope, the shipped one
+    included: it ends with a mean DCM offset of 22.5 mm against a 3.9 mm floor.
+
+    `recover=True` requires the trial to come back to within `factor` times the
+    configuration's **own** undisturbed drift. `recover=False` reproduces the
+    historical criterion so published figures stay reproducible.
+    """
+    floor = undisturbed_drift(harness, horizon) if recover else 0.0
+    limit = factor * floor
+    u = np.array([math.cos(math.radians(angle_deg)), math.sin(math.radians(angle_deg))])
+    lo = 0.0
+    for _ in range(bits):
+        mid = 0.5 * (lo + hi)
+        data = harness.reset()
+        hist, fell = harness.run(data, steps=400, until=settle)
+        ok = (not fell) and bool(hist) and hist[-1]["t"] >= settle - 1e-9
+        if ok:
+            hist, fell = harness.run(data, steps=400, until=horizon,
+                                     disturbance=mid * u)
+            ok = (not fell) and bool(hist) and hist[-1]["t"] >= horizon - 1e-9
+            if ok and recover:
+                tail = hist[len(hist) // 2:]
+                ok = float(np.mean([math.hypot(e["perp"], e["para"])
+                                    for e in tail])) <= limit
+        lo, hi = (mid, hi) if ok else (lo, mid)
+    return lo / harness.omega
 
 
 def build(controller, mujoco, mu: float = 0.9, timestep: float = 1e-4,

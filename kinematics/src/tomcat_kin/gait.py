@@ -172,9 +172,17 @@ def trot_params(period: float = 0.4, stride_length: float = 0.10,
     2. ``nominal_foot`` x = **0.005**, not the crawl's 0.05. The crawl plants its
        feet 50 mm ahead of the hips, which puts the diagonal support line ~42 mm
        forward of the CoM. That gives a one-signed topple moment, and the roll
-       rate then GROWS every cycle (−4.1 rad/s per cycle — the robot falls over
-       in one stride). At 0.005 the CoM rocks symmetrically ±11 mm about the
-       line, the moment integrates to ~zero, and the roll stays a bounded ±0.4°.
+       rate then GROWS every cycle (the robot falls over in one stride). At the
+       balanced foothold the CoM rocks symmetrically about the line, the moment
+       integrates to ~zero, and the roll stays bounded.
+
+       ⚠️ **RE-TUNED 0.005 -> 0.00214 m by M41 ([ADR-0046](../../../docs/DESIGN_DECISIONS.md)).**
+       The balance point is a property of where the CoM sits relative to the
+       diagonal, so it moved when the manufacturing model replaced the assumed leg
+       masses: the legs got heavier (0.110 -> 0.167 kg) AND their mass shifted
+       distally (the metatarsus more than doubled), which moves the whole-body CoM.
+       At the old 0.005 the drift is **-0.180 rad/s per cycle** — divergent. Found
+       by bisection on `_roll_drift`, the same way M7 found the original.
     3. ``step_height`` 0.02, not 0.03 — the fore hip cannot retract far enough to
        lift 30 mm at this foot placement (it overshoots its −170° limit by ~2°).
 
@@ -198,7 +206,9 @@ def trot_params(period: float = 0.4, stride_length: float = 0.10,
         stride_length=stride_length,
         duty_factor=0.50,
         phase_offsets=dict(TROT_PHASE_OFFSETS),
-        nominal_foot=(0.005, -0.17),
+        # ⚠️ 0.00214, not 0.005 — re-tuned by M41 (ADR-0046) after the measured leg
+        # masses moved the CoM. See the docstring; the old value now diverges.
+        nominal_foot=(0.00214, -0.17),
         step_height=0.02,
         lateral_amplitude=0.0,     # a trot does not sway; the diagonal does the work
     )

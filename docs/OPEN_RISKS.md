@@ -1,15 +1,18 @@
 # Open risks and how to close them
 
-The model carries **48 `[owed]` items and 89 `[assumed]` values**. Most of them
-cannot change a decision, and treating them as equal work would waste effort on
-the wrong ones. This ranks them by **what breaks if the assumption is wrong**, and
-says concretely how each is closed.
+The model carries **35 `[owed]` items and 110 `[assumed]` values** (recount with
+`grep -ro '\[owed\]' --include='*.py' --include='*.md' --include='*.rs' . | wc -l`).
+Most of them cannot change a decision, and treating them as equal work would waste
+effort on the wrong ones. This ranks them by **what breaks if the assumption is
+wrong**, and says concretely how each is closed.
 
 The short version:
 
-> **Two cheap measurements de-risk almost the whole design: buy and weigh a motor,
-> and measure paw friction.** Neither needs the robot to exist. Everything else is
-> either low-consequence, or a decision rather than an unknown.
+> **One cheap measurement de-risks almost the whole design: buy a motor and weigh
+> it.** It does not need the robot to exist. The paw drag-test was the other critical
+> item until M29 ([ADR-0034](DESIGN_DECISIONS.md)) downgraded it — NFR15 survives from
+> μ ≥ 0.6, which any dry floor clears. Everything else is either low-consequence, or a
+> decision rather than an unknown.
 
 ⚠️ **Simulation cannot substitute for either.** M17 ([ADR-0022](DESIGN_DECISIONS.md))
 added an independent MuJoCo cross-check, and it validated the *model* — it says

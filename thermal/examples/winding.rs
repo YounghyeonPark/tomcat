@@ -8,7 +8,8 @@ use tomcat_thermal::winding::*;
 use tomcat_thermal::*;
 
 const BATTERY_WH: f64 = 42.0;
-const TOTAL_W: f64 = 83.5607;
+// M40: was a third stale copy of 83.5607. Use the guarded constant.
+use tomcat_thermal::from_power_py::TOTAL_W;
 
 fn main() {
     let w = 6.0 * TROT_W;

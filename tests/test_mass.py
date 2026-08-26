@@ -67,7 +67,7 @@ def _symmetric_trunk_body(leg_mass=0.0):
 def test_default_body_totals_the_load_case_body_mass():
     # The apportionment in params.py is built to reproduce the 3.0 kg that every
     # LoadCase / WholeBodyLoadCase already assumed.
-    assert DEFAULT_BODY_MASS_KG == pytest.approx(4.045, abs=1e-9)
+    assert DEFAULT_BODY_MASS_KG == pytest.approx(4.3041, abs=1e-9)   # ADR-0046
     assert _body().total_mass == pytest.approx(LoadCase("x").body_mass_kg, abs=1e-9)
 
 
@@ -79,12 +79,28 @@ def test_leg_link_masses_sum_to_leg_mass_and_are_proximal_heavy():
         assert list(p.link_mass) == sorted(p.link_mass, reverse=True)
 
 
-def test_hind_leg_is_heavier_than_fore_leg():
-    # The hind limb still carries more, but both are now sized BOTTOM-UP from the
-    # specced hardware (review F1), not from a biological limb fraction.
-    assert DEFAULT_HINDLEG.mass > DEFAULT_FORELEG.mass
-    assert DEFAULT_HINDLEG.mass == pytest.approx(0.110)
-    assert DEFAULT_FORELEG.mass == pytest.approx(0.095)
+def test_the_fore_hind_leg_ASYMMETRY_has_vanished():
+    """⚠️ **M41 (ADR-0046) overturned this test's premise, hence the rename.**
+
+    It used to assert `hind > fore` on an ASSUMED 1.16x asymmetry — 0.110 kg against
+    0.095 — justified as *"the fore limb is the lighter, more columnar limb; the hind
+    limb carries the propulsion musculature"*.
+
+    Drawn as manufacturable parts the two legs are **0.16716 and 0.16739 kg**: the
+    joint hardware (sheaves, bearings, clevises) dominates at ~80 % of the leg, and
+    it is the *same* hardware on both ends, so the shorter fore links barely
+    register. The fore leg is in fact 0.2 g heavier — 0.14 %, which is noise in a
+    model built on assumed stock and catalogue bearing masses.
+
+    ⚠️ The honest statement is that they are **equal**, not that the ranking flipped.
+    Design review F2 settled the fore/hind weight split using the old asymmetry and
+    is re-checked in `test_fore_hind_split_...` below.
+    """
+    assert DEFAULT_HINDLEG.mass == pytest.approx(0.1672, abs=5e-4)
+    assert DEFAULT_FORELEG.mass == pytest.approx(0.1674, abs=5e-4)
+    assert abs(DEFAULT_HINDLEG.mass - DEFAULT_FORELEG.mass) < 0.001, (
+        "the legs are equal now; if a real asymmetry returns, re-derive F2's split"
+    )
 
 
 def test_limbs_are_light_because_the_motors_are_not_in_them():
@@ -121,11 +137,17 @@ def test_fore_hind_split_is_near_balanced_not_sixty_forty():
     # LIGHTENED the pelvis, so the split moved from 51/49 to ~55/45. Still nothing
     # like a real cat's 60/40, and still an OUTPUT of the hardware layout rather
     # than a tuned input.
+    # ⚠️ UPDATED A THIRD TIME by M41 (ADR-0046). Folding the manufacturing model's
+    # leg masses in removed the assumed fore/hind leg asymmetry (0.095/0.110 kg ->
+    # 0.167 both ends) and added 0.26 kg of body, moving the split 54.2/45.8 ->
+    # **54.3/45.7**. Barely, because the legs are only 15.5 % of the body and the
+    # change was symmetric — which is itself the point: the split is set by the
+    # girdles and the head, not by the limbs.
     q = _body().mass_budget()
-    assert q.total == pytest.approx(4.045, abs=1e-9)
+    assert q.total == pytest.approx(4.3041, abs=1e-9)
     assert q.fore + q.hind == pytest.approx(q.total, abs=1e-12)
-    assert q.fore_fraction == pytest.approx(0.542, abs=0.02)
-    assert q.hind_fraction == pytest.approx(0.458, abs=0.02)
+    assert q.fore_fraction == pytest.approx(0.543, abs=0.02)
+    assert q.hind_fraction == pytest.approx(0.457, abs=0.02)
     # Still fore-biased, just barely -- the head/neck edges it forward.
     assert q.fore > q.hind
     assert "forequarters" in q.report()
@@ -282,7 +304,7 @@ def test_symmetric_body_with_legs_shifts_by_exactly_the_leg_offset():
 def test_default_com_sits_forward_of_mid_body_because_the_cat_is_front_heavy():
     body = _body()
     c = body.center_of_mass(STRAIGHT, STAND)
-    assert c.mass == pytest.approx(4.045)
+    assert c.mass == pytest.approx(4.3041)
     # Forward of the mid-spine point, but still between the two girdles.
     assert c.x > DEFAULT_SPINE.total_length / 2.0
     assert 0.0 < c.x < DEFAULT_SPINE.total_length
@@ -370,13 +392,21 @@ def test_body_com_report_lists_every_subassembly():
 
 
 def test_fore_and_hind_legs_have_different_coms_for_the_same_angles():
-    # The fore/hind asymmetry must survive into the mass model.
+    """The fore/hind asymmetry must survive into the mass model.
+
+    ⚠️ **M41 (ADR-0046): it survives in GEOMETRY but no longer in MASS.** The legs
+    have different link lengths and fold the opposite way, so their CoMs differ —
+    that part is unchanged. The mass asymmetry is gone: 0.16716 vs 0.16739 kg,
+    because the joint hardware dominates and it is identical on both ends. The
+    `mass` assertion here has been dropped rather than inverted; a 0.2 g difference
+    is not a fact about feline anatomy.
+    """
     body = _body()
     c = body.center_of_mass(STRAIGHT, STAND)
     fore_local = c.legs["LF"].com - body.hip_world_pose(STRAIGHT, "LF")[:2]
     hind_local = c.legs["LR"].com - body.hip_world_pose(STRAIGHT, "LR")[:2]
     assert not np.allclose(fore_local, hind_local)
-    assert c.legs["LF"].mass < c.legs["LR"].mass
+    assert abs(c.legs["LF"].mass - c.legs["LR"].mass) < 0.001
 
 
 def test_actuation_mass_matches_the_downselected_motor_and_count():
@@ -402,4 +432,4 @@ def test_total_matches_the_revised_NFR5_target():
     # target, and 19 of them do not fit inside 3 kg. See the motor-reality-check
     # note. A domestic cat is 4-5 kg, so the new figure is if anything more
     # biomimetic -- but it was forced by hardware, not chosen.
-    assert _body().mass_budget().total == pytest.approx(4.045, abs=1e-9)
+    assert _body().mass_budget().total == pytest.approx(4.3041, abs=1e-9)

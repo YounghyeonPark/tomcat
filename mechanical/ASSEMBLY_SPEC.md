@@ -154,6 +154,24 @@ as the cable's main drawback). Tendons will need periodic take-up.
 
 ## 6. What is still owed
 
+> ✅ **Partly closed by M36** ([ADR-0041](../docs/DESIGN_DECISIONS.md)):
+> `cad/tomcat_leg_detail.py` is manufacturable geometry for one hind leg — bonded
+> inserts with a modelled glue line, clevis/tongue joints with H7 bearing bores,
+> turned sheaves whose pitch line *is* the tendon moment arm, the §0.1 root idler,
+> the return spring and the tactile pad. It exports STEP/STL and **verifies its own
+> dimensions**, which is how the discrepancies now flagged in LEG_TENDON_SPEC were
+> found. Three things this section assumed did not survive it:
+>
+> - **The 20 mm insert rule does not fit the distal links** — two of them fill 81 %
+>   of a metatarsus. §0.2's own 15 mm / SF > 10 point is used instead.
+> - **The paw phalanx cannot be a bonded tube at all.** Its 25 mm span leaves 10 mm
+>   after joint hardware; two inserts plus a gap need ≥ 14 mm. It is a solid turned
+>   or printed stub, which §1's fabrication table does not list.
+> - **Inserts must be turned hollow.** A solid Ø9.9 × 20 plug is 4.2 g against a
+>   4.8 g femur tube; a bonded joint needs shear area, not a plug.
+>
+> Still owed: shop drawings proper, and the BOM.
+
 - **Shop drawings / a real BOM with part numbers** — this document specifies
   methods and fits, not manufacturable geometry.
 - **Bond coupon test** for the insert (the whole 20 mm engagement rests on an
@@ -161,6 +179,8 @@ as the cable's main drawback). Tendons will need periodic take-up.
 - **CF transverse allowable** — the 150 MPa in §0.2 is the least trustworthy
   number here; it decides whether through-bolting is ever acceptable.
 - **Tolerance stack-up** across a limb — individual fits are specified, but the
-  accumulated effect on foot position is not analysed.
+  accumulated effect on foot position is not analysed. (M36 swept the **ROM** for
+  self-interference — worst non-adjacent clearance **+15.4 mm**, clean — but that
+  is kinematic clearance, not tolerance accumulation.)
 - **Serviceability review**: §4 asserts adjusters must be reachable without
   disassembly; nothing has verified that against the actual housing geometry.

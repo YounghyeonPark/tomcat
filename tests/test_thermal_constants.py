@@ -35,6 +35,9 @@ def live():
         "STAND_W": s["legs_w"] / 12.0,
         "TROT_RUNTIME_MIN": r["trot_minutes"],
         "STAND_RUNTIME_MIN": r["stand_minutes"],
+        # ⚠️ M40: TOTAL_W was a bare const inside two Rust functions, outside this
+        # guard, and it went stale exactly as this file's docstring predicts.
+        "TOTAL_W": g["total_w"],
     }
 
 
@@ -46,7 +49,8 @@ def declared():
 
 
 @pytest.mark.parametrize(
-    "name", ["TROT_W", "STAND_W", "TROT_RUNTIME_MIN", "STAND_RUNTIME_MIN"]
+    "name",
+    ["TROT_W", "STAND_W", "TROT_RUNTIME_MIN", "STAND_RUNTIME_MIN", "TOTAL_W"],
 )
 def test_rust_constants_match_the_python_model(name, live, declared):
     assert name in declared, f"{name} missing from {LIB_RS.name}"

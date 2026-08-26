@@ -1043,6 +1043,12 @@ context, and consequences. Status is one of: **Proposed**, **Accepted**,
     applies them. `floor_mu=None` reproduces every pre-M14 figure.
 
 ## ADR-0021: Power and runtime -- standing costs 76 % of moving, for zero work
+> ⚠️ **Numbers superseded by [ADR-0045](#adr-0045) (M40).** The copper-loss formula
+> was `I^2 R_pp` where balanced three-phase is `1.5x` that. Corrected: copper
+> **42.0 -> 63.1 W**, trot draw **83.6 -> 104.6 W**, efficiency **38.7 -> 29.6 %**,
+> runtime **30.2 -> 24.1 min**, range **~905 -> 723 m**. Standing now costs **87 %**
+> of moving rather than 76 %, so this ADR's brake argument gets *stronger*. Every
+> qualitative finding stands; the magnitudes were low.
 - **Status:** Accepted
 - **Context:** Fifteen milestones established what the robot can *do*. None asked
   how long it could do it for. **NFR6 (runtime) had read `TBD` since M1**, and the
@@ -1157,6 +1163,13 @@ context, and consequences. Status is one of: **Proposed**, **Accepted**,
     6 more run when it is present and skip when it is not.
 
 ## ADR-0023: The battery is the thermal protection -- and that is a coincidence, not a design
+> ⚠️ **Numbers superseded, and one CONCLUSION OVERTURNED, by
+> [ADR-0045](#adr-0045) (M40).** `power.py` computed copper loss as `I^2 R_pp`
+> where balanced three-phase is `3 I^2 R_ph = 1.5x` that, so every temperature here
+> is low. Anodised continuous goes **74.9 -> 96.1 C**, which breaks this ADR's
+> headline that *"anodised, it is safe because its own equilibrium is ~75 C"*.
+> Anodising is worth **more** (59 K, not 39) and is **no longer enough**; forced air
+> becomes required rather than optional. The mechanism arguments all stand.
 - **Status:** Accepted
 - **Context:** [ADR-0021](#adr-0021-power-and-runtime--standing-costs-76--of-moving-for-zero-work)
   checked the motor **electrically** -- 2.79 A peak against a 4.19 A rating, 0.89 A
@@ -1268,6 +1281,11 @@ coupling itself. On dualis 0.2 the pack is a real domain on the same bus, so
   this time rather than through our own model. Reported upstream.
 
 ## ADR-0024: The winding runs 7.7 K above the skin -- the caveat, answered
+> ⚠️ **Superseded by [ADR-0045](#adr-0045) (M40): the gradient is 11.5 K, not
+> 7.7 K**, and the whole stack sits higher -- anodised continuous winding
+> **107.6 C** (was 82.6), polished **166.7 C** (was 121.4). The gradient scales with
+> dissipation and M40 raised it 1.5x. The *finding* -- the finish sets where the
+> stack sits, the joints set the spread -- is unchanged.
 - **Status:** Accepted
 - **Context:** Every temperature in [ADR-0023](#adr-0023) carried the same warning:
 
@@ -2103,6 +2121,1316 @@ coupling itself. On dualis 0.2 the pack is a real domain on the same bus, so
   - ⚠️ Nothing here moves the bound. ADR-0033's viable set (29.8 mm feet-only,
     62.7 mm with the spine) stands, and the honest test of this work remains whether
     it beats the **25.6 mm** the shipped position controller already achieves.
+
+## ADR-0039: Step timing is the fifth degree of freedom to fail -- and the first where the HARNESS is what fails
+
+- **Status:** Accepted. Closes the M34 item [ADR-0038](#adr-0038) opened.
+  **`adapt_timing` is built, gated, and NOT adopted.**
+- **Context:** ADR-0038 built a whole-body force allocation and produced, as a
+  by-product, the quantity every earlier attempt lacked: the distance by which the
+  demanded centre of pressure falls **outside the support segment** a diagonal stance
+  actually has. It named the integration as next -- drive a step from that residual.
+  This is that work.
+- **What was built** (`mjsim.py`):
+  - `cop_residual` -- ADR-0038's residual, read from live contact geometry through
+    `wbc.realisable_cop` rather than predicted.
+  - `plan_stance_time` -- a **closed form**, not a fit. The segment has zero extent
+    across itself, so the perpendicular DCM offset is the part no force allocation can
+    balance; with the CoP pinned on the segment it grows as `e0 exp(omega t)` and the
+    law demands `(1 + k)` times it, giving
+    `T* = ln( tol / ((1 + k) |e0|) ) / omega`. That is ADR-0038's
+    0.5 -> 104.6 -> 591 mm table, in closed form.
+  - `swing_time_floor` -- so a shorter stance has to be one the **leg** can swing
+    through, rather than a free win the simulator hands out.
+  - `run(..., until=<seconds>)` -- a **time**-terminated horizon.
+- ⚠️ **The methodological point, and it had to come first.** Sixteen re-timed stances
+  are less time on the floor than sixteen nominal ones, so a step-count horizon
+  rewards a controller for **stepping faster rather than balancing better**. That is
+  [ADR-0036](#adr-0036)'s horizon error wearing different clothes, and measuring
+  variable timing against a step count would have manufactured the result. Every
+  figure below is at an equal **3.2 s**.
+- **First reading -- it looks like the first success in five attempts:**
+
+  | controller (equal 3.2 s) | 120 deg | 300 deg | T_mean |
+  |---|---|---|---|
+  | axis, fixed timing (shipped) | 28.6 | **25.6** | 0.200 |
+  | + residual timing, tol 5 mm | 28.6 | 28.6 | 0.116 |
+  | + residual timing, tol 10 mm | 33.2 | **31.7** | 0.117 |
+  | + residual timing, tol 20 mm | 34.7 | 31.7 | 0.138 |
+
+  The baseline reproduces ADR-0037's published 28.6 / 25.6 mm exactly, so the harness
+  and the new horizon are sound. Worst direction **25.6 -> 31.7 mm, +24 %**.
+- ⚠️ **Finding 1 -- the trigger is not what produces it.** `T_mean` sits at 0.117 s
+  against a 0.100 s floor, so the planner saturates almost immediately; consistent
+  with that, the tolerance barely moves the answer across a 4x sweep. The control is
+  a **fixed** stance at the same duration, no trigger at all:
+
+  | fixed stance | 120 deg | 300 deg | worst | viable bound | undisturbed drift |
+  |---|---|---|---|---|---|
+  | **0.200 s** (shipped) | 28.6 | 25.6 | **25.6** | 29.8 | **4.99 mm** |
+  | 0.140 s | 37.7 | 39.2 | **37.7** | 36.5 | 5.12 mm |
+  | 0.117 s | 19.6 | 60.3 | **19.6** | 39.5 | **9.34 mm** |
+  | 0.100 s | 37.7 | 40.7 | **37.7** | 41.9 | **9.17 mm** |
+  | residual timing | 33.2 | 31.7 | **31.7** | 39.5 | 9.34 mm |
+
+  **Doing nothing clever beats it: 37.7 mm against 31.7.** The gain is the smaller
+  per-step growth of a faster trot -- `e^(omega T)` falls **4.73 -> 2.48** between
+  0.200 and 0.117 s -- which every controller gets for free. The residual logic
+  contributes nothing on top, and costs 6 mm.
+- ⚠️ **Finding 2 -- and the re-timed numbers are not trustworthy either.** The worst
+  direction reads **25.6 -> 37.7 -> 19.6 -> 37.7 mm** across stance. The mechanism is
+  monotone in stance; the measurement is not. The reason is in the last column: the
+  **undisturbed drift nearly doubles**, from 4.99 mm at the shipped stance to
+  9.3 mm below 0.117 s. M21 set the gate for this project in its own words -- *a
+  harness whose undisturbed drift is the same order as the disturbance it is
+  measuring cannot adjudicate anything* -- and short-stance measurement fails it.
+- **What is NOT claimed.** The 0.140 s row reads 37.7 mm against a 36.5 mm exact
+  viability bound. That looks like an impossibility, and it is not one: seven
+  bisections on a 1.5 m/s bracket resolve to ~1.5 mm, so a 1.2 mm excess is inside
+  one step. Recorded because it would have been an attractive headline.
+- ⚠️ **Finding 3 -- the cost side settles it regardless.**
+  `control.spine_friction_cost` scales as `1/stance^2`:
+
+  | stance | mu demanded, full ROM |
+  |---|---|
+  | 0.200 s (shipped) | **0.71** |
+  | 0.140 s | 1.44 |
+  | 0.117 s | **2.07** |
+
+  mu 2.07 is not a floor. A shorter stance is the **most expensive** currency this
+  robot has for buying balance, in exactly the coin [ADR-0020](#adr-0020) slowed the
+  trot from 67 to 50 cm/s to protect. ([ADR-0035](#adr-0035) doubts that accounting's
+  magnitude by ~7x, so this overstates the level -- not the direction.) Foot speed,
+  the constraint one would expect to bind, does **not**: the swing needs 1.20 m/s
+  mean against 4.10 m/s spare, which is why `swing_time_floor` is in the planner and
+  is never the binding clamp.
+- **Decision: do not adopt. `adapt_timing` defaults to False**, alongside
+  `placement_mode="projected"` and `realise_lambda`, so the finding stays
+  reproducible rather than becoming folklore.
+- **Consequences:**
+  - Five degrees of freedom have now been added to this controller and five have
+    failed: reactive spine, planned spine, reactive CoP, load split `lam`, and step
+    timing. ⚠️ **But the fifth failed differently.** The first four were measured
+    cleanly and were genuinely worse. This one **cannot be measured** in the harness
+    as built -- which makes "the architecture is the limit"
+    ([ADR-0032](#adr-0032)) an unsafe thing to keep repeating.
+  - ⚠️ **The next honest step is the harness, not the controller.** Its noise floor
+    is a function of the gait parameters, and nothing in M21-M34 checked that. Until
+    it is flat across stance, no re-timed gait can be evaluated at all.
+  - `run(until=...)` is now the correct way to measure anything with variable timing,
+    and the step-count form should be treated as valid only at a fixed stance.
+  - Gated by `test_the_noise_floor_doubles_at_a_short_stance`, which is deliberately
+    written to **fail if the harness improves** -- at which point M34 should be re-run
+    rather than trusted.
+  - ⚠️ Nothing here moves ADR-0033's bound. NFR15 remains achievable (62.7 mm) and
+    undemonstrated (25.6 mm), and the shipped controller is unchanged.
+
+## ADR-0040: The harness measures SURVIVAL, not recovery -- and the bound it was checked against measures recovery
+
+- **Status:** Accepted. **Corrects the interpretation of every simulation envelope
+  from [ADR-0026](#adr-0026) (M21) through [ADR-0039](#adr-0039) (M34).** The figures
+  are not withdrawn; what they *mean* is.
+- **Context:** ADR-0039 set M35 as an instrument milestone: the undisturbed drift
+  doubles at short stances, so flatten it before evaluating any re-timed gait. That
+  work succeeded and then found something larger on the way out.
+- **Finding 1 -- the floor is loop gain, not plant.** Disabling the placement
+  correction entirely and re-running says the plant is not what degrades. Sweeping
+  the gain says what does:
+
+  | stance | deadbeat | x0.5 | x0.75 | x1.0 | x1.25 |
+  |---|---|---|---|---|---|
+  | 0.200 s | 1.268 | 3.53 | 3.70 | **4.99** | 5.00 |
+  | 0.117 s | 1.675 | **3.96** | 7.38 | **9.34** | 14.03 |
+
+  A deadbeat law has no phase margin to spare -- it asks for the whole correction in
+  one step, so any lag beyond the one step it models is uncompensated. The lag is
+  fixed (7.5 ms pipeline plus the `kp = 80` servo); the stance is not. As the stance
+  shortens the lag grows as a **fraction** of it and the loop chatters.
+- **Finding 2 -- and the shipped controller is over-geared at its own stance.** A
+  constant `placement_gain = 0.5` flattens the floor across 0.100-0.200 s *and*
+  improves the nominal stance, **4.99 -> 3.53 mm**. So M35's stated goal was
+  reachable.
+- ⚠️ **Finding 3 -- but flattening it produced an impossibility, and that is the
+  milestone.** Detuned at a 0.117 s stance the harness certifies **42.2 mm against a
+  39.5 mm exact viable bound** -- 6.8 % over, well outside the ~1.5 mm bisection
+  resolution. No controller beats the viable set, so the **measurement** is wrong.
+- ⚠️ **The cause is the success criterion, and it is not new.** `run` passes a trial
+  when the CoM never drops below 0.11 m inside the horizon: **did not fall**.
+  `viable.py` computes what the robot can **recover** from. Those are different
+  quantities and this project has been comparing them to each other since M21 --
+  including in the `measured <= bound * 1.02` consistency check, which held only
+  because at the shipped configuration the two happen not to cross.
+
+  Probed at its own certified envelope, every configuration but one is still
+  displaced when the horizon ends:
+
+  | configuration | kick | settled DCM | own floor | ratio |
+  |---|---|---|---|---|
+  | **shipped**, 300 deg | 25.6 mm | **26.2 mm** | 3.92 mm | **6.7x** |
+  | **shipped**, 120 deg | 28.6 mm | **83.6 mm** | 3.92 mm | 21.3x |
+  | detuned nominal | 15.1 mm | 51.1 mm | 3.13 mm | 16.3x |
+  | 0.140 s, shipped gain | 37.7 mm | 11.1 mm | 4.51 mm | 2.5x |
+  | 0.117 s, detuned | 42.2 mm | 5.3 mm | 3.79 mm | **1.4x -- a real recovery** |
+
+  **The shipped controller ends its certified 25.6 mm trial 26.2 mm off its
+  support.** It did not recover; it did not fall.
+- **Finding 4 -- re-measured on a like-for-like basis, the envelope collapses.**
+  `measure_envelope(recover=True)` requires the trial to return to within 2x the
+  configuration's **own** undisturbed drift:
+
+  | configuration | survival | **recovery** | bound |
+  |---|---|---|---|
+  | shipped (0.200, gain 1.0) | 25.6 | **1.5** | 29.8 |
+  | detuned (0.200, gain 0.5) | 15.1 | 3.0 | 29.8 |
+  | 0.140 s, shipped gain | 37.7 | 0.0 | 36.5 |
+  | 0.117 s, detuned | 42.2 | **42.2** | 39.5 |
+
+  1.5 mm is **one bisection quantum** -- effectively zero.
+- **The mechanism is steady-state error.** The placement law arrests a topple but
+  carries no term that removes a *persistent* DCM offset, so it settles into a biased
+  limit cycle. That is precisely the failure this project already documents for
+  at-DCM placement -- *"stable, and walking away sideways"* ([ADR-0013](#adr-0013)) --
+  and the shipped deadbeat law has it too, smaller and therefore unnoticed.
+- ⚠️ **Consequence for the headline claim.** ADR-0037's *"the controller is at 86 % of
+  optimal"* and ADR-0033's *"97 %"* compare a **survival** measurement against a
+  **recovery** bound. On a like-for-like basis the shipped controller is nowhere near
+  the bound. **The four-DOF indictment of ADR-0032 also weakens**: those DOFs were
+  compared to each other on the survival criterion, which is self-consistent, but
+  "only foot placement delivers" was never tested against recovery at all.
+- ⚠️ **An open contradiction, recorded rather than resolved.** The 0.117 s detuned
+  configuration recovers -- genuinely, 1.4x its floor -- from **42.2 mm against a
+  39.5 mm feet-only bound**. Under the recovery criterion those are now the same
+  quantity, so one is wrong. Candidates: the bound reuses the nominal plant's `reach`
+  at a stance where the real reach differs; or the LIPM basis fails there.
+  [ADR-0022](#adr-0022) put LIPM/MuJoCo agreement at ~2 %, and this is 6.8 %.
+  **This is M36 and it is the highest-value item in the arc**, because whichever way
+  it resolves, something load-bearing is wrong.
+- **Consequences:**
+  - `measure_envelope(harness, angle, recover=...)` and `undisturbed_drift` ship in
+    `mjsim`. `recover=False` reproduces the historical criterion, so every published
+    figure stays reproducible; `recover=True` is what should be compared to
+    `viable.py`.
+  - `placement_gain` ships, default **1.0 -- the shipped controller is unchanged.**
+    Detuning is not adopted: it flattens the floor but costs survival envelope at the
+    nominal stance (25.6 -> 15.1 mm), and M35 is not the milestone to trade that on.
+  - ⚠️ **Nothing here is a reason to trust the reduced-order model less.** `control.py`
+    maps `placement_gain = 0.5` to `beta > 1` and predicts a **zero** envelope for it;
+    the sim recovers from 42.2 mm at that gain. That disagreement is part of the M36
+    contradiction, not a separate one.
+  - Gated by `test_the_envelope_measures_SURVIVAL_not_recovery`, written to **fail
+    once the controller gains integral action** -- at which point re-measure.
+  - ⚠️ NFR15 is unchanged in requirement and worse in status: **not demonstrated**
+    now means not demonstrated by a wider margin than recorded.
+
+## ADR-0041: Drawn as real parts, the leg does not close -- and the spec has contradicted itself since ADR-0010
+
+- **Status:** Accepted. First **manufacturing-level** geometry in the project;
+  partly closes the ASSEMBLY_SPEC §6 debt. **Three spec sections corrected, one
+  requirement at risk.**
+- **Context:** `tomcat_skeleton.py` says of itself *"still a SKELETAL model, not a
+  manufacturing model -- no fasteners, bearings, tolerances or fabrication
+  features"*, and ASSEMBLY_SPEC §6 owed *"shop drawings / manufacturable
+  geometry"*. Thirty-five milestones of modelling had not produced a part anyone
+  could make. `cad/tomcat_leg_detail.py` is one hind leg drawn as parts: bonded
+  inserts with a modelled glue line, clevis/tongue joints with H7 bearing bores and
+  h6 shafts, turned sheaves whose groove pitch line **is** the tendon moment arm,
+  the §0.1 root idler, the ankle return spring, the tactile pad. It exports
+  STEP/STL and, more usefully, **checks its own dimensions**.
+- ⚠️ **Finding 1 -- LEG_TENDON_SPEC §1.1 has been stale since ADR-0010, and it is
+  the table that sizes the bones.**
+
+  | | §1.1 as written | live `torque_budget` at 4.045 kg |
+  |---|---|---|
+  | hip land | 12.36 N.m | **16.67 N.m** |
+  | stifle land | 7.49 N.m | **10.23 N.m** |
+  | hock land | 4.79 N.m | **6.46 N.m** |
+  | hip tension | ~447 N | **600 N** |
+
+  The ratio is exactly the ADR-0010 mass increase, **4.045 / 3.0 = 1.35**. §2 *was*
+  re-run -- it says "~600 N at the hip land transient", which is 16.67 / 0.028 --
+  so the document has contradicted itself for ten milestones. §1.3, §1.3a, §3.5 and
+  ASSEMBLY_SPEC §0.1 all derive from §1.1 and inherit the error.
+- ⚠️ **Finding 2 -- so the link sizing is not what it claims.** §3.5 chose
+  Ø12/Ø10/Ø8 x 1.0 to equalise the safety factor at **2.84 / 3.10 / 2.87**.
+  Re-derived from the live torques *and* the torsion the sheave's real lateral
+  offset imposes (12.2 / 12.2 / 9.2 mm, which the 3D layout produces rather than
+  assumes), the same sections give **1.97 / 2.08 / 1.84** -- the femur and
+  metatarsus below the **SF 2 floor** §0.1's argument explicitly rested on.
+- **The remedy is nearly free, which is the useful part.** Bending strength goes as
+  the *cube* of diameter, tube mass only as the first power: **Ø12→Ø14, Ø10→Ø12,
+  Ø8→Ø10** restores **SF 2.78 / 3.16 / 3.11** for **under 4 g** on the whole leg.
+- ⚠️ **Finding 3 -- the moment-arm trade closes SHUT.** §1.2 grew the arms to cut
+  cable tension and §1.3a priced only the *ankle's inertia*, from a 6 g-at-14 mm
+  estimate scaling as `r^2`. Turned as real parts the three sheaves are **41 g of a
+  110 g leg** -- so there is now a reason to want them smaller, and no room:
+
+  | arm scale | sheave set | T land | T trot | trot / motor peak |
+  |---|---|---|---|---|
+  | **1.00** (shipped) | **41.3 g** | 615 N | 198 N | **81 %** |
+  | 0.85 | 32.9 g | 720 N | 230 N | **101 %** |
+  | 0.70 | 25.4 g | 870 N | 275 N | 133 % |
+
+  81 % agrees with §2's independently derived "0.82x peak", which is what makes the
+  model credible. **The arms are pinned by the actuator**, so the sheave mass cannot
+  be traded away.
+- ⚠️ **Finding 4 -- and therefore the leg does not close. NFR5 is at risk.** Drawn
+  as parts the leg is **~160 g against `DEFAULT_LEG.link_mass`'s 110 g (146 %)**.
+  Bearings (48 g), sheaves (41 g) and clevises (41 g) are **82 %** of it and none is
+  negotiable -- the arms by the motor peak above, the bearings by ASSEMBLY_SPEC §2's
+  static C0 >= 1.5 kN, the clevises because they carry the bores. **+50 g x 4 legs =
+  +200 g on a 4.045 kg body, so NFR5's 4.05 kg breaks by ~5 %** -- and a heavier
+  body raises every torque, which is exactly the ADR-0010 spiral.
+- **Finding 5 -- two fabrication rules did not survive contact with the geometry.**
+  The **20 mm bonded-insert rule** fills 81 % of a metatarsus with aluminium (§0.2's
+  own 15 mm / SF > 10 point is used instead), and the **paw phalanx cannot be a
+  bonded tube at all** -- 25 mm of span leaves 10 mm after joint hardware where two
+  inserts plus a gap need >= 14 mm, so it is a solid turned or printed stub, a
+  fabrication method §1's table does not list. Inserts must also be turned
+  **hollow**: a solid Ø9.9 x 20 plug is 4.2 g against a 4.8 g femur tube.
+- **What passed.** The full **ROM sweep is clean** -- worst non-adjacent link
+  clearance **+15.4 mm**, so the joint ranges need no mechanical hard stop for
+  self-interference. Bond gaps land in §2's 0.05-0.15 mm window by construction,
+  every shaft is >= 4 mm, and the sheave pitch radii **are** the moment arms the
+  kinematics model uses, so the CAD cannot drift from the torque budget.
+- ⚠️ **Two of this pass's own findings were its own errors, corrected here rather
+  than shipped:** the first layout seated the joint bearings *inside* the clevis gap
+  instead of in the arm bores, widening every joint by 2x a bearing width and
+  pushing the sheave 6 mm further outboard; and the trade table first compared the
+  **land** transient to the motor peak, reading 162 %, which is precisely the
+  conflation ADR-0008 exists to prevent (the x2.5 single-leg landing is outside the
+  actuator envelope and sizes cable, pulley and bearing only).
+- **Decision: adopt the geometry, correct the specs, and escalate the mass.** The
+  section increase and the fabrication changes are cheap and are taken. **The 50 g
+  leg overrun is not a CAD problem and is not fixed here** -- it is a budget
+  decision that belongs with the whole-body mass model.
+- **Consequences:**
+  - `mechanical/cad/tomcat_leg_detail.py` ships with STEP/STL and a self-check;
+    `tests/test_leg_detail.py` gates all nine findings. **Several assert the
+    defect**, so they fail when the spec text is fixed -- that failure is the
+    signal to update the spec, not to relax the test.
+  - LEG_TENDON_SPEC §1.1 / §1.2 / §3.1 / §3.5 and ASSEMBLY_SPEC §6 carry
+    correction banners rather than edited-away numbers.
+  - ⚠️ **NFR5 (4.05 kg) is flagged at risk**, pending a whole-body re-run with the
+    real leg hardware mass. Every mass-derived result -- the torque budget, the
+    thermal duty, the runtime -- sits downstream of it.
+  - ⚠️ **A Ø60 hip sheave is a packaging question this file cannot answer.** It
+    excludes the sheaves from its interference sweep because they sit laterally
+    offboard of the bone plane by construction; what they may foul is the
+    **girdle**, and that belongs to the packaging study.
+  - The next mechanical step is the **BOM with real part numbers**, which is now
+    the only thing between this and a quotable leg.
+
+## ADR-0042: The tendon drive, routed -- and the tendon map is COUPLED where the model says it is diagonal
+
+- **Status:** Accepted. **Corrects `TendonMap.cable_lengths`, LEG_TENDON_SPEC §1.4
+  and §3.4, and a minimum-bend violation shipped by M36.**
+- **Context:** [ADR-0041](#adr-0041) drew the leg as manufacturable parts -- sheaves,
+  clevises, bearings, bonded inserts -- and **did not draw a tendon.** No cable, no
+  spool, no anchor, no antagonistic pairing. Design principle **P1** is the premise
+  of the whole robot and it was the one thing the manufacturing model omitted; what
+  M36 produced was a linkage with pulleys bolted to it. `tendon_route.py` +
+  `leg_tendons.py` are the routing, solved rather than sketched: five cable runs and
+  three girdle motors per leg (ADR-0002/ADR-0008), each tendon a **belt problem**
+  over signed-radius common tangents and arcs.
+- ⚠️ **THE FINDING -- via-pulleys couple the joints, and the model's map is
+  diagonal.** A distal tendon has to get past the proximal joints. The standard fix
+  is a via-pulley **concentric with the proximal axis**: the centre distance to the
+  next joint is then the link length, which does not change when the proximal joint
+  rotates, so the *tangent* term is invariant. It does not kill the *arc* term -- the
+  **wrap** on the via-pulley changes with the proximal angle, and an arc on a pulley
+  of radius `r_via` contributes exactly `r_via` per radian.
+
+  Measured off the routed geometry by central differences, `d(cable)/d(joint)` in
+  mm/rad:
+
+  | | hip joint | knee joint | ankle joint |
+  |---|---|---|---|
+  | **hip tendon** | **28.00** | 0 | 0 |
+  | **knee tendon** | **8.75** | **25.00** | 0 |
+  | **ankle tendon** | **-8.75** | **-8.75** | **14.00** |
+
+  The diagonal is exact -- the sheaves deliver the moment arms the torque budget
+  assumes, because the cable leaves each sheave tangentially. **The off-diagonals
+  are exactly the via-pulley radius.** As a fraction of each tendon's own arm:
+  **35 %** for the knee, and **62.5 % twice** for the ankle.
+  `TendonMap.cable_lengths` is `delta = r * q` -- a diagonal map -- so none of it is
+  modelled.
+- ⚠️ **And it cannot be designed away.** 8.75 mm is not a sizing choice: it is the
+  cable's own minimum bend radius, 10 x Ø1.75 (§2) -- the same rule that forced the
+  spool from 8.0 to 8.75 mm. A smaller via-pulley would fatigue the UHMWPE. The
+  coupling is a property of routing a tendon past a joint at all, and the honest
+  options are to **model it** (the map becomes lower-triangular) or to accept a
+  standing disturbance of the size above.
+- **Consequence 1 -- torque resolution.** `tau = -J^T T`, and with `J`
+  lower-triangular `J^T` is upper-triangular: the knee and ankle tendon tensions
+  both produce **hip** torque. At the land-case peaks (600 / 414 / 467 N) that term
+  is `8.75 x (414 + 467) = 7.7 N.m` against the hip's own 16.67 -- a **~46 %
+  perturbation**, helping or opposing depending on the routing senses. `resolve()`
+  puts it at zero.
+- **Consequence 2 -- §1.4's spool travel is wrong for two of three joints.** It
+  sized travel as `r x ROM` per joint, giving 117 / 65 / 44 mm and calling the hip
+  the sizing case. With coupling the worst-case travels are **117 / 102 / 104 mm**:
+  the knee understated by 56 %, the ankle by 135 %, and the ankle's parasitic travel
+  (59.6 mm) larger than its own (44.0 mm). The hip *does* remain the sizing case --
+  but §1.4 implies the three spools differ by 2.7x and they differ by 13 %.
+- **Consequence 3 -- §3.4 over-estimates the capstan penalty.** It worked the ankle
+  path out at **1.87x** from assumed wraps summing to 360 deg. Solved, the wraps sum
+  to ~108 deg and the penalty is **~1.21x**. The routing is *better* than the spec
+  feared, and the motor-side tension margin it was inflating can come back. Run
+  lengths land within ~35 % of §3.3's estimates (135 / 192 / 270 against
+  100 / 220 / 300).
+- ⚠️ **Consequence 4 -- two params are still the superseded values.**
+  `motor_spool_radius` is **0.008** where §2 requires **0.00875**, so every motor
+  angle and motor torque the model computes is off by 9 %. And `cable_diameter`,
+  `cable_break_strength`, `cable_stiffness` -- proposed in §5.2 -- were never added
+  to `TendonParams` at all.
+- **A minimum-bend violation M36 shipped, found and fixed.** `idler()` was
+  `pitch_r = 5.0` (Ø10) against the cable's Ø17.5 minimum -- **43 % under**, and it
+  would fatigue the cable at the one station that sees full tension on every step.
+- **What this makes concrete about P1.** Drawn as parts, the three leg motors are
+  **395 g and sit in the girdle**; the tendon that carries their 600 N into the limb
+  is **3.3 g of UHMWPE**. That ratio is the entire argument for tendon drive, and it
+  is now a measured number in the model rather than a claim in a trade study.
+- ⚠️ **Four of this pass's own errors, corrected rather than shipped:**
+  - the common-tangent **sign** (`n.(c2-c1) = R1-R2`, not `R2-R1`) -- the crossed
+    belt read 105.83 mm where the closed form is 97.98;
+  - leaving every wrap **sense** at `+1`, which sent cables the long way round:
+    **339 deg** of wrap on a redirect pulley and a capstan of **3.07x**, read as a
+    physics result when it was a routing mistake;
+  - letting the minimum-wrap search re-run **inside** the finite difference, so it
+    straddled a discontinuity and the ankle row read **678 mm/rad**;
+  - a mass **double-count** (tendons weighed as both steel spring and UHMWPE), and a
+    claim that the ankle overtakes the hip as the spool sizing case, which its own
+    test refuted -- 103.5 against 117.3 mm.
+- **Decision: adopt the routing; correct the specs; do NOT silently change
+  `TendonMap`.** Making the map lower-triangular changes every tension, torque and
+  motor angle in the project, so it is a milestone with a re-run attached, not an
+  edit.
+- **Consequences:**
+  - `mechanical/cad/tendon_route.py` (the belt solver, closed-form verified) and
+    `leg_tendons.py` (this leg's five runs) ship; the cables, spools, motors and
+    anchor pins are in `tomcat_leg_detail.py`'s STEP.
+  - `tests/test_tendon_route.py` gates twelve findings. **Several assert the
+    defect** -- the diagonal map, the 0.008 spool -- so they fail when the fix
+    lands, which is the signal to re-run the budget.
+  - LEG_TENDON_SPEC §1.4 / §3.4 / §5.2 carry correction banners.
+  - ⚠️ **The next mechanical step is unchanged and now better justified:** re-run the
+    whole-body budget. It needs ADR-0041's 160 g leg *and* this coupling, and both
+    move tension.
+
+## ADR-0043: The mass spiral closes at 4.30 kg -- NFR5 breaks, nothing else does, and the tendon drive gives back 62 % of its own inertia argument
+
+- **Status:** Accepted. **NFR5 must move 4.05 -> 4.31 kg.** Closes the M38 item
+  [ADR-0041](#adr-0041) and [ADR-0042](#adr-0042) both pointed at.
+- **Context:** ADR-0041 measured 167 g of hind-leg hardware against
+  `LegParams.link_mass`'s 110 g; ADR-0042 measured a tendon map that is coupled
+  where the model is diagonal. `total_mass = trunk_mass + sum(leg masses)`, so the
+  first propagates straight into body mass, and body mass drives every foot support
+  force, joint torque and cable tension. ADR-0010 warned this spiral converges
+  **only because the chosen motor has headroom.** This is the spiral, re-run with
+  measured inputs.
+- **Finding 1 -- it closes, and NFR5 is what breaks.**
+
+  | | measured | params | ratio |
+  |---|---|---|---|
+  | hind leg | **167.2 g** | 110.0 g | 1.52x |
+  | fore leg | **167.4 g** | 95.0 g | 1.76x |
+  | trunk (incl. 19 motors) | 3635 g | 3635 g | — |
+  | **BODY** | **4.304 kg** | 4.045 kg | **1.064x** |
+
+  **NFR5's 4.05 kg is exceeded by 6.3 %.** A domestic cat is 4-5 kg, so the target
+  is not physically wrong -- it is simply no longer the number.
+- **Finding 2 -- ADR-0010's argument holds: every design gate still passes.**
+
+  | gate | at 4.304 kg | limit | |
+  |---|---|---|---|
+  | motor peak, **trot** (the actuator case) | 1.56 N.m | 1.95 | **80 %** |
+  | cable SF on the land transient | 4.70 | >= 4.0 | pass |
+  | bearing static C0 needed (2xT) | 1277 N | <= 1500 | pass |
+
+  The overrun costs **margin, not viability** -- which is precisely the headroom
+  ADR-0010 said the spiral depends on, being spent.
+- ⚠️ **Finding 3 -- the joint hardware gives back 62 % of the P1 inertia saving.**
+  Leg swing inertia about the hip rises **+61.7 %**, because the hardware is
+  distributed *along* the limb rather than centralised:
+
+  | mass share, proximal -> distal | femur | tibia | meta | paw |
+  |---|---|---|---|---|
+  | params (assumed) | 47.3 | 30.0 | 15.5 | 7.3 |
+  | **measured** | **39.5** | **35.3** | **20.7** | 4.5 |
+
+  `link_mass` justifies its distribution as *"proximal-heavy because both feline
+  anatomy and the ADR-0003 tendon drive push mass toward the body"*. **The tendon
+  drive pushes the MOTORS toward the body. It does not push the PULLEYS there.**
+  The metatarsus more than doubles. ADR-0003 accepted the entire cable-tension
+  burden to buy low limb inertia, and the sheaves take most of it back.
+- **Finding 4 -- and it does NOT cascade, for a reason already in the record.** The
+  balance envelope moves only **52.7 -> 51.9 mm (-1.6 %)**, actuation 40.8 ->
+  42.6 ms, and NFR15's 48 mm still clears. The swing is **speed**-limited, not
+  acceleration-limited -- exactly what
+  `test_the_ramp_barely_moves_the_envelope` established in M12. So the +62 %
+  inertia is real and its downstream cost is small.
+  ⚠️ The inertia ratio is a first-order proxy: the real term is
+  `Lambda = (J M^-1 J^T)^-1` minimised over foot-acceleration directions, which
+  needs per-link inertia tensors the model does not carry.
+- **Finding 5 -- the fore/hind leg asymmetry essentially disappears.** `params.py`
+  carries 95 g fore against 110 g hind, an assumed **1.16x**. Measured, both are
+  ~167 g (**1.00x**): the joint hardware dominates and it is the *same* hardware on
+  both, so the shorter fore links barely register. Design review **F2** settled the
+  fore/hind weight split using that assumed asymmetry.
+- **Finding 6 -- ADR-0042's coupling, priced.** With `J` lower-triangular, `J^T` is
+  upper-triangular and the distal tendons load the proximal joints:
+
+  | tendon | diagonal model | **coupled** | delta |
+  |---|---|---|---|
+  | hip | 633 N | 597 N | -5.7 % |
+  | **knee** | 435 N | **607 N** | **+39.5 %** |
+  | ankle | 491 N | 491 N | 0 |
+
+  Cable SF on the worst coupled tension is **4.94**, so §2's target of 4 still
+  clears. Again: margin, not viability.
+- ✅ **Finding 7 -- and the wrap senses are a LOAD lever, which is free margin.**
+  The off-diagonal *signs* come from the wrap senses, and `leg_tendons.route`
+  currently picks them for minimum **wrap**. Picking them for minimum **load**
+  instead moves the worst tension **607 -> 562 N**, i.e. cable SF **4.94 -> 5.34**.
+  Eight per cent of margin for a routing decision that costs nothing. **The routing
+  objective should be load, or a trade against wrap -- not wrap alone.**
+- **Decision: raise NFR5 to 4.31 kg and re-publish downstream, adopt the measured
+  link masses, and re-target the routing objective.** The three design gates
+  passing is what makes this a bookkeeping update rather than a redesign.
+- **Consequences:**
+  - **NFR5: 4.05 -> 4.31 kg.** ⚠️ Everything mass-derived must be re-run:
+    ADR-0021's power and runtime (83.6 W, ~30 min), ADR-0023/0024's thermal duty,
+    the whole-body budget's spine torques, and every envelope figure whose plant
+    carries `body.total_mass`.
+  - `LegParams.link_mass` should become the measured per-link tuple, and the
+    "proximal-heavy" rationale in its docstring is **wrong as written** -- it
+    describes where the motors go, not where the pulleys go.
+  - `LegParams` fore/hind asymmetry is now ~1.0, and **F2's split needs re-checking**.
+  - ⚠️ **`TendonMap.cable_lengths` and `resolve` still need the coupled map.** This
+    ADR prices the consequence; it does not fold it in, because doing so moves every
+    tension in the project and belongs with the re-publish above.
+  - Gated by `tests/test_mass_closure.py`. **Several tests assert the defect** --
+    NFR5 exceeded, the diagonal map -- so they fail when the fix lands, which is the
+    signal to re-run rather than to relax them.
+  - ⚠️ Nothing here is measured hardware. It is a manufacturing model of assumed
+    stock, assumed catalogue bearing masses and an assumed CF density. **R1 -- buy
+    one motor and weigh it -- is still the cheapest way to find out whether any of
+    this is real**, and it is still open.
+
+## ADR-0044: The motor holds on spec -- NFR6's runtime does not, and the vendor's own numbers disagree by 27 %
+
+- **Status:** Accepted. **NFR6 must be re-stated. The GIM3505-9 stays selected.**
+  Full working in [motor-spec-review](notes/motor-spec-review.md).
+- **Context:** ADR-0043 closed the body at 4.304 kg and flagged everything
+  mass-derived as needing a re-run. The actuator is the first of those, and it can
+  be reviewed **on spec** without waiting on OPEN_RISKS R1 (*buy one and weigh
+  it*), which remains open and remains the cheapest high-leverage action available.
+- ⚠️ **Finding 1 -- the vendor publishes three mutually inconsistent numbers.**
+
+  | reading of the same motor | Kt (N.m/A) |
+  |---|---|
+  | rated pair, 0.71 N.m / 1.60 A | **0.444** |
+  | peak pair, 1.95 N.m / 4.19 A | **0.465** |
+  | vendor quoted | **0.350** |
+
+  [motor-downselect](notes/motor-downselect.md) took 0.44 from the current pairs
+  and dismissed the quoted 0.35 as *"a different reference point"*. The two pairs
+  agree with each other to 5 %, so that is defensible -- **but it is the optimistic
+  branch and nothing had swept it.** Current is `tau/Kt` and copper loss is `I^2 R`,
+  so the 27 % spread is worth **1.61x of dissipation**, and ADR-0021's runtime plus
+  ADR-0023/0024's thermal duty both ride on `power.KT`.
+- **Finding 2 -- torque holds, with less headroom than the record says.** At
+  4.304 kg and the **8.75 mm** spool LEG_TENDON_SPEC §2 requires, the trot
+  workspace peak is **1.706 N.m = 88 % of peak**. `motor-reality-check` records
+  *"1.3x peak headroom"* -- 77 % -- at the old mass and the 8.0 mm spool. **The
+  spool change alone costs 8 points**, and buys the same 9.4 % of foot speed: a
+  trade nobody had priced.
+- ✅ **Finding 3 -- the thermal duty is comfortable, and this answers the sharpest
+  open item in the actuator story.** ⚠️ It also corrects how I first read it: a
+  workspace peak is **not** a duty cycle. `torque_budget` returns the worst pose in
+  the reachable workspace, which sizes structure, not temperature. Integrated over
+  the trajectory actually walked:
+
+  | Kt | RMS current | vs the 1.60 A continuous rating |
+  |---|---|---|
+  | 0.44 | 1.03 A | **0.64x** |
+  | 0.35 | 1.30 A | **0.81x** |
+
+  Both branches sit inside the rating. `motor-reality-check §5` left *"thermal test
+  at the trot duty -- the sharpest open risk in the whole actuator story"* as owed;
+  on spec, it passes. ⚠️ On the pessimistic branch *peak* current is **0.98x** the
+  4.19 A rating -- no margin, and that is a driver note as much as a motor one.
+- ⚠️ **Finding 1a -- the rotor-side reading is RULED OUT.** The obvious hypothesis
+  is that 0.35 N.m/A is quoted before the 9:1 planetary. Then the output constant
+  would be 3.15 N.m/A and rated 0.71 N.m would draw **0.225 A** against the 1.60 A
+  published -- **7.1x off, in the wrong direction.** It makes the discrepancy seven
+  times worse rather than explaining it.
+- **Finding 1b -- what fits is a drive/current CONVENTION, and then both numbers are
+  right.** The ratio to explain is `0.444/0.350 = 1.2679`, and **4/pi = 1.2732** --
+  the square-wave fundamental, six-step against sinusoidal -- lands within **0.4 %**
+  (pi/sqrt(6) +1.2 %, sqrt(3/2) -3.4 %). ⚠️ Fitting one ratio against a list of
+  constants is **weak evidence** and could be coincidence; what it buys is a sharper
+  question for the vendor: *are the 1.60/4.19 A ratings six-step or sinusoidal, and
+  is the 0.35 peak-phase or RMS?* Under a convention difference nothing on the sheet
+  is wrong, and only the driver's current-sense definition decides which Kt to use.
+- ⚠️ **Finding 1c -- a FIRMER factor, found while digging, in the same direction.**
+  Copper loss is `sum I_ph,rms^2 R_ph`; balanced three-phase with a wye winding's
+  terminal `R_pp = 2 R_ph`, that is `3 I^2 R_ph = **1.5 x I^2 R_pp**`. `power.py`
+  computes `I^2 R_pp` -- **1.5x low** for whatever current it is handed. Its own
+  docstring flags the simplification and **nothing had ever priced it.** This half
+  needs no vendor and no purchase: it is arithmetic.
+  ⚠️ The two are **entangled, not independent** -- whether `power.py`'s current *is*
+  the RMS phase current depends on the same ambiguity as 1b -- so they bracket
+  rather than multiply cleanly.
+- ⚠️ **Finding 4 -- NFR6 is what breaks, and by more than my first pass said.**
+
+  | basis | copper | total | runtime |
+  |---|---|---|---|
+  | published (4.045 kg, 8.0 mm, Kt 0.44) | 42.0 W | 83.6 W | **30.2 min** |
+  | at 4.304 kg + the 8.75 mm spool | 56.9 W | 100.2 W | 25.2 min |
+  | **+ the x1.5 three-phase correction** | 85.4 W | 128.6 W | **19.6 min** |
+  | on the vendor's Kt, as modelled | 90.0 W | 133.2 W | 18.9 min |
+  | **on the vendor's Kt, x1.5** | 135.0 W | 178.2 W | **14.1 min** |
+
+  **The honest bracket is 14-20 min**, the two rows carrying Finding 1c, since that
+  correction applies under either Kt reading. ⚠️ This ADR first published **19-25
+  min** by leaving the copper-loss formula uncorrected.
+- ⚠️ **Finding 5 -- the robot is 58 % motor by mass.** 19 x 131.7 g = **2.502 kg of
+  4.304 kg**, leaving 1.802 kg for spine, girdles, ribcage, the 300 g battery, 19
+  drivers + controller + SBC, head/neck and tail. **ADR-0008's amendment quotes
+  45.6 %**, which is 19 x 72 g of a 3.0 kg body -- a class target that does not
+  exist, at a superseded mass. Both halves of that figure are stale.
+- **Finding 6 -- speed is not a constraint anywhere.** 380 rpm through the ratios
+  gives a **7.8-8.5 m/s** foot ceiling; `control.py` quotes 5.93 m/s on a safer
+  convention and NFR14 needs 4.1 m/s of spare.
+- ⚠️ **Finding 7 -- the down-select, re-run, loses a candidate.** The original sized
+  to 1.10 N.m at 3.0 kg; it is now 1.71 N.m at 4.30 kg, and each candidate's own
+  mass feeds back into the body it lifts:
+
+  | part | peak | mass | body it makes | needs | verdict |
+  |---|---|---|---|---|---|
+  | GIM3505-8 | 1.27 | 120 g | 4.082 kg | 1.618 | ❌ **over peak** |
+  | **GIM3505-9** | 1.95 | 131.7 g | 4.304 kg | 1.706 | ✅ 88 % |
+  | GIM4305-10 | 3.00 | 140 g | 4.462 kg | 1.769 | ✅ 59 % |
+
+  `motor-reality-check §2` lists the GIM3505-8 as *"meets 1.10 N.m"*. **The mass
+  growth removed it.** GIM4305-10 is the escape hatch -- 59 % of peak for +158 g --
+  but it is **Ø53 against Ø34.5, 54 % wider**, and the girdles were packaged around
+  Ø34.5x36.1. That is a repackage, not a part swap.
+- **Decision: keep the GIM3505-9, and re-state NFR6 as a range.** 88 % of peak on a
+  workspace worst-pose, with the thermal duty at 0.64-0.81x of the continuous
+  rating, is an acceptable place to be. Price the GIM4305-10 only if the girdle has
+  to be repackaged for another reason.
+- **Consequences:**
+  - **NFR6: "~30 min / ~900 m" -> "14-20 min / 420-600 m"**, the spread being the
+    Finding 1b convention question. The 17 % from mass and spool and the x1.5 from
+    Finding 1c are **corrections, not uncertainty**.
+  - ⚠️ **`power.py`'s copper-loss formula should be the rigorous three-phase form.**
+    It is arithmetic, it needs nothing bought or asked, and it moves ADR-0021's
+    runtime *and* ADR-0023/0024's thermal duty.
+  - **ADR-0008's "45.6 % of body" -> 58.1 %**, and the sentence should say which
+    mass and which motor.
+  - ⚠️ **`power.KT` is not swept anywhere in the model.** It should carry both
+    branches, or `Kt` should become an explicit sensitivity like the battery
+    numbers already are.
+  - ✅ `motor-reality-check §5`'s thermal `[owed]` **closes on spec** -- with the
+    caveat that peak current on the pessimistic branch has no driver margin.
+  - `[owed]` **Ask the vendor Finding 1b's question** -- six-step or sinusoidal
+    current ratings, peak-phase or RMS Kt. Cheaper than R1, complementary to it,
+    and rotor-side is already eliminated so the question is now specific.
+  - `[owed]` Bottom-up check of the 1.802 kg non-motor remainder.
+  - Gated by `tests/test_motor_spec.py`; the NFR6 and `power.KT` tests **assert the
+    defect** and fail when it is fixed.
+
+## ADR-0045: The copper-loss formula was 1.5x low -- and correcting it overturns ADR-0023's headline
+
+- **Status:** Accepted. **Adopted into `power.py`.** Corrects the magnitudes of
+  [ADR-0021](#adr-0021), [ADR-0023](#adr-0023) and [ADR-0024](#adr-0024), and
+  **overturns one of ADR-0023's conclusions.**
+- **Context:** [ADR-0044](#adr-0044) went looking for why the vendor's three
+  published motor numbers disagree by 27 %. Rotor-side was ruled out; a
+  six-step-vs-sinusoidal convention fits to 0.4 %. **The useful find was next to
+  it:** `power.py` computed copper loss as `I^2 R_pp`, and balanced three-phase
+  copper loss is `sum I_ph,rms^2 R_ph = 3 I^2 R_ph`. With a wye winding's terminal
+  `R_pp = 2 R_ph` that is **`1.5 x I^2 R_pp`**.
+
+  The module's own docstring had flagged the shorthand since M16 -- *"a rigorous
+  three-phase treatment would use 1.5 * I_phase^2 * R_phase"* -- and justified it as
+  *"matching the convention in the motor down-select note so the two agree"*. **They
+  agreed on a figure 1.5x low.** Unlike the Kt question this needs no vendor and no
+  purchase: it is arithmetic.
+- **Finding 1 -- the power chain.** At the model's own basis (4.045 kg, 8.0 mm spool,
+  Kt 0.44):
+
+  | | was | now |
+  |---|---|---|
+  | copper loss | 42.0 W | **63.1 W** |
+  | trot draw | 83.6 W | **104.6 W** |
+  | drive efficiency | 38.7 % | **29.6 %** |
+  | trot runtime | 30.2 min | **24.1 min** |
+  | trot range | ~905 m | **723 m** |
+  | standing runtime, brake off | 37.5 min | **27.0 min** |
+  | standing / moving | 0.76 | **0.87** |
+
+  ✅ **ADR-0021's arguments get stronger, not weaker.** Copper loss is now **2.4x**
+  the useful mechanical work rather than 1.6x, which sharpens its point that the
+  inefficiency is a property of the transmission and not of the gait; and standing
+  costs 87 % of moving rather than 76 %, which strengthens the case for the
+  ADR-0003 power-off brake.
+- ⚠️ **Finding 2 -- ADR-0023's HEADLINE IS OVERTURNED.** Front girdle, 6 motors:
+
+  | | continuous | one battery |
+  |---|---|---|
+  | trot, polished | **155.2 C** (was 113.7) | 78.3 (was 67.1) |
+  | trot, anodised | **96.1 C** (was 74.9) | **70.2** (was 59.7) |
+  | stand no brake, polished | 183.9 (was 134.1) | 97.2 (was 85.7) |
+  | stand no brake, anodised | 110.2 (was 85.4) | 84.5 (was 72.5) |
+
+  ADR-0023 concluded *"anodised, the girdle does not outlast the pack at all -- it is
+  safe because its own equilibrium is ~75 C"*. **That equilibrium is 96.1 C.**
+  Anodising is worth **more** than before (59 K, not 39 -- radiation goes as `T^4`
+  and the operating point rose) and is **no longer sufficient**. Both halves matter:
+  the lever improved, the problem outgrew it.
+
+  ⚠️ **The battery-limited case is now marginal rather than comfortable: 70.2 C**
+  against a 70 C line it used to clear by 10 K.
+
+  ✅ **Forced air recovers it, so it stops being optional.** `h = 15` gives
+  **72.7 C**, `h = 25` gives 58.2 C. NFR18's *"forced air would reopen it"* becomes
+  *"forced air is required for continuous operation"*.
+- **Finding 3 -- the winding gradient scales too.** ADR-0024's **+7.7 K** is
+  **+11.5 K**; anodised continuous winding **107.6 C** (was 82.6), polished
+  **166.7 C** (was 121.4). Its *finding* -- the finish sets where the stack sits, the
+  joints set the spread -- is unchanged.
+- ⚠️ **Finding 4 -- a third stale copy of the same constant, outside the guard.**
+  `test_thermal_constants.py` exists precisely because Rust cannot import Python and
+  *"a copied number goes stale silently"*. It guarded four constants. `TOTAL_W`
+  (83.5607) was a bare `const` inside **three** separate Rust functions -- `lib.rs`,
+  `main.rs`, `examples/winding.rs` -- and therefore outside the guard. It went stale
+  exactly as predicted, and only the emergent-runtime cross-check caught it. It is
+  now in `from_power_py` and in the pytest parametrise list.
+- ⚠️ **Finding 5 -- and the correction immediately double-counted itself.**
+  `tools/motor_spec_review.py` had `THREE_PHASE_FACTOR` as a *hypothetical* 1.5x on
+  top of the then-uncorrected model. Once `power.py` carried it, applying it again
+  gave 14.7 min where the answer is 19.6. **ADR-0044's own tests caught it**, which
+  is the argument for writing defect-asserting tests: the constant now scales *down*
+  to reproduce the pre-M40 figure.
+- **Decision: adopt the rigorous form and re-publish.** `power.PHASE_FACTOR = 1.5`
+  ships, with the derivation and the caveat in place.
+- **Consequences:**
+  - **NFR6: 14-20 min stands** -- ADR-0044 had already anticipated this correction,
+    so the requirement does not move again. What moved is that **19.6 min is now the
+    model's own answer rather than a hypothetical**, and only the 14-vs-20 spread is
+    still hostage to the Kt convention question.
+  - **NFR18** re-stated: continuous trot is out of spec **at any finish** in still
+    air, the battery-limited case is marginal at 70.2 C, and **forced air is
+    required**, not an option.
+  - `thermal/src/lib.rs`'s handoff constants all moved; two Rust conclusions were
+    renamed rather than relaxed --
+    `anodised_is_NOT_safe_on_its_own_merits_any_more` carries the overturning, and
+    the time-constant tolerance widened 1.25 -> 1.30 with the linearisation reason
+    recorded.
+  - ⚠️ **These thermal figures are still at the params body mass of 4.045 kg.**
+    ADR-0043's 4.304 kg is not folded in, so they will move again -- upward. The
+    combined re-publish is still owed.
+  - ⚠️ **The Kt question is untouched by this.** If the vendor's 0.35 N.m/A turns
+    out to be the right output-side constant, every temperature above rises a
+    further 1.61x and no finish or airflow in the sweep saves a continuous trot.
+    That email is now the highest-value open item in the actuator story.
+
+## ADR-0046: The fold-in -- 4.30 kg is now the model, and it cost five findings
+
+- **Status:** Accepted. **Folded into `params.py`.** Re-publishes
+  [ADR-0021](#adr-0021), [ADR-0023](#adr-0023), [ADR-0024](#adr-0024) and
+  [ADR-0043](#adr-0043); **suspends five earlier findings pending re-measurement.**
+- **Context:** M36-M40 established what the numbers should be and deliberately did
+  not change them, because *"every mass-derived published figure moves with it"*.
+  This is that move. Six parameters changed:
+
+  | | was | now | why |
+  |---|---|---|---|
+  | `LegParams.link_mass` (hind) | 0.110 kg | **0.1672 kg** | ADR-0041's manufacturing model |
+  | `DEFAULT_FORELEG.link_mass` | 0.095 kg | **0.1674 kg** | same; the asymmetry was assumed |
+  | `TendonParams.motor_spool_radius` | 0.008 m | **0.00875 m** | LEG_TENDON_SPEC §2, owed since ADR-0010 |
+  | `SpineParams.motor_spool_radius` | 0.008 m | **0.00875 m** | same rule, same date it should have moved |
+  | `LoadCase.body_mass_kg` | 4.045 kg | **4.3041 kg** | falls out of the above |
+  | `trot_params().nominal_foot` x | 0.005 m | **0.00214 m** | re-tuned; see finding 2 |
+
+- **Finding 1 -- the published chain, re-derived.**
+
+  | | pre-M40 | now |
+  |---|---|---|
+  | body mass | 4.045 kg | **4.3041 kg** |
+  | trot draw | 83.6 W | **134.2 W** |
+  | drive efficiency | 38.7 % | **25.8 %** |
+  | trot runtime | 30.2 min | **18.78 min** |
+  | trot range | ~905 m | **563 m** |
+  | hip land torque | 16.67 N.m | **17.73 N.m** |
+  | hip land tension | 600 N | **638 N** |
+
+  ⚠️ **LEG_TENDON_SPEC §2's "~600 N" is now stale too** -- one milestone's
+  correction became the next one's staleness, which is the third time this document
+  has done that.
+- ⚠️ **Finding 2 -- the trot foothold had to be RE-TUNED, and that is a real design
+  change.** NFR2k's balanced foothold is a property of where the CoM sits relative
+  to the diagonal, so it moved when the leg masses did: at the old `x = 0.005` the
+  roll drift is **-0.180 rad/s per cycle** -- divergent, the robot falls inside a
+  stride. Re-bisected on `_roll_drift` the way M7 found the original, the balance
+  point is **0.00214 m**. Nothing else in the gait needed touching.
+- ⚠️ **Finding 3 -- the thermal conclusions escalated AGAIN, past what forced air at
+  h = 15 can fix.**
+
+  | front girdle, 6 motors | continuous | one battery |
+  |---|---|---|
+  | trot, polished | **202.2 C** | 86.4 C |
+  | trot, anodised | **119.0 C** | **78.6 C** |
+
+  ADR-0045 already overturned ADR-0023's *"anodised is safe on its own ~75 C
+  equilibrium"*; at the folded-in mass that equilibrium is **119 C**. And the
+  airflow that recovered it does not any more: **h = 15 gives 90.1 C**, only
+  h = 25 brings it under 80. The winding gradient is now **+16.2 K** (ADR-0024's
+  7.7, then M40's 11.5), so an anodised continuous winding sits at **135.1 C**.
+
+  ⚠️ **And the M18 asymmetry INVERTED.** It used to be *"a bare girdle outlasts the
+  pack, an anodised one does not"*. The runtime has fallen faster than the time
+  constants, so **both** finishes now outlast the pack -- and that is not
+  reassurance: reaching only 57 % of the settled rise still lands the anodised
+  girdle at 78.6 C. **The protection still exists and no longer protects.**
+- **Finding 4 -- two mechanism claims moved, both intact, both re-derived.**
+  - ADR-0025's sway correction is **7.1 %, not 4.0 %**. Its size is set by where the
+    leg mass sits, and the manufacturing model moved that mass distally, lengthening
+    the lever.
+  - ⚠️ **ADR-0019's friction limit no longer binds at mu 0.8.** The ROM-limited sway
+    fell 42.2 -> **37.0 mm**, and mu 0.8 no longer reaches it. Friction binds
+    **below** mu ~0.8 (14.9 mm at 0.4, 32.5 at 0.7) and ROM binds above. The
+    mechanism is intact, the crossover moved, and **NFR16's 0.70 floor now sits just
+    inside the friction-limited region** -- which is the useful reading.
+- ⚠️ **Finding 5 -- FIVE earlier findings are suspended, not retuned.** The
+  closed-loop survival measurement went **degenerate**: 37.17 mm at *both* 120 and
+  300 deg, above the **29.15 mm** exact feet-only viable bound. That is
+  [ADR-0040](#adr-0040)'s finding arriving -- survival was always the wrong quantity,
+  and at the heavier mass it has visibly detached from recovery. Four tests read that
+  measurement and are marked `xfail(strict=True)` rather than given new thresholds:
+
+  - the measured worst case being below the reduced-order prediction (ADR-0028),
+  - the envelope being horizon-limited (ADR-0036),
+  - the load split making it worse (ADR-0037),
+  - survival not being recovery (ADR-0040's own probe).
+
+  A fifth is suspended for a different reason: ⚠️ **ADR-0029's proportional spine
+  assist finding INVERTED in direction.** Spine-off is 6.69 mm and a 0.2 reactive
+  assist gives 5.73 -- the assist now slightly *helps* where ADR-0029 measured a 5x
+  degradation.
+
+  **Fitting new thresholds to an instrument this milestone just showed to be broken
+  would be exactly the M35 mistake.** They are marked, with reasons, and re-deriving
+  them is M42.
+- **Finding 6 -- what survived unchanged, which is worth saying.** Every design gate
+  still passes (motor 88 % of peak at the spec spool, cable SF, bearing C0); the
+  reduced-order model's 2 % agreement with the exact viable set **survived** the mass
+  change (29.15 against a 29.22 mm bound); compliant legs still beat stiff ones; a
+  soft spine still fells the baseline and a stiff one does not; and the paw sensor's
+  *marginal* cost fell 1.4x -> 1.25x because the leg it is added to is 52 % heavier.
+- **Decision: ship it.** The model now says what the hardware says.
+- **Consequences:**
+  - **NFR5 4.05 -> 4.31 kg. NFR6 ~30 min -> 18.8 min** (13.6 on the pessimistic Kt
+    branch, ADR-0044). **NFR18** now requires **h ~ 25** forced air, not h ~ 15.
+    **NFR2k**'s foothold is 0.00214 m.
+  - ⚠️ `LEG_TENDON_SPEC` §1.1 *and* §2 are both stale again (17.73 N.m / 638 N).
+  - **M42 is fixed in advance:** re-measure the balance arc on
+    `measure_envelope(recover=True)`, and re-derive ADR-0029 on it. The five
+    `xfail(strict=True)` marks fail loudly if either resolves on its own, which is
+    the point of `strict`.
+  - ⚠️ **The remaining fold-in is the coupled tendon map** (ADR-0042). It was left
+    out deliberately: it changes `cable_lengths` and `resolve` semantics rather than
+    a constant, and this milestone was already large enough to bury a mistake in.
+  - ⚠️ **None of this is measured hardware.** It is a manufacturing model of assumed
+    stock, catalogue bearing masses and an assumed CF density, and the whole chain
+    still rests on a vendor sheet that disagrees with itself by 27 %. **R1 -- buy one
+    motor and weigh it -- has not moved.**
+
+## ADR-0047: Built as a tendon drive in simulation -- the cable is 5x too stiff, and G3 finally has a number
+
+> ⚠️ **CORRECTED by [ADR-0048](#adr-0048) (M43).** This ADR was measured on a leg
+> whose hinge axis was `(0, 1, 0)`, which folds the leg **upward**. Correcting it
+> left the cable on the wrong side of every via-pulley, and repairing that moved
+> four numbers published below. Corrected values, in place:
+>
+> | this ADR says | corrected | where |
+> |---|---|---|
+> | hip 1269 / knee 560 N.m/rad | **1304 / 638** | Finding 2 |
+> | 1.72x / 2.21x asymmetry | **1.60x / 1.77x**, and the two hip runs swap | Finding 5 |
+> | ankle 39.7 N.m/rad | **53.9** | Finding 4 |
+> | the ankle anchor dead spot at ~292 deg | ⚠️ **RETRACTED** -- the ankle has no
+> dead spot at any angle; the knee does, 2.02 mm at 270 deg | third bullet under
+> "own errors" |
+>
+> ✅ **What did NOT move: the +/-8.750 coupling column (Finding 1), and G3's
+> ~175 kN/m (Finding 3).** Those are the two conclusions this ADR is cited for.
+>
+> ⚠️ **[ADR-0049](#adr-0049) (M44) moved the G3 band once more**, to **150-200
+> kN/m** (from 125-175): re-routing the ankle changed that cable's run length and
+> every stiffness with it. **175 kN/m is still the point value**, and ADR-0049
+> confirms the element from an entirely independent direction -- force control
+> rather than balance compliance.
+
+- **Status:** Accepted, with the corrections above. `mjcf_tendon.py` ships alongside `mjcf.py`, which is
+  deliberately untouched. **Sizes design goal G3 for the first time. Confirms
+  [ADR-0042](#adr-0042) independently. Puts a hardware requirement under
+  [ADR-0026](#adr-0026)'s "compliant legs".**
+- **Context:** the plan is to build the robot in simulation before hardware. The
+  first thing that needed establishing is that the simulation **is not the robot**:
+  `mjcf.py` puts a `<position>` servo on every joint, so the plant under every
+  balance result since M17 has been a **direct-drive** machine. Four gaps follow,
+  and the first is not a detail:
+  - ⚠️ **a position servo can PUSH.** *"A cable can only pull"* is a load-bearing
+    premise of [ADR-0002](#adr-0002) (why antagonistic pairs exist at all),
+    [ADR-0021](#adr-0021) (why standing costs 76-87 % of moving for zero work) and
+    [ADR-0023](#adr-0023) (why standing is the worst thermal case). **The simulation
+    has never had that constraint;**
+  - the moment arm was a *parameter*, never a geometry;
+  - ADR-0042's joint coupling was absent, because a joint servo has no pulley;
+  - no cable compliance, no spool.
+- **What was built and how it was established.** Five spatial tendons per leg over
+  cylinder sheaves and concentric via-pulleys, driven by `<motor tendon=...>` with
+  `gear="-1"` and `ctrlrange="0 T"`. Probed *before* anything was built on it: a
+  tendon over a cylinder **wraps**, `d(length)/d(angle)` comes out as the cylinder
+  radius to **0.25 %**, and commanding **-500 N applies +0.00 N**.
+- ✅ **Finding 1 -- ADR-0042's coupling is EMERGENT, and it matches to three
+  decimal places.** ADR-0042 derived the via-pulley coupling by hand as **+/-8.75
+  mm/rad**, exactly the pulley radius, and said the simulation could not show it:
+
+  | tendon | hip | knee | ankle |
+  |---|---|---|---|
+  | hip flexor | **+28.000** | 0 | 0 |
+  | hip extensor | **-28.000** | 0 | 0 |
+  | knee flexor | **-8.750** | +25.097 | 0 |
+  | knee extensor | **-8.750** | -24.845 | 0 |
+  | ankle | **-8.738** | **-8.750** | -13.935 |
+
+  (Signs and diagonals as corrected by ADR-0048. As first published the diagonals
+  carried the opposite sign and the knee flexor and extensor sat in each other's
+  rows. **The coupling column is unchanged**, which is the point of the finding and
+  is argued properly in ADR-0048.)
+
+  An independent physics engine, from the routing alone, agreeing with a hand
+  derivation. MuJoCo even stores `ten_J` sparsely with **1, 1, 2, 2, 3** nonzeros --
+  the lower-triangular structure, visible in the memory layout.
+  ⚠️ `TendonMap.cable_lengths` is still diagonal.
+- ⚠️ **Finding 2 -- THE headline: the cable is far stiffer than balance can
+  tolerate.** [ADR-0026](#adr-0026) measured that balance needs **compliant** legs,
+  servo `kp` 80-150 N.m/rad, and that **kp >= 250 winds up and falls**. In the servo
+  sim that compliance was a gain. In a tendon drive it has to come from the cable,
+  and `k = EA/L` at the routed run lengths gives:
+
+  | joint | restoring stiffness | vs the kp = 250 that FELL |
+  |---|---|---|
+  | hip | ~~1269~~ **1304 N.m/rad** | **5.2x** |
+  | knee | ~~560~~ **638** | 2.6x |
+
+  **ADR-0026's "balance needs compliant legs" was a requirement on hardware that was
+  never turned into hardware.** `kp = 80` was standing in for a compliance the
+  machine does not have.
+- ✅ **Finding 3 -- so G3 finally has a number.** Design goal **G3** ("passive
+  compliance / shock absorption at each joint") has been a goal since M1 with
+  nothing attached. A series-elastic element in line with each cable combines as
+  `1/k = 1/k_cable + 1/k_series`; swept, **~175 kN/m puts both the hip and the knee
+  inside ADR-0026's 80-150 window** (~~128 and 91~~ **136 and 107** N.m/rad). That
+  is a real spring to hand to mechanical, and ADR-0048 widened it to a **125-175
+  kN/m band**.
+- ⚠️ **Finding 4 -- and the ankle fails the OTHER way. A note on ADR-0002 Option B.**
+  A cable always pulls the same direction, so a joint driven by **one** tendon has
+  no restoring stiffness from it at all -- perturb either way and the pull does not
+  reverse. Measured ~~39.7~~ **53.9 N.m/rad**, of which the Option-B return spring
+  contributes **0.3**. Option B buys a motor per leg; what it costs is the joint's
+  stiffness, and that had not been priced. The series spring does not help here
+  (10.6 N.m/rad) -- the ankle needs the opposite treatment.
+- ⚠️ **Finding 5 -- a pair's stiffness is DIRECTION-DEPENDENT.** `k = EA/L` and the
+  two runs are not the same length: hip flexor ~~0.121~~ **0.073 m**, extensor
+  ~~0.073~~ **0.121 m**, so the **flexor** is 1.7x stiffer. One-sided the hip reads
+  **1604 against 1003** N.m/rad depending on which way it is pushed -- a ~~1.72x~~
+  **1.60x** asymmetry, ~~2.21x~~ **1.77x** at the knee. Equalising run lengths is a
+  routing choice nobody has had to make yet.
+  ⚠️ ADR-0048's routing repair swapped which member of each pair takes the short
+  route; that the asymmetry exists at all is the finding, and it is unchanged.
+- ⚠️ **Finding 6 -- gravity feedforward cannot hold a pose, and an outer position
+  loop can.** Allocating tension to cancel the measured gravity term every timestep
+  diverges at every co-contraction level (0, 5, 19.6 N) -- it is feedforward with no
+  error feedback on an unstable equilibrium. `kp` 10 N.m/rad with `kd` 0.2 holds the
+  hip and knee to **0.00 deg**. That is why FR1 specifies *closed-loop* position
+  control, and the servo sim could not show it because a position servo **is** the
+  loop.
+  - **And the allocator matters, which is a firmware note.** Solving the
+    non-negative least-squares properly holds the hip to 0.00 deg; taking the
+    unconstrained solution and **clipping** it at zero leaves **1.22 deg**. Clipping
+    is not respecting the constraint.
+- ⚠️ **Three of this milestone's own errors, corrected rather than shipped:**
+  - **two sign errors** in the tension allocation (`qfrc_actuator` must supply
+    **+**`qfrc_bias`), which produced a tidy and completely false conclusion --
+    *"constant moment arms mean co-contraction adds no stiffness"* -- before
+    measuring `tau = -J^T T` directly caught it;
+  - an **anchor in a dead spot** -- ⚠️ **this EXAMPLE is RETRACTED by ADR-0048,
+    though the effect is real.** As published: the ankle anchor, placed by the same
+    2-D heuristic the analytical routing used, landed ~292 deg around its sheave
+    where the incoming cable already clears it, so the moment arm was 2.6 mm instead
+    of 14. That was the mirrored fold. Corrected, **the ankle wraps at every anchor
+    angle** (13.69-13.94 mm swept at 10 deg steps) and the heuristic point reads
+    13.86 mm. The effect re-establishes on the **knee**: 2.02 mm at 270 deg, **8 %
+    of the specified 25**. A sheave the cable never touches does no work -- and
+    ADR-0048 found the dead band **moves between joints** when the hinge convention
+    changes, which makes the anchor sweep a build step;
+  - a **single `stiffness` constant**, which NaN'd at t = 0.168 s. A spatial
+    tendon's `stiffness` pulls toward `springlength`; given one value it is a
+    two-sided spring rather than a cable. Two values make a deadband, which is a
+    cable -- and the stiffness has to be per-tendon anyway, as §2 always said.
+- **Consequences:**
+  - **G3 gets a target: ~175 kN/m series-elastic element at the hip and knee.**
+    ⚠️ Not at the ankle, which is already too soft.
+  - ⚠️ **ADR-0026's compliance finding is re-classified**: it is a *hardware*
+    requirement, not a controller setting, and until the series spring exists the
+    tendon-driven leg sits 5x past the stiffness at which the servo sim fell.
+  - ⚠️ **ADR-0002 Option B needs re-examining.** It was chosen on motor count. The
+    ankle having no restoring stiffness is a cost it never counted.
+  - `mjcf.py` and every M17-M41 figure measured on it stay untouched and
+    reproducible. This plant is not yet the one the arc is measured on.
+  - **Next: whole-body, 19 DOF**, and then M41's five suspended findings re-derived
+    on a plant that is actually a tendon drive.
+
+## ADR-0048: The whole-body tendon plant leans rather than collapses -- and a sign in the via-routing had been inflating every M42 number
+
+> ⚠️ **Its HEADLINE is RETRACTED by [ADR-0049](#adr-0049) (M44).** This ADR
+> concluded that a per-leg joint controller *cannot* make the quadruped stand,
+> measuring a 14.5 deg diagonal lean. **Two more routing defects were inflating
+> that**, both found in M44: the ankle anchor sat past its moment-arm **sign
+> reversal**, and the ADR-0002 return spring was referenced 97 deg away from the
+> hind stance hock. Corrected, the same controller reaches **2.4 deg**.
+>
+> The comparison that survives is **2.4 deg (joint angles) against 0.006 deg
+> (foot forces)** -- a 400x attitude improvement, plus the joint controller still
+> inverting at kp 400 where the foot-force one does not. ✅ The *diagnosis* below
+> was right and is what M44 acted on; the *measurement* was not.
+>
+> ⚠️ Also corrected here: the welded-trunk figures (0.37 / 1.8-2.3 deg) and the
+> stand table both move again. See ADR-0049 for the current numbers.
+
+- **Status:** Accepted. `quadruped_rig` / `quadruped_rig_elastic` ship in
+  `mjcf_tendon.py`. **Corrects [ADR-0047](#adr-0047) in four places and retracts one
+  of its findings. Confirms [ADR-0042](#adr-0042) a second time, harder. Confirms
+  [ADR-0038](#adr-0038)'s whole-body controller is the missing piece, and
+  [ADR-0033](#adr-0033)'s diagonal-stance argument from a new direction.**
+- **Context:** M42 gated a single tendon-driven leg. This scales it to the robot:
+  four legs on a floating trunk over a floor, **18 DOF, 20 spatial tendons, 20
+  pull-only actuators, 4.3081 kg** against `params`' 4.3041. The question is whether
+  a pull-only quadruped can stand.
+
+### The finding that had to come first
+
+- ⚠️ **The M42 leg was built on the wrong hinge axis, and correcting it broke the
+  routing silently.** `LegModel.forward` builds the tip with `x = l cos a,
+  z = l sin a`, so a positive joint angle must rotate +x toward **+z**; MuJoCo's
+  right-hand rule about +y does the opposite, so the axis has to be `(0, -1, 0)`.
+  `mjcf.py` documents this. `mjcf_tendon.py` used `(0, 1, 0)`, so **the whole leg
+  pointed up** -- feet at z = +0.346 above a trunk at 0.176 -- and the quadruped
+  "stood" by sinking to the floor with its joints dutifully held. Printing the foot
+  positions is what caught it.
+- ⚠️ **Correcting the axis left every via-pulley site on the wrong side, and
+  nothing complained.** The tendons still routed, still pulled, still reported
+  lengths:
+
+  | | knee flexor arm | the four couplings |
+  |---|---|---|
+  | via sites at -z (as M42 shipped) | **1.17 mm/rad** | 11.73, 36.40, 14.00, 41.54 |
+  | via sites at +z (repaired) | **25.10** | **8.75, 8.75, 8.74, 8.75** |
+
+  A wrap that does not happen is not an error condition. It is a moment arm of the
+  wrong size, and only differentiating the tendon length finds it.
+- ⚠️ **And the test harness is what let it hide.** `_hold` had the tendon Jacobian
+  **written down as a literal**, copied from M42's measurement. After the axis fix
+  the hip pair's signs swapped, the frozen matrix kept commanding the wrong
+  antagonist, and the leg collapsed **102 deg while the routing itself was fine**.
+  A controller that measures its own plant survives a change to the plant; one that
+  quotes a number from a previous milestone does not. `_hold` measures it now.
+
+### What the repair cost, and what it did not
+
+- ⚠️ **Four of ADR-0047's published numbers moved**, because re-routing re-cut
+  every cable run and `k = EA/L`: hip/knee stiffness **1269/560 -> 1304/638
+  N.m/rad**; pair asymmetry **1.72x/2.21x -> 1.60x/1.77x**, with the two hip runs
+  swapping which is short (flexor 0.073 m now, extensor 0.121); the lone-tendon
+  ankle **39.7 -> 53.9**. None of the conclusions drawn from them changed.
+- ⚠️ **One finding is RETRACTED.** ADR-0047 reported the ankle anchor landing in a
+  dead spot at ~292 deg, moment arm 2.6 mm instead of 14. That was the mirrored
+  fold. Corrected, the ankle wraps at **every** anchor angle -- 13.69 to 13.94 mm
+  swept at 10 deg steps -- and the 2-D heuristic point M42 called dead reads
+  **13.86 mm**.
+- ✅ **The general lesson survives, and the knee shows it far more sharply.** The
+  knee flexor's arm collapses to **2.02 mm at 270 deg -- 8 % of the specified 25**,
+  against 25.10 where it ships. ⚠️ The dead band **moved from one joint to another
+  under a change of hinge convention**, which makes the anchor sweep a build step,
+  not a one-off.
+- ✅ **What the repair could not move: the coupling column.** It read **-8.750
+  before the repair and -8.750 after**, while the diagonal signs flipped, the knee
+  flexor and extensor swapped rows, and every cable length changed. A number that
+  comes from the pulley radius does not care which way the leg folds; a number that
+  comes from a routing accident does. **That is a stronger confirmation of
+  ADR-0042 than M42's agreement was**, because it is an invariance rather than a
+  coincidence.
+- ✅ **G3's ~175 kN/m survived, and gained a band.** Re-swept: 175 kN/m gives
+  136/107 N.m/rad (was 128/91), still inside ADR-0026's 80-150 window, and
+  **1.25e5-1.75e5 N/m keeps both joints inside it**. A range is more useful to hand
+  to mechanical than a point value.
+
+### The whole-body plant, and two things it cost to build
+
+- ⚠️ **`TENSION_MAX` is the MOTOR's limit, not the cable's -- and getting that
+  wrong launched the robot.** The first pass took 700 N from ADR-0046's 638 N land
+  transient. That is a **structural** number: what the cable, pulley and bearing
+  must survive when the *ground* hits the foot. Given 700 N of authority on twenty
+  tendons, a 0.1 s contact transient saturated all of them and **threw the 4.3 kg
+  quadruped off the floor** (z 0.176 -> 0.834, `ncon = 0`). Twenty times 700 N is
+  14 kN on a 42 N robot. The real ceiling is `tau_motor / r_spool`: **223 N peak,
+  81 N continuous**. The structure carries 2.9x more than the actuator can ever
+  apply, which is correct -- the transient arrives from the ground.
+- ⚠️ **The pulley geoms had to be made massless.** The plant compiled at 4.532 kg
+  against `params`' 4.3041, and the 0.224 kg gap was exactly 4x the per-leg pulley
+  geom masses. [ADR-0041](#adr-0041)'s manufacturing model **already apportions
+  every sheave and bearing into `link_mass`**, so giving the geoms their own mass
+  double-counts it. The residual 4 g is the four paw pads, which `link_mass` does
+  not carry.
+
+### The gate: it does not stand, and the failure is a LEAN
+
+- ✅ **Welded to the world, the same per-leg controller holds every leg** -- hind
+  to **0.37 deg**, fore to **1.8-2.3 deg**. So neither the tendon routing nor the
+  pull-only allocation is what fails. (Before the via repair these read 3.4 and
+  14.5-19 deg; both improved by roughly an order, which is how much of M43's first
+  fore/hind story was really a routing bug.)
+- ⚠️ **Floating, it settles into a diagonal lean rather than collapsing:**
+
+  | kp | T_bias | trunk z | tilt | min contacts |
+  |---|---|---|---|---|
+  | 25 | 5 N | 0.155 | 18.3 deg | 2 |
+  | 50 | 5 N | 0.030 | **180 deg** | 0 |
+  | 100 | 19.6 N | 0.150 | 14.5 deg | 2 |
+  | 200 | 19.6 N | 0.150 | 14.5 deg | 2 |
+  | 400 | 19.6 N | 0.150 | 14.1 deg | 0 |
+
+  **85 % of the target height, tilted 14.5 deg, on two feet of four** -- while every
+  leg holds its commanded angles, the hind pair to 0.42 deg. One gain setting
+  (kp 50, 5 N) flips it completely over.
+- ⚠️ **Which is exactly the diagonal-stance problem [ADR-0033](#adr-0033) named.**
+  A per-leg joint controller has no term for trunk attitude, so the trunk finds its
+  own equilibrium and the answer is a diagonal lean. **Commanding joint ANGLES
+  cannot express "put 10 N more through the left front foot"; commanding foot FORCES
+  can.** `wbc.py` from [ADR-0038](#adr-0038) does exactly that allocation, was built
+  in M33, and has never been driven against a tendon plant.
+- ⚠️ **The first pass read this failure as a 98 deg collapse**, which was the via
+  routing inflating it. The corrected failure is both smaller and better posed: not
+  *"the legs cannot hold"* but *"nothing in the loop has an opinion about the
+  trunk"*.
+
+### A new finding, from the corrected plant
+
+- ✅ **Co-contraction buys back the clipped allocator, which is a firmware note.**
+  ADR-0047 found that clipping an unconstrained least-squares allocation at zero
+  costs about a degree of joint error against solving the non-negative problem
+  properly. Repaired, that holds at a 5 N co-contraction floor (**1.2-1.4 deg**) --
+  and at [ADR-0021](#adr-0021)'s standing tension of **19.6 N the same clipped
+  allocator holds to 0.00 deg**, because the base tension keeps the solution
+  interior so nothing clips at all. **Clipping is only wrong when it is reached, and
+  co-contraction is what keeps it out of reach.** That is a second, previously
+  unpriced reason to pay for co-contraction, alongside [ADR-0002](#adr-0002)'s.
+
+### Consequences
+
+- **ADR-0047 is corrected in place** with a banner, not rewritten; its two cited
+  conclusions (the coupling, and G3) both survived.
+- **G3's target becomes a band: 125-175 kN/m**, with 175 the current point value.
+- ⚠️ **The anchor sweep is a build step.** Any change to link geometry, hinge
+  convention or via placement has to re-run it, because a dead spot moves.
+- ⚠️ **A frozen Jacobian in a test harness is a latent failure.** Everything that
+  drives this plant measures its own map now.
+- ⚠️ **The fore leg is still not mirrored** -- `DEFAULT_FORELEG` folds the opposite
+  way, so its sidesites and anchor angles were inherited rather than reflected. At a
+  5x gap but only 1.8 deg absolute, it no longer gates anything.
+- **Next: drive this plant with `wbc.py`'s foot-force allocation.** Then the
+  articulated spine and tail, to reach the full 19 DOF.
+
+## ADR-0049: The pull-only quadruped stands on foot-force allocation -- and a lone tendon's moment arm reverses inside its own ROM
+
+- **Status:** Accepted. `wbc.nnls`, `wbc.tendon_tension` and `wbc.actuator_torque`
+  ship. **Closes the stand gate [ADR-0048](#adr-0048) left open. Fixes a defect in
+  [ADR-0038](#adr-0038)'s own module. Retracts ADR-0048's headline. Corrects
+  [ADR-0047](#adr-0047)'s G3 band and confirms G3 independently. Adds a second
+  unpriced cost to [ADR-0002](#adr-0002) Option B.**
+- **Context:** ADR-0048 left the whole-body plant leaning on a diagonal and gave an
+  unambiguous diagnosis: nothing in a per-leg loop has an opinion about the trunk,
+  so the controller has to command foot **forces**. `wbc.py` from ADR-0038 does
+  exactly that allocation, was built in M33, and had never been driven against
+  anything but a position-servo plant.
+
+### The result
+
+- ✅ **It stands.** Trunk height **0.17600 -> 0.17579 m over 3 s (0.21 mm)**, trunk
+  tilt **0.006 deg**, all four feet down throughout, allocation residual ~0.02 N.m
+  -- the commanded tensions really do produce the torques asked of them.
+
+That took **one missing link** and **three fixes**, and the fixes are the findings.
+
+### The missing link: joint torque -> non-negative tendon tension
+
+- ADR-0038's chain ends at `stance_torque`, which is where a direct-drive robot
+  stops. A pull-only tendon robot needs one more step, and it is a constrained
+  problem: `min ||G T - tau||` subject to `T >= T_min`. `wbc.nnls` is Lawson-Hanson,
+  written out rather than imported because the project has no scipy and **firmware
+  will not have one either**.
+- ⚠️ **Clipping escalated from "about a degree" to "loses the leg".** ADR-0047
+  priced clipping an unconstrained allocation at ~1 deg of joint error. At standing
+  loads:
+
+  | | single leg, unloaded | quadruped |
+  |---|---|---|
+  | clipped least squares | **197 deg hip drift** | 20.7 deg lean, 1.14 N.m residual |
+  | `wbc.tendon_tension` | **0.00 deg** | 0.006 deg lean, ~0 residual |
+
+  The constraint has to be **in** the solve.
+
+### Fix 1 -- `realisable_cop` had never been exercised on a support POLYGON
+
+- ⚠️ M33 only ever ran a **diagonal two-foot trot**, where the CoP genuinely is
+  confined to a line and that branch is exact. The three-or-more branch was written
+  and never run, and it was wrong twice:
+  1. **No inside test.** It walked the boundary and returned the nearest point on an
+     edge, so a feasible CoP in the middle of a four-foot polygon was pushed **48 mm
+     out to the rail**. For a standing robot that is not a clamp, it is a *command
+     to lean*.
+  2. **It assumed the caller's point order was hull order.** It is not:
+     `("LF", "RF", "LR", "RR")` traverses a rectangle as a **bowtie**, so two of the
+     four "edges" it measured against were diagonals. That bug partly **masked** the
+     first -- it moved the interior point 16.6 mm instead of 48.
+- ⚠️ **And fixing it did not make the robot stand: 14.5 deg of lean before, 14.5
+  after.** A real defect that turns out not to be the cause is still worth fixing,
+  and worth recording as not-the-cause.
+
+### Fix 2 -- the torque bookkeeping omitted `qfrc_passive`
+
+- MuJoCo's own equation of motion makes the actuator term
+  `qfrc_bias - qfrc_passive + stance_torque`. Leaving `qfrc_passive` out asked the
+  tendons to supply what the springs were already supplying: ⚠️ at the hind stance
+  pose the **ADR-0002 Option-B return spring alone is 0.508 N.m**, which is **54 %**
+  of that joint's whole demand, requested twice. `wbc.actuator_torque` does it now.
+
+### Fix 3 -- ⚠️ a LONE TENDON's moment arm REVERSES SIGN inside its own ROM
+
+- **This is the structural finding, and it is a sharper statement of what ADR-0002
+  Option B costs than ADR-0047's was.** ADR-0047 found a lone-tendon joint has no
+  restoring *stiffness*. This is stronger: **the one direction it can pull is not a
+  fixed direction in joint space.**
+- Swept **12 anchor angles x the full -30...+150 deg ankle range: all 12 reverse
+  somewhere between 45 and 120 deg.** No anchor avoids it, and it cannot: as the
+  metatarsus sweeps 180 deg the anchor sweeps 180 deg around the sheave, so the
+  incoming cable line must cross the sheave centre exactly once.
+- ⚠️ **The hind stance pose was on the wrong side of it.** The hind hock holds
+  **+97.1 deg** in stance; at M42/M43's 45 deg anchor the reversal sat at ~85 deg.
+  So the hind ankle could not supply standing torque **at any tension** -- the
+  non-negative allocation left a **0.714 N.m residual**, which is infeasibility, not
+  a solver miss. Moving the anchor to **300 deg** pushes the reversal past 105 deg
+  and makes all four legs feasible at residual **0.000000**.
+- (The fore hock holds **+16.4 deg**, comfortably inside. The two legs behaved
+  completely differently under load for that reason and no other -- not, as ADR-0048
+  supposed, because the fore leg's routing was un-mirrored.)
+
+### And the consequence: Option B cannot serve BOTH stance and swing
+
+- The ankle needs **opposite** torques loaded and unloaded. Loaded, the ground pushes
+  the toe up and the joint needs **plantarflexion** (-0.68 N.m hind, -0.79 fore, one
+  sign across the whole stance sweep). Unloaded, the return spring is the only thing
+  acting and referenced at 0 it pulls the +97 deg hock **plantarflexing as well**, so
+  the tendon must **dorsiflex** to hold the pose. **The spring and the stance load
+  pull the same way**, and a lone tendon has one direction:
+
+  | anchor | unloaded ankle | quadruped |
+  |---|---|---|
+  | 45 deg (M42/M43) | **0.00 deg** | ⚠️ **inverts** |
+  | 300 deg (M44) | -14.6 deg | ✅ **stands** |
+
+- **M44 ships 300 deg**, because closing the stand gate is the milestone, and
+  references the spring at **each leg's own stance angle** -- which also drops the
+  worst tendon from the 222.9 N ceiling to **207.4 N**. The **-14.6 deg unloaded
+  ankle is the price.**
+- ⚠️ **ADR-0002 Option A is now a live decision with numbers on both sides.** An
+  antagonistic pair at the ankle costs **four more motors** and removes the conflict
+  entirely. Option B was chosen on motor count; this is the **second** cost it never
+  counted, after ADR-0047's.
+- ⚠️ **A params bypass, of exactly the class [ADR-0046](#adr-0046)'s fold-in
+  existed to remove:** `mjcf_tendon` hard-coded `springref="0.0"` and never read
+  `spring_rest_angle` at all. `spring_rest_angle[2] = 0.0` is **97 deg from the hind
+  stance hock**, and the fore and hind stance angles are **81 deg apart**, so one
+  number cannot serve both. The rigs now derive it per leg from the stance pose and
+  say why; `params` still owes mechanical a decision.
+
+### G3, confirmed a second time from a different direction
+
+- ✅ ADR-0047 sized G3's series-elastic element at ~175 kN/m from a
+  **balance-compliance** argument (ADR-0026's controller falls at `kp >= 250` and the
+  bare cable is 5x that). M44 arrives at the same element from **force control**:
+
+  | cable | outcome under foot-force control |
+  |---|---|
+  | **series-elastic, 175 kN/m** | ✅ **stands**, tilt 0.006 deg |
+  | bare cable (5x stiffer) | ⚠️ **inverts**, tilt 180 deg |
+  | no cable elasticity at all | leans 14.6 deg |
+
+  Two independent arguments, two different failure modes, the same part. That is the
+  strongest form this project has for a component nobody has bought yet.
+- **Band corrected to 150-200 kN/m** (was 125-175): re-routing the ankle changed
+  that cable's run length and every stiffness moved a per cent or two with it.
+  **175 kN/m remains the point value** and is still near the centre.
+
+### It stands, but not indefinitely
+
+- ⚠️ Per-tendon tension while standing, against a motor rated **81 N continuous**
+  and **223 N peak**:
+
+  | leg | worst tendon | mean | peak |
+  |---|---|---|---|
+  | fore | knee flexor | 74 N | 87 N |
+  | **hind** | **hip extensor** | **~205 N** | **207 N** |
+  | hind | knee flexor | 129 N | 138 N |
+
+  The hind hip extensor runs **~2.5x the continuous rating just to stand still**.
+  ⚠️ [ADR-0023](#adr-0023) made standing the worst thermal case at the **nominal
+  19.6 N** co-contraction tension; this is an order above that on one tendon of
+  twenty, and the thermal model has never been run on it. The fore legs are
+  comfortable, which is the CoM sitting behind the middle: the hind feet carry
+  17.3 N against the fore pair's 10.4 and 3.8.
+
+### Two smaller findings
+
+- ⚠️ **`desired_wrench` has no attitude term.** It returns a zero desired moment,
+  which places the CoP under the CoM -- right for M33's in-place trot, but standing
+  needs the trunk's attitude regulated. M44 adds a small angular PD *outside* the
+  function; folding it in is owed.
+- ⚠️ **The quadruped's girdle spool placement degrades the hip moment arms** from
+  +/-28.000 mm to **25.875 / -27.173**, and makes the antagonistic pair asymmetric.
+  The spools were placed by the packaging study, not by routing.
+
+### Consequences
+
+- **ADR-0048's gate is closed. The pull-only tendon quadruped stands.**
+- `wbc.nnls`, `wbc.tendon_tension` and `wbc.actuator_torque` are the reusable
+  pieces, and **firmware needs all three** -- particularly the first, which is why
+  it is written out rather than imported.
+- ⚠️ **ADR-0002 Option A vs B for the ankle is a live decision**, costed: four
+  motors against a -14.6 deg unloaded ankle and a moment arm that reverses mid-ROM.
+- ⚠️ **The anchor sweep must check the SIGN across the ROM, not just the wrap.**
+  ADR-0048 already made it a build step; this says what it has to measure.
+- **G3: 150-200 kN/m, 175 the point value**, now supported by two independent
+  arguments.
+- ⚠️ **Next: the thermal case for a 205 N standing tendon** (ADR-0023 does not
+  cover it), fold the attitude term into `desired_wrench`, mirror the fore leg, and
+  add the spine and tail to reach 19 DOF.
 
 ---
 

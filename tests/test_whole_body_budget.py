@@ -195,7 +195,12 @@ def test_near_balanced_body_barely_loads_the_base_joint_in_quiet_stand():
     real = abs(spine_joint_torques(_body(), load)[0])
     symmetric = abs(spine_joint_torques(_symmetric_body(), load)[0])
     assert symmetric == pytest.approx(0.0, abs=1e-9)
-    assert real < 0.35          # N·m -- still well under the 0.57 of the tuned model
+    # ⚠️ M41 (ADR-0046): 0.29 -> **0.354 N.m**. The measured leg hardware is
+    # heavier and its fore/hind asymmetry vanished (0.167 kg both ends against the
+    # assumed 0.095 / 0.110), so the cantilever the base joint carries grew. F2's
+    # direction still holds -- it is well under the tuned model's 0.57 -- but the
+    # walk-back this comment already records has walked back further.
+    assert real < 0.40          # N.m -- was 0.29 pre-M41, still under 0.57
 
 
 def test_asymmetric_land_still_makes_the_base_joint_the_worst():
@@ -232,7 +237,7 @@ def test_report_states_the_mass_model_and_the_split():
     res = whole_body_budget.evaluate(body, leg_t, spine_t, DEFAULT_WHOLE_BODY_LOADS[0])
     txt = res.report()
     assert "REAL distributed" in txt
-    assert res.mass_total_kg == pytest.approx(4.045)
+    assert res.mass_total_kg == pytest.approx(4.3041)   # ADR-0046
     assert res.mass_fore_fraction == pytest.approx(0.542, abs=0.02)
 
 

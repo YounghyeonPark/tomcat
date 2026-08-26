@@ -14,6 +14,27 @@ curve.
 - G2. Tendon-driven joints with motors centralized in the body girdles to
   minimize limb inertia (P1).
 - G3. Passive compliance / shock absorption at each joint.
+  ✅ **SIZED by ADR-0047 (M42), banded by ADR-0048 (M43), and CONFIRMED FROM A
+  SECOND DIRECTION by ADR-0049 (M44): a 150-200 kN/m series-elastic element at the
+  hip and knee**, **175 kN/m** the point value to quote. The cable alone gives the
+  hip **1295 N·m/rad** — **5.2×** the stiffness at which ADR-0026's balance
+  harness wound up and fell — so ADR-0026's *"balance needs compliant legs"* is a
+  **hardware** requirement, not a controller gain. At 175 kN/m the hip and knee land
+  at **133 / 104 N·m/rad**, inside ADR-0026's 80-150 window.
+  ✅ **And under FOOT-FORCE control the element is what makes the robot stand at
+  all** (ADR-0049): at 175 kN/m it stands to 0.006° of trunk tilt, with the bare
+  cable it **inverts**, with no elasticity it leans 14.6°. Two independent
+  arguments — balance compliance and force control — two different failure
+  modes, the same part.
+  ⚠️ **Not at the ankle**, which fails two other ways: a single-tendon joint has
+  **no restoring stiffness** from its cable (**41.0** N·m/rad measured, 0.3 of it
+  the ADR-0002 Option-B return spring), and ADR-0049 found its **moment arm reverses
+  sign inside the ROM at every anchor angle** — so the one direction it can pull is
+  not a fixed direction in joint space. The ankle needs ADR-0002 **Option A**, not a
+  spring.
+  ⚠️ Numbers published here before: M42's 1269 / 39.7 / 128-91 and M43's 1304 / 53.9
+  / 136-107. Each routing repair re-cut the cable runs and moved them. The
+  **conclusion and the ~175 kN/m target survived all three**.
 - G4. Energy-efficient movement compared with a direct-drive baseline.
 - G5. An articulated, tendon-driven spine so the body can arch, bend laterally,
   and twist like a real cat (P2).
@@ -47,7 +68,7 @@ curve.
 | NFR1  | Degrees of freedom per leg                       | 3 (hip, knee, ankle)|
 | NFR2  | Spine segments (serial, tendon-driven)           | **3** (ADR-0006)     |
 | NFR2b | DOF per spine segment                            | **2** — dorsoventral + lateral (ADR-0006/0009) |
-| NFR2c | Total actuated DOF (12 legs + 6 spine + 1 tail)  | **19** (= 19 motors, ADR-0008 + **ADR-0009** lateral) |
+| NFR2c | Total actuated DOF (12 legs + 6 spine + 1 tail)  | **19** (= 19 motors, ADR-0008 + **ADR-0009** lateral). ✅ Confirmed against the routed drive (M37): 3 motors per leg, each driving an antagonistic pair through the ADR-0008 variable-radius pulley, ankle single-tendon + return spring. |
 | NFR2d | Tail actuation (coarse assist, no accuracy)      | 1 tendon + passive return |
 | NFR2e | Spine LATERAL bend ROM (per segment)             | **±15°** (ADR-0009; gait commands 11°, so ~4° spare) |
 | NFR2f | Spine lateral **slew rate** (per segment)         | **≥ 119 °/s** — sized to a FAST reference manoeuvre (righting / future dynamic gait), **not** the 5 s crawl, which needs only ~29 °/s (ADR-0010) |
@@ -55,22 +76,22 @@ curve.
 | NFR2h | Statically stable walk speed                      | **~1.1 cm/s** (crawl), limited by **TIPPING** (ZMP), not friction. Faster requires a *dynamic* gait — ADR-0010 |
 | NFR2i | Dynamic (ZMP) stability margin, CRAWL             | **> 0** at every phase; currently **+6.4 mm** ⚠️ small |
 | NFR2j | **TROT** speed (the locomotion mode)              | **~50 cm/s** default — slowed from 67 cm/s by ADR-0020: the spine's balance assist costs ground friction as `1/stance²`, and at 0.3 s it exceeded a realistic floor. Motor-thermally capable of ~96 cm/s on a better floor. |
-| NFR2k | Trot roll oscillation                             | **bounded** — roll-rate drift ≈ 0 per cycle, ±0.4° peak. Requires `nominal_foot` x ≈ 0.005 m; the crawl's 0.05 m falls in one stride |
+| NFR2k | Trot roll oscillation                             | **bounded** — roll-rate drift ≈ 0 per cycle. ⚠️ Requires `nominal_foot` **x ≈ 0.00214 m**, re-tuned from 0.005 by **ADR-0046 (M41)**: the balance point is set by where the CoM sits relative to the diagonal, so it moved when the measured leg masses landed. At the old 0.005 the drift is **−0.180 rad/s per cycle** — divergent. The crawl's 0.05 m still falls in one stride. |
 | NFR8  | Paw force sensing range / survival                | **0–35 N** measured, **≥100 N** survival (×2.5 land transient), ≤0.4 N resolution, ≥1 kHz (ADR-0012) |
-| NFR10 | **Disturbance rejection envelope** (trot) — *measured capability* | **57 mm** DCM error, fixed-point with real latency AND the actuation ramp (ADR-0017). Superseded figures: 74 → 33 → 90 → 59 → **57**. |
+| NFR10 | **Disturbance rejection envelope** (trot) — *reduced-order capability* | **52.7 mm** DCM error, fixed-point with real latency AND the actuation ramp. Superseded figures: 74 → 33 → 90 → 59 → 57 (ADR-0017, 0.3 s stance) → 53.9 (ADR-0020, trot slowed to 0.4 s) → **52.72** (ADR-0025, sway CoM correction). ⚠️ This is the 1-D reduced-order figure; **measured** in closed-loop simulation it is **25.6 mm** in the worst direction (ADR-0037) — see NFR15. |
 | NFR12 | **Balance PIPELINE latency** (contact → command)  | **≤ 7.5 ms** — contact 1.0 + estimation 5.0 + transport 1.0 + compute 0.5 (ADR-0016). Re-cast from a whole-loop ≤20 ms: whole-loop is ~45 ms and **37 ms of it is the leg moving**, not electronics. |
-| NFR13 | Lateral shove rejected — *measured capability*      | **0.44 m/s** — the physical reading of NFR10 via xi = c + c_dot/omega. ⚠️ This is what the robot ACHIEVES; **NFR15 is what it must achieve** (ADR-0017). |
-| **NFR15** | **Disturbance cases the robot MUST survive**  | a **15 N / 0.1 s push** (48 mm), an **unexpected 40 mm step**, and a **10° lateral slope**. A 30 N shove (96 mm) is explicitly OUT of scope. Met with ~19 % margin **in the reduced-order model** (ADR-0017). `[assumed]` scenarios. ⚠️ **Not yet DEMONSTRATED in simulation** — a closed-loop MuJoCo harness reaches **28.9 mm** in its worst direction (ADR-0027, corrected by ADR-0028). ✅ **But ACHIEVABLE** (ADR-0033): the exact **viable set** — what *any* controller could recover from — is **62.7 mm**, comfortably past the 48 mm required. The reduced-order model is not optimistic (it is *conservative* on the spine term) and the foot-placement controller is already at **97 %** of optimal. What is missing is a controller that can spend the spine authority, not the authority itself. |
-| **NFR16** | **Floor friction μ** (reinstated)             | **≥ 0.70** — the spine's balance action is INTERNAL motion, so shifting the CoM against the planted feet costs ground reaction: 0.71 for full spine authority + 0.145 for the gait. Below 0.70, NFR15 fails (ADR-0019). ⚠️ ~~ADR-0010 withdrew this~~ — correctly, for the *crawl crossover*; it returns for a *different mechanism*. |
+| NFR13 | Lateral shove rejected — *reduced-order capability*      | **0.41 m/s** — the physical reading of NFR10 via xi = c + c_dot/omega. ⚠️ This is what the robot ACHIEVES; **NFR15 is what it must achieve** (ADR-0017). |
+| **NFR15** | **Disturbance cases the robot MUST survive**  | a **15 N / 0.1 s push** (48 mm), an **unexpected 40 mm step**, and a **10° lateral slope**. A 30 N shove (96 mm) is explicitly OUT of scope. Met with ~19 % margin **in the reduced-order model** (ADR-0017). `[assumed]` scenarios. ⚠️ **Not yet DEMONSTRATED in simulation, and by a wider margin than long recorded.** The MuJoCo harness reaches **25.6 mm** worst-direction — but ⚠️ **ADR-0040 (M35) established that is a SURVIVAL figure** (the trial passes if the robot does not fall inside the horizon), whereas the viable set is a **RECOVERY** bound. Like-for-like the recovery envelope is **1.5 mm**: the shipped controller ends its certified 25.6 mm trial 26.2 mm off its support. ⚠️ The previously quoted **"86 % of optimal" is WITHDRAWN** — it compared the two criteria. Cause diagnosed: the placement law has no term removing a *persistent* DCM offset, so it settles into a biased limit cycle (the ADR-0013 "walking away sideways" mode). ✅ **Still ACHIEVABLE** (ADR-0033): the exact viable set is **62.7 mm**, past the 48 mm required, and the reduced-order model is *conservative* on the spine term. ⚠️ **But one contradiction is open** (M36): at a 0.117 s stance the harness genuinely recovers from 42.2 mm against a 39.5 mm exact bound, so either that bound or the simulation is wrong. |
+| **NFR16** | **Floor friction μ** (reinstated)             | **≥ 0.70** — the spine's balance action is INTERNAL motion, so shifting the CoM against the planted feet costs ground reaction: 0.71 for full spine authority + 0.145 for the gait. ⚠️ ~~ADR-0010 withdrew this~~ — correctly, for the *crawl crossover*; it returns for a *different mechanism*. ⚠️ **Relaxed by ADR-0034:** re-derived on the exact viable set, NFR15 is met from **μ ≥ 0.6**, so 0.70 carries ~20 % margin rather than none. |
 | NFR14 | **Leg spare foot speed** (for corrections)         | **≥ 4.1 m/s** — the DOMINANT term in the balance loop. Ceiling is 5.93 m/s, nominal swing uses 1.83 (ADR-0016). |
 | NFR11 | **DCM estimation accuracy**                       | **≤ 3 mm** — a steady bias becomes a PERMANENT lateral offset amplified 3.2× (ADR-0013). Sharpens NFR8/ADR-0012. |
 | NFR9  | **Paw sensor mass**                               | **≤ 20 g per paw** — binding via SWING INERTIA, not mass: 20 g costs top speed 120→96 cm/s, 40 g exceeds the motor's continuous rating (ADR-0012) |
 | NFR3  | Control loop rate (tension/position)             | ≥ 1 kHz             |
 | NFR4  | Gait / trajectory update rate                    | ≥ 100 Hz            |
-| NFR5  | Mass (total)                                     | **4.05 kg** — raised from 3.0 kg (ADR-0010) once a real motor was sourced: the lightest purchasable part is 120 g, not the 72 g class target. A domestic cat is 4–5 kg. |
-| NFR6  | Runtime on one battery charge                    | **~30 min / ~900 m** trotting at 50 cm/s (83.6 W); **~168 min standing WITH the ADR-0003 brake**, 37 min without it (ADR-0021). 300 g pack, `[assumed]` 175 Wh/kg. |
+| NFR5  | Mass (total)                                     | ✅ **4.3041 kg — FOLDED IN by ADR-0046 (M41)**; `params.py` now carries it. ⚠️ **4.31 kg** — raised again by **ADR-0043 (M38)**: drawn as manufacturable parts a leg is **167 g**, not the assumed 110/95 g, so the body closes at **4.304 kg**, 6.3 % past the previous 4.05 kg. Every design gate still passes (trot at 80 % of motor peak, cable SF 4.70, bearing C0 1277/1500 N) — the overrun costs margin, not viability. History: 3.0 kg → **4.05** (ADR-0010, real 132 g motor) → **4.31** (ADR-0043, real joint hardware). A domestic cat is 4–5 kg. ⚠️ **Not yet folded into `params.py`**, so published mass-derived figures (NFR6 runtime, NFR18 thermal) still carry 4.045 kg. |
+| NFR6  | Runtime on one battery charge                    | ⚠️ **14–20 min / 420–600 m** trotting at 50 cm/s — **re-stated by ADR-0044 (M39)** from the published ~30 min / ~900 m. **Three corrections and one uncertainty.** Corrections: ADR-0043's 4.304 kg body and the 8.75 mm spool §2 requires (−17 %, → 25.2 min at 100.2 W), and `power.py`'s copper-loss formula, which uses `I²R_pp` where balanced three-phase is `3I²R_ph = 1.5×` that (→ 19.6 min at 128.6 W; its own docstring flagged it and nothing had priced it). Uncertainty: the vendor's Kt disagrees with its own current ratings by 27 %, worth the rest of the spread (→ 14.1 min at 178.2 W). ⚠️ Rotor-side is **ruled out** as the explanation (7.1× off, wrong direction); a six-step-vs-sinusoidal convention fits to 0.4 %, in which case both vendor numbers are right and only the driver's current sense decides. Standing with the ADR-0003 brake scales the same way. 300 g pack, `[assumed]` 175 Wh/kg / 80 % usable. |
 | NFR17 | **Power-off stance brake**                        | **Required, not optional** — standing costs 76 % of moving for zero work; the brake is worth **4.5×** standing endurance (ADR-0021). |
-| NFR18 | **Girdle surface finish + duty limit**            | Girdles **anodised** (ε ≥ 0.9) — worth **~39 K** (ADR-0023). **Continuous/tethered trotting is OUT OF SPEC** in still air: the 30 min battery, not the design, is what keeps the girdle below 70 °C. Forced air (h ≈ 15) would reopen it. **Also what keeps the rotor magnets in range**: polished, the stator reaches 117.5 °C (ADR-0024). |
+| NFR18 | **Girdle surface finish + duty limit**            | Girdles **anodised** (ε ≥ 0.9) — worth **~59 K** (⚠️ re-derived by ADR-0045; the lever grew because radiation goes as T⁴ and the operating point rose). **Continuous/tethered trotting is OUT OF SPEC in still air at ANY finish** — anodised settles at **96.1 °C** (~~74.9~~). ⚠️ **And the battery-limited case is now marginal, not comfortable: 70.2 °C** against the 70 °C line it used to clear by 10 K. ⚠️ **Forced air is REQUIRED for continuous operation, not an option**: h ≈ 15 brings it to 72.7 °C, h ≈ 25 to 58.2 °C. Winding runs **+11.5 K** above skin (~~+7.7~~), so anodised continuous winding is **107.6 °C** and polished **166.7 °C** — the magnet-range concern is sharper (ADR-0024/0045). |
 | NFR7  | Max cable tension per tendon                     | ❓ TBD (N)           |
 
 ## 4. Constraints & assumptions

@@ -247,6 +247,14 @@ def test_paw_sensor_mass_budget_is_what_limits_it_not_the_mass_budget():
 
     base, m0 = swing_peak(0)
     at20, m20 = swing_peak(20)
-    # 20 g/paw costs ~40% of the swing term but only ~2% of body mass.
-    assert 1.25 < at20 / base < 1.6
+    # ⚠️ M41 (ADR-0046): the MARGINAL cost of paw mass FELL, 1.4x -> 1.25x, because
+    # the leg it is added to is 52 % heavier (0.110 -> 0.167 kg measured). So 20 g a
+    # paw now costs ~25 % of the swing term rather than ~40 %.
+    #
+    # That is not good news. The ABSOLUTE swing torque is higher at every paw mass;
+    # only the sensitivity to the sensor fell. ADR-0012's NFR9 argument ("20 g costs
+    # top speed 120 -> 96 cm/s") was derived on the lighter leg and needs re-running
+    # against the real hardware -- the headline speed will be worse and the
+    # sensor's share of the blame smaller.
+    assert 1.15 < at20 / base < 1.45
     assert (m20 - m0) / m0 < 0.03

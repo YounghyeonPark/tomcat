@@ -82,14 +82,19 @@ def test_the_1D_reduction_lands_on_the_worst_direction(setup):
     """⚠️ The vindication of `control.py`.
 
     `StepPlant` collapses balance to one axis, which ADR-0031 criticised. Compared
-    against the exact 2-D viable set, its feet-only envelope (30.3 mm) sits within
-    **2 %** of the true worst-direction limit (29.8 mm). The reduction is not
-    optimistic — it happens to pick out the binding direction.
+    against the exact 2-D viable set, its feet-only envelope sits within **2 %** of
+    the true worst-direction limit. The reduction is not optimistic — it happens to
+    pick out the binding direction.
+
+    ⚠️ M41 (ADR-0046): the bound moved **29.8 -> 29.22 mm**, because the measured
+    leg masses shifted the CoM and the trot foothold was re-tuned 0.005 -> 0.00214 m
+    with it. The 2 % agreement is what matters here and it survived — that is the
+    claim, not the absolute number.
     """
     c, plant, q, reach = setup
     exact = _worst(viable.viable_set(c, q, plant.omega, plant.stance, reach, steps=20))
     quoted = control.rejection_envelope(plant)
-    assert exact == pytest.approx(0.0298, abs=5e-4)
+    assert exact == pytest.approx(0.0292, abs=5e-4)
     assert abs(quoted - exact) / exact < 0.03
 
 

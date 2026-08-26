@@ -427,8 +427,11 @@ def self_consistent_envelope(controller, pipeline: float = 0.0075,
     ``actuation_time`` and added.
 
     Returns ``{"envelope", "latency", "pipeline", "actuation"}``. On the shipped
-    trot this gives **~59 mm at a 7.5 ms pipeline**, against the ~90 mm that
-    ADR-0014/0015 quoted for zero latency.
+    trot this gives **~52.7 mm at a 7.5 ms pipeline**, against the ~81 mm the same
+    plant reaches with zero latency. (Superseded figures, all in the ADR log:
+    ADR-0014/0015 quoted ~90 mm zero-latency; ADR-0017 57 mm at a 0.3 s stance;
+    ADR-0020 53.9 mm once the trot slowed to 0.4 s; ADR-0025 **52.72 mm** after the
+    sway CoM correction.)
 
     The useful surprise: the result is nearly INSENSITIVE to ``pipeline``. Going
     2.5 → 20 ms costs only 62 → 52 mm, because the actuation term dominates. The
