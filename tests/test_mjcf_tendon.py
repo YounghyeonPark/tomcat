@@ -2053,3 +2053,250 @@ def test_the_spool_plant_EXPOSES_a_controller_this_project_does_not_have():
         f"drift {np.round(drift, 2)} -- if this now holds, the drivetrain "
         "controller landed and M46's gate should be re-run"
     )
+
+
+# ===================================================================
+# M47 - the DRIVETRAIN CASCADE the spool plant asked for
+# ===================================================================
+
+SERVO_KP = MT.ROTOR_ARMATURE * MT.ROTOR_BANDWIDTH ** 2
+SERVO_KV = 2.0 * MT.ROTOR_ARMATURE * MT.ROTOR_BANDWIDTH
+SPOOL_TN = ("hip_flex", "hip_ext", "knee_flex", "knee_ext", "ankle",
+            "ankle_ext")
+
+
+def _servo_rig(leg_p=None, pin=()):
+    """The spooled leg with a POSITION servo on each rotor."""
+    from tomcat_kin.params import DEFAULT_HINDLEG as HL
+
+    leg_p = HL if leg_p is None else leg_p
+    q = np.asarray(LegModel(leg_p).inverse((0.04, -0.17, 0.0)), float)
+    xml = MT.single_leg_rig_spooled(leg_p=leg_p, q_ref=q, series_k=SERIES_K,
+                                    ankle_pair=True, spool_servo=True)
+    for i, jn in enumerate(("L_q1", "L_q2", "L_q3")):
+        if jn not in pin:
+            continue
+        xml = re.sub(
+            r'(name="%s"[^>]*range=")[-0-9. ]+(")' % jn,
+            lambda mo, v=q[i]: "%s%.6f %.6f%s" % (mo.group(1), v - 1e-6,
+                                                  v + 1e-6, mo.group(2)),
+            xml)
+    return mujoco.MjModel.from_xml_string(xml), q
+
+
+def _idx(m):
+    A = [_adr(m, mujoco.mjtObj.mjOBJ_ACTUATOR, "m_L_" + t) for t in SPOOL_TN]
+    JR = [m.jnt_qposadr[_adr(m, mujoco.mjtObj.mjOBJ_JOINT, "jr_L_" + t)]
+          for t in SPOOL_TN]
+    JS = [m.jnt_qposadr[_adr(m, mujoco.mjtObj.mjOBJ_JOINT, "js_L_" + t)]
+          for t in SPOOL_TN]
+    TP = [_adr(m, mujoco.mjtObj.mjOBJ_TENDON, "L_" + t) for t in SPOOL_TN]
+    qa = [m.jnt_qposadr[_adr(m, mujoco.mjtObj.mjOBJ_JOINT, n)]
+          for n in ("L_q1", "L_q2", "L_q3")]
+    dof = [m.jnt_dofadr[_adr(m, mujoco.mjtObj.mjOBJ_JOINT, n)]
+           for n in ("L_q1", "L_q2", "L_q3")]
+    return A, JR, JS, TP, qa, dof
+
+
+def test_the_rotor_servo_gains_are_DERIVED_not_tuned():
+    """✅ **M46 stopped rather than guess gains. These are not guessed.**
+
+    A real motor brings an encoder and a current loop, so the inner loop is a
+    **position servo on the rotor**, and for a critically damped rotor of inertia
+    `I` at bandwidth `wn` the gains follow: `kp = I*wn^2`, `kv = 2*I*wn`. At the
+    default 3000 rad/s that is **kp 180 N·m/rad, kv 0.12**.
+
+    ⚠️ And the force range is **signed**. M46 corrected this: a motor turns either
+    way, and *"a cable can only pull"* is a property of the CABLE. On the old plant
+    the actuator WAS the tendon, so a one-sided `ctrlrange` said it correctly; with
+    a spool in between, clamping the motor to one sign also removes its ability to
+    damp its own drivetrain.
+    """
+    m, _ = _servo_rig()
+    assert m.nu == 6
+    for i in range(m.nu):
+        assert m.actuator_trntype[i] == mujoco.mjtTrn.mjTRN_JOINT
+        assert m.actuator_gainprm[i][0] == pytest.approx(SERVO_KP, rel=1e-6)
+        assert m.actuator_forcerange[i][0] == pytest.approx(-MT.MOTOR_PEAK_NM)
+        assert m.actuator_forcerange[i][1] == pytest.approx(+MT.MOTOR_PEAK_NM)
+    assert SERVO_KP == pytest.approx(180.0, rel=1e-6)
+    assert SERVO_KV == pytest.approx(0.12, rel=1e-6)
+
+
+def test_the_SERVOS_OWN_COMPLIANCE_lands_in_series_with_G3():
+    """⚠️ **A firmware gain sets how much of a mechanical spring you get.**
+
+    The rotor servo has finite stiffness `kp`, and it sits in **series** with the G3
+    spring `k_tors`. Command a rotor angle for a target tension and the tension
+    comes out low by exactly `kp / (kp + k_tors)`:
+
+    | rotor bandwidth | kp (N·m/rad) | raw error | delivered (N/m) |
+    |---|---|---|---|
+    | 1000 rad/s | 20.0 | **-36.5 %** | **95 285** — ⚠️ outside ADR-0050's band |
+    | 2000 | 80.0 | -12.6 % | 131 170 |
+    | 3000 | 180.0 | -6.0 % | 141 004 |
+    | 6000 | 720.0 | -1.6 % | 147 645 |
+
+    ✅ `wbc.rotor_command`'s `servo_kp` removes the droop exactly — **-0.1 % at
+    every gain, including the one that was 36 % out.** But the *delivered* series
+    stiffness is still `kp*k_tors/(kp+k_tors)`, and at a 1000 rad/s rotor loop that
+    is **95 kN/m against a specification of 150** -- outside the band ADR-0050 handed
+    to mechanical. G3 cannot be specified without the servo bandwidth beside it.
+    """
+    m, q = _servo_rig(pin=("L_q1", "L_q2", "L_q3"))
+    A, JR, JS, _, qa, _ = _idx(m)
+
+    for target in (19.6, 100.0, 222.9):
+        d = mujoco.MjData(m)
+        for i, a in enumerate(qa):
+            d.qpos[a] = q[i]
+        mujoco.mj_forward(m, d)
+        cmd = wbc.rotor_command(np.zeros(6), np.zeros(6),
+                                np.full(6, target), K_TORS, MT.SPOOL_R,
+                                servo_kp=SERVO_KP)
+        for _ in range(30000):
+            for i, a in enumerate(A):
+                d.ctrl[a] = float(cmd[i])
+            mujoco.mj_step(m, d)
+        mujoco.mj_forward(m, d)
+        got = np.mean([K_TORS * (-float(d.qpos[j])) / MT.SPOOL_R for j in JS])
+        assert got == pytest.approx(target, rel=0.01), (
+            f"compensated command should hit {target} N, got {got:.1f}"
+        )
+
+    # and uncompensated it is low by exactly the stiffness ratio
+    ratio = SERVO_KP / (SERVO_KP + K_TORS)
+    assert ratio == pytest.approx(0.940, abs=0.002)
+    delivered = (SERVO_KP * K_TORS / (SERVO_KP + K_TORS)) / MT.SPOOL_R ** 2
+    assert delivered == pytest.approx(141004.0, rel=0.01)
+    assert delivered < SERIES_K, "the servo always costs some of the spring"
+    # a 1000 rad/s loop falls out of ADR-0050's 150-200 kN/m band
+    kp_slow = MT.ROTOR_ARMATURE * 1000.0 ** 2
+    slow = (kp_slow * K_TORS / (kp_slow + K_TORS)) / MT.SPOOL_R ** 2
+    assert slow < 1.0e5, f"a slow rotor loop delivers only {slow:.0f} N/m"
+
+
+def _cascade_hold(m, q, target_q3_deg=None, kp=50.0, kd=1.0, tb=19.6,
+                  seconds=2.0, refresh=25):
+    """The M47 cascade: rotor servo inside, joint PD and tension allocation out.
+
+    ⚠️ `G` is refreshed as the pose moves, which is not optional here: the ankle's
+    moment arm **reverses** inside the ROM (ADR-0049), and a `G` frozen at the target
+    pose drives the joint to the opposite end stop when the path crosses it.
+    """
+    A, JR, JS, TP, qa, dof = _idx(m)
+    qd = q.copy()
+    if target_q3_deg is not None:
+        qd[2] = math.radians(target_q3_deg)
+
+    d = mujoco.MjData(m)
+    for i, a in enumerate(qa):
+        d.qpos[a] = q[i]
+    mujoco.mj_forward(m, d)
+
+    def jac():
+        J = np.zeros((6, 3))
+        base = [float(d.qpos[a]) for a in qa]
+        for k in range(3):
+            Ls = []
+            for sgn in (+1, -1):
+                dd = mujoco.MjData(m)
+                dd.qpos[:] = d.qpos
+                dd.qpos[qa[k]] = base[k] + sgn * 0.002
+                mujoco.mj_forward(m, dd)
+                Ls.append(np.array([dd.ten_length[t] for t in TP]))
+            J[:, k] = (Ls[0] - Ls[1]) / 0.004
+        return (-J).T
+
+    G = jac()
+    for it in range(int(seconds / m.opt.timestep)):
+        if it and it % refresh == 0:
+            G = jac()
+        e = np.array([qd[i] - d.qpos[a] for i, a in enumerate(qa)])
+        ev = np.array([-d.qvel[a] for a in dof])
+        T = wbc.tendon_tension(G, wbc.actuator_torque(d, dof, kp * e + kd * ev),
+                               t_min=tb, t_max=MT.TENSION_MAX)
+        cmd = wbc.rotor_command([d.qpos[j] for j in JR],
+                                [d.qpos[j] for j in JS], T, K_TORS,
+                                MT.SPOOL_R, servo_kp=SERVO_KP)
+        for i, a in enumerate(A):
+            d.ctrl[a] = float(cmd[i])
+        mujoco.mj_step(m, d)
+        if not np.all(np.isfinite(d.qpos)):
+            return None
+    return np.degrees(np.array([float(d.qpos[a]) for a in qa]) - qd)
+
+
+def test_the_CASCADE_holds_the_pose_that_M46_could_not():
+    """✅ **M46's gap, closed, and closed by derivation rather than tuning.**
+
+    M46 left the spooled plant undriveable: every controller in the project commands
+    tension **directly**, and with the actuator on the rotor a tension arrives
+    through a 120 Hz series-elastic mode. A hand-tuned attempt left **5-10°**.
+
+    The cascade is three pieces, each with a closed form:
+
+    1. **inner** — a rotor position servo, gains `I*wn^2` and `2*I*wn`;
+    2. **the command** — `theta_r_des = (theta_r + theta_s) + T*r/k_tors`, where the
+       zero-tension rotor angle reads **straight off the state** as
+       `theta_r + theta_s`, so no reference offset is needed at all;
+    3. **droop compensation** — `(kp + k_tors)/kp`, exact.
+
+    Outside it, the joint PD and non-negative tension allocation the project already
+    had. It holds the stance pose to **0.00°** at every joint gain from 10 to 50.
+    """
+    m, q = _servo_rig()
+    for kp, kd in ((10.0, 0.2), (25.0, 0.5), (50.0, 1.0)):
+        drift = _cascade_hold(m, q, kp=kp, kd=kd)
+        assert drift is not None, f"kp={kp} diverged"
+        assert float(np.max(np.abs(drift))) < 0.01, (
+            f"kp={kp}: drift {np.round(drift, 4)}"
+        )
+
+
+def test_the_cascade_TRACKS_the_hind_ankle_but_the_REVERSAL_still_bounds_it():
+    """⚠️ **The answer to ADR-0050's open question, and it is a qualified yes.**
+
+    ADR-0050 could not confirm dynamically that an antagonistic pair reaches the
+    ankle range the trot commands. With the cascade it can be asked, and the answer
+    splits on ADR-0049's **moment-arm reversal**.
+
+    On the shipped 300° anchor the hind reversal sits at **~112°, inside** the
+    hind ankle's 88.5-122.3° gait range, and the cascade cannot cross it:
+
+    | commanded | reached |
+    |---|---|
+    | 88.5° | 88.53 — ✅ |
+    | 97.1° (stance) | 97.10 — ✅ |
+    | 110° | 97.44 — ⚠️ stuck |
+    | 122.3° | 85.62 — ⚠️ stuck |
+
+    ✅ **Move the anchor to 270° and it tracks the whole range** (worst error
+    **3.48°**, including the 122.3° that a frozen `G` had sent to -30°). So the
+    pair *can* do it; the reversal has to be moved out of the gait range first.
+
+    ⚠️ **M47 measures that and does not ship it.** 270° for the hind breaks **14
+    tests across M44, M45 and M46** -- every ankle measurement in three milestones
+    was taken on 300° -- and no single angle serves both legs, because their hocks
+    stand **81° apart**. That migration is its own work; see
+    `MT._ankle_anchor_deg`.
+
+    ⚠️ Asserts the defect: fails when the anchor migration lands.
+    """
+    m, q = _servo_rig()
+    stance = math.degrees(q[2])
+    assert stance == pytest.approx(97.1, abs=0.5)
+    assert MT._ankle_anchor_deg(DEFAULT_HINDLEG) == 300.0, "still the M44 anchor"
+
+    near = _cascade_hold(m, q, target_q3_deg=88.5)
+    assert near is not None and abs(near[2]) < 5.0, (
+        f"the low end of the gait range is reachable: {near[2]:.2f} deg off"
+    )
+
+    far = _cascade_hold(m, q, target_q3_deg=122.3)
+    assert far is not None
+    assert abs(far[2]) > 20.0, (
+        f"122.3 deg is past the reversal and must NOT be reachable on the 300 deg "
+        f"anchor; got {far[2]:.2f} deg of error -- if this now tracks, the anchor "
+        "migration landed and M47's gate should be re-run"
+    )

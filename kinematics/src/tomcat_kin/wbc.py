@@ -224,6 +224,37 @@ def actuator_torque(data, dof, stance_tau) -> np.ndarray:
     return bias - passive + np.asarray(stance_tau, dtype=float)
 
 
+def rotor_command(theta_rotor, theta_spool, tension, k_tors: float,
+                  r_spool: float, servo_kp: float | None = None):
+    """Rotor angle to command for a desired cable tension, on a spooled drivetrain.
+
+    The winding constraint makes `r*(theta_rotor + theta_spool)` the wound length,
+    and the series spring acts on `theta_spool`, so
+
+        T = (k_tors / r) * (theta_rotor - theta_rotor_at_zero_tension)
+
+    and the zero-tension rotor angle is readable straight off the state as
+    `theta_rotor + theta_spool` -- no reference offset needed. Hence
+
+        theta_rotor_desired = (theta_rotor + theta_spool) + T_desired * r / k_tors
+
+    ⚠️ **`servo_kp` is not optional if the motor is a position servo.** Its own
+    finite stiffness sits in SERIES with the spring, and the tension comes out low
+    by exactly `kp / (kp + k_tors)`: measured **-36.5 %** at kp = 20 and **-6.0 %**
+    at kp = 180, matching that ratio to two decimals. Multiplying the command by
+    `(kp + k_tors) / kp` removes it -- **to -0.1 % at every gain tried**, including
+    the one that was 36 % out.
+
+    Vectorises over tendons; `k_tors` and `r_spool` are scalars.
+    """
+    base = np.asarray(theta_rotor, dtype=float) + np.asarray(theta_spool,
+                                                             dtype=float)
+    delta = np.asarray(tension, dtype=float) * float(r_spool) / float(k_tors)
+    if servo_kp is not None:
+        delta = delta * (float(servo_kp) + float(k_tors)) / float(servo_kp)
+    return base + delta
+
+
 def realisable_cop(feet: np.ndarray, cop) -> np.ndarray:
     """Clamp a commanded centre of pressure onto what the contacts can actually make.
 

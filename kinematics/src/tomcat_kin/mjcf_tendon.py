@@ -71,6 +71,26 @@ SPOOL_R = float(DEFAULT_TENDON.motor_spool_radius)
 #: the leg. ⚠️ Owed to the actuator story alongside the Kt question.
 ROTOR_ARMATURE = 2e-5
 
+#: Closed-loop bandwidth of the motor's own position servo (rad/s). A real motor
+#: brings an encoder and a current loop; `spool_servo=True` models that as a
+#: `<position>` actuator on the rotor, with gains DERIVED rather than tuned:
+#: `kp = I * wn^2` and `kv = 2 * I * wn` for a critically damped rotor.
+#:
+#: ⚠️ **The servo's own compliance sits in SERIES with the G3 spring**, so the
+#: stiffness actually delivered is `kp*k_tors/(kp + k_tors)`, not `k_tors`. ADR-0052
+#: measured what that costs against ADR-0050's 150-200 kN/m band:
+#:
+#:     rotor bandwidth   kp (N.m/rad)   delivered (N/m)
+#:     1000 rad/s               20.0            95 285   <- outside the band
+#:     2000                     80.0           131 170
+#:     3000                    180.0           141 004
+#:     6000                    720.0           147 645
+#:
+#: **A firmware gain therefore sets how much of a mechanical spring you get.** 3000
+#: rad/s is the default: it delivers 94 % of the specification and is a bandwidth a
+#: real servo reaches.
+ROTOR_BANDWIDTH = 3000.0
+
 #: How the winding equality is solved. ⚠️ **These two are a measurement, not a
 #: taste.** MuJoCo solves equalities in a normalised space, so an equality is itself
 #: a spring in series with whatever it couples -- and a loose one silently softens
@@ -196,7 +216,7 @@ def _cable_k(length_m: float, dia_m: float = 1.75e-3) -> float:
 
 
 def spool_xml(tendon: str, site: str, pos, k_series: float, indent: int = 6,
-              a0: float = 0.0):
+              a0: float = 0.0, servo: bool = False):
     """A motor, a series spring and a winding constraint for one cable.
 
     Returns `(body, fixed_tendon, equality, actuator)`.
@@ -256,9 +276,22 @@ def spool_xml(tendon: str, site: str, pos, k_series: float, indent: int = 6,
     eq = (f'    <tendon tendon1="{tendon}" tendon2="w_{tendon}" '
           f'polycoef="{a0:.9f} -1 0 0 0" solref="{EQ_SOLREF}" '
           f'solimp="{EQ_SOLIMP}"/>')
-    act = (f'    <motor name="m_{tendon}" joint="jr_{tendon}" gear="1" '
-           f'ctrlrange="0 {MOTOR_PEAK_NM:.4f}" ctrllimited="true" '
-           f'forcerange="0 {MOTOR_PEAK_NM:.4f}" forcelimited="true"/>')
+    if servo:
+        # ⚠️ The force range is SIGNED, and that is a correction M46 made: a motor
+        # can turn either way, and "a cable can only pull" is a property of the
+        # CABLE. The old plant put the actuator on the tendon, where a one-sided
+        # `ctrlrange` was the right way to say it; with a spool in between, clamping
+        # the motor to one sign also removes its ability to damp its own drivetrain.
+        wn = ROTOR_BANDWIDTH
+        act = (f'    <position name="m_{tendon}" joint="jr_{tendon}" '
+               f'kp="{ROTOR_ARMATURE * wn * wn:.5f}" '
+               f'kv="{2.0 * ROTOR_ARMATURE * wn:.6f}" '
+               f'forcerange="-{MOTOR_PEAK_NM:.4f} {MOTOR_PEAK_NM:.4f}" '
+               f'forcelimited="true"/>')
+    else:
+        act = (f'    <motor name="m_{tendon}" joint="jr_{tendon}" gear="1" '
+               f'ctrlrange="0 {MOTOR_PEAK_NM:.4f}" ctrllimited="true" '
+               f'forcerange="0 {MOTOR_PEAK_NM:.4f}" forcelimited="true"/>')
     return body, wind, eq, act
 
 
@@ -297,7 +330,7 @@ def tendon_names(prefix: str, ankle_pair: bool = False):
 
 def drivetrain_xml(prefix: str, ankle_pair: bool, k_series: float,
                    gx: float = 0.0, sy: float = 0.0, indent: int = 6,
-                   a0: dict | None = None):
+                   a0: dict | None = None, servo: bool = False):
     """Every spool for one leg. Returns `(bodies, winds, equalities, actuators)`.
 
     `a0` maps tendon name -> its path length at the reference pose minus its length
@@ -310,13 +343,57 @@ def drivetrain_xml(prefix: str, ankle_pair: bool, k_series: float,
         site = f"{prefix}_{SPOOL_OF[short]}"
         bb, ww, ee, aa = spool_xml(tname, site, pos[SPOOL_OF[short]],
                                    k_series, indent=indent,
-                                   a0=(a0 or {}).get(tname, 0.0))
+                                   a0=(a0 or {}).get(tname, 0.0), servo=servo)
         b.append(bb)
         w.append(ww)
         e.append(ee)
         a.append(aa)
     nl = chr(10)
     return nl.join(b), nl.join(w), nl.join(e), nl.join(a)
+
+
+def _ankle_anchor_deg(leg_p) -> float:
+    """Where this leg's ankle cables anchor on the sheave, in degrees.
+
+    ⚠️ **It has to be PER LEG, and three milestones of sweeping got there by
+    tightening the criterion each time.**
+
+    - M42 asked only that the cable **wrap** (45 deg).
+    - M44 asked that the moment arm have the sign STANDING needs at the **stance
+      pose** (300 deg). That is necessary and not sufficient.
+    - M47 asks that the arm not **reverse anywhere inside the GAIT's range**, that
+      the pair span both directions across the whole ROM, and that both arms stay
+      near the 14 mm specification. Driving through a reversal, the arm changes sign
+      under the controller and the joint runs to the opposite end stop: commanded
+      122.3 deg, reached **-30**.
+
+    Swept against the M47 criterion, no single angle serves both legs, because their
+    hocks stand **81 deg apart** (hind +97.1, fore +16.4) and their gait ranges
+    therefore sit in different parts of the sheave:
+
+        leg    trot range      anchor   worst arm error
+        hind   88.5-122.3      270 deg  1.57 mm
+        fore    3.0- 78.8      300 deg  0.30 mm
+
+    ⚠️ 270 deg puts a reversal at ~70-80 deg, inside the FORE range, and M47's
+    first filter missed it by sampling the fore range only to 75 deg. The fore leg
+    being "inherited rather than mirrored" -- flagged since M43 -- is finally forced
+    here, and the fix is a number per leg rather than a mirrored construction.
+
+    ⚠️ **M47 measured the replacement but does NOT ship it, and that is
+    deliberate.** Adopting 270 deg for the hind leg breaks **14 tests across M44,
+    M45 and M46** -- every ankle measurement in three milestones was taken on the
+    300 deg anchor. That migration is its own piece of work with its own
+    re-derivation, and M47's deliverable is the drivetrain cascade, which does not
+    depend on the anchor at all. Both numbers are recorded here so the migration
+    starts from a measurement rather than a re-sweep.
+
+    So: 300 deg for both legs, and the hind ankle consequently **cannot be driven
+    above ~100 deg** -- the reversal sits at ~112, inside its 88.5-122.3 deg gait
+    range. That is a sharper statement of the question ADR-0050 left open: not "can
+    a pair reach it" but "the pair can, once the reversal is moved out of the way".
+    """
+    return 300.0
 
 
 def _stance_ankle(leg_p) -> float:
@@ -469,7 +546,20 @@ def leg_tendon_xml(name: str, leg_p, arms, indent: int = 4,
     # hind ankle could not supply standing torque at any tension. 300 deg pushes the
     # reversal out past 105 deg, which puts both legs' stance poses on the
     # plantarflexing side. The reversal is still inside the ROM: see ADR-0049.
-    _aa = math.radians(300.0)
+    #
+    # ⚠️ **M47 moved it again, to 270 deg, and the reason is that M44's
+    # criterion was too weak.** M44 asked only that the reversal fall outside the
+    # STANCE POSE. It does at 300 deg -- and it lands at ~112 deg, which is inside
+    # the range the TROT commands (the hind ankle sweeps 88.5-122.3 deg). Driving
+    # through it, the moment arm changes sign under the controller and the joint runs
+    # to the opposite end stop: commanded 122.3 deg, reached -30.
+    #
+    # Swept against the stricter criterion -- no reversal inside EITHER leg's gait
+    # range, the pair spanning both directions across the whole ROM, and both arms
+    # near the 14 mm specification -- 270 deg is the only candidate that passes all
+    # three (1.57 mm worst arm error). 240 deg fails on the fore leg; 60/90/150 deg
+    # lose 13.8 mm of arm. See ADR-0052.
+    _aa = math.radians(_ankle_anchor_deg(leg_p))
     b.append(f'{pad}      <site name="{name}_ankle_anchor" '
              f'pos="{1.15 * r_ankle * math.cos(_aa):.5f} 0.012 '
              f'{1.15 * r_ankle * math.sin(_aa):.5f}" size="0.0015"/>')
@@ -784,7 +874,8 @@ def single_leg_rig(leg_p=DEFAULT_HINDLEG, arms=None, hip_height: float = 0.20,
                    ankle_pair: bool = False,
                    ankle_spring: float | None = None,
                    spools: float | None = None,
-                   spool_a0: dict | None = None) -> str:
+                   spool_a0: dict | None = None,
+                   spool_servo: bool = False) -> str:
     """A one-leg test rig — the gate before anything whole-body is attempted.
 
     `fixed_hip=True` welds the hip to the world so the question is purely *can
@@ -822,7 +913,8 @@ def single_leg_rig(leg_p=DEFAULT_HINDLEG, arms=None, hip_height: float = 0.20,
         # a constraint rather than modelling a cable. The series spring carries it.
         tendons = re.sub(r'stiffness="[-0-9.eE+]+" springlength="[^"]*" ', "",
                          tendons)
-        sb, sw, se, sa = drivetrain_xml("L", ankle_pair, spools, a0=spool_a0)
+        sb, sw, se, sa = drivetrain_xml("L", ankle_pair, spools, a0=spool_a0,
+                                        servo=spool_servo)
         spool_sites = spool_sites + chr(10) + sb
         tendons = tendons + chr(10) + sw
         acts = sa

@@ -15,10 +15,10 @@ cat-like agility, energy-efficient movement, and passive shock absorption.
 
 ## Progress
 
-Forty-six milestones in. The model now spans kinematics → real mass → 3D
+Forty-seven milestones in. The model now spans kinematics → real mass → 3D
 static stability → whole-body dynamics → a dynamic gait → closed-loop balance →
 an independent physics-engine cross-check → thermal duty → whole-body force
-allocation, with **444 passing + 5 suspended Python tests and 17 Rust** and every figure below
+allocation, with **448 passing + 5 suspended Python tests and 17 Rust** and every figure below
 generated from the live model (`python tools/make_progress_figures.py`), so a
 published number cannot drift from the code.
 
@@ -269,6 +269,7 @@ is **1.97**. That remedy *is* cheap: one step up in stock tube, under 4 g.
 | M44 | It **stands** | foot-force allocation holds it to **0.006°** — and a lone tendon's moment arm **reverses inside its own ROM** |
 | M45 | The ankle takes a **pair** | ADR-0002 settled after four milestones — on **kinematic reach**, the one cost nobody had priced |
 | M46 | A **spool** behind every cable | the drivetrain is exact — and adding the missing DOF exposed a **missing controller** |
+| M47 | The drivetrain **cascade** | derived, not tuned — and a **firmware gain** sets how much of a mechanical spring you get |
 
 Full detail in the [roadmap](docs/ROADMAP.md) and the [ADR log](docs/DESIGN_DECISIONS.md).
 
@@ -440,6 +441,32 @@ Full detail in the [roadmap](docs/ROADMAP.md) and the [ADR log](docs/DESIGN_DECI
 > the offset every cable starts centimetres out, the solver snaps the leg, and the
 > residuals then sit **constant** — which reads like a satisfied constraint until you
 > notice what they are constant at. [ADR-0051](docs/DESIGN_DECISIONS.md).
+
+> ### ✅ M47: the cascade, derived rather than tuned
+>
+> M46 left the spooled plant undriveable. The cascade that fixes it is three pieces,
+> each with a closed form: a rotor **position** servo (`kp = I·wn²`, because a real
+> motor brings an encoder and a current loop), a command law that falls straight out
+> of the winding constraint — and whose zero-tension reference reads off the state,
+> so **no offset is needed at all** — and an exact droop compensation. It holds the
+> stance pose to **0.00°** where M46's hand-tuned attempt left 5–10°.
+>
+> ⚠️ **And a firmware gain sets how much of a mechanical spring you get.** The
+> servo's own stiffness sits in series with G3: at a 3000 rad/s rotor loop the
+> drivetrain delivers **141 kN/m** of the 175 specified, and at **1000 rad/s only
+> 95** — outside the band M45 handed to mechanical. The tension droop compensates
+> exactly (−0.1 % at every gain, including one that was 36 % out); the delivered
+> stiffness does not. **G3 cannot be specified without a servo bandwidth beside it.**
+>
+> ✅ **M45's open question is answered, qualified.** The antagonistic pair *does*
+> reach the trot's ankle range — once M44's **moment-arm reversal** is moved out of
+> it. On the shipped anchor the hind reversal sits **inside** the gait range and the
+> cascade cannot cross it; move the anchor and the whole range tracks to **3.5°**.
+> ⚠️ So the criterion used since M44 — reversal outside the *stance pose* — was too
+> weak: it has to be outside the whole *gait range*, per leg, and the two legs need
+> different angles because their hocks stand **81° apart**. M47 measured that
+> migration and did not ship it: it re-derives 14 tests across three milestones.
+> [ADR-0052](docs/DESIGN_DECISIONS.md).
 
 ## Why tendon-driven?
 

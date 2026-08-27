@@ -3681,6 +3681,110 @@ That took **one missing link** and **three fixes**, and the fixes are the findin
 - The quadruped is not spooled yet. M46's question was a single-leg question, the
   way M42 gated one leg before M43 took the body.
 
+## ADR-0052: The drivetrain cascade -- derived, not tuned; and a firmware gain sets how much of a mechanical spring you get
+
+- **Status:** Accepted. `spool_servo=` ships in `mjcf_tendon.py` and
+  `wbc.rotor_command` in `wbc.py`. **Closes the gap [ADR-0051](#adr-0051) stopped
+  on. Answers [ADR-0050](#adr-0050)'s open question, qualified. Puts a firmware
+  number under [ADR-0047](#adr-0047)'s G3 specification.**
+- **Context:** ADR-0051 built a spool behind every cable and then could not drive
+  it: with the actuator on the rotor rather than the tendon, commanding a tension is
+  no longer instantaneous but arrives through a series-elastic mode at **758 rad/s
+  (~120 Hz)**, and every controller in the project commands tension **directly**. A
+  hand-tuned attempt left 5-10 deg of joint drift where the old plant held 0.00.
+  ADR-0051 stopped rather than keep guessing gains.
+
+### The cascade, in closed form
+
+- **Inner loop: a rotor POSITION servo.** A real motor brings an encoder and a
+  current loop, so the natural inner loop is position, not torque. For a critically
+  damped rotor of inertia `I` at bandwidth `wn`, `kp = I*wn^2` and `kv = 2*I*wn`;
+  at the default 3000 rad/s that is **kp 180 N.m/rad, kv 0.12**. Nothing tuned.
+- **The command law.** The winding constraint makes `r*(theta_r + theta_s)` the
+  wound length and the series spring acts on `theta_s`, so
+  `T = (k_tors/r)*(theta_r - theta_r_at_zero_tension)` -- and the zero-tension rotor
+  angle reads **straight off the state** as `theta_r + theta_s`. Hence
+
+      theta_r_desired = (theta_r + theta_s) + T_desired * r / k_tors
+
+  ✅ **No reference offset is needed at all**, which is a pleasant contrast with
+  the `qpos0` trap ADR-0051 had to work around for the constraint itself.
+- **Outer loop:** unchanged -- the joint PD and non-negative tension allocation the
+  project already had ([ADR-0049](#adr-0049)'s `wbc.tendon_tension`).
+- ✅ **It holds the stance pose to 0.00 deg** at every joint gain from 10 to 50,
+  where ADR-0051's hand-tuned attempt left 5-10.
+
+### ⚠️ A firmware gain sets how much of a mechanical spring you get
+
+- The servo has finite stiffness `kp`, and it sits in **series** with the G3 spring.
+  Command a rotor angle for a target tension and the tension comes out low by
+  exactly `kp/(kp + k_tors)`:
+
+  | rotor bandwidth | kp (N.m/rad) | raw error | delivered series stiffness |
+  |---|---|---|---|
+  | 1000 rad/s | 20.0 | **-36.5 %** | **95 285 N/m** -- ⚠️ outside ADR-0050's band |
+  | 2000 | 80.0 | -12.6 % | 131 170 |
+  | 3000 | 180.0 | -6.0 % | 141 004 |
+  | 6000 | 720.0 | -1.6 % | 147 645 |
+
+- ✅ **The droop compensates exactly**: multiplying the command by
+  `(kp + k_tors)/kp` brings the tension to **-0.1 % at every gain tried**, including
+  the one that was 36 % out. `wbc.rotor_command` takes `servo_kp` for this.
+- ⚠️ **But the DELIVERED stiffness cannot be compensated away.** ADR-0047 sized G3
+  at ~175 kN/m and ADR-0050 banded it at 150-200. At a **1000 rad/s** rotor loop the
+  drivetrain delivers **95 kN/m** -- outside that band, from a firmware gain alone.
+  **G3 cannot be specified without the servo bandwidth beside it**, and that is a
+  new coupling between the mechanical and firmware sides of this project.
+
+### ADR-0050's open question, answered and qualified
+
+- ADR-0050 decided the ankle on **kinematic reach** and could not confirm it
+  dynamically. With the cascade it can be asked, and the answer splits on
+  [ADR-0049](#adr-0049)'s **moment-arm reversal**.
+- ⚠️ On the shipped 300 deg anchor the hind reversal sits at **~112 deg, INSIDE**
+  the hind ankle's 88.5-122.3 deg gait range, and the cascade cannot cross it:
+  commanded 110 deg it reaches 97.4; commanded 122.3 it reaches 85.6. ⚠️ And with a
+  `G` frozen at the target pose instead of refreshed, 122.3 deg sends the joint to
+  the **opposite end stop at -30 deg** -- the arm changes sign under the controller.
+- ✅ **Move the anchor to 270 deg and the whole range tracks**, worst error
+  **3.48 deg**. So an antagonistic pair *can* do what ADR-0050 claimed; the reversal
+  has to be moved out of the gait range first, and ADR-0049/ADR-0050's criterion --
+  reversal outside the **stance pose** -- was too weak. The criterion is: **outside
+  the whole GAIT range, for each leg.**
+- ⚠️ **And no single angle serves both legs.** Their hocks stand **81 deg apart**
+  (hind +97.1, fore +16.4), so their gait ranges sit in different parts of the
+  sheave. Swept against the stricter criterion: **hind 270 deg** (1.57 mm worst arm
+  error), **fore 300 deg** (0.30 mm). The fore leg being "inherited rather than
+  mirrored", flagged since [ADR-0048](#adr-0048), is finally forced -- and the fix is
+  a number per leg, not a mirrored construction.
+- ⚠️ **M47 measures the migration and does not ship it.** Adopting 270 deg for the
+  hind breaks **14 tests across M44, M45 and M46**: every ankle measurement in three
+  milestones was taken on the 300 deg anchor. That is its own piece of work with its
+  own re-derivation, and M47's deliverable -- the cascade -- does not depend on the
+  anchor at all. Both numbers are recorded in `MT._ankle_anchor_deg` so the
+  migration starts from a measurement rather than a re-sweep.
+
+### Two smaller things
+
+- ⚠️ **`G` must be refreshed as the pose moves.** Not a preference: with the
+  reversal inside the range, a `G` measured once at the target sends the joint to the
+  wrong end stop. ADR-0049's whole-body driver already refreshes every 25 steps; this
+  says why it has to.
+- ⚠️ **The fore leg tracks loosely**, worst error **11.8 deg** against the hind's
+  3.5, on the same gains. Different link lengths and a stance hock 81 deg away make
+  it a different plant; per-leg gains are owed and are not in this milestone.
+
+### Consequences
+
+- **The spooled plant is driveable**, and the three pieces that make it so all have
+  closed forms. `wbc.rotor_command` is what firmware implements.
+- ⚠️ **G3's specification now needs a servo bandwidth attached**: 175 kN/m of
+  spring delivers 141 kN/m behind a 3000 rad/s rotor loop and 95 behind a 1000 one.
+- ⚠️ **Next: the ANKLE ANCHOR MIGRATION** -- hind 270 deg, fore 300 -- and the 14
+  tests it re-derives. It is the last thing between ADR-0050's decision and its
+  dynamic confirmation.
+- ⚠️ Then per-leg outer gains, and the quadruped, neither of which M47 touched.
+
 ---
 
 ### How to add an ADR

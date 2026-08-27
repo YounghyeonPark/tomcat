@@ -106,7 +106,10 @@ sequences the work that implements them.
 > **M46 done:** a **spool behind every cable** — the drivetrain is exact, and
 > adding it exposed a controller this project does not have
 > ([ADR-0051](DESIGN_DECISIONS.md)).
-> 444 passed + 5 xfailed Python, 17 Rust.
+> **M47 done:** the drivetrain **cascade**, derived not tuned — and a firmware
+> gain sets how much of a mechanical spring you get
+> ([ADR-0052](DESIGN_DECISIONS.md)).
+> 448 passed + 5 xfailed Python, 17 Rust.
 
 ---
 
@@ -2179,7 +2182,55 @@ That is the honest reason no travel figure beyond the end-stop case is published
 harder**, 3862 rad/s against 294. Any antagonistic pair with an unactuated
 antagonist has an undamped co-contraction mode.
 
-## Later milestones (candidate M47+, not committed)
+## Milestone M47 — The drivetrain cascade (DONE)
+
+M46 built a spool behind every cable and then could not drive it: commanding a
+tension is no longer instantaneous but arrives through a **120 Hz** series-elastic
+mode, and every controller in the project commands tension **directly**. M46 stopped
+rather than keep guessing gains.
+
+✅ **The cascade is three pieces and each has a closed form.** The inner loop is a
+rotor **position** servo, because a real motor brings an encoder and a current loop:
+`kp = I*wn^2`, `kv = 2*I*wn`, so **kp 180 N·m/rad** at 3000 rad/s. The command law
+falls out of the winding constraint —
+`theta_r_des = (theta_r + theta_s) + T*r/k_tors` — and the zero-tension rotor angle
+reads **straight off the state**, so no reference offset is needed at all. Droop
+compensation is `(kp + k_tors)/kp`, exact. Outside it, the joint PD and non-negative
+allocation the project already had. **It holds the stance pose to 0.00°** where
+M46's hand-tuned attempt left 5–10°.
+
+⚠️ **A firmware gain sets how much of a mechanical spring you get.** The servo's own
+stiffness sits in **series** with G3:
+
+| rotor bandwidth | kp | raw error | delivered |
+|---|---|---|---|
+| 1000 rad/s | 20.0 | **−36.5 %** | **95 285 N/m** — ⚠️ outside ADR-0050's band |
+| 3000 | 180.0 | −6.0 % | 141 004 |
+| 6000 | 720.0 | −1.6 % | 147 645 |
+
+The droop compensates to **−0.1 % at every gain**, but the *delivered* stiffness
+cannot be compensated away. **G3 cannot be specified without the servo bandwidth
+beside it** — a new coupling between the mechanical and firmware sides.
+
+✅ **ADR-0050's open question is answered, qualified.** With the cascade the
+antagonistic pair *does* reach the trot's ankle range — but only once ADR-0049's
+**moment-arm reversal** is moved out of the way. On the shipped 300° anchor the
+hind reversal sits at **~112°, inside** the 88.5–122.3° gait range and the
+cascade cannot cross it (commanded 122.3°, reaches 85.6; with a frozen `G`, −30°).
+At **270° the whole range tracks**, worst error **3.48°**.
+
+⚠️ So ADR-0049/0050's criterion was **too weak**: reversal outside the *stance pose*
+is necessary and not sufficient; it must be outside the whole *gait range*, per leg.
+And no single angle serves both — their hocks stand **81° apart**, so **hind 270°,
+fore 300°**. The fore leg being "inherited rather than mirrored", flagged since
+M43, is finally forced.
+
+⚠️ **M47 measures that migration and does not ship it**: 270° for the hind breaks
+**14 tests across M44, M45 and M46**, because every ankle measurement in three
+milestones was taken on 300°. Both numbers are recorded in `_ankle_anchor_deg` so
+the migration starts from a measurement rather than a re-sweep.
+
+## Later milestones (candidate M48+, not committed)
 
 > This list is **curated, not append-only**. When a milestone closes an item it is
 > deleted here and the reasoning kept in the [ADR log](DESIGN_DECISIONS.md). Earlier
@@ -2188,12 +2239,26 @@ antagonist has an undamped co-contraction mode.
 
 ### Next — fold it in, then re-publish
 
-- **M47 — the DRIVETRAIN CASCADE the spool plant requires**: a tension loop
-  inside, a joint loop outside, separated by the **120 Hz** series-elastic mode.
-  ⚠️ ADR-0051: every existing controller commands tension directly and cannot drive
-  the spooled plant. This is the first control task in this project that is about
-  the **drivetrain** rather than the body, and ADR-0050's dynamic confirmation waits
-  on it.
+- **M48 — the ANKLE ANCHOR MIGRATION: hind 270°, fore 300°.** ⚠️ ADR-0052
+  measured it and did not ship it, because it re-derives **14 tests across M44, M45
+  and M46**. It is the last thing between ADR-0050's decision and its dynamic
+  confirmation, and the numbers are already in `_ankle_anchor_deg`.
+- **The TEST SUITE now takes 12 minutes**, up from about 4. ⚠️ M43–M47 added
+  real physics simulations and `tests/test_mjcf_tendon.py` alone is 5 minutes: the
+  quadruped stand fixture is 78 s, G3's series-spring gate 54 s, the cascade hold
+  35 s, the spring sweep 35 s. Reducing the simulation is **not** the answer — this
+  project keeps "a published number cannot drift from the code" by asserting those
+  numbers — so the options are a `slow` marker excluded from the default run, or
+  collapsing the gain/stiffness sweeps to one representative value each and keeping
+  the swept table in the docstring. Neither is free: a marker means the default run
+  no longer checks the headline results, and collapsing a sweep loses the evidence
+  that a value is a knee rather than a lucky point.
+- **PER-LEG outer gains.** ⚠️ On the same gains the fore leg tracks to 11.8°
+  against the hind's 3.5 — different link lengths and a stance hock 81° away make
+  it a different plant.
+- **Attach a SERVO BANDWIDTH to G3's specification.** ⚠️ 175 kN/m of spring
+  delivers 141 behind a 3000 rad/s rotor loop and **95 behind a 1000** one, which is
+  outside the band ADR-0050 handed to mechanical.
 - **`ROTOR_ARMATURE` is `[assumed]` at 2e-5 kg·m^2** and now matters — it sets
   that 120 Hz mode. ⚠️ It joins the vendor's Kt reference point as an actuator
   number the project owes itself.
@@ -2335,6 +2400,7 @@ Kept as a short table so the deletions above are auditable rather than silent.
 | Make the pull-only quadruped STAND | M44 — [ADR-0049](DESIGN_DECISIONS.md): it stands at 0.006 deg; a lone tendon's moment arm reverses mid-ROM |
 | Settle ADR-0002 Option A vs B at the ankle | M45 — [ADR-0050](DESIGN_DECISIONS.md): Option A, capstan; decided on kinematic reach, +528 g |
 | Make cable PAY-OUT representable | M46 — [ADR-0051](DESIGN_DECISIONS.md): spool drivetrain, statics exact; it exposed a missing controller |
+| Drive the spooled plant | M47 — [ADR-0052](DESIGN_DECISIONS.md): cascade derived in closed form; G3 now needs a servo bandwidth beside it |
 
 ## Open reconciliation items (lead)
 
