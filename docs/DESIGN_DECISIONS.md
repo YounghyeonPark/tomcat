@@ -17,7 +17,17 @@ context, and consequences. Status is one of: **Proposed**, **Accepted**,
   modeled and compensated.
 
 ## ADR-0002: Antagonistic actuation vs. return spring
-- **Status:** Accepted
+
+> ✅ **The ANKLE question is now SETTLED, by [ADR-0050](#adr-0050) (M45): Option
+> A, an antagonistic pair, capstan construction.** Option B was chosen here on motor
+> count, and four milestones then priced it: no restoring stiffness
+> ([ADR-0047](#adr-0047)), a moment arm that reverses inside its own ROM
+> ([ADR-0049](#adr-0049)), and finally the one cost nobody had looked at —
+> **kinematic reach**. The trot commands the ankle **+62.4° above its reference
+> during SWING**, and under Option B nothing pulls that way at all. Cost: four
+> motors, **+528 g**, 19 → 23 actuators.
+
+- **Status:** Accepted; the ankle case revised by ADR-0050
 - **Context:** A cable can only pull, not push. Each DOF needs a way to move in
   both directions.
 - **Options:**
@@ -3431,6 +3441,134 @@ That took **one missing link** and **three fixes**, and the fixes are the findin
 - ⚠️ **Next: the thermal case for a 205 N standing tendon** (ADR-0023 does not
   cover it), fold the attitude term into `desired_wrench`, mirror the fore leg, and
   add the spine and tail to reach 19 DOF.
+
+## ADR-0050: The ankle takes an ANTAGONISTIC PAIR (Option A) -- because the gait commands 62 deg the spring cannot reach
+
+- **Status:** Accepted, and it **settles [ADR-0002](#adr-0002)'s open ankle
+  question** after four milestones of accumulating costs against Option B.
+  `ankle_pair` and `ankle_spring` build options ship in `mjcf_tendon.py`.
+  **Raises NFR5 to a projected 4.83 kg. Supersedes ADR-0049's "live decision".**
+- **Context:** ADR-0002 chose Option B for the ankle -- **one tendon plus a torsion
+  return spring** -- on motor count, and nothing had priced it. Two milestones then
+  did: [ADR-0047](#adr-0047) found a lone-tendon joint has **no restoring
+  stiffness**, and [ADR-0049](#adr-0049) found its **moment arm reverses sign inside
+  its own ROM**, so the one direction it can pull is not a fixed direction in joint
+  space. This milestone set out to settle A vs B by measurement.
+
+### First: "add an antagonist" is not sufficient
+
+- ⚠️ The hip and knee build their pairs by **mirroring** -- same sheave, opposite
+  sidesite, anchor reflected across z. Swept across the ankle's whole -30...+150 deg
+  range, the three candidate antagonist anchors behave completely differently:
+
+  | antagonist anchor | spans both directions? | worst arm error |
+  |---|---|---|
+  | 120 deg (the naive 180-deg-away mirror) | ⚠️ **no** -- a 60 deg dead band, with the stance hock at 97.1 deg inside it | |
+  | 60 deg (reflected across z, as the hip and knee do it) | yes | ⚠️ **13.83 mm** on a 14 mm arm -- one member all but vanishes |
+  | **300 deg, i.e. the SAME anchor as the primary** | ✅ **yes** | ✅ **1.43 mm** |
+
+- ✅ **Option A must be built as a CAPSTAN** -- both cables to the same anchor
+  point, wrapping opposite sides of the sheave; physically one cable round a pin
+  with a motor on each end. That makes the two wraps exact mirrors of each other, so
+  they **reverse together and stay opposite**, which turns ADR-0049's reversal from
+  a fatal property into a harmless one.
+- The hip and knee get away with mirroring because their cable arrives from a
+  distant spool, so the geometry really is symmetric about z. The ankle's arrives
+  from a via-pulley on the tibia and is not. **A construction that works at one
+  joint is not a construction that works at every joint.**
+
+### Then: most of the evidence favoured a STIFFER SPRING, not Option A
+
+- `params` specifies the return spring at **0.3 N.m/rad**. Stiffened, and referenced
+  at the stance hock (which ADR-0049 fixed), it holds the unloaded leg:
+
+  | k3 (N.m/rad) | 0.3 | 1.0 | 2.0 | 4.0 | **8.0** | 16.0 |
+  |---|---|---|---|---|---|---|
+  | ankle drift | -14.62 deg | -4.55 | -2.29 | -1.15 | **-0.58** | -0.29 |
+  | peak tension | 58.6 N | 38.7 | 27.3 | 17.7 | **13.3** | 11.3 |
+
+- ✅ **~8 N.m/rad reaches Option A's holding performance (0.00 deg at 12.2 N)
+  without a single extra motor.** Call it **Option B'**.
+- ⚠️ Its apparent cost is travel: at the 223 N motor peak the lone tendon moves the
+  ankle **-196 deg from stance at k3 = 0.3 but only -24.9 deg at k3 = 8.**
+- ✅ **But that turned out not to bind.** The trot only demands **8.6 deg (hind)
+  and 13.4 deg (fore)** in the tendon's own pull direction, so even k3 = 8 leaves
+  **2.9x** margin. On every measurement taken so far, B' was the better buy.
+
+### And then the gait was asked, and Option B cannot do it
+
+- ⚠️ **THE deciding measurement.** Over one trot cycle the ankle is commanded,
+  relative to the stance hock:
+
+  | leg | swing, below | swing, **ABOVE** | stance, above |
+  |---|---|---|---|
+  | fore | 13.4 deg | **+62.4 deg** | +54.8 deg |
+  | hind | 8.6 deg | **+25.2 deg** | +14.1 deg |
+
+- **Under Option B nothing drives the ankle above its reference.** The lone tendon
+  pulls it *down* -- that is the moment-arm sign ADR-0049 had to choose to make
+  standing possible at all -- and the spring only pulls it *toward* the reference.
+  The above-reference excursion during **stance** is plausibly the ground
+  dorsiflexing a loaded foot, which the tendon merely resists. ⚠️ **But in SWING
+  the foot is unloaded and there is nothing left to do it.**
+- And the spring **reference** is not a free parameter either: moving it up to the
+  swing extreme makes the trajectory reachable and gives back ADR-0049's stance
+  saving, which is what dropped the worst tendon from 222.9 N to 207.4.
+- ✅ **Option A resolves it directly**, because its antagonist pulls the ankle up.
+  It is the only option measured here that can command the gait this project already
+  publishes.
+
+### Decision, and what it costs
+
+- **Adopt ADR-0002 Option A at the ankle, capstan construction.**
+- ⚠️ **Mass: four more motors at 132 g = +528 g on ADR-0046's 4.3041 kg, so a
+  projected 4.83 kg (+12.3 %)**, before spools, cables and drivers. NFR5's history
+  becomes 3.0 -> 4.05 ([ADR-0010](#adr-0010)) -> 4.31 ([ADR-0043](#adr-0043)) ->
+  **4.83**. A domestic cat is 4-5 kg, so it is inside the band, at the top of it.
+  Actuator count **19 -> 23**.
+- ⚠️ **The compiled plant's mass does NOT move**, because the motors live in
+  `trunk_mass` and the sheaves are massless by [ADR-0048](#adr-0048). This cost has
+  to be carried in the budget by hand, and there is a test asserting exactly that so
+  nobody reads the unchanged 4.3081 kg as Option A being free.
+- ✅ **What it buys, besides the gait:** the unloaded ankle holds to **0.00 deg at
+  12.2 N** against Option B's -14.6 deg at 58.6 N; ankle restoring stiffness doubles
+  (11.4 -> 22.5 N.m/rad); and ADR-0049's moment-arm reversal stops mattering.
+- `params.spring_stiffness[2]` is left at 0.3 and **not** folded in. Option A removes
+  the spring; `ANKLE_SPRING_TO_HOLD = 8.0` records what Option B' would have needed,
+  because a rejected option is worth keeping costed.
+
+### Two limits of this analysis, stated rather than buried
+
+- ⚠️ **This plant has NO SPOOL DEGREE OF FREEDOM, so the pair's TRAVEL cannot be
+  measured here.** A tendon's length is purely a function of the joint angles, so a
+  motor cannot pay cable out and a slack antagonist acts as a spring: driving one
+  ankle tendon at 223 N against a *zero-commanded* antagonist, the antagonist
+  stretched **2.13 mm and developed 273.8 N** -- more than the 222.9 N driving it --
+  and the joint stalled at 8.9 deg.
+  ✅ Nothing measured on this plant so far is affected, because moment arms, joint
+  stiffness and pose-holding are all small perturbations about a pose where both
+  cables are taut. **And the argument above is kinematic**, so it does not depend on
+  travel either. But a dynamic swing test does, and that is the next prerequisite.
+- ⚠️ **The standing-tension comparison is confounded**, and is not used above. The
+  worst tendon climbs 207 -> 223 N under **both** options, because the ADR-0049
+  driver has **no posture task**: with the foot pinned by contact a 3-joint leg has
+  one internal DOF and nothing controls it, so the ankle sags ~5 deg and the required
+  tension grows with it. A null-space posture term cut the sag (-6.4 -> -1.7 deg) but
+  pushed the peak to the ceiling and destabilised above kp 10. That is its own work
+  item, not an A/B discriminator.
+
+### Consequences
+
+- **ADR-0002's ankle question is closed after four milestones.** Option B was chosen
+  on motor count; it lost on **kinematic reach**, which is the one cost nobody had
+  looked at.
+- ⚠️ **NFR5 rises to a projected 4.83 kg** and needs the same fold-in treatment
+  ADR-0046 gave 4.30: the CAD, the mass closure and `params` all still say 4.3041.
+- ⚠️ **The electronics grow by four drivers**, which nothing in `electronics/` has
+  seen.
+- ⚠️ **Next: spool DOFs**, so pay-out is representable and a swing-phase test can
+  run; then the **posture task**; then the thermal case for a 205 N standing tendon
+  that ADR-0049 left open.
 
 ---
 

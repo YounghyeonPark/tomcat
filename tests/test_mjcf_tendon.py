@@ -1291,3 +1291,470 @@ def test_standing_runs_the_hind_hip_extensor_OVER_its_continuous_rating(stood):
         "referencing the ankle spring at the stance angle drops the worst tendon "
         "from the 222.9 N ceiling to 207.4 N"
     )
+
+
+# ===================================================================
+# M45 - ADR-0002 Option A vs B at the ankle, measured rather than argued
+# ===================================================================
+
+def _ankle_hold(pair=False, k3=None, tb=5.0, kp=10.0, kd=0.2, seconds=2.0):
+    """Hold the UNLOADED hind leg and report the drift and the worst tension.
+
+    Unloaded is the regime that separates the options: ADR-0049 showed the spring
+    and the stance load pull the same way, so a lone tendon can serve one or the
+    other. This measures the swing side.
+    """
+    q = np.asarray(LegModel(DEFAULT_HINDLEG).inverse((0.04, -0.17, 0.0)), float)
+    m = mujoco.MjModel.from_xml_string(MT.single_leg_rig_elastic(
+        q_ref=q, series_k=1.75e5, ankle_pair=pair, ankle_spring=k3))
+    names = ["L_hip_flex", "L_hip_ext", "L_knee_flex", "L_knee_ext", "L_ankle"]
+    if pair:
+        names.append("L_ankle_ext")
+    tid = [mujoco.mj_name2id(m, mujoco.mjtObj.mjOBJ_TENDON, n) for n in names]
+    dof = [m.jnt_dofadr[mujoco.mj_name2id(m, mujoco.mjtObj.mjOBJ_JOINT, n)]
+           for n in JNT]
+    J = np.zeros((len(names), 3))
+    for k in range(3):
+        Ls = []
+        for sgn in (+1, -1):
+            d = mujoco.MjData(m)
+            for i, a in enumerate(dof):
+                d.qpos[a] = q[i]
+            d.qpos[dof[k]] += sgn * 0.002
+            mujoco.mj_forward(m, d)
+            Ls.append(np.array([d.ten_length[t] for t in tid]))
+        J[:, k] = (Ls[0] - Ls[1]) / 0.004
+    G = (-J).T
+
+    d = mujoco.MjData(m)
+    for i, a in enumerate(dof):
+        d.qpos[a] = q[i]
+    peak = 0.0
+    for _ in range(int(seconds / m.opt.timestep)):
+        mujoco.mj_forward(m, d)
+        e = np.array([q[i] - d.qpos[a] for i, a in enumerate(dof)])
+        ev = np.array([-d.qvel[a] for a in dof])
+        T = wbc.tendon_tension(G, wbc.actuator_torque(d, dof, kp * e + kd * ev),
+                               t_min=tb, t_max=MT.TENSION_MAX)
+        peak = max(peak, float(T.max()))
+        d.ctrl[:] = T
+        mujoco.mj_step(m, d)
+        if not np.all(np.isfinite(d.qpos)):
+            return None, peak
+    return np.degrees(np.array([d.qpos[a] for a in dof]) - q), peak
+
+
+def test_option_A_needs_a_CAPSTAN_not_a_mirrored_pair():
+    """⚠️ **"Add an antagonist" is not sufficient, and M45 nearly shipped the
+    version that does not work.**
+
+    The hip and knee build their pairs by MIRRORING. Swept across the ankle's whole
+    -30...+150° range, the three candidate antagonist anchors behave completely
+    differently:
+
+    | antagonist anchor | spans both directions? | worst arm error |
+    |---|---|---|
+    | 120° (the naive 180°-away mirror) | ⚠️ **no** — a 60° dead band, and the
+    stance hock at 97.1° is inside it | |
+    | 60° (reflected across z, as the hip and knee do it) | yes | ⚠️ **13.83 mm**
+    on a 14 mm arm — one member all but vanishes |
+    | **300°, i.e. the SAME anchor as the primary** | ✅ **yes** | ✅ **1.43 mm** |
+
+    At 120° the two arms reverse at **different** angles (~105° and ~45°), which is
+    what leaves the same-sign band. Anchoring both cables at the same point — a
+    **capstan**, physically one cable round a pin with a motor on each end — makes
+    the two wraps exact mirrors of each other, so they **reverse together and stay
+    opposite** all the way through the ROM.
+
+    The hip and knee get away with mirroring because their cable arrives from a
+    distant spool, so the geometry really is symmetric about z. The ankle's arrives
+    from a via-pulley on the tibia and is not.
+    """
+    q = np.asarray(LegModel(DEFAULT_HINDLEG).inverse((0.04, -0.17, 0.0)), float)
+    r = float(DEFAULT_TENDON.joint_moment_arm[2])
+    base = MT.single_leg_rig(ankle_pair=True)
+
+    def arms(anchor_x_deg, q3_deg):
+        a = math.radians(anchor_x_deg)
+        xml = re.sub(
+            r'(name="L_ankle_anchor_x"\s+pos=")[-0-9.]+( 0.012 )[-0-9.]+(")',
+            lambda mo: "%s%.5f%s%.5f%s" % (mo.group(1), 1.15 * r * math.cos(a),
+                                           mo.group(2), 1.15 * r * math.sin(a),
+                                           mo.group(3)),
+            base, flags=re.S)
+        mm = mujoco.MjModel.from_xml_string(xml)
+        tt = {n: mujoco.mj_name2id(mm, mujoco.mjtObj.mjOBJ_TENDON, n)
+              for n in ("L_ankle", "L_ankle_ext")}
+        dd = [mm.jnt_dofadr[mujoco.mj_name2id(mm, mujoco.mjtObj.mjOBJ_JOINT, n)]
+              for n in JNT]
+        out = {}
+        for n, t in tt.items():
+            Ls = []
+            for sgn in (+1, -1):
+                d = mujoco.MjData(mm)
+                for i, a2 in enumerate(dd):
+                    d.qpos[a2] = q[i]
+                d.qpos[dd[2]] = math.radians(q3_deg) + sgn * 0.002
+                mujoco.mj_forward(mm, d)
+                Ls.append(float(d.ten_length[t]))
+            out[n] = (Ls[0] - Ls[1]) / 0.004
+        return out
+
+    rom = range(-30, 151, 10)
+
+    def worst(anchor_x):
+        band, err = [], 0.0
+        for dq in rom:
+            a = arms(anchor_x, dq)
+            if a["L_ankle"] * a["L_ankle_ext"] > 0:
+                band.append(dq)
+            err = max(err, max(abs(abs(v) - r) for v in a.values()))
+        return band, err
+
+    # the naive 180-deg-away mirror leaves a dead band, and the stance is in it
+    band, _ = worst(120.0)
+    assert band, "anchor_x 120 deg was expected to have a same-sign band"
+    assert 90 in band and 100 in band, (
+        f"and it should contain the stance hock at 97.1 deg; band {band}"
+    )
+
+    # the z-mirror spans the ROM, but one member of the pair all but vanishes
+    band, err = worst(60.0)
+    assert not band, f"anchor_x 60 deg should span the ROM; band {band}"
+    assert err > 0.010, (
+        f"but its worst arm error should be large, got {1e3 * err:.2f} mm"
+    )
+
+    # the shipped capstan spans it AND keeps both arms near the spec
+    band, err = worst(300.0)
+    assert not band, f"the capstan must span the whole ROM; band {band}"
+    assert err < 0.0015, f"worst capstan arm error {1e3 * err:.2f} mm"
+    assert err < 0.15 * 0.010, "an order better than the z-mirror"
+
+
+def test_option_B_sags_and_option_A_holds_the_UNLOADED_leg():
+    """⚠️ **The regime that separates them, from ADR-0049's finding.**
+
+    | | unloaded ankle | worst tension |
+    |---|---|---|
+    | Option B, `params`' 0.3 N·m/rad spring | **-14.6°** | 58.6 N |
+    | Option A, capstan pair | **0.00°** | **12.2 N** |
+
+    Option A holds it exactly and needs **4.8× less tension to do it**, because the
+    antagonist opposes directly instead of the tendon fighting a spring.
+
+    ✅ Both options hold the hip and knee to 0.00° either way — those joints
+    have had antagonists all along, which is the point.
+    """
+    b_drift, b_peak = _ankle_hold(pair=False)
+    a_drift, a_peak = _ankle_hold(pair=True)
+    assert b_drift is not None and a_drift is not None
+
+    for d in (b_drift, a_drift):
+        assert abs(d[0]) < 0.01 and abs(d[1]) < 0.01, "hip and knee hold either way"
+
+    assert abs(b_drift[2]) > 10.0, f"Option B ankle sag {b_drift[2]:.2f} deg"
+    assert abs(a_drift[2]) < 0.5, f"Option A ankle drift {a_drift[2]:.2f} deg"
+    assert a_peak < 0.3 * b_peak, (
+        f"Option A should need far less tension: {a_peak:.1f} vs {b_peak:.1f} N"
+    )
+
+
+def test_a_STIFFER_SPRING_buys_the_same_holding_with_NO_extra_motors():
+    """✅ **The cheap alternative, and it is why M45 does not simply recommend
+    Option A.**
+
+    `params` specifies the Option-B return spring at **0.3 N·m/rad**. Stiffened,
+    and referenced at the stance hock (which ADR-0049 fixed), it holds:
+
+    | k3 (N·m/rad) | 0.3 | 1.0 | 2.0 | 4.0 | **8.0** | 16.0 |
+    |---|---|---|---|---|---|---|
+    | ankle drift | -14.62° | -4.55 | -2.29 | -1.15 | **-0.58** | -0.29 |
+    | peak tension | 58.6 N | 38.7 | 27.3 | 17.7 | **13.3** | 11.3 |
+
+    **~8 N·m/rad reaches Option A's holding performance without a single extra
+    motor** — a different spring, not four motors, four spools, four drivers and
+    **+528 g on a 4.30 kg robot**.
+
+    ⚠️ **Its cost is TRAVEL.** See the next test.
+    """
+    _, base_peak = _ankle_hold(k3=float(DEFAULT_TENDON.spring_stiffness[2]))
+    drift, peak = _ankle_hold(k3=MT.ANKLE_SPRING_TO_HOLD)
+    assert drift is not None
+    assert abs(drift[2]) < 1.0, f"at 8 N.m/rad the ankle holds: {drift[2]:.2f} deg"
+    assert peak < 0.3 * base_peak, (
+        f"and needs far less tension: {peak:.1f} vs {base_peak:.1f} N"
+    )
+    # monotone in the spring, so 8 is a knee and not a lucky point
+    prev = None
+    for k3 in (1.0, 2.0, 4.0, 8.0, 16.0):
+        d, _ = _ankle_hold(k3=k3)
+        assert d is not None
+        if prev is not None:
+            assert abs(d[2]) < abs(prev) + 1e-9, "stiffer must not be worse"
+        prev = d[2]
+
+
+def test_the_stiffer_spring_EATS_THE_RANGE_OF_MOTION():
+    """⚠️ **What the cheap option costs, and it is severe.**
+
+    Driving the lone ankle tendon at the 223 N motor peak, how far the joint travels
+    from its stance pose:
+
+    | k3 (N·m/rad) | 0.3 | 1.0 | 2.0 | 4.0 | **8.0** | 16.0 |
+    |---|---|---|---|---|---|---|
+    | travel | -196° | -166 | -103 | -55 | **-25** | -12 |
+
+    So the spring that holds the unloaded ankle also **takes the ankle's range of
+    motion with it**: at 8 N·m/rad the tendon can reach 25° of the specified
+    180°. That is the trade ADR-0050 hands to mechanical, and it is why this is a
+    decision rather than a fix.
+    """
+    q = np.asarray(LegModel(DEFAULT_HINDLEG).inverse((0.04, -0.17, 0.0)), float)
+
+    def travel(k3, seconds=1.0):
+        m = mujoco.MjModel.from_xml_string(MT.single_leg_rig_elastic(
+            q_ref=q, series_k=1.75e5, ankle_spring=k3))
+        dof = [m.jnt_dofadr[mujoco.mj_name2id(m, mujoco.mjtObj.mjOBJ_JOINT, n)]
+               for n in JNT]
+        aid = mujoco.mj_name2id(m, mujoco.mjtObj.mjOBJ_ACTUATOR, "m_L_ankle")
+        d = mujoco.MjData(m)
+        for i, a in enumerate(dof):
+            d.qpos[a] = q[i]
+        for _ in range(int(seconds / m.opt.timestep)):
+            d.ctrl[:] = 0.0
+            d.ctrl[aid] = MT.TENSION_MAX
+            d.qpos[dof[0]] = q[0]
+            d.qpos[dof[1]] = q[1]
+            d.qvel[dof[0]] = 0.0
+            d.qvel[dof[1]] = 0.0
+            mujoco.mj_step(m, d)
+        return abs(math.degrees(float(d.qpos[dof[2]]) - q[2]))
+
+    loose = travel(float(DEFAULT_TENDON.spring_stiffness[2]))
+    holding = travel(MT.ANKLE_SPRING_TO_HOLD)
+    assert loose > 150.0, f"the specified spring barely restricts travel: {loose:.0f}"
+    assert holding < 40.0, f"the holding spring restricts it hard: {holding:.0f}"
+    assert holding < 0.25 * loose, "and the loss is most of the range"
+
+
+def test_option_As_TRAVEL_cannot_be_measured_on_this_PLANT():
+    """⚠️ **The limitation that stops M45 from settling the decision, and it is a
+    property of the model, not of Option A.**
+
+    `mjcf_tendon.py` has **no spool degree of freedom**: a tendon's length is purely
+    a function of the joint angles, so a motor cannot **pay cable out**. A slack
+    antagonist therefore acts as a spring.
+
+    Driving one ankle tendon at 223 N with its antagonist commanded to **zero**, the
+    antagonist stretched **2.13 mm and developed 273.8 N** — more than the 222.9 N
+    driving it — and the joint stopped at 8.9°. A real motor would have released
+    cable.
+
+    ✅ **Nothing measured on this plant so far is affected**, because moment arms,
+    joint stiffness and pose-holding are all small perturbations about a pose where
+    both cables are taut. ⚠️ But **the travel of an antagonistic pair cannot be
+    measured here, and travel is exactly what Option A is meant to buy over a
+    stiffer spring.** Adding spool DOFs is the prerequisite for settling ADR-0002.
+    """
+    q = np.asarray(LegModel(DEFAULT_HINDLEG).inverse((0.04, -0.17, 0.0)), float)
+    m = mujoco.MjModel.from_xml_string(MT.single_leg_rig_elastic(
+        q_ref=q, series_k=1.75e5, ankle_pair=True))
+    dof = [m.jnt_dofadr[mujoco.mj_name2id(m, mujoco.mjtObj.mjOBJ_JOINT, n)]
+           for n in JNT]
+    tex = mujoco.mj_name2id(m, mujoco.mjtObj.mjOBJ_TENDON, "L_ankle_ext")
+    aid = mujoco.mj_name2id(m, mujoco.mjtObj.mjOBJ_ACTUATOR, "m_L_ankle")
+
+    d = mujoco.MjData(m)
+    for i, a in enumerate(dof):
+        d.qpos[a] = q[i]
+    mujoco.mj_forward(m, d)
+    L0 = float(d.ten_length[tex])
+    for _ in range(int(1.0 / m.opt.timestep)):
+        d.ctrl[:] = 0.0
+        d.ctrl[aid] = MT.TENSION_MAX
+        d.qpos[dof[0]] = q[0]
+        d.qpos[dof[1]] = q[1]
+        d.qvel[dof[0]] = 0.0
+        d.qvel[dof[1]] = 0.0
+        mujoco.mj_step(m, d)
+    mujoco.mj_forward(m, d)
+
+    stretch = float(d.ten_length[tex]) - L0
+    resist = stretch * float(m.tendon_stiffness[tex])
+    travel = abs(math.degrees(float(d.qpos[dof[2]]) - q[2]))
+
+    assert MT.NO_SPOOL_DOF, "the limitation is declared in the module"
+    assert stretch > 1e-3, f"the slack antagonist stretched {1e3 * stretch:.2f} mm"
+    assert resist > MT.TENSION_MAX, (
+        f"and resisted with {resist:.0f} N against the {MT.TENSION_MAX:.0f} N "
+        "driving it -- which is why the travel figure means nothing here"
+    )
+    assert travel < 15.0, f"so the joint stalls at {travel:.1f} deg"
+
+
+def test_option_As_MASS_cost_is_four_more_MOTORS():
+    """⚠️ **The price, against a mass budget that has already moved three times.**
+
+    Option A is one more motor per leg: **4 × 132 g = +528 g** on ADR-0046's
+    4.3041 kg, so **4.83 kg (+12.3 %)**, before spools, cables and drivers. NFR5's
+    history is 3.0 → 4.05 (ADR-0010, the real motor) → 4.31 (ADR-0043, real joint
+    hardware) → **4.83**. A domestic cat is 4-5 kg, so it is inside the band, at
+    the top of it. Actuator count goes **19 → 23**.
+
+    ⚠️ The model's own mass does not move, because the motors live in `trunk_mass`
+    and the sheaves are massless by ADR-0048 — so this cost is **not** visible in
+    the compiled plant and has to be carried in the budget by hand. That is worth
+    asserting, so nobody reads the unchanged 4.3081 kg as Option A being free.
+    """
+    from tomcat_kin.params import DEFAULT_BODY_MASS_KG
+
+    q = _quad_poses()
+    a = mujoco.MjModel.from_xml_string(MT.quadruped_rig(hip_height=0.176,
+                                                        ankle_pair=True))
+    b = mujoco.MjModel.from_xml_string(MT.quadruped_rig(hip_height=0.176))
+    assert a.nu == b.nu + 4 == 24, "one more actuator per leg"
+    assert float(sum(a.body_mass)) == pytest.approx(float(sum(b.body_mass))), (
+        "and the plant's mass does NOT show it -- the budget must, by hand"
+    )
+
+    motor_g = 132.0
+    with_option_a = DEFAULT_BODY_MASS_KG + 4 * motor_g * 1e-3
+    assert with_option_a == pytest.approx(4.832, abs=0.001)
+    assert with_option_a / DEFAULT_BODY_MASS_KG == pytest.approx(1.123, abs=0.002)
+    assert with_option_a < 5.0, "still inside the 4-5 kg band a real cat occupies"
+    assert q is not None
+
+
+def _trot_ankle_demand():
+    """Ankle demand over one trot cycle, split by phase and by direction.
+
+    Returns {leg: {"ref", "swing_below", "swing_above", "stance_above"}}, degrees.
+    """
+    from tomcat_kin import gait
+    from tomcat_kin.params import DEFAULT_FORELEG as FL
+
+    lp = {"LF": FL, "RF": FL, "LR": DEFAULT_HINDLEG, "RR": DEFAULT_HINDLEG}
+    c = gait.GaitController(gait.trot_params())
+    acc = {}
+    for st in c.sample_cycle(400):
+        for nm, ls in st.legs.items():
+            if ls.q is None:
+                continue
+            acc.setdefault(nm, []).append(
+                (math.degrees(ls.q[2]), bool(ls.in_stance)))
+    out = {}
+    for nm, v in acc.items():
+        ref = math.degrees(LegModel(lp[nm]).inverse((0.04, -0.17, 0.0))[2])
+        sw = np.array([q for q, ins in v if not ins])
+        sta = np.array([q for q, ins in v if ins])
+        out[nm] = {"ref": ref,
+                   "swing_below": ref - float(sw.min()),
+                   "swing_above": float(sw.max()) - ref,
+                   "stance_above": float(sta.max()) - ref}
+    return out
+
+
+def test_the_TROT_SETTLES_ADR0002_in_favour_of_OPTION_A():
+    """⚠️ **The measurement that settles [ADR-0002](../docs/DESIGN_DECISIONS.md),
+    and it is not the one M45 expected to find.**
+
+    ADR-0049 left Option A (antagonistic ankle) against Option B (one tendon plus a
+    return spring) as a live decision. Most of M45's evidence favoured **B'**, a
+    stiffer spring: at 8 N·m/rad it holds the unloaded ankle to **-0.58°** with
+    **no extra motors**, and the tendon still has **2.9×** the travel it needs in
+    its own pull direction (24.9° available against 8.6° demanded).
+
+    ⚠️ **Then the gait was asked what it wants, and Option B cannot do it.** Over one
+    trot cycle the ankle is commanded, relative to the stance hock:
+
+    | leg | swing, below | swing, ABOVE | stance, above |
+    |---|---|---|---|
+    | fore | 13.4° | **+62.4°** | +54.8° |
+    | hind | 8.6° | **+25.2°** | +14.1° |
+
+    Under Option B **nothing drives the ankle above its reference**: the lone tendon
+    pulls it *down* (that is the sign ADR-0049 had to choose to make standing
+    possible at all) and the spring only pulls it *toward* the reference. The
+    above-reference excursion during **stance** is plausibly the ground dorsiflexing
+    a loaded foot, which the tendon merely resists — but **in SWING the foot is
+    unloaded and there is nothing left to do it.**
+
+    Moving the spring reference up to the swing extreme makes the trajectory
+    reachable and gives back ADR-0049's stance saving (it is what dropped the worst
+    tendon from 222.9 N to 207.4). So the reference is not a free parameter either.
+
+    ✅ **Recommendation: Option A at the ankle, capstan construction.** The
+    antagonist drives the ankle up directly. It costs four motors, **+528 g, 4.83 kg
+    (+12.3 %)** and 19 → 23 actuators — and it is the only option measured here
+    that can command the gait the project already publishes.
+
+    ⚠️ Two caveats kept in view: the pair's **travel** cannot be measured on this
+    plant (no spool DOF), and the standing-tension comparison is confounded by the
+    missing posture task. Neither touches this argument, which is kinematic.
+    """
+    demand = _trot_ankle_demand()
+
+    for nm, d in demand.items():
+        # the tendon's own direction is comfortably served, even by a stiff spring
+        assert d["swing_below"] < 20.0, (
+            f"{nm} needs only {d['swing_below']:.1f} deg in the tendon's direction"
+        )
+        # but the other direction is where Option B has nothing at all
+        assert d["swing_above"] > 20.0, (
+            f"{nm} needs {d['swing_above']:.1f} deg ABOVE its reference in SWING, "
+            "and Option B has no actuator that pulls that way"
+        )
+        assert d["swing_above"] > 2.0 * d["swing_below"], (
+            f"{nm}: the unreachable direction is the larger one "
+            f"({d['swing_above']:.1f} vs {d['swing_below']:.1f} deg)"
+        )
+
+    fore = demand["LF"]["swing_above"]
+    hind = demand["LR"]["swing_above"]
+    assert fore == pytest.approx(62.4, abs=1.0)
+    assert hind == pytest.approx(25.2, abs=1.0)
+
+    # and the stiffest spring that still clears the tendon-direction demand does
+    # not help here at all, which is what makes this decisive rather than a tuning
+    q = np.asarray(LegModel(DEFAULT_HINDLEG).inverse((0.04, -0.17, 0.0)), float)
+    m = mujoco.MjModel.from_xml_string(MT.single_leg_rig_elastic(
+        q_ref=q, series_k=1.75e5, ankle_spring=MT.ANKLE_SPRING_TO_HOLD))
+    tid = mujoco.mj_name2id(m, mujoco.mjtObj.mjOBJ_TENDON, "L_ankle")
+    dof = [m.jnt_dofadr[mujoco.mj_name2id(m, mujoco.mjtObj.mjOBJ_JOINT, n)]
+           for n in JNT]
+    Ls = []
+    for sgn in (+1, -1):
+        d = mujoco.MjData(m)
+        for i, a in enumerate(dof):
+            d.qpos[a] = q[i]
+        d.qpos[dof[2]] += sgn * 0.002
+        mujoco.mj_forward(m, d)
+        Ls.append(float(d.ten_length[tid]))
+    arm = (Ls[0] - Ls[1]) / 0.004
+    assert arm > 0.0, (
+        "the shipped ankle tendon shortens as q3 falls, i.e. it can only pull the "
+        "joint DOWN -- so no spring stiffness makes the +62 deg excursion reachable"
+    )
+
+    # Option A's antagonist is what pulls the other way
+    ma = mujoco.MjModel.from_xml_string(MT.single_leg_rig_elastic(
+        q_ref=q, series_k=1.75e5, ankle_pair=True))
+    ta = {n: mujoco.mj_name2id(ma, mujoco.mjtObj.mjOBJ_TENDON, n)
+          for n in ("L_ankle", "L_ankle_ext")}
+    da = [ma.jnt_dofadr[mujoco.mj_name2id(ma, mujoco.mjtObj.mjOBJ_JOINT, n)]
+          for n in JNT]
+    got = {}
+    for n, t in ta.items():
+        Ls = []
+        for sgn in (+1, -1):
+            d = mujoco.MjData(ma)
+            for i, a in enumerate(da):
+                d.qpos[a] = q[i]
+            d.qpos[da[2]] += sgn * 0.002
+            mujoco.mj_forward(ma, d)
+            Ls.append(float(d.ten_length[t]))
+        got[n] = (Ls[0] - Ls[1]) / 0.004
+    assert got["L_ankle"] * got["L_ankle_ext"] < 0, (
+        "and Option A's pair spans both directions, which is the whole case for it"
+    )

@@ -61,6 +61,20 @@ SHEAVE_HALF_W = 0.004
 #: floor with its joints held. Caught by printing the foot positions.
 
 #: Via-pulley radius (m) — the cable's own minimum bend, 10 x Ø1.75 (ADR-0042).
+#: ⚠️ **This model has NO SPOOL DEGREE OF FREEDOM, and M45 found where that
+#: bites.** A tendon's length here is purely a function of the joint angles, so a
+#: motor cannot **pay cable out** -- a slack antagonist behaves as a spring instead.
+#: Driving one ankle tendon at 223 N against a *zero-commanded* antagonist, the
+#: antagonist stretched 2.13 mm and developed **273.8 N**, stopping the joint at
+#: 8.9 deg. That is the cable's elasticity, not any property of the pair.
+#:
+#: Everything measured on this plant so far is unaffected, because moment arms,
+#: joint stiffness and pose-holding are all small perturbations about a pose where
+#: both cables are taut. ⚠️ But **the TRAVEL of an antagonistic pair cannot be
+#: measured here**, and that is exactly what ADR-0002 Option A is meant to buy. See
+#: ADR-0050.
+NO_SPOOL_DOF = True
+
 VIA_R = 0.00875
 
 #: Cable: Ø1.75 UHMWPE. `stiffness` is the axial spring rate the analytical model
@@ -118,6 +132,26 @@ ANKLE_SPRING = float(DEFAULT_TENDON.spring_stiffness[2])
 #: is a mechanical decision that ADR-0049 hands back.
 ANKLE_SPRINGREF = float(DEFAULT_TENDON.spring_rest_angle[2])
 
+#: ⚠️ **What the ADR-0002 Option-B return spring would have to be (N.m/rad), and
+#: `params` specifies 0.3.** M45 measured the unloaded leg under a proper
+#: non-negative allocation: at 0.3 the lone-tendon ankle sags **-14.6 deg** and the
+#: worst tendon needs 58.6 N to fight it. Stiffened and referenced at the stance
+#: hock (which M44 fixed), it holds:
+#:
+#:     k3 (N.m/rad)   0.3     1.0     2.0     4.0     8.0    16.0
+#:     ankle drift  -14.62   -4.55   -2.29   -1.15   -0.58   -0.29
+#:     peak tension   58.6    38.7    27.3    17.7    13.3    11.3
+#:
+#: **~8 N.m/rad is the knee of that curve**, and it reaches ADR-0002 Option A's
+#: holding performance (0.00 deg at 12.2 N) **without a single extra motor**.
+#:
+#: ⚠️ **Its cost is TRAVEL, and it is severe.** Driving the lone tendon at the
+#: 223 N motor peak moves the ankle **-196 deg from stance at k3 = 0.3 but only
+#: -24.9 deg at k3 = 8** -- the spring eats the range of motion. ADR-0050 hands
+#: mechanical the trade rather than picking for them; `params.spring_stiffness[2]`
+#: is untouched.
+ANKLE_SPRING_TO_HOLD = 8.0
+
 
 def _rod_inertia(mass: float, length: float, radius: float) -> tuple:
     """Slender rod about its own centre — matches `mjcf.py` so the two agree."""
@@ -147,7 +181,9 @@ def _stance_ankle(leg_p) -> float:
 def leg_tendon_xml(name: str, leg_p, arms, indent: int = 4,
                    elastic: dict | None = None,
                    mount=(0.0, 0.0, 0.0),
-                   ankle_springref: float | None = None) -> tuple[str, str, str]:
+                   ankle_springref: float | None = None,
+                   ankle_pair: bool = False,
+                   ankle_spring: float | None = None) -> tuple[str, str, str]:
     """One tendon-driven leg. Returns (body_xml, tendon_xml, actuator_xml).
 
     The kinematic chain is the same four links `mjcf.py` builds. What is added:
@@ -243,9 +279,15 @@ def leg_tendon_xml(name: str, leg_p, arms, indent: int = 4,
     b.append(f'{pad}    <body name="{name}_meta" pos="{L[1]:.5f} 0 0">')
     _springref = (ANKLE_SPRINGREF if ankle_springref is None
                   else float(ankle_springref))
+    # ⚠️ Under ADR-0002 **Option A** the return spring is REMOVED, because the
+    # antagonist replaces it. Leaving both in would flatter Option A: the spring is
+    # what Option B buys instead of a motor, so a comparison that keeps it is not
+    # comparing the two options.
+    _k3 = 0.0 if ankle_pair else (ANKLE_SPRING if ankle_spring is None
+                                  else float(ankle_spring))
     b.append(f'{pad}      <joint name="{name}_q3" type="hinge" axis="0 -1 0" '
              f'range="{leg_p.q_min[2]:.4f} {leg_p.q_max[2]:.4f}" '
-             f'damping="0.002" stiffness="{ANKLE_SPRING:.4f}" '
+             f'damping="0.002" stiffness="{_k3:.4f}" '
              f'springref="{_springref:.5f}"/>')
     b.append(f'{pad}      <geom name="{name}_ankle_sheave" type="cylinder" '
              f'size="{r_ankle:.5f} {SHEAVE_HALF_W}" pos="0 0.012 0" '
@@ -280,6 +322,26 @@ def leg_tendon_xml(name: str, leg_p, arms, indent: int = 4,
              f'{1.15 * r_ankle * math.sin(_aa):.5f}" size="0.0015"/>')
     b.append(f'{pad}      <site name="{name}_ankle_side" pos="0 0.012 '
              f'{-(r_ankle + 0.02):.5f}" size="0.001"/>')
+    # Option A's antagonist: the SAME sheave, the opposite sidesite, and the
+    # **SAME anchor point** -- a capstan, not a mirrored pair.
+    #
+    # ⚠️ M45 tried the mirrored construction the hip and knee use (anchor 180 deg
+    # away, and its z-mirror at 60 deg) and both fail: the two arms reverse at
+    # DIFFERENT angles, leaving a **60 deg band where both tendons have the same
+    # sign and the pair cannot reverse the joint at all** -- with the stance hock at
+    # 97.1 deg sitting inside it. The hip and knee get away with mirroring because
+    # their cable arrives from a distant spool, so the geometry really is symmetric
+    # about z; the ankle's arrives from a via-pulley on the tibia and is not.
+    #
+    # Anchoring both at the same point makes the two wraps exact mirrors of each
+    # other, so they **reverse together and stay opposite**: worst deviation from
+    # the specified 14 mm arm is **1.43 mm**, against 13.83 for the mirrored pair.
+    # Physically it is one cable round a pin with a motor on each end.
+    b.append(f'{pad}      <site name="{name}_ankle_side_x" pos="0 0.012 '
+             f'{(r_ankle + 0.02):.5f}" size="0.001"/>')
+    b.append(f'{pad}      <site name="{name}_ankle_anchor_x" '
+             f'pos="{1.15 * r_ankle * math.cos(_aa):.5f} 0.012 '
+             f'{1.15 * r_ankle * math.sin(_aa):.5f}" size="0.0015"/>')
     b.append("      " + bone(2, "meta").strip())
     # ⚠️ The paw is a child body rotated by `euler="0 -paw_angle 0"`, matching
     # `mjcf.py`. A hand-built `fromto` with its own sin/cos is a second place to
@@ -342,11 +404,23 @@ def leg_tendon_xml(name: str, leg_p, arms, indent: int = 4,
         S(f"{name}_tibia_mid"),
         G(f"{name}_ankle_sheave", f"{name}_ankle_side"),
         S(f"{name}_ankle_anchor")]))
+    if ankle_pair:
+        t.append(spatial(f"{name}_ankle_ext", [
+            S(f"{name}_spool_ankle_x"),
+            G(f"{name}_hip_via", f"{name}_hip_via_side"),
+            S(f"{name}_femur_mid"),
+            G(f"{name}_knee_via", f"{name}_knee_via_side"),
+            S(f"{name}_tibia_mid"),
+            G(f"{name}_ankle_sheave", f"{name}_ankle_side_x"),
+            S(f"{name}_ankle_anchor_x")]))
 
     # --------------------------------------------------------------- actuators
     a = []
-    for tname in (f"{name}_hip_flex", f"{name}_hip_ext", f"{name}_knee_flex",
-                  f"{name}_knee_ext", f"{name}_ankle"):
+    names = [f"{name}_hip_flex", f"{name}_hip_ext", f"{name}_knee_flex",
+             f"{name}_knee_ext", f"{name}_ankle"]
+    if ankle_pair:
+        names.append(f"{name}_ankle_ext")
+    for tname in names:
         a.append(f'    <motor name="m_{tname}" tendon="{tname}" gear="-1" '
                  f'ctrlrange="0 {TENSION_MAX:.0f}" ctrllimited="true" '
                  f'forcerange="0 {TENSION_MAX:.0f}" forcelimited="true"/>')
@@ -363,7 +437,9 @@ GIRDLE_X = 0.105
 
 
 def quadruped_rig(hip_height: float = 0.175, elastic: dict | None = None,
-                  trunk_mass: float | None = None) -> str:
+                  trunk_mass: float | None = None,
+                  ankle_pair: bool = False,
+                  ankle_spring: float | None = None) -> str:
     """Four tendon-driven legs on a floating trunk — the whole-body stand gate.
 
     Twelve leg DOF, **twenty tendons, twenty actuators**, all pull-only. The spine
@@ -387,7 +463,9 @@ def quadruped_rig(hip_height: float = 0.175, elastic: dict | None = None,
     for nm, lp, gx, ty in legs:
         b, t, a = leg_tendon_xml(nm, lp, arms, indent=6, elastic=elastic,
                                  mount=(gx, ty, 0.0),
-                                 ankle_springref=_stance_ankle(lp))
+                                 ankle_springref=_stance_ankle(lp),
+                                 ankle_pair=ankle_pair,
+                                 ankle_spring=ankle_spring)
         bodies.append(b)
         tendons.append(t)
         acts.append(a)
@@ -402,6 +480,8 @@ def quadruped_rig(hip_height: float = 0.175, elastic: dict | None = None,
             f'{sy + 0.024:.4f}  0.034" size="0.002"/>',
             f'      <site name="{nm}_spool_knee_x"  pos="{gx - 0.050:.4f} '
             f'{sy + 0.024:.4f} -0.030" size="0.002"/>',
+            f'      <site name="{nm}_spool_ankle_x" pos="{gx - 0.066:.4f} '
+            f'{sy + 0.030:.4f} -0.030" size="0.002"/>',
             f'      <site name="{nm}_spool_ankle"   pos="{gx - 0.058:.4f} '
             f'{sy + 0.030:.4f}  0.034" size="0.002"/>',
         ]
@@ -506,7 +586,9 @@ def single_leg_rig_elastic(leg_p=DEFAULT_HINDLEG, arms=None, q_ref=None,
 
 
 def single_leg_rig(leg_p=DEFAULT_HINDLEG, arms=None, hip_height: float = 0.20,
-                   fixed_hip: bool = True, elastic: dict | None = None) -> str:
+                   fixed_hip: bool = True, elastic: dict | None = None,
+                   ankle_pair: bool = False,
+                   ankle_spring: float | None = None) -> str:
     """A one-leg test rig — the gate before anything whole-body is attempted.
 
     `fixed_hip=True` welds the hip to the world so the question is purely *can
@@ -517,7 +599,8 @@ def single_leg_rig(leg_p=DEFAULT_HINDLEG, arms=None, hip_height: float = 0.20,
         arms = tuple(float(a) for a in DEFAULT_TENDON.joint_moment_arm)
     body, tendons, acts = leg_tendon_xml(
         "L", leg_p, arms, indent=6, elastic=elastic,
-        ankle_springref=_stance_ankle(leg_p))
+        ankle_springref=_stance_ankle(leg_p), ankle_pair=ankle_pair,
+        ankle_spring=ankle_spring)
 
     # spool sites live on the fixed mount, i.e. the girdle
     spools = "\n".join([
@@ -526,6 +609,8 @@ def single_leg_rig(leg_p=DEFAULT_HINDLEG, arms=None, hip_height: float = 0.20,
         f'      <site name="L_spool_knee" pos="-0.050 0.024 0.034" size="0.002"/>',
         f'      <site name="L_spool_knee_x" pos="-0.050 0.024 -0.030" size="0.002"/>',
         f'      <site name="L_spool_ankle" pos="-0.058 0.030 0.034" size="0.002"/>',
+        f'      <site name="L_spool_ankle_x" pos="-0.066 0.030 -0.030" '
+        f'size="0.002"/>',
     ])
 
     root = ('    <body name="mount" pos="0 0 %.4f">' % hip_height) if fixed_hip \

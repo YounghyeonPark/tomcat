@@ -100,7 +100,10 @@ sequences the work that implements them.
 > ([ADR-0048](DESIGN_DECISIONS.md)).
 > **M44 done:** it **STANDS** on foot-force allocation — and a lone tendon's
 > moment arm **reverses inside its own ROM** ([ADR-0049](DESIGN_DECISIONS.md)).
-> 431 passed + 5 xfailed Python, 17 Rust.
+> **M45 done:** the ankle takes an **antagonistic pair** — ADR-0002 settled on
+> **kinematic reach**, the one cost nobody had priced
+> ([ADR-0050](DESIGN_DECISIONS.md)).
+> 438 passed + 5 xfailed Python, 17 Rust.
 
 ---
 
@@ -2067,7 +2070,64 @@ against a motor rated **81 N continuous**. That is **2.5×** the rating on one t
 of twenty, and the hind knee flexor is at 1.6×. ADR-0023 made standing the worst
 thermal case at the *nominal* 19.6 N; the thermal model has never seen this.
 
-## Later milestones (candidate M45+, not committed)
+## Milestone M45 — The ankle takes an antagonistic pair (DONE)
+
+ADR-0049 left ADR-0002's ankle question as a live decision with numbers on both
+sides. M45 set out to settle it by measurement, and the answer came from an angle
+nobody had checked.
+
+⚠️ **First: "add an antagonist" is not sufficient.** The hip and knee build their
+pairs by **mirroring** — same sheave, opposite sidesite, anchor reflected across z.
+At the ankle that fails two different ways:
+
+| antagonist anchor | spans both directions? | worst arm error |
+|---|---|---|
+| 120° (naive 180°-away mirror) | ⚠️ **no** — a 60° dead band with the stance hock inside it | |
+| 60° (reflected across z, as hip and knee do) | yes | ⚠️ **13.83 mm** on a 14 mm arm |
+| **300° — the SAME anchor as the primary** | ✅ **yes** | ✅ **1.43 mm** |
+
+✅ **Option A must be a CAPSTAN**: both cables to one anchor, wrapping opposite
+sides — physically one cable round a pin with a motor at each end. The two wraps
+are then exact mirrors, so they **reverse together and stay opposite**, which turns
+ADR-0049's moment-arm reversal from fatal into harmless. **A construction that works
+at one joint is not a construction that works at every joint.**
+
+✅ **Then most of the evidence favoured the CHEAP option instead.** `params` puts
+the return spring at 0.3 N·m/rad; at **8 N·m/rad** it holds the unloaded ankle to
+**-0.58°** at 13.3 N — Option A's performance **with no extra motors**. Its
+apparent cost, travel, turned out not to bind: the trot only demands **8.6° (hind)
+and 13.4° (fore)** in the tendon's own pull direction, leaving 2.9× margin. Call
+it **Option B'**, and on every measurement to that point it was the better buy.
+
+⚠️ **And then the gait was asked, and Option B cannot do it.** Over one trot cycle,
+relative to the stance hock:
+
+| leg | swing, below | swing, **ABOVE** | stance, above |
+|---|---|---|---|
+| fore | 13.4° | **+62.4°** | +54.8° |
+| hind | 8.6° | **+25.2°** | +14.1° |
+
+**Under Option B nothing drives the ankle above its reference.** The lone tendon
+pulls it *down* — the sign ADR-0049 had to choose to make standing possible — and
+the spring only pulls it *toward* the reference. The above-reference excursion in
+**stance** is plausibly the ground dorsiflexing a loaded foot, which the tendon
+resists; ⚠️ **in SWING the foot is unloaded and there is nothing left to do it.**
+Nor is the spring reference free: moving it up to the swing extreme reachable gives
+back ADR-0049's stance saving (222.9 → 207.4 N on the worst tendon).
+
+✅ **Decision: Option A, capstan.** It costs four motors, **+528 g, a projected
+4.83 kg (+12.3 %)** and 19 → 23 actuators — and it is the only option measured
+that can command the gait this project already publishes.
+
+⚠️ **Two limits, stated rather than buried.** The pair's **travel** cannot be
+measured here — this plant has **no spool DOF**, so a slack antagonist acts as a
+spring (2.13 mm of stretch, **273.8 N**, more than the 222.9 N driving it). And the
+standing-tension comparison is **confounded** by a missing posture task: the worst
+tendon climbs 207 → 223 N under *both* options because nothing controls the leg's
+one internal DOF once the foot is pinned. Neither touches the argument above, which
+is kinematic.
+
+## Later milestones (candidate M46+, not committed)
 
 > This list is **curated, not append-only**. When a milestone closes an item it is
 > deleted here and the reasoning kept in the [ADR log](DESIGN_DECISIONS.md). Earlier
@@ -2076,10 +2136,18 @@ thermal case at the *nominal* 19.6 N; the thermal model has never seen this.
 
 ### Next — fold it in, then re-publish
 
-- **M45 — SETTLE ADR-0002 Option A vs B for the ankle.** ADR-0049 costed it:
-  Option A is four more motors; Option B is a **-14.6° unloaded ankle** and a
-  moment arm that **reverses mid-ROM**. ⚠️ This is the decision that most changes
-  what gets built, and it is now the only one with numbers on both sides.
+- **M46 — add SPOOL degrees of freedom.** ⚠️ ADR-0050 could not measure an
+  antagonistic pair's travel because a tendon's length here is a pure function of
+  the joint angles, so a motor cannot **pay cable out** and a slack antagonist acts
+  as a spring (273.8 N of resistance against 222.9 N driving it). This is the
+  prerequisite for any dynamic swing test.
+- **Add the null-space POSTURE task.** ⚠️ With the foot pinned by contact a
+  3-joint leg has one internal DOF and ADR-0049's driver does not control it, so the
+  ankle sags ~5° and the required tension climbs 207 → 223 N. A first attempt cut
+  the sag to -1.7° but destabilised above kp 10.
+- **Fold in ADR-0050's 4.83 kg**, the way ADR-0046 folded in 4.30: the CAD, the mass
+  closure and `params` all still say 4.3041.
+- **Four more motor DRIVERS.** ⚠️ Nothing in `electronics/` has seen Option A.
 - **The THERMAL case for a 205 N standing tendon.** ⚠️ ADR-0023 made standing the
   worst thermal case at the nominal **19.6 N**; ADR-0049 measured the hind hip
   extensor at **~205 N mean, 2.5× the motor's continuous rating**, just to stand.
@@ -2208,6 +2276,7 @@ Kept as a short table so the deletions above are auditable rather than silent.
 | Build it as a real tendon drive in simulation | M42 — [ADR-0047](DESIGN_DECISIONS.md): one leg gated; G3 sized at last |
 | Scale the tendon plant to the whole body | M43 — [ADR-0048](DESIGN_DECISIONS.md): 18 DOF built; it leans, and four M42 numbers were wrong |
 | Make the pull-only quadruped STAND | M44 — [ADR-0049](DESIGN_DECISIONS.md): it stands at 0.006 deg; a lone tendon's moment arm reverses mid-ROM |
+| Settle ADR-0002 Option A vs B at the ankle | M45 — [ADR-0050](DESIGN_DECISIONS.md): Option A, capstan; decided on kinematic reach, +528 g |
 
 ## Open reconciliation items (lead)
 

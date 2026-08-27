@@ -15,10 +15,10 @@ cat-like agility, energy-efficient movement, and passive shock absorption.
 
 ## Progress
 
-Forty-four milestones in. The model now spans kinematics → real mass → 3D
+Forty-five milestones in. The model now spans kinematics → real mass → 3D
 static stability → whole-body dynamics → a dynamic gait → closed-loop balance →
 an independent physics-engine cross-check → thermal duty → whole-body force
-allocation, with **431 passing + 5 suspended Python tests and 17 Rust** and every figure below
+allocation, with **438 passing + 5 suspended Python tests and 17 Rust** and every figure below
 generated from the live model (`python tools/make_progress_figures.py`), so a
 published number cannot drift from the code.
 
@@ -267,6 +267,7 @@ is **1.97**. That remedy *is* cheap: one step up in stock tube, under 4 g.
 | M42 | Built as a tendon drive | the cable is **5× too stiff**, and G3 finally has a number |
 | M43 | The whole body, 18 DOF | it **leans rather than collapses** — and four M42 numbers were measured on a leg pointing the wrong way |
 | M44 | It **stands** | foot-force allocation holds it to **0.006°** — and a lone tendon's moment arm **reverses inside its own ROM** |
+| M45 | The ankle takes a **pair** | ADR-0002 settled after four milestones — on **kinematic reach**, the one cost nobody had priced |
 
 Full detail in the [roadmap](docs/ROADMAP.md) and the [ADR log](docs/DESIGN_DECISIONS.md).
 
@@ -381,6 +382,35 @@ Full detail in the [roadmap](docs/ROADMAP.md) and the [ADR log](docs/DESIGN_DECI
 > 175 kN/m it holds 0.006°, with the bare cable it **inverts**.
 > ⚠️ Not sustainably, though: the hind hip extensor runs **~205 N to stand still**
 > against a motor rated 81 N continuous. [ADR-0049](docs/DESIGN_DECISIONS.md).
+
+> ### ✅ M45: the ankle takes an antagonistic pair, decided on reach
+>
+> ADR-0002 chose **one tendon plus a return spring** for the ankle, on motor count.
+> Four milestones then priced it: no restoring stiffness (M42), a moment arm that
+> **reverses inside its own ROM** (M44), and finally the cost nobody had looked at.
+>
+> ⚠️ **"Add an antagonist" is not sufficient.** Mirroring the pair the way the hip
+> and knee do it leaves a **60° band where both cables pull the same way** — with
+> the stance hock inside it. It has to be a **capstan**: both cables to one anchor,
+> opposite wraps, so they **reverse together and stay opposite**. A construction that
+> works at one joint is not a construction that works at every joint.
+>
+> ✅ **And most of the evidence favoured the cheap option.** A spring 27× stiffer
+> holds the unloaded ankle to **-0.58°** with no extra motors, and the trot only
+> needs 8.6° of travel in the tendon's own direction — 2.9× margin.
+>
+> ⚠️ **Then the gait was asked.** It commands the ankle **+62.4° above its
+> reference during SWING**, and under Option B **nothing pulls that way**: the tendon
+> pulls down, the spring pulls toward the reference. In stance the ground supplies it;
+> in swing the foot is unloaded and there is nothing left.
+>
+> So: **Option A, capstan** — four motors, **+528 g, a projected 4.83 kg**, 19 → 23
+> actuators. It is the only option measured that can command the gait this project
+> already publishes. ⚠️ Two limits kept in view: the pair's *travel* cannot be
+> measured here (no spool DOF, so a slack antagonist acts as a spring — 273.8 N
+> against the 222.9 N driving it), and the standing-tension comparison is confounded
+> by a missing posture task. Neither touches the argument, which is kinematic.
+> [ADR-0050](docs/DESIGN_DECISIONS.md).
 
 ## Why tendon-driven?
 
