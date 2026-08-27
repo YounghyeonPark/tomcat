@@ -15,10 +15,10 @@ cat-like agility, energy-efficient movement, and passive shock absorption.
 
 ## Progress
 
-Forty-seven milestones in. The model now spans kinematics → real mass → 3D
+Forty-eight milestones in. The model now spans kinematics → real mass → 3D
 static stability → whole-body dynamics → a dynamic gait → closed-loop balance →
 an independent physics-engine cross-check → thermal duty → whole-body force
-allocation, with **448 passing + 5 suspended Python tests and 17 Rust** and every figure below
+allocation, with **450 passing + 5 suspended Python tests and 17 Rust** and every figure below
 generated from the live model (`python tools/make_progress_figures.py`), so a
 published number cannot drift from the code.
 
@@ -270,6 +270,7 @@ is **1.97**. That remedy *is* cheap: one step up in stock tube, under 4 g.
 | M45 | The ankle takes a **pair** | ADR-0002 settled after four milestones — on **kinematic reach**, the one cost nobody had priced |
 | M46 | A **spool** behind every cable | the drivetrain is exact — and adding the missing DOF exposed a **missing controller** |
 | M47 | The drivetrain **cascade** | derived, not tuned — and a **firmware gain** sets how much of a mechanical spring you get |
+| M48 | The **fore leg was never mirrored** | five milestones measured one leg and generalised — and **three control findings retract** |
 
 Full detail in the [roadmap](docs/ROADMAP.md) and the [ADR log](docs/DESIGN_DECISIONS.md).
 
@@ -467,6 +468,32 @@ Full detail in the [roadmap](docs/ROADMAP.md) and the [ADR log](docs/DESIGN_DECI
 > different angles because their hocks stand **81° apart**. M47 measured that
 > migration and did not ship it: it re-derives 14 tests across three milestones.
 > [ADR-0052](docs/DESIGN_DECISIONS.md).
+
+> ### ⚠️ M48: the fore leg's routing was never mirrored
+>
+> M48 set out to land that migration. Applying it and measuring **both legs** — which
+> no milestone had done, because every Jacobian since M42 was taken on the hind leg —
+> turned up something larger. **The fore hip pair does not oppose**: +11.636 and
+> +35.885 mm/rad, both positive, against a specification of ±28. The two cables pull
+> the joint the same way and there is no antagonist. The knee and ankle couplings are
+> as wrong, and the same numbers come out of the committed M47 tree, so **it has been
+> true since M42**. It is what M43 flagged as "inherited rather than mirrored" and
+> read as a tuning difference.
+>
+> ⚠️ **Three control findings retract on the migrated plant**, all consequences of an
+> under-actuated ankle rather than of a control law: gravity feedforward *does* hold a
+> pose (0.0001°, not divergence), clipping *does not* lose the leg (0.0002°, not
+> 197), and **the bare cable does not invert the robot** (it stands at 0.07°). The
+> last is the one that matters: M44 used it as an *independent confirmation of design
+> goal G3*, and that confirmation does not survive. G3's balance-compliance argument
+> stands — but it is one argument again, not two.
+>
+> ✅ What the migration does buy is recorded and not shipped: it **forces** the
+> antagonistic ankle rather than preferring it (a lone tendon at the migrated anchor
+> cannot stand at all), and the ankle finally clears ADR-0026's compliance floor at
+> **86.3 N·m/rad**. Nothing lands until the fore leg is mirrored, because
+> re-deriving 17 tests on a known-broken leg would bake the wrong numbers in.
+> [ADR-0053](docs/DESIGN_DECISIONS.md).
 
 ## Why tendon-driven?
 

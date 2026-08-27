@@ -2300,3 +2300,175 @@ def test_the_cascade_TRACKS_the_hind_ankle_but_the_REVERSAL_still_bounds_it():
         f"anchor; got {far[2]:.2f} deg of error -- if this now tracks, the anchor "
         "migration landed and M47's gate should be re-run"
     )
+
+
+# ===================================================================
+# M48 - the ankle anchor migration, and what it exposed instead
+# ===================================================================
+
+def _leg_jacobian(leg_p, ankle_pair=False):
+    """Every tendon's moment arm on this leg, mm/rad, at its stance pose."""
+    names = ["L_hip_flex", "L_hip_ext", "L_knee_flex", "L_knee_ext", "L_ankle"]
+    if ankle_pair:
+        names.append("L_ankle_ext")
+    q = np.asarray(LegModel(leg_p).inverse((0.04, -0.17, 0.0)), float)
+    m = mujoco.MjModel.from_xml_string(
+        MT.single_leg_rig(leg_p=leg_p, ankle_pair=ankle_pair))
+    tid = [mujoco.mj_name2id(m, mujoco.mjtObj.mjOBJ_TENDON, n) for n in names]
+    dof = [m.jnt_dofadr[mujoco.mj_name2id(m, mujoco.mjtObj.mjOBJ_JOINT, n)]
+           for n in JNT]
+    J = np.zeros((len(names), 3))
+    for k in range(3):
+        Ls = []
+        for sgn in (+1, -1):
+            d = mujoco.MjData(m)
+            for i, a in enumerate(dof):
+                d.qpos[a] = q[i]
+            d.qpos[dof[k]] += sgn * 0.002
+            mujoco.mj_forward(m, d)
+            Ls.append(np.array([d.ten_length[t] for t in tid]))
+        J[:, k] = (Ls[0] - Ls[1]) / 0.004
+    return names, J * 1e3
+
+
+def test_the_FORE_LEGS_ROUTING_WAS_NEVER_MIRRORED():
+    """⚠️ **The finding of M48, and it is not what M48 set out to do.**
+
+    M48 set out to migrate the ankle anchor (see the test below). Measuring the
+    result on both legs -- which no previous milestone had done, because every
+    Jacobian since M42 was taken on the **hind** leg -- turned up something larger.
+
+    The hind leg is exact. The fore leg is not, and it is not the ankle:
+
+    | tendon | hind hip | fore hip | spec |
+    |---|---|---|---|
+    | hip flexor | **+28.000** | **+11.636** | ±28 |
+    | hip extensor | **-28.000** | **+35.885** | ±28 |
+
+    ⚠️ **The fore hip pair does not oppose.** Both arms are positive, so the two
+    cables pull the joint the same way and there is no antagonist at all. The knee
+    and ankle rows are as wrong: `knee_ext` puts **+44.067** on the hip where the
+    via-pulley says -8.75, and `ankle` puts **-39.909** on the knee where it says
+    -8.75.
+
+    ⚠️ **And this has been true since M42.** The hip's moment arms cannot depend on
+    the ankle anchor, and the same numbers come out of the committed M47 tree. What
+    it is, is the thing flagged in ADR-0048 and never acted on: `DEFAULT_FORELEG`
+    folds the **opposite** way, and the fore leg's sidesites and anchor angles were
+    **inherited from the hind leg rather than mirrored**. ADR-0048 measured the
+    symptom as a fore/hind drift gap and read it as a tuning difference. It is not.
+
+    **What rests on it:** every fore-leg figure in M43-M47 -- the welded and floating
+    drift, ADR-0049's "the binding tendon is the hind hip extensor", ADR-0052's
+    "the fore leg tracks to 11.8° against the hind's 3.5". ✅ ADR-0050's ankle
+    decision does **not**: its deciding argument came from `gait.py`'s joint
+    trajectories, which never touch the MJCF routing.
+
+    ⚠️ Asserts the defect: **fails when the fore leg is mirrored properly.**
+    """
+    arms = np.asarray(DEFAULT_TENDON.joint_moment_arm) * 1e3
+
+    names, Jh = _leg_jacobian(DEFAULT_HINDLEG)
+    assert Jh[0, 0] == pytest.approx(+arms[0], abs=0.05)
+    assert Jh[1, 0] == pytest.approx(-arms[0], abs=0.05)
+    assert Jh[0, 0] * Jh[1, 0] < 0, "the hind hip pair opposes, as it always has"
+
+    names, Jf = _leg_jacobian(DEFAULT_FORELEG)
+    assert Jf[0, 0] * Jf[1, 0] > 0, (
+        f"the fore hip pair should NOT oppose yet: "
+        f"{Jf[0, 0]:.3f} and {Jf[1, 0]:.3f} -- if it now does, the fore leg was "
+        "mirrored and every fore-leg figure in M43-M47 needs re-deriving"
+    )
+    assert abs(abs(Jf[0, 0]) - arms[0]) > 10.0, (
+        f"and neither arm is near the {arms[0]:.0f} mm specification: "
+        f"{Jf[0, 0]:.3f}"
+    )
+    # the couplings are wrong too, so this is the whole routing and not one site
+    via = MT.VIA_R * 1e3
+    assert abs(abs(Jf[3, 0]) - via) > 10.0, (
+        f"fore knee_ext puts {Jf[3, 0]:.3f} on the hip, not {via:.2f}"
+    )
+
+
+def test_the_ANKLE_ANCHOR_MIGRATION_is_measured_but_not_shipped():
+    """⚠️ **M48 measured the migration and did not land it, because the fore-leg
+    defect above changes the order of the work.**
+
+    ADR-0052 established the criterion -- the ankle's moment arm must not reverse
+    anywhere inside a leg's **gait** range -- and measured the angles that satisfy
+    it: **hind 270°, fore 300°** against the shipped 300° for both. Applying it,
+    on the hind leg alone, does what it should:
+
+    | | shipped 300° | migrated 270° |
+    |---|---|---|
+    | reversal vs the 88.5-122.3° gait range | ⚠️ inside (~112°) | ✅ outside |
+    | cascade tracks 122.3° | ⚠️ reaches 85.6 | ✅ 121.6 |
+    | lone ankle tendon at stance | plantarflexes | ⚠️ **dorsiflexes** |
+    | quadruped, lone ankle | stands, 0.01° | ⚠️ **inverts, 179.75°** |
+    | quadruped, ankle PAIR | stands | ✅ stands, 0.01° |
+
+    ✅ **So the migration forces ADR-0050's Option A rather than merely preferring
+    it**: at the migrated anchor a lone ankle tendon reaches the gait range and
+    **cannot stand at all**. And the ankle finally clears ADR-0026's compliance
+    floor -- **86.3 N·m/rad** with the pair against 55.1 with one tendon, the first
+    time this joint has met the 80 the balance work has wanted since M20.
+
+    ⚠️ **Three control findings retract on the migrated plant**, and all three were
+    consequences of an under-actuated ankle rather than of a control law:
+
+    | finding | as published | on Option A, migrated |
+    |---|---|---|
+    | ADR-0047: gravity feedforward cannot hold a pose | diverges | **0.0001°** |
+    | ADR-0049: clipping loses the leg | 197° | **0.0002°** |
+    | ADR-0049: the bare cable inverts the robot (G3) | tilt 180° | **stands, 0.07°** |
+
+    ⚠️ **And a caution the other way:** on Option B at the migrated anchor,
+    **clipping beats NNLS** (0.0001° against 46.6°), because with a lone tendon
+    whose sign is wrong for the load the honest minimum-residual solution drives the
+    ankle away while clipping happens not to. A controller comparison on an
+    infeasible plant measures the plant.
+
+    ⚠️ **Why it is not shipped:** the migration re-derives 17 tests across M42-M47,
+    and the fore leg those tests measure has never been mirrored. Re-deriving on a
+    known-broken leg would bake the wrong numbers in. The order is: mirror the fore
+    leg, then migrate, then re-derive **once**.
+
+    ⚠️ Asserts the defect: fails when the migration lands.
+    """
+    assert MT._ankle_anchor_deg(DEFAULT_HINDLEG) == 300.0, (
+        "still the ADR-0050 anchor for both legs -- if this is now 270, the "
+        "migration landed and M48's numbers above should be re-run"
+    )
+    assert MT._ankle_anchor_deg(DEFAULT_FORELEG) == 300.0
+
+    # and the reversal really is inside the hind gait range at 300 deg
+    demand = _trot_ankle_demand()
+    hind = demand["LR"]
+    lo = hind["ref"] - hind["swing_below"]
+    hi = hind["ref"] + hind["swing_above"]
+    assert lo == pytest.approx(88.5, abs=1.0)
+    assert hi == pytest.approx(122.3, abs=1.0)
+
+    q = np.asarray(LegModel(DEFAULT_HINDLEG).inverse((0.04, -0.17, 0.0)), float)
+    base = MT.single_leg_rig(ankle_pair=True)
+
+    def ankle_arm(q3_deg):
+        m = mujoco.MjModel.from_xml_string(base)
+        t = mujoco.mj_name2id(m, mujoco.mjtObj.mjOBJ_TENDON, "L_ankle")
+        dof = [m.jnt_dofadr[mujoco.mj_name2id(m, mujoco.mjtObj.mjOBJ_JOINT, n)]
+               for n in JNT]
+        Ls = []
+        for sgn in (+1, -1):
+            d = mujoco.MjData(m)
+            for i, a in enumerate(dof):
+                d.qpos[a] = q[i]
+            d.qpos[dof[2]] = math.radians(q3_deg) + sgn * 0.002
+            mujoco.mj_forward(m, d)
+            Ls.append(float(d.ten_length[t]))
+        return (Ls[0] - Ls[1]) / 0.004
+
+    signs = {int(np.sign(ankle_arm(dq))) for dq in (90, 105, 120)}
+    assert len(signs) == 2, (
+        "the reversal must still sit inside the hind gait range on the shipped "
+        f"anchor; signs across 90-120 deg were {signs}"
+    )

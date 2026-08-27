@@ -3123,6 +3123,13 @@ coupling itself. On dualis 0.2 the pack is a real domain on the same bus, so
 >
 > ⚠️ Also corrected here: the welded-trunk figures (0.37 / 1.8-2.3 deg) and the
 > stand table both move again. See ADR-0049 for the current numbers.
+>
+> ⚠️ **And the fore/hind gap this ADR read as un-mirrored sidesites is worse than
+> that.** [ADR-0053](#adr-0053) measured the fore leg's Jacobian -- which no
+> milestone had done -- and its **hip pair does not oppose at all**: +11.636 and
+> +35.885 mm/rad against a specification of +/-28. This ADR treated the symptom as a
+> tuning difference. It is a broken routing, and every fore-leg figure from M43 on
+> rests on it.
 
 - **Status:** Accepted. `quadruped_rig` / `quadruped_rig_elastic` ship in
   `mjcf_tendon.py`. **Corrects [ADR-0047](#adr-0047) in four places and retracts one
@@ -3784,6 +3791,110 @@ That took **one missing link** and **three fixes**, and the fixes are the findin
   tests it re-derives. It is the last thing between ADR-0050's decision and its
   dynamic confirmation.
 - ⚠️ Then per-leg outer gains, and the quadruped, neither of which M47 touched.
+
+## ADR-0053: The fore leg's routing was never mirrored -- and it reorders the ankle-anchor migration
+
+- **Status:** Accepted as a **finding and a re-ordering**. No geometry ships. **The
+  fore-leg defect it records invalidates fore-leg figures in
+  [ADR-0048](#adr-0048) through [ADR-0052](#adr-0052). It defers ADR-0052's ankle
+  anchor migration, with every number for it measured.**
+- **Context:** ADR-0052 established the criterion for the ankle anchor -- the moment
+  arm must not reverse anywhere inside a leg's **gait** range -- and measured the
+  angles that satisfy it: **hind 270 deg, fore 300** against the shipped 300 for
+  both. M48 is that migration. Applying it and then measuring the result **on both
+  legs** turned up something larger, because every tendon Jacobian since
+  [ADR-0047](#adr-0047) had been taken on the **hind** leg alone.
+
+### ⚠️ The finding: the fore leg has no hip antagonist
+
+- | tendon | hind hip | fore hip | spec |
+  |---|---|---|---|
+  | hip flexor | **+28.000** | **+11.636** | +/-28 |
+  | hip extensor | **-28.000** | **+35.885** | +/-28 |
+
+  **Both fore arms are positive**, so the two cables pull the joint the same way and
+  there is no antagonist. The rest of the fore rows are as wrong: `knee_ext` puts
+  **+44.067** on the hip where the via-pulley says -8.75, and `ankle` **-39.909** on
+  the knee where it says -8.75. The hind leg is exact.
+- ⚠️ **This has been true since M42.** The hip's moment arms cannot depend on the
+  ankle anchor, and the same numbers come out of the committed M47 tree. It is the
+  thing [ADR-0048](#adr-0048) flagged and nothing acted on: `DEFAULT_FORELEG` folds
+  the **opposite** way, and the fore leg's sidesites and anchor angles were
+  **inherited from the hind leg rather than mirrored**. ADR-0048 measured the symptom
+  as a fore/hind drift gap and read it as a tuning difference. It is not.
+- **What rests on it:** every fore-leg figure in M43-M47 -- the welded and floating
+  drift, ADR-0049's *"the binding tendon is the hind hip extensor"* (with the fore
+  leg fixed it may not be), ADR-0052's *"the fore leg tracks to 11.8 deg against the
+  hind's 3.5"*. ✅ **ADR-0050's ankle decision does not**: its deciding argument
+  came from `gait.py`'s joint trajectories, which never touch the MJCF routing.
+- There is a test asserting the defect, so it fails the moment the fore leg is
+  mirrored properly.
+
+### What the migration measured, on the hind leg, before it was deferred
+
+- | | shipped 300 deg | migrated 270 deg |
+  |---|---|---|
+  | reversal vs the 88.5-122.3 deg gait range | ⚠️ inside (~112 deg) | ✅ outside |
+  | cascade tracks 122.3 deg | ⚠️ reaches 85.6 | ✅ **121.6** |
+  | lone ankle tendon at the stance pose | plantarflexes | ⚠️ **dorsiflexes** |
+  | quadruped, lone ankle | stands, 0.01 deg | ⚠️ **inverts, 179.75 deg** |
+  | quadruped, ankle PAIR | stands | ✅ **stands, 0.01 deg** |
+
+- ✅ **The migration FORCES [ADR-0050](#adr-0050)'s Option A rather than merely
+  preferring it.** At the migrated anchor a lone ankle tendon reaches the gait range
+  and **cannot stand at all**. ADR-0050 decided Option A on kinematic reach; the
+  geometry that reach requires makes it structural.
+- ✅ **And the ankle finally clears [ADR-0026](#adr-0026)'s compliance floor**:
+  **86.3 N.m/rad** with the pair against 55.1 with one tendon -- the first time this
+  joint has met the 80 the balance work has wanted since M20, and the answer to
+  ADR-0047's *"a lone-tendon joint has no restoring stiffness"*.
+
+### ⚠️ Three control findings retract on the migrated plant
+
+- All three were consequences of an **under-actuated ankle**, not of a control law.
+  With a full antagonistic set every joint has both directions and the non-negative
+  allocation is never tight:
+
+  | finding | as published | on Option A, migrated |
+  |---|---|---|
+  | ADR-0047: gravity feedforward cannot hold a pose | diverges at every co-contraction level | **0.0001 deg** |
+  | ADR-0049: clipping instead of solving loses the leg | 197 deg of hip drift | **0.0002 deg** |
+  | ADR-0049: the bare cable inverts the robot, so G3 is what makes it stand | tilt 180 deg | **stands, 0.07 deg** |
+
+- ⚠️ The third is the one that matters most, because ADR-0049 used it as an
+  **independent confirmation of design goal G3**. That confirmation does not
+  survive: with an antagonistic ankle the 5x-stiffer bare cable stands. G3's
+  *balance-compliance* argument (ADR-0047, from ADR-0026's `kp` window) is untouched
+  and remains the reason to specify it -- but it is one argument again, not two.
+- ⚠️ **And a caution the other way.** On Option B at the migrated anchor, **clipping
+  beats NNLS** (0.0001 deg against 46.6): with a lone tendon whose sign is wrong for
+  the load, the honest minimum-residual solution drives the ankle away while clipping
+  happens not to. **A controller comparison on an infeasible plant measures the
+  plant.** ADR-0049's clipping result was such a comparison.
+
+### Decision
+
+- **Nothing ships.** The migration re-derives **17 tests across M42-M47**, and the
+  fore leg those tests measure has never been mirrored. Re-deriving on a
+  known-broken leg would bake the wrong numbers in.
+- **The order is: mirror the fore leg, then migrate the anchor, then re-derive
+  once.** Both anchor angles stay recorded in `MT._ankle_anchor_deg`, and the
+  measurements above stay here, so neither step starts from a re-sweep.
+- ⚠️ **G3's second argument is withdrawn now, not later**, because it is a claim
+  about a design target and does not depend on the migration landing.
+- ✅ **The ankle meeting 86.3 N.m/rad is recorded now too**, for the same reason,
+  even though it takes effect only with Option A and the migration.
+
+### Consequences
+
+- ⚠️ **Mirroring the fore leg is the next milestone**, and it is larger than it
+  looks: sidesites, anchor angles and the ankle anchor all have to be re-derived for
+  a leg that folds the other way, against ADR-0052's gait-range criterion.
+- ⚠️ **Every fore-leg number in ADR-0048 through ADR-0052 carries a caveat** until
+  then. The hind-leg numbers, which are most of what those ADRs argue from, do not.
+- ⚠️ **A process finding:** five milestones measured one leg and generalised. The
+  Jacobian check that found this is three lines and had never been run on the fore
+  leg. It is now a test.
 
 ---
 

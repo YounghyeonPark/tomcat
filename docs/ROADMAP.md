@@ -109,7 +109,9 @@ sequences the work that implements them.
 > **M47 done:** the drivetrain **cascade**, derived not tuned — and a firmware
 > gain sets how much of a mechanical spring you get
 > ([ADR-0052](DESIGN_DECISIONS.md)).
-> 448 passed + 5 xfailed Python, 17 Rust.
+> **M48 done:** the anchor migration is measured and **deferred** — because the
+> **fore leg's routing was never mirrored** ([ADR-0053](DESIGN_DECISIONS.md)).
+> 450 passed + 5 xfailed Python, 17 Rust.
 
 ---
 
@@ -2230,7 +2232,78 @@ M43, is finally forced.
 milestones was taken on 300°. Both numbers are recorded in `_ankle_anchor_deg` so
 the migration starts from a measurement rather than a re-sweep.
 
-## Later milestones (candidate M48+, not committed)
+## Milestone M48 — The fore leg's routing was never mirrored (DONE)
+
+M48 set out to land ADR-0052's ankle-anchor migration (hind 270°, fore 300°).
+Applying it and measuring the result **on both legs** — which no milestone had done,
+because every Jacobian since M42 was taken on the **hind** leg — turned up something
+larger.
+
+⚠️ **The fore hip pair does not oppose.**
+
+| tendon | hind hip | fore hip | spec |
+|---|---|---|---|
+| hip flexor | **+28.000** | **+11.636** | ±28 |
+| hip extensor | **-28.000** | **+35.885** | ±28 |
+
+Both fore arms are positive, so the two cables pull the joint the same way and there
+is no antagonist at all. The other rows are as wrong: `knee_ext` puts **+44.067** on
+the hip where the via-pulley says —8.75, and `ankle` **—39.909** on the knee. The
+hind leg is exact.
+
+⚠️ **And it has been true since M42.** The hip's arms cannot depend on the ankle
+anchor, and the same numbers come out of the committed M47 tree. It is what M43
+flagged and nothing acted on: `DEFAULT_FORELEG` folds the **opposite** way and the
+fore leg's sidesites and anchors were **inherited rather than mirrored**. M43 read
+the symptom as a tuning difference. It is a broken routing, and every fore-leg figure
+in M43—M47 rests on it. ✅ ADR-0050's ankle decision does not — its argument came
+from `gait.py`'s joint trajectories, which never touch the routing.
+
+**What the migration measured before being deferred**, on the hind leg:
+
+| | shipped 300° | migrated 270° |
+|---|---|---|
+| reversal vs the 88.5—122.3° gait range | ⚠️ inside (~112°) | ✅ outside |
+| cascade tracks 122.3° | ⚠️ reaches 85.6 | ✅ **121.6** |
+| quadruped, lone ankle | stands, 0.01° | ⚠️ **inverts, 179.75°** |
+| quadruped, ankle **pair** | stands | ✅ **stands, 0.01°** |
+
+✅ So the migration **forces** ADR-0050's Option A rather than preferring it: at the
+migrated anchor a lone ankle tendon reaches the gait range and cannot stand at all.
+✅ And the ankle finally clears ADR-0026's compliance floor — **86.3 N·m/rad**
+with the pair against 55.1 with one tendon, the first time since M20.
+
+⚠️ **Three control findings retract on the migrated plant**, all three consequences
+of an under-actuated ankle rather than of a control law:
+
+| finding | as published | on Option A, migrated |
+|---|---|---|
+| M42: gravity feedforward cannot hold a pose | diverges | **0.0001°** |
+| M44: clipping loses the leg | 197° | **0.0002°** |
+| M44: the bare cable inverts the robot, so G3 is what makes it stand | 180° | **stands, 0.07°** |
+
+⚠️ The third matters most: M44 used it as an **independent confirmation of G3**, and
+that confirmation does not survive. G3's balance-compliance argument (M42, from
+ADR-0026's `kp` window) is untouched and remains the reason to specify it — but it
+is **one argument again, not two**. Withdrawn now rather than later, because it is a
+claim about a design target and does not wait on the migration.
+
+⚠️ And a caution the other way: on Option B at the migrated anchor **clipping beats
+NNLS** (0.0001° against 46.6), because with a lone tendon whose sign is wrong for
+the load the honest minimum-residual solution drives the ankle away while clipping
+happens not to. **A controller comparison on an infeasible plant measures the
+plant.**
+
+**Nothing ships.** The migration re-derives **17 tests across M42—M47** and the fore
+leg those tests measure is broken. The order is: **mirror the fore leg, then migrate,
+then re-derive once.** Both anchor angles stay in `_ankle_anchor_deg` and the
+measurements stay in ADR-0053, so neither step starts from a re-sweep.
+
+⚠️ **A process finding:** five milestones measured one leg and generalised. The
+Jacobian check that found this is three lines and had never been run on the fore leg.
+It is a test now.
+
+## Later milestones (candidate M49+, not committed)
 
 > This list is **curated, not append-only**. When a milestone closes an item it is
 > deleted here and the reasoning kept in the [ADR log](DESIGN_DECISIONS.md). Earlier
@@ -2239,10 +2312,17 @@ the migration starts from a measurement rather than a re-sweep.
 
 ### Next — fold it in, then re-publish
 
-- **M48 — the ANKLE ANCHOR MIGRATION: hind 270°, fore 300°.** ⚠️ ADR-0052
-  measured it and did not ship it, because it re-derives **14 tests across M44, M45
-  and M46**. It is the last thing between ADR-0050's decision and its dynamic
-  confirmation, and the numbers are already in `_ankle_anchor_deg`.
+- **M49 — MIRROR THE FORE LEG'S ROUTING.** ⚠️ ADR-0053: its hip pair does not
+  oppose (+11.636 / +35.885 against ±28) and the knee and ankle couplings are as
+  wrong, since M42. Sidesites, anchor angles and the ankle anchor all have to be
+  re-derived for a leg that folds the other way, against ADR-0052's gait-range
+  criterion. This blocks everything below it.
+- **Then the ANKLE ANCHOR MIGRATION: hind 270°, fore whatever the mirrored leg
+  wants.** ⚠️ It re-derives 17 tests across M42—M47, so it must come after the fore
+  leg and be done **once**. Every number for it is in ADR-0053.
+- **Then re-derive the fore-leg figures in M43—M47.** ⚠️ The welded/floating drift,
+  ADR-0049's "the binding tendon is the hind hip extensor", ADR-0052's fore tracking
+  error. The hind-leg numbers, which is most of what those ADRs argue from, stand.
 - **The TEST SUITE now takes 12 minutes**, up from about 4. ⚠️ M43–M47 added
   real physics simulations and `tests/test_mjcf_tendon.py` alone is 5 minutes: the
   quadruped stand fixture is 78 s, G3's series-spring gate 54 s, the cascade hold
@@ -2401,6 +2481,7 @@ Kept as a short table so the deletions above are auditable rather than silent.
 | Settle ADR-0002 Option A vs B at the ankle | M45 — [ADR-0050](DESIGN_DECISIONS.md): Option A, capstan; decided on kinematic reach, +528 g |
 | Make cable PAY-OUT representable | M46 — [ADR-0051](DESIGN_DECISIONS.md): spool drivetrain, statics exact; it exposed a missing controller |
 | Drive the spooled plant | M47 — [ADR-0052](DESIGN_DECISIONS.md): cascade derived in closed form; G3 now needs a servo bandwidth beside it |
+| Migrate the ankle anchor | M48 — [ADR-0053](DESIGN_DECISIONS.md): deferred; the fore leg's routing was never mirrored, and three control findings retract |
 
 ## Open reconciliation items (lead)
 
