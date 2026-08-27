@@ -34,6 +34,7 @@ measured on it, and they have to stay reproducible while this is proven out.
 from __future__ import annotations
 
 import math
+import re
 
 import numpy as np
 
@@ -61,8 +62,34 @@ SHEAVE_HALF_W = 0.004
 #: floor with its joints held. Caught by printing the foot positions.
 
 #: Via-pulley radius (m) — the cable's own minimum bend, 10 x Ø1.75 (ADR-0042).
-#: ⚠️ **This model has NO SPOOL DEGREE OF FREEDOM, and M45 found where that
-#: bites.** A tendon's length here is purely a function of the joint angles, so a
+#: Spool radius (m) -- `params`' own, so the wound length is `r * theta`.
+SPOOL_R = float(DEFAULT_TENDON.motor_spool_radius)
+
+#: Rotor inertia at the motor shaft (kg.m^2). `[assumed]`: the vendor does not
+#: publish it and M39's spec review did not need it. It only has to be large enough
+#: to keep the winding constraint well conditioned, and small enough not to dominate
+#: the leg. ⚠️ Owed to the actuator story alongside the Kt question.
+ROTOR_ARMATURE = 2e-5
+
+#: How the winding equality is solved. ⚠️ **These two are a measurement, not a
+#: taste.** MuJoCo solves equalities in a normalised space, so an equality is itself
+#: a spring in series with whatever it couples -- and a loose one silently softens
+#: the drivetrain. Measured on a calibration rig at a known series stiffness:
+#:
+#:     solref          solimp                      k measured / k specified
+#:     0.0005 1        0.9 0.95 0.001 0.5 2                  0.717
+#:     0.0002 1        0.9 0.95 0.001 0.5 2                  0.939
+#:     0.0002 1        0.99 0.9999 1e-6 0.5 2                **0.998**
+#:
+#: At the loose setting the equality contributed 3.8e5 N/m in series; at the tight
+#: one, 8.2e7, which is negligible against the ~1.5e5 the cable and the G3 element
+#: actually have. `0.0002` is also the floor MuJoCo's stability wants at this
+#: timestep (2x dt).
+EQ_SOLREF = "0.0002 1"
+EQ_SOLIMP = "0.99 0.9999 1e-6 0.5 2"
+
+#: ⚠️ **Without `spools=True` this model has NO SPOOL DEGREE OF FREEDOM, and M45
+#: found where that bites.** A tendon's length here is purely a function of the joint angles, so a
 #: motor cannot **pay cable out** -- a slack antagonist behaves as a spring instead.
 #: Driving one ankle tendon at 223 N against a *zero-commanded* antagonist, the
 #: antagonist stretched 2.13 mm and developed **273.8 N**, stopping the joint at
@@ -72,7 +99,9 @@ SHEAVE_HALF_W = 0.004
 #: joint stiffness and pose-holding are all small perturbations about a pose where
 #: both cables are taut. ⚠️ But **the TRAVEL of an antagonistic pair cannot be
 #: measured here**, and that is exactly what ADR-0002 Option A is meant to buy. See
-#: ADR-0050.
+#: ADR-0050. ✅ **M46 fixes it** -- see `spools=True`, which puts a rotor, a
+#: series spring and a winding constraint behind every cable. The old plant is kept
+#: as the default, because every M42-M45 measurement was taken on it.
 NO_SPOOL_DOF = True
 
 VIA_R = 0.00875
@@ -164,6 +193,130 @@ def _cable_k(length_m: float, dia_m: float = 1.75e-3) -> float:
     """Axial stiffness of one cable run, `EA/L` — per-tendon, as §2 requires."""
     area = math.pi * (dia_m / 2.0) ** 2
     return CABLE_E * area / max(length_m, 1e-4)
+
+
+def spool_xml(tendon: str, site: str, pos, k_series: float, indent: int = 6,
+              a0: float = 0.0):
+    """A motor, a series spring and a winding constraint for one cable.
+
+    Returns `(body, fixed_tendon, equality, actuator)`.
+
+    The topology is a **series-elastic actuator**, and each piece is where it
+    physically is:
+
+        motor torque -> rotor -> torsional spring -> spool -> cable
+
+    ⚠️ **The spool SITE does not move.** It is the point the cable leaves the
+    housing, and it stays fixed while the spool turns behind it. That is not a
+    simplification: MuJoCo's spatial tendons are **memoryless about winding** -- a
+    cylinder is rotationally symmetric, so wrapping one and turning it changes the
+    path by nothing at all, and a site carried on the rotor merely orbits. The wound
+    length has to be carried **analytically**, by a `<fixed>` tendon on the spool
+    angle, and tied to the geometric path by an equality. M46 built all three wrong
+    versions before this one.
+
+    The series spring is specified in N.m/rad and relates to the cable's linear
+    stiffness as `k_tors = k_lin * r^2`, which the calibration in `EQ_SOLREF`
+    reproduces to 0.2 %.
+
+    ⚠️ **`a0` is not optional, and leaving it zero does not fail loudly.**
+    MuJoCo takes a tendon equality's reference lengths at the model's **`qpos0`**,
+    not at whatever state the caller initialises. Build the rig with the joints at
+    zero and start it at the stance pose and every constraint begins **centimetres**
+    out: measured 24-52 mm across the five cables, after which the solver snapped the
+    leg from 97 deg to 39 deg in 5 ms and then held the wrong configuration
+    perfectly. The residuals sit CONSTANT, which reads like a satisfied constraint
+    until you notice what they are constant at. `a0` is the path length at the
+    stance pose minus its length at `qpos0`, and the rigs measure it in a first
+    pass.
+    """
+    pad = " " * indent
+    k_tors = float(k_series) * SPOOL_R * SPOOL_R
+    body = "\n".join([
+        f'{pad}<body name="rotor_{tendon}" pos="{pos[0]:.5f} {pos[1]:.5f} '
+        f'{pos[2]:.5f}">',
+        f'{pad}  <joint name="jr_{tendon}" type="hinge" axis="0 -1 0" '
+        f'damping="0.002" armature="{ROTOR_ARMATURE:.3e}"/>',
+        f'{pad}  <geom name="gr_{tendon}" type="cylinder" size="0.012 0.004" '
+        f'quat="0.70711 0.70711 0 0" mass="1e-9" contype="0" conaffinity="0"/>',
+        f'{pad}  <body name="spool_{tendon}">',
+        f'{pad}    <joint name="js_{tendon}" type="hinge" axis="0 -1 0" '
+        f'damping="0.0005" armature="1e-6" stiffness="{k_tors:.6f}" '
+        f'springref="0"/>',
+        f'{pad}    <geom name="gs_{tendon}" type="cylinder" '
+        f'size="{SPOOL_R:.5f} 0.004" quat="0.70711 0.70711 0 0" mass="1e-9" '
+        f'contype="0" conaffinity="0"/>',
+        f'{pad}  </body>',
+        f'{pad}</body>',
+    ])
+    wind = (f'    <fixed name="w_{tendon}">\n'
+            f'      <joint joint="jr_{tendon}" coef="{SPOOL_R:.6f}"/>\n'
+            f'      <joint joint="js_{tendon}" coef="{SPOOL_R:.6f}"/>\n'
+            f'    </fixed>')
+    eq = (f'    <tendon tendon1="{tendon}" tendon2="w_{tendon}" '
+          f'polycoef="{a0:.9f} -1 0 0 0" solref="{EQ_SOLREF}" '
+          f'solimp="{EQ_SOLIMP}"/>')
+    act = (f'    <motor name="m_{tendon}" joint="jr_{tendon}" gear="1" '
+           f'ctrlrange="0 {MOTOR_PEAK_NM:.4f}" ctrllimited="true" '
+           f'forcerange="0 {MOTOR_PEAK_NM:.4f}" forcelimited="true"/>')
+    return body, wind, eq, act
+
+
+#: Which spool site each tendon leaves from. The tendon's own first site, by name.
+SPOOL_OF = {
+    "hip_flex": "spool_hip", "hip_ext": "spool_hip_x",
+    "knee_flex": "spool_knee", "knee_ext": "spool_knee_x",
+    "ankle": "spool_ankle", "ankle_ext": "spool_ankle_x",
+}
+
+
+def spool_positions(gx: float = 0.0, sy: float = 0.0):
+    """Where each spool sits, relative to the girdle it is mounted on.
+
+    One source for both the tendon's exit `<site>` and, under `spools=`, the rotor
+    body behind it -- they have to agree exactly or the cable leaves from somewhere
+    the motor is not.
+    """
+    return {
+        "spool_hip": (gx - 0.042, sy + 0.012, 0.034),
+        "spool_hip_x": (gx - 0.042, sy + 0.012, -0.034),
+        "spool_knee": (gx - 0.050, sy + 0.024, 0.034),
+        "spool_knee_x": (gx - 0.050, sy + 0.024, -0.030),
+        "spool_ankle": (gx - 0.058, sy + 0.030, 0.034),
+        "spool_ankle_x": (gx - 0.066, sy + 0.030, -0.030),
+    }
+
+
+def tendon_names(prefix: str, ankle_pair: bool = False):
+    """This leg's tendons, in the order the actuators are emitted."""
+    names = ["hip_flex", "hip_ext", "knee_flex", "knee_ext", "ankle"]
+    if ankle_pair:
+        names.append("ankle_ext")
+    return [f"{prefix}_{n}" for n in names]
+
+
+def drivetrain_xml(prefix: str, ankle_pair: bool, k_series: float,
+                   gx: float = 0.0, sy: float = 0.0, indent: int = 6,
+                   a0: dict | None = None):
+    """Every spool for one leg. Returns `(bodies, winds, equalities, actuators)`.
+
+    `a0` maps tendon name -> its path length at the reference pose minus its length
+    at `qpos0`. See `spool_xml`: without it the constraints start violated.
+    """
+    pos = spool_positions(gx, sy)
+    b, w, e, a = [], [], [], []
+    for tname in tendon_names(prefix, ankle_pair):
+        short = tname.split("_", 1)[1]
+        site = f"{prefix}_{SPOOL_OF[short]}"
+        bb, ww, ee, aa = spool_xml(tname, site, pos[SPOOL_OF[short]],
+                                   k_series, indent=indent,
+                                   a0=(a0 or {}).get(tname, 0.0))
+        b.append(bb)
+        w.append(ww)
+        e.append(ee)
+        a.append(aa)
+    nl = chr(10)
+    return nl.join(b), nl.join(w), nl.join(e), nl.join(a)
 
 
 def _stance_ankle(leg_p) -> float:
@@ -547,6 +700,47 @@ def quadruped_rig_elastic(q_ref: dict | None = None,
     return quadruped_rig(elastic=elastic, **kw)
 
 
+def single_leg_rig_spooled(leg_p=DEFAULT_HINDLEG, q_ref=None,
+                           series_k: float = 1.5e5, **kw) -> str:
+    """`single_leg_rig` with a real DRIVETRAIN behind every cable, in two passes.
+
+    Pass 1 builds the leg without spools and reads each cable's path length at
+    `qpos0` and at `q_ref`; pass 2 puts that difference into the winding equality's
+    `polycoef` offset, so the constraint is satisfied exactly at the pose the rig is
+    meant to start in.
+
+    ⚠️ **The offset is what M46 got wrong first**, and the failure is quiet:
+    MuJoCo references a tendon equality at `qpos0`, so without the offset every
+    cable begins 24-52 mm out and the solver snaps the leg to a configuration it
+    then holds perfectly. See `spool_xml`.
+
+    `series_k` is the drivetrain's series-elastic stiffness in N/m -- design goal
+    **G3**, sized at 150-200 kN/m by [ADR-0050]. It becomes a torsional spring
+    between the rotor and the spool, `k_tors = series_k * r_spool^2`, which is where
+    that compliance physically sits.
+    """
+    import mujoco
+
+    slack = single_leg_rig(leg_p, **kw)
+    m = mujoco.MjModel.from_xml_string(slack)
+    names = [mujoco.mj_id2name(m, mujoco.mjtObj.mjOBJ_TENDON, i)
+             for i in range(m.ntendon)]
+
+    d0 = mujoco.MjData(m)
+    mujoco.mj_forward(m, d0)
+    at_zero = {n: float(d0.ten_length[i]) for i, n in enumerate(names)}
+
+    d = mujoco.MjData(m)
+    if q_ref is not None:
+        for i, jn in enumerate(("L_q1", "L_q2", "L_q3")):
+            j = mujoco.mj_name2id(m, mujoco.mjtObj.mjOBJ_JOINT, jn)
+            d.qpos[m.jnt_qposadr[j]] = float(q_ref[i])
+    mujoco.mj_forward(m, d)
+
+    a0 = {n: float(d.ten_length[i]) - at_zero[n] for i, n in enumerate(names)}
+    return single_leg_rig(leg_p, spools=series_k, spool_a0=a0, **kw)
+
+
 def single_leg_rig_elastic(leg_p=DEFAULT_HINDLEG, arms=None, q_ref=None,
                            series_k: float | None = None, **kw) -> str:
     """The rig with REAL cable elasticity, built in two passes.
@@ -588,7 +782,9 @@ def single_leg_rig_elastic(leg_p=DEFAULT_HINDLEG, arms=None, q_ref=None,
 def single_leg_rig(leg_p=DEFAULT_HINDLEG, arms=None, hip_height: float = 0.20,
                    fixed_hip: bool = True, elastic: dict | None = None,
                    ankle_pair: bool = False,
-                   ankle_spring: float | None = None) -> str:
+                   ankle_spring: float | None = None,
+                   spools: float | None = None,
+                   spool_a0: dict | None = None) -> str:
     """A one-leg test rig — the gate before anything whole-body is attempted.
 
     `fixed_hip=True` welds the hip to the world so the question is purely *can
@@ -603,15 +799,34 @@ def single_leg_rig(leg_p=DEFAULT_HINDLEG, arms=None, hip_height: float = 0.20,
         ankle_spring=ankle_spring)
 
     # spool sites live on the fixed mount, i.e. the girdle
-    spools = "\n".join([
-        f'      <site name="L_spool_hip" pos="-0.042 0.012 0.034" size="0.002"/>',
-        f'      <site name="L_spool_hip_x" pos="-0.042 0.012 -0.034" size="0.002"/>',
-        f'      <site name="L_spool_knee" pos="-0.050 0.024 0.034" size="0.002"/>',
-        f'      <site name="L_spool_knee_x" pos="-0.050 0.024 -0.030" size="0.002"/>',
-        f'      <site name="L_spool_ankle" pos="-0.058 0.030 0.034" size="0.002"/>',
-        f'      <site name="L_spool_ankle_x" pos="-0.066 0.030 -0.030" '
-        f'size="0.002"/>',
-    ])
+    spool_sites = chr(10).join(
+        f'      <site name="L_{k}" pos="{v[0]:.5f} {v[1]:.5f} {v[2]:.5f}" '
+        f'size="0.002"/>' for k, v in spool_positions().items())
+
+    equality = ""
+    joint_default = ""
+    if spools is not None:
+        # ⚠️ **The winding equality overpowers a default-stiffness joint
+        # limit, and it does not merely overshoot -- it corrupts the answer.** Built
+        # without this line, driving the ankle tendon at the motor peak sent `q3` to
+        # **215 deg against a 150 deg limit** and settled there, i.e. the leg found an
+        # equilibrium 65 deg outside its own range and in the WRONG DIRECTION. With
+        # the limits solved as stiffly as the equality it stops exactly on the -30 deg
+        # end stop, which is where a plantarflexing tendon should take it.
+        joint_default = ('    <joint solreflimit="' + EQ_SOLREF
+                         + '" solimplimit="' + EQ_SOLIMP + '"/>')
+    if spools is not None:
+        # ⚠️ With a spool behind it the cable's compliance belongs in the
+        # DRIVETRAIN, not on the tendon: the winding constraint pins the path
+        # length, so a `springlength` deadband on the same tendon would be fighting
+        # a constraint rather than modelling a cable. The series spring carries it.
+        tendons = re.sub(r'stiffness="[-0-9.eE+]+" springlength="[^"]*" ', "",
+                         tendons)
+        sb, sw, se, sa = drivetrain_xml("L", ankle_pair, spools, a0=spool_a0)
+        spool_sites = spool_sites + chr(10) + sb
+        tendons = tendons + chr(10) + sw
+        acts = sa
+        equality = "  <equality>" + chr(10) + se + chr(10) + "  </equality>"
 
     root = ('    <body name="mount" pos="0 0 %.4f">' % hip_height) if fixed_hip \
         else ('    <body name="mount" pos="0 0 %.4f">\n'
@@ -628,13 +843,14 @@ def single_leg_rig(leg_p=DEFAULT_HINDLEG, arms=None, hip_height: float = 0.20,
   <option timestep="1e-4" gravity="0 0 {-GRAVITY}" integrator="implicitfast"
           jacobian="dense"/>
   <default>
+{joint_default}
     <geom rgba="0.84 0.68 0.53 1"/>
   </default>
   <worldbody>
     <geom name="floor" type="plane" size="2 2 0.1" rgba="0.9 0.9 0.9 1"
           friction="0.8 0.005 0.0001"/>
 {root}
-{spools}
+{spool_sites}
 {body}
     </body>
   </worldbody>
@@ -646,5 +862,6 @@ def single_leg_rig(leg_p=DEFAULT_HINDLEG, arms=None, hip_height: float = 0.20,
   <actuator>
 {acts}
   </actuator>
+{equality}
 </mujoco>
 """

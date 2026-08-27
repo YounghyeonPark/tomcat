@@ -103,7 +103,10 @@ sequences the work that implements them.
 > **M45 done:** the ankle takes an **antagonistic pair** — ADR-0002 settled on
 > **kinematic reach**, the one cost nobody had priced
 > ([ADR-0050](DESIGN_DECISIONS.md)).
-> 438 passed + 5 xfailed Python, 17 Rust.
+> **M46 done:** a **spool behind every cable** — the drivetrain is exact, and
+> adding it exposed a controller this project does not have
+> ([ADR-0051](DESIGN_DECISIONS.md)).
+> 444 passed + 5 xfailed Python, 17 Rust.
 
 ---
 
@@ -2127,7 +2130,56 @@ tendon climbs 207 → 223 N under *both* options because nothing controls the le
 one internal DOF once the foot is pinned. Neither touches the argument above, which
 is kinematic.
 
-## Later milestones (candidate M46+, not committed)
+## Milestone M46 — A spool behind every cable (DONE)
+
+ADR-0050 could not measure an antagonistic pair's **travel**, which is the thing
+Option A is meant to buy: a tendon's length was a pure function of the joint angles,
+so a motor could not **pay cable out**, and a slack antagonist acted as a spring
+(273.8 N of resistance against the 222.9 N driving it, ankle stalled at 8.9°).
+
+Every cable now has a **series-elastic drivetrain**, with each piece where it
+physically is: *motor torque → rotor → spring → spool → cable*. The
+actuator moves from the tendon to the **rotor joint**, so it is commanded in
+**N·m**, and ADR-0047's G3 element becomes `k_tors = k_series * r_spool^2`
+— specified in exact units, sitting between motor and cable rather than as a
+deadband on the tendon.
+
+✅ **The statics are exact.** Pin every leg joint and the spring carries the whole
+motor torque: deflection matches `-tau/k_tors` to **five decimal places**, and the
+tension lands on **222.9 N at the 1.95 N·m peak** — ADR-0048's ceiling, now
+*arrived at* rather than asserted. ✅ **And pay-out works**: a slack antagonist
+unwinds by exactly `r*theta` (**51.5 mm at −336°**), and the driven tendon takes
+the ankle to its **−30° end stop, 127° of travel**.
+
+⚠️ **Four traps, all quiet.** MuJoCo's spatial tendons are **memoryless about
+winding** — a cylinder is rotationally symmetric, so wrapping and turning one
+changes the path by nothing, and a site on the rotor merely orbits; the wound length
+must be carried analytically. An **equality is itself a series spring** (0.717× the
+specified stiffness loose, **0.998×** tight). A stiff equality then **overpowers a
+default joint limit** and does not overshoot but **corrupts the answer** (215°
+against a 150° limit, wrong direction). And a tendon equality is referenced at
+**`qpos0`**, not at the state the caller sets — without the offset every cable
+starts **24–52 mm** out, the solver snaps the leg 97° → 39° in 5 ms, and the
+residuals then sit **constant**, which reads like a satisfied constraint until you
+notice what they are constant at.
+
+⚠️ **What it exposed, and why M46 stops here: adding the missing degree of freedom
+exposed a missing CONTROLLER.** With the actuator on the rotor, commanding a tension
+is no longer instantaneous — it arrives through a series-elastic mode at
+**758 rad/s (~120 Hz)**. **Every controller this project has commands tension
+directly** and none can drive this plant: the outer position loop that holds the old
+plant to 0.00° leaves **5–10°** here. ⚠️ **And it is not numerical** — refining
+the timestep **20×** changes it by under 2 %. A motor at zero torque on a
+near-inertialess spool really does spin at hundreds of rad/s, so **open-loop torque
+on one motor with the rest at zero is not an experiment a tendon robot can perform**.
+That is the honest reason no travel figure beyond the end-stop case is published.
+
+⚠️ A false lead, recorded so it is not re-checked: the ringing looked like the
+**capstan** closing a kinematic loop. It is not — the **mirrored hip pair rings
+harder**, 3862 rad/s against 294. Any antagonistic pair with an unactuated
+antagonist has an undamped co-contraction mode.
+
+## Later milestones (candidate M47+, not committed)
 
 > This list is **curated, not append-only**. When a milestone closes an item it is
 > deleted here and the reasoning kept in the [ADR log](DESIGN_DECISIONS.md). Earlier
@@ -2136,11 +2188,16 @@ is kinematic.
 
 ### Next — fold it in, then re-publish
 
-- **M46 — add SPOOL degrees of freedom.** ⚠️ ADR-0050 could not measure an
-  antagonistic pair's travel because a tendon's length here is a pure function of
-  the joint angles, so a motor cannot **pay cable out** and a slack antagonist acts
-  as a spring (273.8 N of resistance against 222.9 N driving it). This is the
-  prerequisite for any dynamic swing test.
+- **M47 — the DRIVETRAIN CASCADE the spool plant requires**: a tension loop
+  inside, a joint loop outside, separated by the **120 Hz** series-elastic mode.
+  ⚠️ ADR-0051: every existing controller commands tension directly and cannot drive
+  the spooled plant. This is the first control task in this project that is about
+  the **drivetrain** rather than the body, and ADR-0050's dynamic confirmation waits
+  on it.
+- **`ROTOR_ARMATURE` is `[assumed]` at 2e-5 kg·m^2** and now matters — it sets
+  that 120 Hz mode. ⚠️ It joins the vendor's Kt reference point as an actuator
+  number the project owes itself.
+- **Spool the QUADRUPED.** M46 gated one leg, the way M42 did before M43.
 - **Add the null-space POSTURE task.** ⚠️ With the foot pinned by contact a
   3-joint leg has one internal DOF and ADR-0049's driver does not control it, so the
   ankle sags ~5° and the required tension climbs 207 → 223 N. A first attempt cut
@@ -2277,6 +2334,7 @@ Kept as a short table so the deletions above are auditable rather than silent.
 | Scale the tendon plant to the whole body | M43 — [ADR-0048](DESIGN_DECISIONS.md): 18 DOF built; it leans, and four M42 numbers were wrong |
 | Make the pull-only quadruped STAND | M44 — [ADR-0049](DESIGN_DECISIONS.md): it stands at 0.006 deg; a lone tendon's moment arm reverses mid-ROM |
 | Settle ADR-0002 Option A vs B at the ankle | M45 — [ADR-0050](DESIGN_DECISIONS.md): Option A, capstan; decided on kinematic reach, +528 g |
+| Make cable PAY-OUT representable | M46 — [ADR-0051](DESIGN_DECISIONS.md): spool drivetrain, statics exact; it exposed a missing controller |
 
 ## Open reconciliation items (lead)
 

@@ -1758,3 +1758,298 @@ def test_the_TROT_SETTLES_ADR0002_in_favour_of_OPTION_A():
     assert got["L_ankle"] * got["L_ankle_ext"] < 0, (
         "and Option A's pair spans both directions, which is the whole case for it"
     )
+
+
+# ===================================================================
+# M46 - a SPOOL behind every cable, so a motor can pay out
+# ===================================================================
+
+SERIES_K = 1.5e5            # N/m, inside ADR-0050's 150-200 kN/m band
+K_TORS = SERIES_K * MT.SPOOL_R ** 2
+
+
+def _spooled(pin=(), q=None, ankle_pair=True):
+    """The spooled hind leg, optionally with some leg joints pinned at `q`.
+
+    ⚠️ Pinning by writing `qpos` every step is what M46 did first, and on a plant
+    with a stiff constraint network that INJECTS ENERGY rather than holding a pose.
+    Pinning by collapsing the joint's `range` is a real constraint, and the joints
+    then hold to 0.0001°.
+    """
+    if q is None:
+        q = np.asarray(LegModel(DEFAULT_HINDLEG).inverse((0.04, -0.17, 0.0)),
+                       float)
+    xml = MT.single_leg_rig_spooled(q_ref=q, series_k=SERIES_K,
+                                    ankle_pair=ankle_pair)
+    for i, jn in enumerate(("L_q1", "L_q2", "L_q3")):
+        if jn not in pin:
+            continue
+        xml = re.sub(
+            r'(name="%s"[^>]*range=")[-0-9. ]+(")' % jn,
+            lambda mo, v=q[i]: "%s%.6f %.6f%s" % (mo.group(1), v - 1e-6,
+                                                  v + 1e-6, mo.group(2)),
+            xml)
+    return mujoco.MjModel.from_xml_string(xml), q
+
+
+def _adr(m, kind, name):
+    return mujoco.mj_name2id(m, kind, name)
+
+
+def test_the_spool_plant_has_a_DRIVETRAIN_and_the_old_one_does_not():
+    """✅ **What M46 built, and it is opt-in on purpose.**
+
+    Every cable gains a rotor, a torsional series spring and a winding constraint:
+
+        motor torque → rotor → spring → spool → cable
+
+    The actuator moves from the tendon to the **rotor joint**, so it is commanded in
+    **N·m** rather than newtons, and the plant grows 2 DOF per cable. The old
+    plant is still the default, because every M42-M45 measurement was taken on it.
+    """
+    old = mujoco.MjModel.from_xml_string(MT.single_leg_rig())
+    new, _ = _spooled()
+
+    assert old.nv == 3 and old.neq == 0
+    assert new.nv == 3 + 2 * 6, "a rotor and a spool DOF per cable"
+    assert new.neq == 6, "one winding constraint per cable"
+    assert new.ntendon == 12, "six routed paths, six wound lengths"
+
+    assert old.actuator_trntype[0] == mujoco.mjtTrn.mjTRN_TENDON
+    assert new.actuator_trntype[0] == mujoco.mjtTrn.mjTRN_JOINT
+    assert new.actuator_ctrlrange[0][1] == pytest.approx(MT.MOTOR_PEAK_NM)
+
+    # and it costs no mass: the motors are already in the girdle budget
+    assert float(sum(new.body_mass)) == pytest.approx(float(sum(old.body_mass)))
+
+
+def test_the_drivetrain_STATICS_are_exact():
+    """✅ **The check that says the model is right: pin the leg and the series
+    spring must carry exactly the motor's torque.**
+
+    With every leg joint held, the spool cannot turn, so at equilibrium the spring
+    deflection is `-tau / k_tors` and the cable tension is `tau / r_spool`. Measured
+    across three cables and two torques it matches to five decimal places, and the
+    tension lands on **222.9 N at the 1.95 N·m motor peak** -- the same ceiling
+    ADR-0048 derived, now arrived at through a drivetrain instead of asserted.
+    """
+    m, q = _spooled(pin=("L_q1", "L_q2", "L_q3"))
+    qa = [m.jnt_qposadr[_adr(m, mujoco.mjtObj.mjOBJ_JOINT, n)]
+          for n in ("L_q1", "L_q2", "L_q3")]
+
+    for tname in ("L_ankle", "L_ankle_ext", "L_hip_flex"):
+        aid = _adr(m, mujoco.mjtObj.mjOBJ_ACTUATOR, "m_" + tname)
+        js = m.jnt_qposadr[_adr(m, mujoco.mjtObj.mjOBJ_JOINT, "js_" + tname)]
+        for tau in (0.5, MT.MOTOR_PEAK_NM):
+            d = mujoco.MjData(m)
+            for i, a in enumerate(qa):
+                d.qpos[a] = q[i]
+            mujoco.mj_forward(m, d)
+            for _ in range(60000):
+                d.ctrl[:] = 0.0
+                d.ctrl[aid] = tau
+                mujoco.mj_step(m, d)
+            mujoco.mj_forward(m, d)
+            deflection = float(d.qpos[js])
+            assert deflection == pytest.approx(-tau / K_TORS, abs=1e-5), tname
+            tension = K_TORS * abs(deflection) / MT.SPOOL_R
+            assert tension == pytest.approx(tau / MT.SPOOL_R, rel=1e-4)
+    assert MT.MOTOR_PEAK_NM / MT.SPOOL_R == pytest.approx(222.9, abs=0.5)
+
+
+def test_a_slack_antagonist_now_PAYS_OUT_instead_of_resisting():
+    """✅ **The capability M46 exists for, and ADR-0050 could not have.**
+
+    ADR-0050 could not measure an antagonistic pair's travel: with no spool DOF a
+    tendon's length is a pure function of the joint angles, so a motor cannot
+    release cable and a slack antagonist acts as a **spring** -- it stretched 2.13 mm
+    and developed **273.8 N against the 222.9 N driving it**, stalling the ankle at
+    **8.9°**.
+
+    With a spool, the same antagonist **unwinds**: its rotor turns and the cable
+    lengthens by exactly `r * theta`. The driven tendon then takes the ankle all the
+    way to its **-30° end stop, 127° of travel**.
+    """
+    m, q = _spooled(pin=("L_q1", "L_q2"))
+    qa = [m.jnt_qposadr[_adr(m, mujoco.mjtObj.mjOBJ_JOINT, n)]
+          for n in ("L_q1", "L_q2", "L_q3")]
+    aid = _adr(m, mujoco.mjtObj.mjOBJ_ACTUATOR, "m_L_ankle")
+    jr = m.jnt_qposadr[_adr(m, mujoco.mjtObj.mjOBJ_JOINT, "jr_L_ankle_ext")]
+    tex = _adr(m, mujoco.mjtObj.mjOBJ_TENDON, "L_ankle_ext")
+    j3 = _adr(m, mujoco.mjtObj.mjOBJ_JOINT, "L_q3")
+
+    d = mujoco.MjData(m)
+    for i, a in enumerate(qa):
+        d.qpos[a] = q[i]
+    mujoco.mj_forward(m, d)
+    L0 = float(d.ten_length[tex])
+    for _ in range(40000):
+        d.ctrl[:] = 0.0
+        d.ctrl[aid] = MT.MOTOR_PEAK_NM
+        mujoco.mj_step(m, d)
+    mujoco.mj_forward(m, d)
+
+    paid = float(d.ten_length[tex]) - L0
+    turns = float(d.qpos[jr])
+    assert paid > 0.02, f"the antagonist must lengthen, got {1e3 * paid:.1f} mm"
+    assert paid == pytest.approx(-turns * MT.SPOOL_R, abs=2e-3), (
+        "and the length it gives up must be exactly what the rotor unwound"
+    )
+    # and the driven side reaches the end stop, which the old plant never could
+    assert float(d.qpos[qa[2]]) == pytest.approx(m.jnt_range[j3][0], abs=1e-3)
+
+
+def test_the_equality_REFERENCE_is_qpos0_and_that_is_a_trap():
+    """⚠️ **The quiet one. MuJoCo references a tendon equality at `qpos0`, not at
+    whatever state the caller sets.**
+
+    Build the rig with the joints at zero, start it at the stance pose, and every
+    winding constraint begins **24-52 mm out**. The solver then snaps the leg from
+    97° to 39° in **5 ms** and holds the wrong configuration perfectly, with the
+    residuals sitting **constant** -- which reads exactly like a satisfied constraint
+    until you notice what they are constant *at*.
+
+    `single_leg_rig_spooled` measures the offset in a first pass and puts it in
+    `polycoef`'s `a0`. Then the residual at the stance pose is **1e-10**.
+    """
+    m, q = _spooled()
+    qa = [m.jnt_qposadr[_adr(m, mujoco.mjtObj.mjOBJ_JOINT, n)]
+          for n in ("L_q1", "L_q2", "L_q3")]
+    d = mujoco.MjData(m)
+    for i, a in enumerate(qa):
+        d.qpos[a] = q[i]
+    mujoco.mj_forward(m, d)
+    assert d.nefc >= 6, "the six winding constraints are active"
+    assert float(np.max(np.abs(d.efc_pos[:6]))) < 1e-8, (
+        f"residual {float(np.max(np.abs(d.efc_pos[:6]))):.2e} -- a0 is wrong"
+    )
+
+    # and without the offset it is centimetres out, not micrometres
+    naive = mujoco.MjModel.from_xml_string(
+        MT.single_leg_rig(spools=SERIES_K, ankle_pair=True))
+    dn = mujoco.MjData(naive)
+    for i, a in enumerate([naive.jnt_qposadr[_adr(naive,
+                                                  mujoco.mjtObj.mjOBJ_JOINT, n)]
+                           for n in ("L_q1", "L_q2", "L_q3")]):
+        dn.qpos[a] = q[i]
+    mujoco.mj_forward(naive, dn)
+    assert float(np.max(np.abs(dn.efc_pos[:6]))) > 0.01, (
+        "without a0 the constraints must start centimetres out"
+    )
+
+
+def test_a_stiff_equality_OVERPOWERS_a_default_joint_limit():
+    """⚠️ **And it does not overshoot -- it corrupts the answer.**
+
+    The winding equality has to be solved stiffly, or it becomes a spring in series
+    with the drivetrain and silently softens it (measured: **0.717×** the specified
+    stiffness at the loose setting, **0.998×** at the tight one). But solved stiffly
+    it beats a default-stiffness joint limit: driving the ankle tendon at the motor
+    peak sent `q3` to **215° against a 150° limit** and settled there -- 65°
+    outside its own range and in the **wrong direction**. With the limits solved as
+    stiffly as the equality it stops exactly on the -30° end stop.
+    """
+    m, q = _spooled(pin=("L_q1", "L_q2"))
+    j3 = _adr(m, mujoco.mjtObj.mjOBJ_JOINT, "L_q3")
+    # the shipped rig carries the matched limit solver in its <default>
+    xml = MT.single_leg_rig_spooled(q_ref=q, series_k=SERIES_K, ankle_pair=True)
+    assert 'solreflimit="%s"' % MT.EQ_SOLREF in xml
+    assert 'solimplimit="%s"' % MT.EQ_SOLIMP in xml
+    # and the plain rig does not need it, because it has no equality to lose to
+    assert "solreflimit" not in MT.single_leg_rig()
+
+    qa = [m.jnt_qposadr[_adr(m, mujoco.mjtObj.mjOBJ_JOINT, n)]
+          for n in ("L_q1", "L_q2", "L_q3")]
+    aid = _adr(m, mujoco.mjtObj.mjOBJ_ACTUATOR, "m_L_ankle")
+    d = mujoco.MjData(m)
+    for i, a in enumerate(qa):
+        d.qpos[a] = q[i]
+    mujoco.mj_forward(m, d)
+    for _ in range(40000):
+        d.ctrl[:] = 0.0
+        d.ctrl[aid] = MT.MOTOR_PEAK_NM
+        mujoco.mj_step(m, d)
+    mujoco.mj_forward(m, d)
+    assert float(d.qpos[qa[2]]) >= m.jnt_range[j3][0] - 1e-3, "inside its range"
+    assert float(d.qpos[qa[2]]) <= m.jnt_range[j3][1] + 1e-3
+
+
+def test_the_spool_plant_EXPOSES_a_controller_this_project_does_not_have():
+    """⚠️ **What M46 actually found, and it is why the milestone stops here.**
+
+    Adding the missing degree of freedom exposed a **missing controller**. With the
+    actuator on the rotor instead of the tendon, commanding a tension is no longer
+    instantaneous: it arrives through a series-elastic mode at
+    `sqrt(k_tors / I_rotor)` = **758 rad/s, about 120 Hz**. Every controller this
+    project has -- M42's position loop, M44's whole-body allocation, M45's
+    comparisons -- commands tension **directly**, and none of them can drive this
+    plant.
+
+    On the old plant an outer position loop holds the hip and knee to **0.00°**.
+    Here the same loop with a hand-tuned tension inner loop leaves **5-10°**.
+
+    ⚠️ **And it is not numerical.** Refining the timestep 20× (1e-4 → 5e-6)
+    changes the answer by under 2 %%, and the `implicit` integrator by less. A motor
+    commanded to zero torque, on a spool with almost no inertia, being dragged by a
+    cable, really does spin at hundreds of rad/s. **Open-loop torque on one motor
+    with the rest at zero is not an experiment a tendon robot can perform** -- which
+    is the honest reason M46's travel figures beyond the end-stop case are not
+    published.
+
+    The next milestone is the cascade the plant now requires: a tension loop inside,
+    a joint loop outside, separated by that 120 Hz mode.
+
+    ⚠️ Asserts the defect: fails when the drivetrain controller lands.
+    """
+    freq = math.sqrt(K_TORS / MT.ROTOR_ARMATURE)
+    assert freq == pytest.approx(758.0, rel=0.05), (
+        f"the series-elastic mode sits at {freq:.0f} rad/s"
+    )
+
+    m, q = _spooled()
+    qa = [m.jnt_qposadr[_adr(m, mujoco.mjtObj.mjOBJ_JOINT, n)]
+          for n in ("L_q1", "L_q2", "L_q3")]
+    dof = [m.jnt_dofadr[_adr(m, mujoco.mjtObj.mjOBJ_JOINT, n)]
+           for n in ("L_q1", "L_q2", "L_q3")]
+    names = ["hip_flex", "hip_ext", "knee_flex", "knee_ext", "ankle",
+             "ankle_ext"]
+    A = [_adr(m, mujoco.mjtObj.mjOBJ_ACTUATOR, "m_L_" + t) for t in names]
+    JS = [m.jnt_qposadr[_adr(m, mujoco.mjtObj.mjOBJ_JOINT, "js_L_" + t)]
+          for t in names]
+    tid = [_adr(m, mujoco.mjtObj.mjOBJ_TENDON, "L_" + t) for t in names]
+
+    J = np.zeros((6, 3))
+    for k in range(3):
+        Ls = []
+        for sgn in (+1, -1):
+            dd = mujoco.MjData(m)
+            for i, a in enumerate(qa):
+                dd.qpos[a] = q[i]
+            dd.qpos[qa[k]] += sgn * 0.002
+            mujoco.mj_forward(m, dd)
+            Ls.append(np.array([dd.ten_length[t] for t in tid]))
+        J[:, k] = (Ls[0] - Ls[1]) / 0.004
+    G = (-J).T
+
+    d = mujoco.MjData(m)
+    for i, a in enumerate(qa):
+        d.qpos[a] = q[i]
+    mujoco.mj_forward(m, d)
+    for _ in range(30000):
+        e = np.array([q[i] - d.qpos[a] for i, a in enumerate(qa)])
+        ev = np.array([-d.qvel[a] for a in dof])
+        tau = wbc.actuator_torque(d, dof, 10.0 * e + 0.2 * ev)
+        T = wbc.tendon_tension(G, tau, t_min=19.6, t_max=MT.TENSION_MAX)
+        for i in range(6):
+            meas = K_TORS * (-float(d.qpos[JS[i]])) / MT.SPOOL_R
+            cmd = MT.SPOOL_R * T[i] + 1.0 * MT.SPOOL_R * (T[i] - meas)
+            d.ctrl[A[i]] = float(np.clip(cmd, 0.0, MT.MOTOR_PEAK_NM))
+        mujoco.mj_step(m, d)
+        if not np.all(np.isfinite(d.qpos)):
+            break
+
+    drift = np.degrees(np.array([float(d.qpos[a]) for a in qa]) - q)
+    assert float(np.max(np.abs(drift))) > 2.0, (
+        f"drift {np.round(drift, 2)} -- if this now holds, the drivetrain "
+        "controller landed and M46's gate should be re-run"
+    )

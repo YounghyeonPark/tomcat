@@ -15,10 +15,10 @@ cat-like agility, energy-efficient movement, and passive shock absorption.
 
 ## Progress
 
-Forty-five milestones in. The model now spans kinematics → real mass → 3D
+Forty-six milestones in. The model now spans kinematics → real mass → 3D
 static stability → whole-body dynamics → a dynamic gait → closed-loop balance →
 an independent physics-engine cross-check → thermal duty → whole-body force
-allocation, with **438 passing + 5 suspended Python tests and 17 Rust** and every figure below
+allocation, with **444 passing + 5 suspended Python tests and 17 Rust** and every figure below
 generated from the live model (`python tools/make_progress_figures.py`), so a
 published number cannot drift from the code.
 
@@ -268,6 +268,7 @@ is **1.97**. That remedy *is* cheap: one step up in stock tube, under 4 g.
 | M43 | The whole body, 18 DOF | it **leans rather than collapses** — and four M42 numbers were measured on a leg pointing the wrong way |
 | M44 | It **stands** | foot-force allocation holds it to **0.006°** — and a lone tendon's moment arm **reverses inside its own ROM** |
 | M45 | The ankle takes a **pair** | ADR-0002 settled after four milestones — on **kinematic reach**, the one cost nobody had priced |
+| M46 | A **spool** behind every cable | the drivetrain is exact — and adding the missing DOF exposed a **missing controller** |
 
 Full detail in the [roadmap](docs/ROADMAP.md) and the [ADR log](docs/DESIGN_DECISIONS.md).
 
@@ -411,6 +412,34 @@ Full detail in the [roadmap](docs/ROADMAP.md) and the [ADR log](docs/DESIGN_DECI
 > against the 222.9 N driving it), and the standing-tension comparison is confounded
 > by a missing posture task. Neither touches the argument, which is kinematic.
 > [ADR-0050](docs/DESIGN_DECISIONS.md).
+
+> ### ✅ M46: a spool behind every cable, and what it exposed
+>
+> ADR-0050 could not measure an antagonistic pair's **travel**, because a motor
+> could not **pay cable out** — a slack antagonist acted as a spring and stalled the
+> ankle at 8.9°. Every cable now has a real drivetrain: *motor → rotor → series
+> spring → spool → cable*.
+>
+> ✅ **The statics are exact** — pin the leg and the spring carries the whole motor
+> torque to five decimal places, landing on the same **222.9 N** ceiling M43 asserted,
+> now *derived*. ✅ **And pay-out works**: the antagonist unwinds by exactly `r*theta`
+> and the driven tendon reaches its end stop, **127°** against 8.9°.
+>
+> ⚠️ **Then adding the missing degree of freedom exposed a missing controller.** With
+> the actuator on the rotor rather than the tendon, commanding a tension is no longer
+> instantaneous — it arrives through a **120 Hz** series-elastic mode, and *every*
+> controller this project has commands tension directly. The loop that holds the old
+> plant to 0.00° leaves 5–10° here. ⚠️ It is not numerical: refining the timestep
+> 20× changes it by under 2 %. A motor at zero torque on a near-inertialess spool
+> really does spin at hundreds of rad/s, so driving one motor open-loop with the rest
+> at zero is not an experiment a tendon robot can perform — which is why no travel
+> figure beyond the end-stop case is published.
+>
+> Four quiet modelling traps are recorded with it, including the one that cost most:
+> a tendon equality is referenced at **`qpos0`**, not at the state you set, so without
+> the offset every cable starts centimetres out, the solver snaps the leg, and the
+> residuals then sit **constant** — which reads like a satisfied constraint until you
+> notice what they are constant at. [ADR-0051](docs/DESIGN_DECISIONS.md).
 
 ## Why tendon-driven?
 

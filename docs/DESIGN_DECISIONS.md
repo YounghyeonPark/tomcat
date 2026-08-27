@@ -3570,6 +3570,117 @@ That took **one missing link** and **three fixes**, and the fixes are the findin
   run; then the **posture task**; then the thermal case for a 205 N standing tendon
   that ADR-0049 left open.
 
+## ADR-0051: A spool behind every cable -- the drivetrain is exact, and adding it exposed a controller the project does not have
+
+- **Status:** Accepted, and **opt-in**: `spools=` is off by default, because every
+  M42-M45 measurement was taken without it. **Removes the limitation
+  [ADR-0050](#adr-0050) stopped on. Does NOT yet re-open ADR-0050's travel question,
+  and the reason is a finding in its own right.**
+- **Context:** ADR-0050 could not measure an antagonistic pair's **travel**, which
+  is the thing Option A is meant to buy. A tendon's length was a pure function of
+  the joint angles, so a motor could not **pay cable out** and a slack antagonist
+  behaved as a spring: it stretched 2.13 mm, developed **273.8 N against the
+  222.9 N driving it**, and stalled the ankle at 8.9 deg.
+
+### What was built
+
+- Each cable gains a **series-elastic drivetrain**, with every piece where it
+  physically is:
+
+      motor torque -> rotor -> torsional spring -> spool -> cable
+
+  The actuator moves from the tendon to the **rotor joint**, so it is commanded in
+  **N.m** rather than newtons, and the plant grows **two DOF per cable**. The series
+  spring is `k_tors = k_series * r_spool^2`, so [ADR-0047](#adr-0047)'s G3 element
+  is now specified in exact units and sits where it belongs -- between motor and
+  cable -- rather than being a `springlength` deadband on the tendon.
+- ✅ **The statics are exact.** Pin every leg joint and the spring must carry the
+  motor's whole torque: measured deflection matches `-tau / k_tors` to **five
+  decimal places** across three cables and two torques, and the tension lands on
+  **222.9 N at the 1.95 N.m peak** -- ADR-0048's ceiling, now *arrived at* through a
+  drivetrain instead of asserted.
+- ✅ **And pay-out works.** A slack antagonist unwinds instead of resisting: the
+  cable lengthens by exactly `r * theta` (**51.5 mm at -336 deg**, matching to the
+  millimetre), and the driven tendon takes the ankle all the way to its **-30 deg
+  end stop, 127 deg of travel**, against ADR-0050's 8.9 deg stall.
+
+### Four traps, all of them quiet
+
+- ⚠️ **MuJoCo's spatial tendons are MEMORYLESS ABOUT WINDING.** A cylinder is
+  rotationally symmetric, so wrapping one and turning it changes the path by
+  **nothing at all**, and a site carried on the rotor merely orbits. The wound
+  length has to be carried **analytically**, by a `<fixed>` tendon on the spool
+  angle tied to the geometric path by an equality. Three wrong constructions were
+  built before this one, and each looked plausible.
+- ⚠️ **An equality is itself a spring in series with whatever it couples**, because
+  MuJoCo solves constraints in a normalised space. A loose one silently softens the
+  drivetrain. Calibrated against a known series stiffness:
+
+  | solref | solimp | k measured / k specified |
+  |---|---|---|
+  | 0.0005 1 | 0.9 0.95 0.001 0.5 2 | 0.717 |
+  | 0.0002 1 | 0.9 0.95 0.001 0.5 2 | 0.939 |
+  | **0.0002 1** | **0.99 0.9999 1e-6 0.5 2** | **0.998** |
+
+  At the loose setting the equality contributed 3.8e5 N/m in series; at the tight
+  one, 8.2e7, against the ~1.5e5 the cable actually has.
+- ⚠️ **A stiff equality then OVERPOWERS a default-stiffness joint limit, and it
+  does not overshoot -- it corrupts the answer.** Driving the ankle tendon at the
+  motor peak sent `q3` to **215 deg against a 150 deg limit** and settled there:
+  65 deg outside its own range and in the **wrong direction**. Solved as stiffly as
+  the equality, it stops exactly on the -30 deg end stop.
+- ⚠️ **A tendon equality is referenced at `qpos0`, not at the state the caller
+  sets.** Build the rig with the joints at zero, start it at the stance pose, and
+  every constraint begins **24-52 mm** out; the solver snaps the leg from 97 deg to
+  39 deg in **5 ms** and then holds the wrong configuration perfectly, with the
+  residuals sitting **constant** -- which reads exactly like a satisfied constraint
+  until you notice what they are constant *at*. `single_leg_rig_spooled` measures
+  the offset in a first pass and puts it in `polycoef`'s `a0`; the residual is then
+  **1e-10**.
+
+### What it exposed, and why M46 stops here
+
+- ⚠️ **Adding the missing degree of freedom exposed a MISSING CONTROLLER.** With
+  the actuator on the rotor rather than the tendon, commanding a tension is no
+  longer instantaneous: it arrives through a series-elastic mode at
+  `sqrt(k_tors / I_rotor)` = **758 rad/s, about 120 Hz**. **Every controller this
+  project has commands tension directly** -- [ADR-0047](#adr-0047)'s position loop,
+  [ADR-0049](#adr-0049)'s whole-body allocation, ADR-0050's comparisons -- and none
+  of them can drive this plant. On the old plant an outer position loop holds the
+  hip and knee to **0.00 deg**; here the same loop with a hand-tuned inner tension
+  loop leaves **5-10 deg**.
+- ⚠️ **And it is not numerical.** Refining the timestep **20x** (1e-4 -> 5e-6)
+  changes the answer by under 2 %, and the `implicit` integrator by less. A motor
+  commanded to zero torque, on a spool with almost no inertia, dragged by a cable,
+  really does spin at hundreds of rad/s. **Open-loop torque on one motor with the
+  rest at zero is not an experiment a tendon robot can perform**, and that is the
+  honest reason no travel figure beyond the end-stop case is published here.
+- ⚠️ **A false lead, recorded because it was checked and is worth not re-checking:**
+  the ringing looked at first like the **capstan** closing a kinematic loop
+  (ADR-0050's construction anchors both ankle cables at one point). It is not -- the
+  **mirrored** hip pair rings harder, at 3862 rad/s against the capstan's 294. Any
+  antagonistic pair with an unactuated antagonist has an undamped co-contraction
+  mode; two motors, two cables and one joint leave one redundant coordinate, and
+  nothing damps it unless a controller does.
+
+### Consequences
+
+- **`spools=` is opt-in and the default plant is untouched**, so ADR-0047 through
+  ADR-0050 remain reproducible exactly as published.
+- ⚠️ **ADR-0050's ankle decision is NOT revisited.** Its argument was **kinematic**
+  -- the trot commands the ankle 62.4 deg above its reference in swing and Option B
+  has nothing that pulls that way -- and nothing here touches that. What M46 was
+  meant to add was the dynamic confirmation, and that now waits on the controller.
+- ⚠️ **Next: the cascade the plant requires** -- a tension loop inside, a joint loop
+  outside, separated by the 120 Hz series-elastic mode. That is a well-posed control
+  design task, and it is the first one this project has had that is genuinely about
+  the *drivetrain* rather than the body.
+- ⚠️ **`ROTOR_ARMATURE` is `[assumed]` at 2e-5 kg.m^2** and now matters: it sets
+  that mode. It joins the vendor's Kt reference point as an actuator number the
+  project owes itself.
+- The quadruped is not spooled yet. M46's question was a single-leg question, the
+  way M42 gated one leg before M43 took the body.
+
 ---
 
 ### How to add an ADR
