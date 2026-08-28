@@ -3167,3 +3167,281 @@ def test_ADR0002_and_ADR0008_want_DIFFERENT_TRANSMISSIONS():
     assert np.allclose(G @ low, G @ high, atol=1e-9), (
         "same joint torque, different co-contraction -- the freedom ADR-0008 spends"
     )
+
+
+# ===================================================================
+# M53 - ADR-0008's variable-radius pulley, chosen and built
+# ===================================================================
+
+PULLEY_PAIRS = ("hip", "knee", "ankle")
+
+
+def _pulley_leg(leg_p=None):
+    leg_p = DEFAULT_HINDLEG if leg_p is None else leg_p
+    q = np.asarray(LegModel(leg_p).inverse((0.04, -0.17, 0.0)), float)
+    m = mujoco.MjModel.from_xml_string(MT.single_leg_rig(
+        leg_p=leg_p, clamped=True, pulley=True, ankle_pair=True))
+    return m, q
+
+
+def _pulley_G(m, q):
+    dof = [m.jnt_dofadr[mujoco.mj_name2id(m, mujoco.mjtObj.mjOBJ_JOINT, n)]
+           for n in JNT]
+    tid = [mujoco.mj_name2id(m, mujoco.mjtObj.mjOBJ_TENDON, "L_" + p)
+           for p in PULLEY_PAIRS]
+    J = np.zeros((3, 3))
+    for k in range(3):
+        Ls = []
+        for sgn in (+1, -1):
+            d = mujoco.MjData(m)
+            for i, a in enumerate(dof):
+                d.qpos[a] = q[i]
+            d.qpos[dof[k]] += sgn * 0.002
+            mujoco.mj_forward(m, d)
+            Ls.append(np.array([d.ten_length[t] for t in tid]))
+        J[:, k] = (Ls[0] - Ls[1]) / 0.004
+    return (-J).T, dof
+
+
+def test_the_PULLEY_pair_must_route_on_OPPOSITE_SIDES_of_each_via():
+    """⚠️ **The prerequisite nobody had noticed, and it decides whether ADR-0008 is
+    buildable at all.**
+
+    A variable-radius pulley takes up one cable of a pair while paying out the
+    other, so it transmits their **difference**. Anything common to both has to be
+    absorbed by cable stretch instead -- which is co-contraction, and the pulley has
+    no way to relieve it.
+
+    M42 routed both cables of a pair over the **same side** of each via-pulley, so
+    the ADR-0042 coupling `-v*q1` lands on both equally:
+
+    | routing | differential (what the motor sees) | common (what stretch absorbs) |
+    |---|---|---|
+    | same side (M42) | `[0, r_knee]` | `[-v, 0]` |
+    | **opposite sides** | `[-v, r_knee]` | **`[0, 0]`** |
+
+    ⚠️ Same-side, the common mode is **11.44 mm** at the knee across the hind gait
+    range and **20.60 mm** at the ankle -- **1716 N and 3090 N** of co-contraction
+    swing against a 638 N cable rating. The cables break.
+    ⚠️ It is also *falsely decoupling*: the differential loses the hip term
+    entirely, so the pulley would read the knee as independent of the hip while the
+    coupling showed up as tension.
+
+    ✅ Routed on opposite sides the common mode is **exactly zero** and ADR-0042's
+    coupling stays in the differential, where the motor can act on it. That is what
+    `pair_rows` emits.
+    """
+    arms = np.asarray(DEFAULT_TENDON.joint_moment_arm, float)
+    v = MT.VIA_R
+    rows = MT.pair_rows(arms, ankle_pair=True)
+
+    # the shipped pair rows carry the coupling in the DIFFERENTIAL
+    assert dict(rows["knee"])["q1"] == pytest.approx(-v)
+    assert dict(rows["ankle"])["q1"] == pytest.approx(-v)
+    assert dict(rows["ankle"])["q2"] == pytest.approx(-v)
+    assert dict(rows["hip"])["q1"] == pytest.approx(arms[0])
+
+    # and same-side routing would put it in the common mode instead
+    flex = np.array([-v, arms[1]])
+    same_ext = np.array([-v, -arms[1]])
+    opp_ext = np.array([+v, -arms[1]])
+    assert np.allclose((flex + same_ext) / 2, [-v, 0.0])
+    assert np.allclose((flex + opp_ext) / 2, [0.0, 0.0])
+    assert np.allclose((flex - same_ext) / 2, [0.0, arms[1]]), (
+        "same-side routing loses the hip coupling from the differential"
+    )
+
+    # the common mode same-side routing would leave is past the cable's rating
+    q1 = math.radians(74.9)
+    assert v * q1 * 1.5e5 > 638.0, "the 638 N structural rating, ADR-0046"
+
+
+def test_the_pulley_transmission_is_ADR0008s_MOTOR_COUNT_and_ADR0042s_MAP():
+    """✅ **ADR-0008 chosen and built, and it costs nothing in the map.**
+
+    One `<fixed>` tendon per antagonistic pair, one **bidirectional** motor each --
+    bidirectional because pull-only is a property of a *cable* and a pair covers
+    both directions. Three per leg, **12 on the quadruped**, which is exactly the
+    count `params.trunk_mass` has always carried, so the body stays **4.3041 kg**
+    where the independent-pair architecture put it at 5.36 (ADR-0056).
+
+    ✅ And the map is ADR-0042's, unchanged and on **both** legs:
+    hip **28.000**, knee **-8.750 / 25.000**, ankle **-8.750 / -8.750 / 14.000**.
+    """
+    from tomcat_kin.params import DEFAULT_BODY_MASS_KG
+
+    arms = np.asarray(DEFAULT_TENDON.joint_moment_arm) * 1e3
+    via = MT.VIA_R * 1e3
+    for leg_p in (DEFAULT_HINDLEG, DEFAULT_FORELEG):
+        m, q = _pulley_leg(leg_p)
+        assert m.ntendon == 3 and m.nu == 3
+        for i in range(m.nu):
+            assert m.actuator_ctrlrange[i][0] < 0.0, "bidirectional"
+        G, _ = _pulley_G(m, q)
+        J = -G.T * 1e3
+        assert J[0, 0] == pytest.approx(arms[0], abs=1e-6)
+        assert J[1, 0] == pytest.approx(-via, abs=1e-6)
+        assert J[1, 1] == pytest.approx(arms[1], abs=1e-6)
+        assert J[2, 0] == pytest.approx(-via, abs=1e-6)
+        assert J[2, 1] == pytest.approx(-via, abs=1e-6)
+        assert J[2, 2] == pytest.approx(arms[2], abs=1e-6)
+
+    quad = mujoco.MjModel.from_xml_string(MT.quadruped_rig(
+        hip_height=0.176, clamped=True, pulley=True, ankle_pair=True))
+    assert quad.nu == 12, "ADR-0008's twelve leg motors"
+    assert DEFAULT_BODY_MASS_KG == pytest.approx(4.3041, abs=1e-4), (
+        "and params' body mass needs no change, which was the point"
+    )
+
+    # ⚠️ the price: no co-contraction freedom left
+    m, q = _pulley_leg()
+    G, _ = _pulley_G(m, q)
+    assert G.shape == (3, 3)
+    assert G.shape[1] - np.linalg.matrix_rank(G) == 0, (
+        "three joints, three motors -- ADR-0002's T_bias has nowhere to live"
+    )
+
+
+def test_the_pulley_plant_holds_at_ONE_AND_A_HALF_NEWTONS():
+    """✅ **And it is dramatically cheaper in tension, which nobody predicted.**
+
+    With no co-contraction floor the allocation is a square solve that asks for
+    exactly the torque needed. The unloaded leg holds to **0.00°** at every gain
+    with a peak cable force of **1.7 N**, against the independent-pair plant's
+    **205 N** standing figure (ADR-0049).
+    """
+    m, q = _pulley_leg()
+    G, dof = _pulley_G(m, q)
+    A = [mujoco.mj_name2id(m, mujoco.mjtObj.mjOBJ_ACTUATOR, "m_L_" + p)
+         for p in PULLEY_PAIRS]
+    for kp, kd in ((0.0, 0.0), (10.0, 0.2), (50.0, 1.0)):
+        d = mujoco.MjData(m)
+        for i, a in enumerate(dof):
+            d.qpos[a] = q[i]
+        peak = 0.0
+        for _ in range(20000):
+            mujoco.mj_forward(m, d)
+            e = np.array([q[i] - d.qpos[a] for i, a in enumerate(dof)])
+            ev = np.array([-d.qvel[a] for a in dof])
+            tau = wbc.actuator_torque(d, dof, kp * e + kd * ev)
+            F = np.clip(np.linalg.solve(G, tau), -MT.TENSION_MAX,
+                        MT.TENSION_MAX)
+            peak = max(peak, float(np.abs(F).max()))
+            for i, a in enumerate(A):
+                d.ctrl[a] = float(F[i])
+            mujoco.mj_step(m, d)
+        drift = np.degrees(np.array([d.qpos[a] for a in dof]) - q)
+        assert float(np.max(np.abs(drift))) < 0.01, f"kp={kp}: {drift}"
+        assert peak < 10.0, f"kp={kp}: peak {peak:.1f} N"
+
+
+def test_the_pulley_also_CURES_the_standing_TENSION_SATURATION():
+    """✅ **The finding of M53, and it was a side effect.**
+
+    ADR-0056 measured the standing tension ramping to the **222.9 N motor ceiling
+    by t = 9 s** and pinning there, tracking an uncontrolled joint drift, and left
+    the thermal case blocked behind a posture task.
+
+    On the pulley transmission the same gate runs 12 s with the force **converged at
+    68.2 N** -- no ramp, no saturation, and **inside the motor's 81 N continuous
+    rating**:
+
+    | | independent pairs | pulley |
+    |---|---|---|
+    | peak force at 1 s | 125.5 N | 68.2 N |
+    | at 9 s | **222.9 N** (ceiling) | **68.2 N** |
+    | at 12 s | 222.9 N | **68.2 N** |
+    | trunk sag | 0.2 mm | 3.1 mm |
+    | tilt | 0.006° | 0.007° |
+
+    ✅ **The wind-up was co-contraction growing with the drift.** Remove
+    co-contraction as a state and there is nothing to wind up: the square solve asks
+    for the torque and no more. So ADR-0056's blocked thermal item is unblocked by
+    the *transmission*, not by the posture task.
+
+    ⚠️ The trunk does sag **3.1 mm against 0.2**, which is the preload the
+    co-contraction floor used to provide. That is a real difference and it is the
+    honest cost line beside the tension saving.
+    """
+    q = _quad_poses()
+    m = mujoco.MjModel.from_xml_string(MT.quadruped_rig(
+        hip_height=0.176, clamped=True, pulley=True, ankle_pair=True))
+    d = mujoco.MjData(m)
+    for nm in QLEGS:
+        for k, a in enumerate(_qadr(m, nm)):
+            d.qpos[a] = q[nm][k]
+    mujoco.mj_forward(m, d)
+    sid = {nm: mujoco.mj_name2id(m, mujoco.mjtObj.mjOBJ_SITE, f"{nm}_foot")
+           for nm in QLEGS}
+    dof = {nm: _dofs(m, nm) for nm in QLEGS}
+    act = {nm: [mujoco.mj_name2id(m, mujoco.mjtObj.mjOBJ_ACTUATOR,
+                                  f"m_{nm}_{p}") for p in PULLEY_PAIRS]
+           for nm in QLEGS}
+    mass = float(sum(m.body_mass))
+    h0 = float(d.subtree_com[0][2])
+    om = float(np.sqrt(9.81 / h0))
+
+    def maps():
+        out = {}
+        for nm in QLEGS:
+            tid = [mujoco.mj_name2id(m, mujoco.mjtObj.mjOBJ_TENDON,
+                                     f"{nm}_{p}") for p in PULLEY_PAIRS]
+            J = np.zeros((3, 3))
+            qa = _qadr(m, nm)
+            base = [float(d.qpos[a]) for a in qa]
+            for k in range(3):
+                Ls = []
+                for sgn in (+1, -1):
+                    dd = mujoco.MjData(m)
+                    dd.qpos[:] = d.qpos
+                    dd.qpos[qa[k]] = base[k] + sgn * 0.002
+                    mujoco.mj_forward(m, dd)
+                    Ls.append(np.array([dd.ten_length[t] for t in tid]))
+                J[:, k] = (Ls[0] - Ls[1]) / 0.004
+            out[nm] = (-J).T
+        return out
+
+    G = maps()
+    early, late = 0.0, 0.0
+    for it in range(40000):
+        if it and it % REFRESH_STATIC == 0:
+            G = maps()
+        mujoco.mj_subtreeVel(m, d)
+        com = np.array(d.subtree_com[0])
+        feet = np.array([d.site_xpos[sid[nm]] for nm in QLEGS])
+        w = wbc.desired_wrench(mass, com, np.array(d.subtree_linvel[0]),
+                               wbc.realisable_cop(feet, com[:2]), om,
+                               damp=6.0, height=h0)
+        sg = 1.0 if float(d.qpos[3]) >= 0 else -1.0
+        w[3:6] = (-40.0 * 2.0 * sg * np.array([float(v) for v in d.qpos[4:7]])
+                  - 4.0 * np.array(d.qvel[3:6]))
+        f = wbc.allocate(feet, com, w, 0.8)
+        st = wbc.stance_torque(mujoco, m, d, sid,
+                               {nm: f[i] for i, nm in enumerate(QLEGS)}, dof)
+        step_peak = 0.0
+        for nm in QLEGS:
+            tau = wbc.actuator_torque(d, dof[nm], st[nm])
+            F = np.clip(np.linalg.solve(G[nm], tau), -MT.TENSION_MAX,
+                        MT.TENSION_MAX)
+            step_peak = max(step_peak, float(np.abs(F).max()))
+            for i, a in enumerate(act[nm]):
+                d.ctrl[a] = float(F[i])
+        if it == 10000:
+            early = step_peak
+        if it == 39999:
+            late = step_peak
+        mujoco.mj_step(m, d)
+        assert np.all(np.isfinite(d.qpos))
+
+    tilt = float(np.degrees(np.arccos(np.clip(
+        1.0 - 2.0 * (d.qpos[4] ** 2 + d.qpos[5] ** 2), -1.0, 1.0))))
+    assert float(d.qpos[2]) > 0.17, f"it must still be standing: {d.qpos[2]:.5f}"
+    assert tilt < 0.05, f"tilt {tilt:.3f} deg"
+    # the force has CONVERGED, which is the whole finding
+    assert abs(late - early) < 2.0, (
+        f"force must not ramp: {early:.1f} N at 1 s, {late:.1f} at 4 s"
+    )
+    assert late < MT.TENSION_CONTINUOUS, (
+        f"and it must sit inside the {MT.TENSION_CONTINUOUS:.0f} N continuous "
+        f"rating, not the 222.9 N ceiling ADR-0056 measured: {late:.1f} N"
+    )

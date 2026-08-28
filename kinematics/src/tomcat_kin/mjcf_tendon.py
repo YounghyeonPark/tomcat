@@ -352,6 +352,69 @@ def drivetrain_xml(prefix: str, ankle_pair: bool, k_series: float,
     return nl.join(b), nl.join(w), nl.join(e), nl.join(a)
 
 
+#: Which joints each antagonistic PAIR drives, and with what differential arm.
+#: ⚠️ The via-pulley terms are here because the pair's two cables run on
+#: **opposite** sides of each via-pulley. Run on the same side -- which is what M42
+#: built and what `clamped_tendons` still emits for independent motors -- the
+#: coupling leaves the differential entirely and becomes **common mode**, which a
+#: pulley cannot absorb: 11.44 mm of it at the knee over the hind gait range, 20.60
+#: at the ankle, worth **1716 N and 3090 N** of co-contraction swing against a 638 N
+#: cable rating. Opposite sides put it back in the differential and leave the common
+#: mode at exactly zero.
+def pair_rows(arms, ankle_pair: bool = True):
+    r_hip, r_knee, r_ankle = (float(a) for a in arms)
+    v = VIA_R
+    rows = {"hip": [("q1", r_hip)],
+            "knee": [("q1", -v), ("q2", r_knee)]}
+    if ankle_pair:
+        rows["ankle"] = [("q1", -v), ("q2", -v), ("q3", r_ankle)]
+    return rows
+
+
+def pulley_tendons(name: str, arms, ankle_pair: bool = True) -> str:
+    """One `<fixed>` tendon per antagonistic PAIR -- [ADR-0008](../../../docs/DESIGN_DECISIONS.md).
+
+    A variable-radius pulley takes up one cable of a pair while paying out the
+    other, so the motor commands their **difference**. With both cables clamped that
+    difference is `sum r_j q_j` over the joints the pair crosses, which is one fixed
+    tendon per pair rather than two per joint.
+
+    ✅ **This is the transmission ADR-0008 decided and the simulation never had**:
+    12 leg motors, not 20, and the mass budget closes at 4.30 kg where the
+    independent-pair architecture put it at 5.36 (ADR-0056).
+
+    ⚠️ **What it gives up is co-contraction as a control input** (ADR-0057). The
+    allocation stops being redundant: three joints, three motors, no null space, so
+    `T_bias` is whatever the pulley's radius profile schedules against angle. That is
+    ADR-0002's *"stiffness becomes commandable"* traded for ADR-0008's mass closure,
+    and it was decided rather than discovered.
+    """
+    rows = pair_rows(arms, ankle_pair)
+    out = []
+    for pair, terms in rows.items():
+        out.append(f'    <fixed name="{name}_{pair}">')
+        for jn, coef in terms:
+            out.append(f'      <joint joint="{name}_{jn}" coef="{coef:.6f}"/>')
+        out.append("    </fixed>")
+    return "\n".join(out)
+
+
+def pulley_actuators(name: str, ankle_pair: bool = True) -> str:
+    """One BIDIRECTIONAL motor per pair.
+
+    ✅ Bidirectional is right here and one-sided was right before: the pull-only
+    constraint is a property of a **cable**, and a pair covers both directions, so
+    the pulley the pair drives turns either way. The torque limit is the motor's,
+    `MOTOR_PEAK_NM`, not a tension.
+    """
+    pairs = ["hip", "knee"] + (["ankle"] if ankle_pair else [])
+    return "\n".join(
+        f'    <motor name="m_{name}_{p}" tendon="{name}_{p}" gear="-1" '
+        f'ctrlrange="-{TENSION_MAX:.0f} {TENSION_MAX:.0f}" ctrllimited="true" '
+        f'forcerange="-{TENSION_MAX:.0f} {TENSION_MAX:.0f}" forcelimited="true"/>'
+        for p in pairs)
+
+
 def clamped_tendons(name: str, arms, ankle_pair: bool = True) -> str:
     """Every cable of one leg, as a CLAMPED capstan.
 
@@ -476,7 +539,8 @@ def leg_tendon_xml(name: str, leg_p, arms, indent: int = 4,
                    ankle_springref: float | None = None,
                    ankle_pair: bool = False,
                    ankle_spring: float | None = None,
-                   clamped: bool = False) -> tuple[str, str, str]:
+                   clamped: bool = False,
+                   pulley: bool = False) -> tuple[str, str, str]:
     """One tendon-driven leg. Returns (body_xml, tendon_xml, actuator_xml).
 
     The kinematic chain is the same four links `mjcf.py` builds. What is added:
@@ -695,6 +759,9 @@ def leg_tendon_xml(name: str, leg_p, arms, indent: int = 4,
                 "build with `spools=<series_k>` (ADR-0051), where it is an exact "
                 "torsional spring between rotor and spool. Asking for both used "
                 "to return a silently INELASTIC plant.")
+        if pulley:
+            return "\n".join(b), pulley_tendons(name, arms, ankle_pair), \
+                pulley_actuators(name, ankle_pair)
         return "\n".join(b), clamped_tendons(name, arms, ankle_pair), \
             clamped_actuators(name, ankle_pair)
 
@@ -760,7 +827,8 @@ def quadruped_rig(hip_height: float = 0.175, elastic: dict | None = None,
                   trunk_mass: float | None = None,
                   ankle_pair: bool = False,
                   ankle_spring: float | None = None,
-                  clamped: bool = False) -> str:
+                  clamped: bool = False,
+                  pulley: bool = False) -> str:
     """Four tendon-driven legs on a floating trunk — the whole-body stand gate.
 
     Twelve leg DOF, **twenty tendons, twenty actuators**, all pull-only. The spine
@@ -786,7 +854,8 @@ def quadruped_rig(hip_height: float = 0.175, elastic: dict | None = None,
                                  mount=(gx, ty, 0.0),
                                  ankle_springref=_stance_ankle(lp),
                                  ankle_pair=ankle_pair,
-                                 ankle_spring=ankle_spring, clamped=clamped)
+                                 ankle_spring=ankle_spring, clamped=clamped,
+                                 pulley=pulley)
         bodies.append(b)
         tendons.append(t)
         acts.append(a)
@@ -954,7 +1023,8 @@ def single_leg_rig(leg_p=DEFAULT_HINDLEG, arms=None, hip_height: float = 0.20,
                    spools: float | None = None,
                    spool_a0: dict | None = None,
                    spool_servo: bool = False,
-                   clamped: bool = False) -> str:
+                   clamped: bool = False,
+                   pulley: bool = False) -> str:
     """A one-leg test rig — the gate before anything whole-body is attempted.
 
     `fixed_hip=True` welds the hip to the world so the question is purely *can
@@ -966,7 +1036,7 @@ def single_leg_rig(leg_p=DEFAULT_HINDLEG, arms=None, hip_height: float = 0.20,
     body, tendons, acts = leg_tendon_xml(
         "L", leg_p, arms, indent=6, elastic=elastic,
         ankle_springref=_stance_ankle(leg_p), ankle_pair=ankle_pair,
-        ankle_spring=ankle_spring, clamped=clamped)
+        ankle_spring=ankle_spring, clamped=clamped, pulley=pulley)
 
     # spool sites live on the fixed mount, i.e. the girdle
     spool_sites = chr(10).join(

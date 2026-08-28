@@ -27,17 +27,25 @@ context, and consequences. Status is one of: **Proposed**, **Accepted**,
 > during SWING**, and under Option B nothing pulls that way at all. Cost: four
 > motors, **+528 g**, 19 → 23 actuators.
 
-> ⚠️ **IN CONFLICT WITH [ADR-0008](#adr-0008), and [ADR-0057](#adr-0057) (M52)
-> shows it cannot be papered over.** This ADR makes co-contraction `T_bias` a
+> ✅ **THE ADR-0008 CONFLICT IS RESOLVED, by [ADR-0058](#adr-0058) (M53), in
+> ADR-0008's favour.** The paragraph below stands as the statement of what the
+> conflict was; what it costs is now decided and priced. Antagonistic pairs remain,
+> and `T_bias` becomes a pulley radius profile rather than a control input.
+
+> ⚠️ **The conflict, as [ADR-0057](#adr-0057) (M52) found it.** This ADR makes
+> co-contraction `T_bias` a
 > **first-class control input**. ADR-0008 runs **one motor per antagonistic pair**
 > and calls it *"a change of transmission, not of DOF"* -- true of the joint angles,
 > **false of the stiffness**. Co-contraction is the redundant coordinate, and one
 > motor per pair removes it: measured, the paired leg's allocation has **three**
 > co-contraction directions and ADR-0008's would have **none**. The project has been
 > running this ADR in simulation and ADR-0008 in the mass budget.
+> ✅ Since M53 it runs ADR-0008 in both.
 
-- **Status:** Accepted; the ankle case revised by ADR-0050; ⚠️ **conflicts with
-  ADR-0008 -- see ADR-0057**
+- **Status:** Accepted; the ankle case revised by ADR-0050; ⚠️ **its
+  commandable-stiffness clause is SUPERSEDED by [ADR-0058](#adr-0058) (M53)**, which
+  resolved the ADR-0008 conflict in ADR-0008's favour. Antagonistic pairs remain;
+  `T_bias` stops being a runtime input and becomes a pulley profile.
 - **Context:** A cable can only pull, not push. Each DOF needs a way to move in
   both directions.
 - **Options:**
@@ -231,7 +239,18 @@ context, and consequences. Status is one of: **Proposed**, **Accepted**,
 
 ## ADR-0008: Actuator sizing basis and motor count (the mass-closure decision)
 
-> ⚠️ **THE SIMULATION NEVER IMPLEMENTED THIS. [ADR-0056](#adr-0056) (M51).** The
+> ✅ **IMPLEMENTED AND CHOSEN, [ADR-0058](#adr-0058) (M53).** `pulley=True` emits
+> one bidirectional motor per pair: **12 leg motors**, ADR-0042's map unchanged, the
+> body at **4.3041 kg**. The [ADR-0002](#adr-0002) conflict was resolved here, in
+> this ADR's favour, and the standing tension saturation [ADR-0056](#adr-0056)
+> measured went with it. ⚠️ **Two things this ADR did not say:** the pair must be
+> **split across opposite sides of each via-pulley** or the coupling becomes common
+> mode the pulley cannot absorb (1716-3090 N against a 638 N cable), and *"full
+> articulation is retained"* is true of the joint angles but **false of the
+> stiffness** -- that is what was traded away.
+
+> ⚠️ **Superseded banner, kept for the record -- THE SIMULATION NEVER IMPLEMENTED
+> THIS. [ADR-0056](#adr-0056) (M51).** The
 > decision below is one motor per antagonistic pair via the variable-radius pulley
 > -- 12 leg motors, and it is what `params.py`'s `trunk_mass` is built on.
 > `mjcf_tendon.py` emits an independent motor per **tendon**: **20** leg motors, or
@@ -240,7 +259,8 @@ context, and consequences. Status is one of: **Proposed**, **Accepted**,
 > NFR5 is anchored to. Eight milestones of tendon simulation (M42-M50) rest on the
 > architecture this ADR **rejected, on these exact grounds**.
 
-- **Status:** Accepted; ⚠️ **not implemented in simulation -- see ADR-0056**
+- **Status:** Accepted, and ✅ **implemented and chosen in M53 --
+  see [ADR-0058](#adr-0058)**
 - **Context:** The [motor down-select](notes/motor-downselect.md) replaced the
   assumed ~31 g/motor with a real QDD module (~132 g). At the counts the
   architecture called for, **the motors alone exceeded the whole 3 kg body**
@@ -4115,6 +4135,16 @@ That took **one missing link** and **three fixes**, and the fixes are the findin
 
 ## ADR-0056: The simulation never implemented ADR-0008's variable-radius pulley -- and the standing tension never converges
 
+> ✅ **BOTH BLOCKING FINDINGS ARE CLOSED by [ADR-0058](#adr-0058) (M53).** The
+> pulley is implemented, so the 5.36/5.89 kg projections below are **withdrawn** and
+> the body stays at 4.3041 kg. And the tension wind-up **was co-contraction growing
+> with the uncontrolled drift**: on the pulley transmission the same gate converges
+> at **68.2 N** and holds it for 12 s, inside the 81 N continuous rating, where the
+> independent-pair plant pinned at the 222.9 N ceiling by 9 s. ⚠️ The thermal item
+> is therefore unblocked by the **transmission**, not by the posture task this ADR
+> expected -- and the trunk sags **3.1 mm against 0.2**, the preload the
+> co-contraction floor had been supplying.
+
 - **Status:** Accepted as **three findings from a housekeeping pass**, two of which
   blocked the item they were meant to close. No geometry or parameter ships.
   **Withdraws [ADR-0050](#adr-0050)'s mass costing. Corrects
@@ -4298,6 +4328,113 @@ That took **one missing link** and **three fixes**, and the fixes are the findin
 - ✅ **ADR-0054's audit would pass on the clamped plant**, on both legs, at every
   angle -- so the routing programme that ran from ADR-0052 to ADR-0055 is finished,
   and what remains is bookkeeping plus one decision.
+
+## ADR-0058: ADR-0008 wins -- one motor per pair, and it cures the tension saturation as a side effect
+
+- **Status:** Accepted, and it **resolves the [ADR-0002](#adr-0002) /
+  [ADR-0008](#adr-0008) conflict [ADR-0057](#adr-0057) named**, in ADR-0008's
+  favour. `pulley=True` ships in `mjcf_tendon.py`. **Supersedes ADR-0002's
+  commandable-stiffness clause. Unblocks [ADR-0056](#adr-0056)'s thermal item by
+  removing its cause. Keeps NFR5 at 4.3041 kg.**
+- **Context:** ADR-0057 showed the two decisions want different robots:
+  co-contraction commandable at **5.36 kg and 66 % motor by mass**, or the budget
+  closed at **4.30 kg and 58 %** with stiffness scheduled by pulley geometry. It
+  declined to choose. This ADR chooses, and then measures what the choice does.
+
+### Why ADR-0008
+
+- ⚠️ **Mass is this project's hardest constraint and it is already marginal.**
+  ADR-0008 exists because the design *did not close* on motor mass. Independent
+  pairs put the robot at **5.36 kg / 66.4 %** motor, or **5.89 kg / 69.4 %** with
+  ADR-0050's ankle pair -- and that variant lands on **31 motors, the exact count
+  ADR-0008 was written to escape**. Both are outside the 4-5 kg band NFR5 has been
+  anchored to since [ADR-0010](#adr-0010).
+- ⚠️ **The downstream constraints are already at their limits.**
+  [ADR-0044](#adr-0044) has NFR6 at 14-20 min; [ADR-0045](#adr-0045) has NFR18
+  out of spec for continuous trotting in still air at any finish. Copper loss goes
+  as mass squared.
+- ✅ **And this project has never measured a need for commandable co-contraction.**
+  ADR-0026's compliance requirement was met by **G3, a mechanical spring**
+  ([ADR-0047](#adr-0047)), not by co-contraction. ADR-0049's *"co-contraction buys
+  back the clipped allocator"* was **retracted by [ADR-0053](#adr-0053)** -- with
+  correct routing, clipping holds to 0.0002 deg anyway. [ADR-0021](#adr-0021)'s
+  standing cost is a *cost* of co-contraction, not a benefit of commanding it. The
+  case rests on Kengoro's AIC peak-tension result and on the literature's tunable
+  spine, neither tested here.
+- ⚠️ **What is given up, plainly:** ADR-0002's *"stiffness becomes commandable"*.
+  Co-contraction becomes whatever the pulley's radius profile schedules against
+  joint angle. Kengoro's AIC is itself a schedule, so the peak-tension benefit may
+  be recoverable in the profile -- that is a design task, not a loss, and it is not
+  done here.
+
+### ⚠️ The prerequisite nobody had noticed
+
+- A pulley transmits the **difference** of its pair's two cable lengths. Anything
+  **common** to both must be absorbed by cable stretch, which the pulley cannot
+  relieve. M42 routed both cables of a pair over the **same side** of each
+  via-pulley, so ADR-0042's `-v*q1` lands on both equally:
+
+  | routing | differential (the motor) | common (stretch) |
+  |---|---|---|
+  | same side, as M42 built | `[0, r_knee]` | `[-v, 0]` |
+  | **opposite sides** | `[-v, r_knee]` | **`[0, 0]`** |
+
+- Same-side, the common mode is **11.44 mm** at the knee across the hind gait range
+  and **20.60 mm** at the ankle -- **1716 N and 3090 N** of co-contraction swing
+  against a **638 N** cable rating. The cables break. ⚠️ It is also *falsely
+  decoupling*: the differential loses the hip term, so the pulley would read the
+  knee as independent of the hip while the coupling appeared as tension.
+- ✅ **Opposite sides leave the common mode at exactly zero** and keep ADR-0042's
+  coupling in the differential, where the motor can act on it. **ADR-0008 is only
+  buildable with the pair split across each via-pulley**, and nothing had said so.
+
+### What it measures
+
+- ✅ **Twelve leg motors, and the map is unchanged.** Three `<fixed>` tendons and
+  three **bidirectional** motors per leg -- bidirectional because pull-only is a
+  property of a *cable* and a pair covers both directions. On both legs the map is
+  ADR-0042's exactly: hip **28.000**, knee **-8.750 / 25.000**, ankle
+  **-8.750 / -8.750 / 14.000**. `params.trunk_mass` needs no change; the body stays
+  **4.3041 kg**.
+- ✅ **The unloaded leg holds to 0.00 deg at a peak cable force of 1.7 N**, against
+  the independent-pair plant's 205 N standing figure.
+- ✅ **And it cures ADR-0056's tension saturation, which was not expected.** That
+  ADR measured the standing force ramping to the **222.9 N motor ceiling by 9 s** and
+  pinning there. On the pulley transmission the same gate runs 12 s with the force
+  **converged at 68.2 N**:
+
+  | | independent pairs | pulley |
+  |---|---|---|
+  | peak force at 1 s | 125.5 N | 68.2 N |
+  | at 9 s | **222.9 N** (ceiling) | **68.2 N** |
+  | at 12 s | 222.9 N | **68.2 N** |
+  | trunk sag | 0.2 mm | 3.1 mm |
+  | tilt | 0.006 deg | 0.007 deg |
+
+  **The wind-up was co-contraction growing with the uncontrolled joint drift.**
+  Remove co-contraction as a state and there is nothing to wind up. 68.2 N is inside
+  the motor's **81 N continuous** rating, so ADR-0056's thermal item is unblocked by
+  the *transmission* rather than by the posture task.
+- ⚠️ **The cost line beside it:** the trunk sags **3.1 mm against 0.2**, which is
+  the preload the co-contraction floor used to supply.
+
+### Consequences
+
+- **NFR5 stays at 4.3041 kg**, and ADR-0056's 5.36/5.89 kg projections are withdrawn
+  along with ADR-0050's 4.83.
+- ⚠️ **`wbc.tendon_tension`'s `t_min` has nowhere to act on a pulley leg.** The
+  allocation is a square solve: three joints, three motors, no null space. Every
+  co-contraction-floor result from M42-M47 is inapplicable to the shipped
+  transmission, which is part of the re-derivation now queued.
+- ⚠️ **`mechanical/` owes two things**: the cable **clamped** at each sheave
+  ([ADR-0055](#adr-0055)), and each pair **split across its via-pulleys**. Neither is
+  drawn.
+- ⚠️ **The variable-radius PROFILE is undesigned.** This ADR models a constant
+  ratio, which schedules zero co-contraction. Recovering Kengoro's AIC benefit means
+  designing `r_a(theta)` and `r_b(theta)`, and that is a mechanical task with a
+  measurable target.
+- ✅ **The re-derivation is now unblocked and has one target**: clamped capstans,
+  pulley transmission, opposite-side vias, 12 leg motors, 4.3041 kg.
 
 ---
 

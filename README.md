@@ -15,10 +15,10 @@ cat-like agility, energy-efficient movement, and passive shock absorption.
 
 ## Progress
 
-Fifty-two milestones in. The model now spans kinematics → real mass → 3D
+Fifty-three milestones in. The model now spans kinematics → real mass → 3D
 static stability → whole-body dynamics → a dynamic gait → closed-loop balance →
 an independent physics-engine cross-check → thermal duty → whole-body force
-allocation, with **461 passing + 5 suspended Python tests and 17 Rust** and every figure below
+allocation, with **465 passing + 5 suspended Python tests and 17 Rust** and every figure below
 generated from the live model (`python tools/make_progress_figures.py`), so a
 published number cannot drift from the code.
 
@@ -275,6 +275,7 @@ is **1.97**. That remedy *is* cheap: one step up in stock tube, under 4 g.
 | M50 | **Clamp the cable** to the sheave | a resting wrap has a working window; a clamped capstan does not — and that explains everything since M42 |
 | M51 | Housekeeping, mostly **blocked** | the simulation never implemented the **variable-radius pulley** — 1.05 kg of unbudgeted motor |
 | M52 | The **clamped transmission** | exact on both legs at every angle — and two accepted ADRs want **different robots** |
+| M53 | **ADR-0008 wins** | one motor per pair — 12 motors, 4.30 kg, and the standing tension **stops saturating** |
 
 Full detail in the [roadmap](docs/ROADMAP.md) and the [ADR log](docs/DESIGN_DECISIONS.md).
 
@@ -592,6 +593,31 @@ Full detail in the [roadmap](docs/ROADMAP.md) and the [ADR log](docs/DESIGN_DECI
 > commandable at **5.36 kg**, or the budget closed at **4.30** with stiffness
 > scheduled by pulley geometry. M52 does not decide it; it is a requirements trade
 > with an accepted ADR on each side. [ADR-0057](docs/DESIGN_DECISIONS.md).
+
+> ### ✅ M53: ADR-0008 wins, and the tension saturation goes with it
+>
+> **The choice is ADR-0008.** Mass is the hardest constraint and it is already
+> marginal — independent pairs are **5.36 kg / 66.4 %** motor, or 5.89 / 69.4 with
+> the ankle pair, which is **31 motors, the exact count ADR-0008 was written to
+> escape**. And this project has never *measured* a need for commandable
+> co-contraction: the compliance requirement was met by a spring, and the one control
+> result that leaned on co-contraction was retracted in M48.
+>
+> ⚠️ **A prerequisite nobody had noticed:** a pulley transmits the *difference* of
+> its pair's cables, and M42 ran both cables over the **same side** of each
+> via-pulley — which puts the coupling in the **common mode**, worth **1716 N** at
+> the knee and **3090 N** at the ankle against a 638 N cable rating. Split the pair
+> across each via and the common mode is **exactly zero**. ADR-0008 is only buildable
+> that way.
+>
+> ✅ **Built: 12 leg motors, 4.3041 kg unchanged, the map exactly as before**, and
+> the leg holds to 0.00° at **1.7 N** of cable force. ✅ **And it cures M51's
+> tension saturation** — the standing force converges at **68.2 N** and stays there,
+> where independent pairs ramped to the 222.9 N motor ceiling by 9 s. The wind-up
+> *was* co-contraction growing with an uncontrolled drift; remove it as a state and
+> there is nothing to wind up. ⚠️ The cost: the trunk sags 3.1 mm against 0.2, the
+> preload the co-contraction floor used to give.
+> [ADR-0058](docs/DESIGN_DECISIONS.md).
 
 ## Why tendon-driven?
 

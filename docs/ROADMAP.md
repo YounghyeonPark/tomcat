@@ -123,7 +123,9 @@ sequences the work that implements them.
 > **M52 done:** the **clamped transmission** is built and exact — and ADR-0002
 > and ADR-0008 turn out to want **different robots**
 > ([ADR-0057](DESIGN_DECISIONS.md)).
-> 461 passed + 5 xfailed Python, 17 Rust.
+> **M53 done:** **ADR-0008 wins** — one motor per pair, and it cures the standing
+> tension saturation as a side effect ([ADR-0058](DESIGN_DECISIONS.md)).
+> 465 passed + 5 xfailed Python, 17 Rust.
 
 ---
 
@@ -2504,7 +2506,64 @@ AIC rule is built around, and what M43 measured as keeping the clipped allocator
 exact). **M52 does not decide it** — it is a requirements-level trade with an
 accepted ADR on each side.
 
-## Later milestones (candidate M53+, not committed)
+## Milestone M53 — ADR-0008 wins, and the tension saturation goes with it (DONE)
+
+M52 left two accepted decisions wanting different robots. **The choice is ADR-0008**:
+one motor per antagonistic pair, co-contraction scheduled by pulley geometry rather
+than commanded.
+
+**Why.** ⚠️ Mass is this project's hardest constraint and it is already marginal:
+independent pairs put the robot at **5.36 kg / 66.4 %** motor by mass, or **5.89 kg /
+69.4 %** with the ankle pair — and that variant lands on **31 motors, the exact
+count ADR-0008 was written to escape**. NFR6 is already 14–20 min and NFR18 already
+says continuous trotting is out of spec in still air at any finish. ✅ And this
+project has **never measured** a need for commandable co-contraction: ADR-0026's
+compliance was met by **G3, a spring**; M43's "co-contraction buys back the clipped
+allocator" was **retracted by M48**; M41's standing cost is a *cost* of
+co-contraction, not a benefit of commanding it. ⚠️ What is given up is ADR-0002's
+*"stiffness becomes commandable"*. Kengoro's AIC is itself a schedule, so the
+peak-tension benefit may be recoverable in the radius profile — a design task, not
+done here.
+
+⚠️ **The prerequisite nobody had noticed.** A pulley transmits the **difference** of
+its pair's cables; anything **common** to both is absorbed by stretch, which it
+cannot relieve. M42 routed both cables of a pair over the **same side** of each
+via-pulley:
+
+| routing | differential (the motor) | common (stretch) |
+|---|---|---|
+| same side, as M42 built | `[0, r_knee]` | `[—v, 0]` |
+| **opposite sides** | `[—v, r_knee]` | **`[0, 0]`** |
+
+Same-side that is **11.44 mm** at the knee and **20.60 mm** at the ankle across the
+hind gait range — **1716 N and 3090 N** against a **638 N** cable rating. The cables
+break. It is also *falsely decoupling*: the differential loses the hip term entirely.
+✅ Opposite sides leave the common mode at **exactly zero**. **ADR-0008 is only
+buildable with the pair split across each via-pulley**, and nothing had said so.
+
+✅ **Built: 12 leg motors, and the map is unchanged.** Three `<fixed>` tendons and
+three **bidirectional** motors per leg — bidirectional because pull-only is a
+property of a *cable* and a pair covers both directions. On both legs the map is
+ADR-0042's exactly (hip **28.000**, knee **—8.750 / 25.000**, ankle **—8.750 /
+—8.750 / 14.000**), and `params.trunk_mass` needs no change: the body stays
+**4.3041 kg**. The unloaded leg holds to **0.00° at 1.7 N** of cable force.
+
+✅ **And it cures M51's tension saturation, which was not expected.**
+
+| | independent pairs | pulley |
+|---|---|---|
+| peak force at 1 s | 125.5 N | 68.2 N |
+| at 9 s | **222.9 N** (motor ceiling) | **68.2 N** |
+| at 12 s | 222.9 N | **68.2 N** |
+| trunk sag | 0.2 mm | 3.1 mm |
+
+**The wind-up was co-contraction growing with the uncontrolled joint drift** —
+remove co-contraction as a state and there is nothing to wind up. 68.2 N is inside
+the motor's **81 N continuous** rating, so the thermal item is unblocked by the
+*transmission* rather than by the posture task. ⚠️ The cost line beside it: the
+trunk sags **3.1 mm against 0.2**, the preload the co-contraction floor supplied.
+
+## Later milestones (candidate M54+, not committed)
 
 > This list is **curated, not append-only**. When a milestone closes an item it is
 > deleted here and the reasoning kept in the [ADR log](DESIGN_DECISIONS.md). Earlier
@@ -2513,14 +2572,18 @@ accepted ADR on each side.
 
 ### Next — fold it in, then re-publish
 
-- **M53 — DECIDE ADR-0002 vs ADR-0008.** ⚠️ ADR-0057: co-contraction
-  commandable at **5.36 kg**, or the budget closed at **4.30** with co-contraction
-  scheduled by pulley geometry instead. It is a requirements trade, not a
-  measurement, and **it blocks the re-derivation** because it sets how many
-  actuators the re-derived plant has.
-- **Then make `clamped=True` the default and re-derive, ONCE.** ⚠️ 17 tests across
-  M42–M47, plus the fore-leg figures M48 flagged. Everything needed is measured and
-  recorded; nothing is left to sweep.
+- **M54 — MAKE IT THE DEFAULT AND RE-DERIVE, ONCE.** The target is settled:
+  **clamped capstans, pulley transmission, opposite-side vias, 12 leg motors,
+  4.3041 kg**. ⚠️ 17 tests across M42–M47 plus the fore-leg figures M48 flagged,
+  and every co-contraction-floor result becomes inapplicable — the allocation is a
+  square solve now. Everything needed is measured; nothing is left to sweep.
+- **Design the variable-radius PROFILE.** ⚠️ ADR-0058 models a constant ratio, which
+  schedules **zero** co-contraction. Recovering Kengoro's AIC peak-tension benefit
+  means designing `r_a(theta)` and `r_b(theta)` — a mechanical task with a
+  measurable target.
+- **`mechanical/` owes TWO routing features**: the cable **clamped** at each sheave
+  (ADR-0055) and each pair **split across its via-pulleys** (ADR-0058). Neither is
+  drawn.
 - **`mechanical/` owes a CABLE TERMINATION at every sheave.** ⚠️ ADR-0043's leg was
   drawn with cables resting in grooves. Clamping needs a fitting, a groove profile
   and an assembly step per joint.
@@ -2690,6 +2753,7 @@ Kept as a short table so the deletions above are auditable rather than silent.
 | Mirror the fore leg | M49 — [ADR-0054](DESIGN_DECISIONS.md): narrowed — only the ankles were ever validated; 3 of 4 fixes measured, the hind hip has none |
 | Settle the hind hip's construction | M50 — [ADR-0055](DESIGN_DECISIONS.md): clamp the cable to the sheave; a resting wrap has a window, a clamped capstan does not |
 | Build the clamped transmission | M52 — [ADR-0057](DESIGN_DECISIONS.md): exact on both legs at every angle; and ADR-0002 vs ADR-0008 is a real conflict |
+| Decide ADR-0002 vs ADR-0008 | M53 — [ADR-0058](DESIGN_DECISIONS.md): ADR-0008 wins; 12 motors, 4.30 kg, and the tension saturation goes with it |
 
 ## Open reconciliation items (lead)
 
