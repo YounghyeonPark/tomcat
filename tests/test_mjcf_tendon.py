@@ -34,9 +34,77 @@ TEN = ["L_hip_flex", "L_hip_ext", "L_knee_flex", "L_knee_ext", "L_ankle"]
 JNT = ["L_q1", "L_q2", "L_q3"]
 
 
+# --------------------------------------------------------------------------
+# ⚠️ Which plant a test is measured on -- M54 made the SHIPPED one the default.
+#
+# `mjcf_tendon` now defaults to what ADR-0055 and ADR-0058 decided: **clamped
+# capstans, one bidirectional motor per antagonistic pair, the pair split across
+# opposite sides of each via-pulley**. Twelve leg motors, `sum r·q` exactly.
+#
+# ⚠️ Everything M42-M51 measured was measured on a **different machine**: a cable
+# ROUTED around each sheave (moment arm emergent, and wrong outside a window), with
+# an INDEPENDENT PULL-ONLY MOTOR PER TENDON (20 or 24 of them). Those findings are
+# still true *of that build*, and several of them are the evidence that it was
+# replaced -- so they are pinned here rather than re-pointed, and the pin is the
+# statement that they describe history.
+#
+# The rule this module follows: a test measures the LEGACY plant only when the
+# finding is **about that construction**. Anything about control, allocation, or
+# what the robot can do is re-derived on the shipped plant.
+# --------------------------------------------------------------------------
+
+def _legacy_leg(**kw):
+    """M42-M51's one-leg rig: wrapped routing, one pull-only motor per tendon."""
+    kw.setdefault("ankle_pair", False)
+    return MT.single_leg_rig(clamped=False, pulley=False, **kw)
+
+
+def _legacy_leg_elastic(**kw):
+    """`_legacy_leg` with per-cable elasticity -- only a routed cable can have it."""
+    kw.setdefault("ankle_pair", False)
+    return MT.single_leg_rig_elastic(clamped=False, pulley=False, **kw)
+
+
+def _legacy_spooled(**kw):
+    """M46-M47's drivetrain rig, on the legacy routing it was developed against."""
+    kw.setdefault("ankle_pair", False)
+    return MT.single_leg_rig_spooled(clamped=False, pulley=False, **kw)
+
+
+def _legacy_quad(**kw):
+    """M43-M51's quadruped: wrapped routing, 20 (or 24) pull-only motors."""
+    kw.setdefault("ankle_pair", False)
+    return MT.quadruped_rig(clamped=False, pulley=False, **kw)
+
+
+def _legacy_quad_elastic(**kw):
+    """`_legacy_quad` with per-cable elasticity."""
+    kw.setdefault("ankle_pair", False)
+    return MT.quadruped_rig_elastic(clamped=False, pulley=False, **kw)
+
+
+def _clamped_leg(**kw):
+    """M52's plant: CLAMPED capstans, but still one motor per tendon.
+
+    ⚠️ This is a half-step and it does not ship either -- ADR-0058 put one motor on
+    each PAIR. It is kept because M52's findings (the map is exact at every angle,
+    the leg holds on feedforward alone, co-contraction is a real redundant
+    coordinate) are what made that decision, and each is a statement about a plant
+    with independent motors.
+    """
+    kw.setdefault("ankle_pair", False)
+    return MT.single_leg_rig(clamped=True, pulley=False, **kw)
+
+
+def _clamped_quad(**kw):
+    """M52's quadruped: clamped capstans, one motor per tendon."""
+    kw.setdefault("ankle_pair", False)
+    return MT.quadruped_rig(clamped=True, pulley=False, **kw)
+
+
 @pytest.fixture(scope="module")
 def rig():
-    m = mujoco.MjModel.from_xml_string(MT.single_leg_rig())
+    m = mujoco.MjModel.from_xml_string(_legacy_leg())
     tid = {n: mujoco.mj_name2id(m, mujoco.mjtObj.mjOBJ_TENDON, n) for n in TEN}
     dof = {n: m.jnt_dofadr[mujoco.mj_name2id(m, mujoco.mjtObj.mjOBJ_JOINT, n)]
            for n in JNT}
@@ -339,7 +407,7 @@ def test_an_anchor_that_does_not_force_a_WRAP_gets_no_moment_arm(rig):
     assert abs(J[2, 1]) > 0.9 * r_knee * 1e3, "the shipped knee anchor must wrap"
 
     # the retraction: M42's "dead" ankle placement in fact wraps fine
-    revived = MT.single_leg_rig().replace(
+    revived = _legacy_leg().replace(
         'name="L_ankle_anchor" pos="%.5f 0.012 %.5f"'
         % (1.15 * r_ank * math.cos(math.radians(45.0)),
            1.15 * r_ank * math.sin(math.radians(45.0))),
@@ -356,12 +424,12 @@ def test_an_anchor_that_does_not_force_a_WRAP_gets_no_moment_arm(rig):
 
     # and the general lesson, on the knee, where a dead spot really is there
     a = math.radians(270.0)
-    dead = MT.single_leg_rig().replace(
+    dead = _legacy_leg().replace(
         'name="L_knee_anchor" pos="%.5f 0.012 %.5f"'
         % (0.55 * r_knee, -(r_knee + 0.005)),
         'name="L_knee_anchor" pos="%.5f 0.012 %.5f"'
         % (1.15 * r_knee * math.cos(a), 1.15 * r_knee * math.sin(a)))
-    assert dead != MT.single_leg_rig(), "the knee anchor substitution must bite"
+    assert dead != _legacy_leg(), "the knee anchor substitution must bite"
     md = mujoco.MjModel.from_xml_string(dead)
     td = {n: mujoco.mj_name2id(md, mujoco.mjtObj.mjOBJ_TENDON, n) for n in TEN}
     dd = {n: md.jnt_dofadr[mujoco.mj_name2id(md, mujoco.mjtObj.mjOBJ_JOINT, n)]
@@ -388,7 +456,7 @@ def _joint_stiffness(series_k=None, h=1e-4, q=None):
     if q is None:
         q = LegModel(DEFAULT_HINDLEG).inverse((0.04, -0.17, 0.0))
     m = mujoco.MjModel.from_xml_string(
-        MT.single_leg_rig_elastic(q_ref=q, series_k=series_k))
+        _legacy_leg_elastic(q_ref=q, series_k=series_k))
     dof = {n: m.jnt_dofadr[mujoco.mj_name2id(m, mujoco.mjtObj.mjOBJ_JOINT, n)]
            for n in JNT}
     K = np.zeros(3)
@@ -413,7 +481,7 @@ def test_the_cable_stiffness_is_PER_TENDON_not_one_constant():
     At the routed lengths `EA/L` spans **4.9e5 to 2.0e6 N/m**, a factor of four.
     """
     q = LegModel(DEFAULT_HINDLEG).inverse((0.04, -0.17, 0.0))
-    m = mujoco.MjModel.from_xml_string(MT.single_leg_rig_elastic(q_ref=q))
+    m = mujoco.MjModel.from_xml_string(_legacy_leg_elastic(q_ref=q))
     ks = np.array([m.tendon_stiffness[i] for i in range(m.ntendon)])
     assert ks.min() > 4e5 and ks.max() < 2.5e6
     assert ks.max() / ks.min() > 3.0, "a single constant cannot cover this"
@@ -483,7 +551,7 @@ def test_the_antagonistic_pair_stiffness_is_DIRECTION_DEPENDENT():
     the asymmetry moved; that it exists at all is the finding, and it is unchanged.)
     """
     q = LegModel(DEFAULT_HINDLEG).inverse((0.04, -0.17, 0.0))
-    m = mujoco.MjModel.from_xml_string(MT.single_leg_rig_elastic(q_ref=q))
+    m = mujoco.MjModel.from_xml_string(_legacy_leg_elastic(q_ref=q))
     dof = {n: m.jnt_dofadr[mujoco.mj_name2id(m, mujoco.mjtObj.mjOBJ_JOINT, n)]
            for n in JNT}
     h = 1e-4
@@ -585,7 +653,7 @@ def test_the_VIA_SITE_Z_SIGN_is_set_by_the_hinge_convention():
     care which way the leg folds; a number that comes from a routing accident does.
     That asymmetry is the most useful thing this failure produced.
     """
-    xml = MT.single_leg_rig()
+    xml = _legacy_leg()
     for site in ("L_hip_via_side", "L_femur_mid", "L_knee_via_side",
                  "L_tibia_mid"):
         line = [l for l in xml.split(chr(10)) if 'name="%s"' % site in l]
@@ -646,7 +714,7 @@ def _acts(m, nm):
 def quad():
     q = _quad_poses()
     m = mujoco.MjModel.from_xml_string(
-        MT.quadruped_rig_elastic(q_ref=q, hip_height=0.176, series_k=1.75e5))
+        _legacy_quad_elastic(q_ref=q, hip_height=0.176, series_k=1.75e5))
     return m, q
 
 
@@ -789,7 +857,7 @@ def test_the_legs_DO_hold_their_poses_on_a_welded_trunk(quad):
     a fore one. At 1.8° it is no longer what stops the robot standing.
     """
     m0, q = quad
-    welded = MT.quadruped_rig_elastic(
+    welded = _legacy_quad_elastic(
         q_ref=q, hip_height=0.176, series_k=1.75e5
     ).replace('<freejoint name="root"/>', '')
     m = mujoco.MjModel.from_xml_string(welded)
@@ -969,7 +1037,7 @@ def test_the_ANKLE_moment_arm_REVERSES_SIGN_inside_the_ROM():
     """
     q = np.asarray(LegModel(DEFAULT_HINDLEG).inverse((0.04, -0.17, 0.0)), float)
     r = float(DEFAULT_TENDON.joint_moment_arm[2])
-    base = MT.single_leg_rig()
+    base = _legacy_leg()
 
     def arm_at(anchor_deg, q3_deg):
         a = math.radians(anchor_deg)
@@ -1034,7 +1102,7 @@ def test_a_LONE_tendon_cannot_serve_BOTH_stance_and_swing():
     Option B was chosen on motor count; this is the second cost it never counted.
     """
     q = np.asarray(LegModel(DEFAULT_HINDLEG).inverse((0.04, -0.17, 0.0)), float)
-    m = mujoco.MjModel.from_xml_string(MT.single_leg_rig())
+    m = mujoco.MjModel.from_xml_string(_legacy_leg())
     dof = {n: m.jnt_dofadr[mujoco.mj_name2id(m, mujoco.mjtObj.mjOBJ_JOINT, n)]
            for n in JNT}
 
@@ -1256,7 +1324,7 @@ def test_G3s_series_spring_is_what_MAKES_it_stand(quad):
     """
     _, q = quad
     stiff = mujoco.MjModel.from_xml_string(
-        MT.quadruped_rig_elastic(q_ref=q, hip_height=0.176, series_k=None))
+        _legacy_quad_elastic(q_ref=q, hip_height=0.176, series_k=None))
     r = _wbc_stand(stiff, q, seconds=2.0, refresh=REFRESH_STATIC)
     assert r["diverged"] or r["tilt"] > 90.0, (
         f"the bare cable should invert the robot, got tilt {r['tilt']:.1f} deg"
@@ -1322,7 +1390,7 @@ def _ankle_hold(pair=False, k3=None, tb=5.0, kp=10.0, kd=0.2, seconds=2.0):
     other. This measures the swing side.
     """
     q = np.asarray(LegModel(DEFAULT_HINDLEG).inverse((0.04, -0.17, 0.0)), float)
-    m = mujoco.MjModel.from_xml_string(MT.single_leg_rig_elastic(
+    m = mujoco.MjModel.from_xml_string(_legacy_leg_elastic(
         q_ref=q, series_k=1.75e5, ankle_pair=pair, ankle_spring=k3))
     names = ["L_hip_flex", "L_hip_ext", "L_knee_flex", "L_knee_ext", "L_ankle"]
     if pair:
@@ -1389,7 +1457,7 @@ def test_option_A_needs_a_CAPSTAN_not_a_mirrored_pair():
     """
     q = np.asarray(LegModel(DEFAULT_HINDLEG).inverse((0.04, -0.17, 0.0)), float)
     r = float(DEFAULT_TENDON.joint_moment_arm[2])
-    base = MT.single_leg_rig(ankle_pair=True)
+    base = _legacy_leg(ankle_pair=True)
 
     def arms(anchor_x_deg, q3_deg):
         a = math.radians(anchor_x_deg)
@@ -1530,7 +1598,7 @@ def test_the_stiffer_spring_EATS_THE_RANGE_OF_MOTION():
     q = np.asarray(LegModel(DEFAULT_HINDLEG).inverse((0.04, -0.17, 0.0)), float)
 
     def travel(k3, seconds=1.0):
-        m = mujoco.MjModel.from_xml_string(MT.single_leg_rig_elastic(
+        m = mujoco.MjModel.from_xml_string(_legacy_leg_elastic(
             q_ref=q, series_k=1.75e5, ankle_spring=k3))
         dof = [m.jnt_dofadr[mujoco.mj_name2id(m, mujoco.mjtObj.mjOBJ_JOINT, n)]
                for n in JNT]
@@ -1575,7 +1643,7 @@ def test_option_As_TRAVEL_cannot_be_measured_on_this_PLANT():
     stiffer spring.** Adding spool DOFs is the prerequisite for settling ADR-0002.
     """
     q = np.asarray(LegModel(DEFAULT_HINDLEG).inverse((0.04, -0.17, 0.0)), float)
-    m = mujoco.MjModel.from_xml_string(MT.single_leg_rig_elastic(
+    m = mujoco.MjModel.from_xml_string(_legacy_leg_elastic(
         q_ref=q, series_k=1.75e5, ankle_pair=True))
     dof = [m.jnt_dofadr[mujoco.mj_name2id(m, mujoco.mjtObj.mjOBJ_JOINT, n)]
            for n in JNT]
@@ -1627,9 +1695,9 @@ def test_option_As_MASS_cost_is_four_more_MOTORS():
     from tomcat_kin.params import DEFAULT_BODY_MASS_KG
 
     q = _quad_poses()
-    a = mujoco.MjModel.from_xml_string(MT.quadruped_rig(hip_height=0.176,
+    a = mujoco.MjModel.from_xml_string(_legacy_quad(hip_height=0.176,
                                                         ankle_pair=True))
-    b = mujoco.MjModel.from_xml_string(MT.quadruped_rig(hip_height=0.176))
+    b = mujoco.MjModel.from_xml_string(_legacy_quad(hip_height=0.176))
     assert a.nu == b.nu + 4 == 24, "one more actuator per leg"
     assert float(sum(a.body_mass)) == pytest.approx(float(sum(b.body_mass))), (
         "and the plant's mass does NOT show it -- the budget must, by hand"
@@ -1735,7 +1803,7 @@ def test_the_TROT_SETTLES_ADR0002_in_favour_of_OPTION_A():
     # and the stiffest spring that still clears the tendon-direction demand does
     # not help here at all, which is what makes this decisive rather than a tuning
     q = np.asarray(LegModel(DEFAULT_HINDLEG).inverse((0.04, -0.17, 0.0)), float)
-    m = mujoco.MjModel.from_xml_string(MT.single_leg_rig_elastic(
+    m = mujoco.MjModel.from_xml_string(_legacy_leg_elastic(
         q_ref=q, series_k=1.75e5, ankle_spring=MT.ANKLE_SPRING_TO_HOLD))
     tid = mujoco.mj_name2id(m, mujoco.mjtObj.mjOBJ_TENDON, "L_ankle")
     dof = [m.jnt_dofadr[mujoco.mj_name2id(m, mujoco.mjtObj.mjOBJ_JOINT, n)]
@@ -1755,7 +1823,7 @@ def test_the_TROT_SETTLES_ADR0002_in_favour_of_OPTION_A():
     )
 
     # Option A's antagonist is what pulls the other way
-    ma = mujoco.MjModel.from_xml_string(MT.single_leg_rig_elastic(
+    ma = mujoco.MjModel.from_xml_string(_legacy_leg_elastic(
         q_ref=q, series_k=1.75e5, ankle_pair=True))
     ta = {n: mujoco.mj_name2id(ma, mujoco.mjtObj.mjOBJ_TENDON, n)
           for n in ("L_ankle", "L_ankle_ext")}
@@ -1796,7 +1864,7 @@ def _spooled(pin=(), q=None, ankle_pair=True):
     if q is None:
         q = np.asarray(LegModel(DEFAULT_HINDLEG).inverse((0.04, -0.17, 0.0)),
                        float)
-    xml = MT.single_leg_rig_spooled(q_ref=q, series_k=SERIES_K,
+    xml = _legacy_spooled(q_ref=q, series_k=SERIES_K,
                                     ankle_pair=ankle_pair)
     for i, jn in enumerate(("L_q1", "L_q2", "L_q3")):
         if jn not in pin:
@@ -1824,7 +1892,7 @@ def test_the_spool_plant_has_a_DRIVETRAIN_and_the_old_one_does_not():
     **N·m** rather than newtons, and the plant grows 2 DOF per cable. The old
     plant is still the default, because every M42-M45 measurement was taken on it.
     """
-    old = mujoco.MjModel.from_xml_string(MT.single_leg_rig())
+    old = mujoco.MjModel.from_xml_string(_legacy_leg())
     new, _ = _spooled()
 
     assert old.nv == 3 and old.neq == 0
@@ -1943,7 +2011,7 @@ def test_the_equality_REFERENCE_is_qpos0_and_that_is_a_trap():
 
     # and without the offset it is centimetres out, not micrometres
     naive = mujoco.MjModel.from_xml_string(
-        MT.single_leg_rig(spools=SERIES_K, ankle_pair=True))
+        _legacy_leg(spools=SERIES_K, ankle_pair=True))
     dn = mujoco.MjData(naive)
     for i, a in enumerate([naive.jnt_qposadr[_adr(naive,
                                                   mujoco.mjtObj.mjOBJ_JOINT, n)]
@@ -1969,11 +2037,11 @@ def test_a_stiff_equality_OVERPOWERS_a_default_joint_limit():
     m, q = _spooled(pin=("L_q1", "L_q2"))
     j3 = _adr(m, mujoco.mjtObj.mjOBJ_JOINT, "L_q3")
     # the shipped rig carries the matched limit solver in its <default>
-    xml = MT.single_leg_rig_spooled(q_ref=q, series_k=SERIES_K, ankle_pair=True)
+    xml = _legacy_spooled(q_ref=q, series_k=SERIES_K, ankle_pair=True)
     assert 'solreflimit="%s"' % MT.EQ_SOLREF in xml
     assert 'solimplimit="%s"' % MT.EQ_SOLIMP in xml
     # and the plain rig does not need it, because it has no equality to lose to
-    assert "solreflimit" not in MT.single_leg_rig()
+    assert "solreflimit" not in _legacy_leg()
 
     qa = [m.jnt_qposadr[_adr(m, mujoco.mjtObj.mjOBJ_JOINT, n)]
           for n in ("L_q1", "L_q2", "L_q3")]
@@ -2016,7 +2084,18 @@ def test_the_spool_plant_EXPOSES_a_controller_this_project_does_not_have():
     The next milestone is the cascade the plant now requires: a tension loop inside,
     a joint loop outside, separated by that 120 Hz mode.
 
-    ⚠️ Asserts the defect: fails when the drivetrain controller lands.
+    ⚠️ **This measures the LEGACY plant** -- the wrapped routing with one
+    pull-only motor per cable, which M54 stopped building by default. The
+    defect below is real *there*, and it is part of why that plant was
+    replaced.
+
+    ✅ **Superseded as an open item by M47's cascade**, which is the controller
+    this test says is missing. It stays because the *plant* property it measures --
+    a spool with no loop around it does not hold a pose -- is still true, and is
+    still true of the shipped drivetrain: zero command drifts the leg 20.6° at the
+    hip in half a second. What changed is that the drivetrain now exists behind the
+    pulley at all; see
+    `test_the_DRIVETRAIN_now_exists_BEHIND_THE_PULLEY_and_so_does_G3`.
     """
     freq = math.sqrt(K_TORS / MT.ROTOR_ARMATURE)
     assert freq == pytest.approx(758.0, rel=0.05), (
@@ -2088,7 +2167,7 @@ def _servo_rig(leg_p=None, pin=()):
 
     leg_p = HL if leg_p is None else leg_p
     q = np.asarray(LegModel(leg_p).inverse((0.04, -0.17, 0.0)), float)
-    xml = MT.single_leg_rig_spooled(leg_p=leg_p, q_ref=q, series_k=SERIES_K,
+    xml = _legacy_spooled(leg_p=leg_p, q_ref=q, series_k=SERIES_K,
                                     ankle_pair=True, spool_servo=True)
     for i, jn in enumerate(("L_q1", "L_q2", "L_q3")):
         if jn not in pin:
@@ -2298,7 +2377,16 @@ def test_the_cascade_TRACKS_the_hind_ankle_but_the_REVERSAL_still_bounds_it():
     stand **81° apart**. That migration is its own work; see
     `MT._ankle_anchor_deg`.
 
-    ⚠️ Asserts the defect: fails when the anchor migration lands.
+    ⚠️ **This measures the LEGACY plant** -- the wrapped routing with one
+    pull-only motor per cable, which M54 stopped building by default. The
+    defect below is real *there*, and it is part of why that plant was
+    replaced.
+
+    ✅ **The anchor migration is no longer needed, and this bound no longer
+    exists on the shipped plant.** The reversal is a property of a *wrapped* moment
+    arm; clamped, the ankle arm is +14.000 mm across the whole ROM, so there is
+    nothing to migrate away from. Measured in
+    `test_the_SHIPPED_map_is_CONSTANT_over_the_WHOLE_ROM_on_BOTH_legs`.
     """
     m, q = _servo_rig()
     stance = math.degrees(q[2])
@@ -2330,7 +2418,7 @@ def _leg_jacobian(leg_p, ankle_pair=False):
         names.append("L_ankle_ext")
     q = np.asarray(LegModel(leg_p).inverse((0.04, -0.17, 0.0)), float)
     m = mujoco.MjModel.from_xml_string(
-        MT.single_leg_rig(leg_p=leg_p, ankle_pair=ankle_pair))
+        _legacy_leg(leg_p=leg_p, ankle_pair=ankle_pair))
     tid = [mujoco.mj_name2id(m, mujoco.mjtObj.mjOBJ_TENDON, n) for n in names]
     dof = [m.jnt_dofadr[mujoco.mj_name2id(m, mujoco.mjtObj.mjOBJ_JOINT, n)]
            for n in JNT]
@@ -2381,7 +2469,15 @@ def test_the_FORE_LEGS_ROUTING_WAS_NEVER_MIRRORED():
     decision does **not**: its deciding argument came from `gait.py`'s joint
     trajectories, which never touch the MJCF routing.
 
-    ⚠️ Asserts the defect: **fails when the fore leg is mirrored properly.**
+    ⚠️ **This measures the LEGACY plant** -- the wrapped routing with one
+    pull-only motor per cable, which M54 stopped building by default. The
+    defect below is real *there*, and it is part of why that plant was
+    replaced.
+
+    ✅ **Closed by construction rather than by mirroring.** On the shipped
+    transmission the fore leg's map is *identical* to the hind's -- not mirrored,
+    the same matrix -- so the asymmetry this test measures cannot arise. Measured in
+    `test_the_SHIPPED_map_is_CONSTANT_over_the_WHOLE_ROM_on_BOTH_legs`.
     """
     arms = np.asarray(DEFAULT_TENDON.joint_moment_arm) * 1e3
 
@@ -2450,7 +2546,14 @@ def test_the_ANKLE_ANCHOR_MIGRATION_is_measured_but_not_shipped():
     known-broken leg would bake the wrong numbers in. The order is: mirror the fore
     leg, then migrate, then re-derive **once**.
 
-    ⚠️ Asserts the defect: fails when the migration lands.
+    ⚠️ **This measures the LEGACY plant** -- the wrapped routing with one
+    pull-only motor per cable, which M54 stopped building by default. The
+    defect below is real *there*, and it is part of why that plant was
+    replaced.
+
+    ✅ **The migration was overtaken.** It is a fix for a wrap, and the shipped
+    build clamps instead, so the anchor angle stops being a free parameter. The
+    numbers here stay recorded for any joint that ever goes back to a resting wrap.
     """
     assert MT._ankle_anchor_deg(DEFAULT_HINDLEG) == 300.0, (
         "still the ADR-0050 anchor for both legs -- if this is now 270, the "
@@ -2467,7 +2570,7 @@ def test_the_ANKLE_ANCHOR_MIGRATION_is_measured_but_not_shipped():
     assert hi == pytest.approx(122.3, abs=1.0)
 
     q = np.asarray(LegModel(DEFAULT_HINDLEG).inverse((0.04, -0.17, 0.0)), float)
-    base = MT.single_leg_rig(ankle_pair=True)
+    base = _legacy_leg(ankle_pair=True)
 
     def ankle_arm(q3_deg):
         m = mujoco.MjModel.from_xml_string(base)
@@ -2513,7 +2616,7 @@ def _pair_over_range(leg_p, joint, tendons, lo, hi, n=13):
     """Worst arm error and how many sample points have a SAME-SIGN pair."""
     q = np.asarray(LegModel(leg_p).inverse((0.04, -0.17, 0.0)), float)
     m = mujoco.MjModel.from_xml_string(
-        MT.single_leg_rig(leg_p=leg_p, ankle_pair=True))
+        _legacy_leg(leg_p=leg_p, ankle_pair=True))
     dof = [m.jnt_dofadr[mujoco.mj_name2id(m, mujoco.mjtObj.mjOBJ_JOINT, j)]
            for j in JNT]
     tid = [mujoco.mj_name2id(m, mujoco.mjtObj.mjOBJ_TENDON, t)
@@ -2566,7 +2669,15 @@ def test_ONLY_THE_ANKLES_were_ever_validated_across_the_GAIT():
     sits *inside* its own failure band, while the hind's (-49.2°) sits outside --
     which is exactly why five milestones of stance-pose checks saw nothing.
 
-    ⚠️ Asserts the defect: fails when the routing is re-derived.
+    ⚠️ **This measures the LEGACY plant** -- the wrapped routing with one
+    pull-only motor per cable, which M54 stopped building by default. The
+    defect below is real *there*, and it is part of why that plant was
+    replaced.
+
+    ✅ **Re-derived in M54, and the audit is now moot rather than passed**: the
+    shipped map is the same constant matrix at every pose in every joint's full ROM
+    on both legs, so there is no gait sub-range left in which it could be wrong.
+    Measured in `test_the_SHIPPED_map_is_CONSTANT_over_the_WHOLE_ROM_on_BOTH_legs`.
     """
     ranges = _gait_ranges()
     cases = [
@@ -2840,15 +2951,25 @@ def test_the_SIMULATION_never_implemented_ADR0008s_VARIABLE_RADIUS_PULLEY():
     variable-radius pulley gets implemented -- ADR-0008 says it does -- or whether
     ADR-0008 is re-opened at 5.36 kg. That is the next milestone.
 
-    ⚠️ Asserts the defect: fails when the pulley lands or the budget is re-derived.
+    ⚠️ **This measures the LEGACY plant** -- the wrapped routing with one
+    pull-only motor per cable, which M54 stopped building by default. The
+    defect below is real *there*, and it is part of why that plant was
+    replaced.
+
+    ✅ **RETRACTED AS AN OPEN ITEM -- the pulley landed in M53 and became the
+    default in M54.** The shipped quadruped has **12** leg motors, so the overrun
+    this test prices is **zero** and `params.trunk_mass` needed no change. The 5.36
+    and 5.89 kg figures were never paid. They stay measured here because they are
+    the reason ADR-0008 was chosen over ADR-0002 rather than re-opened, and the
+    numbers had to be right for that choice to mean anything.
     """
     from tomcat_kin.params import DEFAULT_BODY_MASS_KG
 
     motor_kg = 0.1317
     lone = mujoco.MjModel.from_xml_string(
-        MT.quadruped_rig(hip_height=0.176, ankle_pair=False))
+        _legacy_quad(hip_height=0.176, ankle_pair=False))
     paired = mujoco.MjModel.from_xml_string(
-        MT.quadruped_rig(hip_height=0.176, ankle_pair=True))
+        _legacy_quad(hip_height=0.176, ankle_pair=True))
 
     assert lone.nu == 20, "one motor per tendon, not per DOF"
     assert paired.nu == 24
@@ -2897,10 +3018,20 @@ def test_the_STANDING_TENSION_never_converges_it_SATURATES():
     statement is not *"2.5x the continuous rating"* but *"the tension does not
     settle; it saturates the actuator"*.
 
-    ⚠️ Asserts the defect: fails when the tension converges below the ceiling.
+    ⚠️ **This measures the LEGACY plant** -- the wrapped routing with one
+    pull-only motor per cable, which M54 stopped building by default. The
+    defect below is real *there*, and it is part of why that plant was
+    replaced.
+
+    ✅ **Cured in M53, and not by the posture task this test expected.** The
+    wind-up was co-contraction growing with the uncontrolled drift; the shipped
+    transmission has no co-contraction to wind up, and the same gate converges at
+    **68.2 N** and holds it -- inside the 81 N continuous rating. Measured in
+    `test_the_pulley_also_CURES_the_standing_TENSION_SATURATION`. ⚠️ The ramp is
+    still real on the legacy plant, which is what this test keeps guarding.
     """
     q = _quad_poses()
-    m = mujoco.MjModel.from_xml_string(MT.quadruped_rig_elastic(
+    m = mujoco.MjModel.from_xml_string(_legacy_quad_elastic(
         q_ref=q, hip_height=0.176, series_k=1.75e5))
 
     short = _wbc_stand(m, q, seconds=1.0)
@@ -2986,7 +3117,7 @@ def test_the_CLAMPED_transmission_is_EXACT_on_both_legs_everywhere():
     for leg_p, extreme in ((DEFAULT_HINDLEG, -110.0), (DEFAULT_FORELEG, -168.0)):
         q = np.asarray(LegModel(leg_p).inverse((0.04, -0.17, 0.0)), float)
         m = mujoco.MjModel.from_xml_string(
-            MT.single_leg_rig(leg_p=leg_p, clamped=True, ankle_pair=True))
+            _clamped_leg(leg_p=leg_p, ankle_pair=True))
         tid = [mujoco.mj_name2id(m, mujoco.mjtObj.mjOBJ_TENDON, n)
                for n in names]
         dof = [m.jnt_dofadr[mujoco.mj_name2id(m, mujoco.mjtObj.mjOBJ_JOINT, n)]
@@ -3033,7 +3164,7 @@ def test_the_clamped_leg_HOLDS_on_gravity_feedforward_alone():
     names = ["L_hip_flex", "L_hip_ext", "L_knee_flex", "L_knee_ext",
              "L_ankle", "L_ankle_ext"]
     m = mujoco.MjModel.from_xml_string(
-        MT.single_leg_rig(clamped=True, ankle_pair=True))
+        _clamped_leg(ankle_pair=True))
     tid = [mujoco.mj_name2id(m, mujoco.mjtObj.mjOBJ_TENDON, n) for n in names]
     dof = [m.jnt_dofadr[mujoco.mj_name2id(m, mujoco.mjtObj.mjOBJ_JOINT, n)]
            for n in JNT]
@@ -3088,10 +3219,10 @@ def test_asking_for_ELASTICITY_on_a_clamped_tendon_now_RAISES():
     """
     q = np.asarray(LegModel(DEFAULT_HINDLEG).inverse((0.04, -0.17, 0.0)), float)
     with pytest.raises(ValueError, match="CLAMPED"):
-        MT.single_leg_rig_elastic(q_ref=q, series_k=1.75e5, clamped=True)
+        MT.single_leg_rig_elastic(pulley=False, q_ref=q, series_k=1.75e5, clamped=True)
     # and the inelastic clamped plant is still buildable, which is what M52 uses
     m = mujoco.MjModel.from_xml_string(
-        MT.single_leg_rig(clamped=True, ankle_pair=True))
+        _clamped_leg(ankle_pair=True))
     assert m.ntendon == 6 and m.nu == 6
 
 
@@ -3121,11 +3252,21 @@ def test_ADR0002_and_ADR0008_want_DIFFERENT_TRANSMISSIONS():
     that ADR-0021 priced standing on, ADR-0043 built the AIC rule around, and M43
     measured as what keeps the clipped allocator exact.
 
-    ⚠️ Asserts the defect: fails when one of the two is withdrawn.
+    ⚠️ **This measures the LEGACY plant** -- the wrapped routing with one
+    pull-only motor per cable, which M54 stopped building by default. The
+    defect below is real *there*, and it is part of why that plant was
+    replaced.
+
+    ✅ **RESOLVED: ADR-0058 withdrew ADR-0002's commandable-stiffness clause.**
+    The conflict this test measures was real and it decided the transmission, so the
+    measurement stays -- a three-dimensional co-contraction null space is exactly
+    what one motor per pair spends. What the shipped plant has instead is measured
+    in `test_the_pulley_transmission_is_ADR0008s_MOTOR_COUNT_and_ADR0042s_MAP`:
+    null space **zero**.
     """
     # the simulation implements ADR-0002: an independent actuator per tendon
     m = mujoco.MjModel.from_xml_string(
-        MT.quadruped_rig(hip_height=0.176, clamped=True, ankle_pair=False))
+        _clamped_quad(hip_height=0.176, ankle_pair=False))
     assert m.nu == 20, "one motor per tendon -- ADR-0002's architecture"
 
     # and the allocation really does have the redundancy ADR-0008 would remove
@@ -3134,7 +3275,7 @@ def test_ADR0002_and_ADR0008_want_DIFFERENT_TRANSMISSIONS():
     # the joint torques alone. With a lone ankle it cannot -- its torque follows its
     # tension, which is ADR-0050's finding and not this one.
     leg = mujoco.MjModel.from_xml_string(
-        MT.single_leg_rig(clamped=True, ankle_pair=True))
+        _clamped_leg(ankle_pair=True))
     names = ["L_hip_flex", "L_hip_ext", "L_knee_flex", "L_knee_ext", "L_ankle",
              "L_ankle_ext"]
     tid = [mujoco.mj_name2id(leg, mujoco.mjtObj.mjOBJ_TENDON, n) for n in names]
@@ -3444,4 +3585,252 @@ def test_the_pulley_also_CURES_the_standing_TENSION_SATURATION():
     assert late < MT.TENSION_CONTINUOUS, (
         f"and it must sit inside the {MT.TENSION_CONTINUOUS:.0f} N continuous "
         f"rating, not the 222.9 N ceiling ADR-0056 measured: {late:.1f} N"
+    )
+
+
+# ==========================================================================
+# M54 -- the SHIPPED transmission is the default, and it is measured as itself
+# ==========================================================================
+
+
+def _shipped_leg(leg_p=DEFAULT_HINDLEG):
+    """The default plant: no keywords, because M54 made the shipped one default."""
+    m = mujoco.MjModel.from_xml_string(MT.single_leg_rig(leg_p=leg_p))
+    q = np.asarray(LegModel(leg_p).inverse((0.04, -0.17, 0.0)), float)
+    return m, q
+
+
+def _shipped_G(m, q):
+    """`-J_tendon^T` for the three pair tendons, measured, not assumed."""
+    dof = [m.jnt_dofadr[mujoco.mj_name2id(m, mujoco.mjtObj.mjOBJ_JOINT, n)]
+           for n in JNT]
+    tid = [mujoco.mj_name2id(m, mujoco.mjtObj.mjOBJ_TENDON, "L_" + p)
+           for p in PULLEY_PAIRS]
+    J = np.zeros((3, 3))
+    for k in range(3):
+        Ls = []
+        for sgn in (+1, -1):
+            d = mujoco.MjData(m)
+            for i, a in enumerate(dof):
+                d.qpos[a] = q[i]
+            d.qpos[dof[k]] += sgn * 0.002
+            mujoco.mj_forward(m, d)
+            Ls.append(np.array([d.ten_length[t] for t in tid]))
+        J[:, k] = (Ls[0] - Ls[1]) / 0.004
+    return (-J).T, dof
+
+
+def test_the_DEFAULT_plant_is_now_the_SHIPPED_transmission():
+    """✅ **M54's first job: asking for a leg gets you the robot being built.**
+
+    For eleven milestones `single_leg_rig()` handed back the plant ADR-0008
+    **rejected** -- a cable routed around each sheave, one pull-only motor per
+    tendon. ADR-0055 settled the construction and ADR-0058 settled the actuation,
+    and until this milestone neither was what you got by default.
+
+    ⚠️ This test exists because a default is exactly the kind of thing that drifts
+    back quietly. It pins the shape, not a number:
+
+    | | legacy | **shipped** |
+    |---|---|---|
+    | motors per leg | 5 or 6 | **3** |
+    | motors, quadruped | 20 or 24 | **12** |
+    | direction | pull-only `[0, 223]` | **bidirectional `[-223, 223]`** |
+    """
+    leg = mujoco.MjModel.from_xml_string(MT.single_leg_rig())
+    assert leg.nu == 3 and leg.ntendon == 3, "one motor per antagonistic pair"
+    assert [mujoco.mj_id2name(leg, mujoco.mjtObj.mjOBJ_TENDON, i)
+            for i in range(leg.ntendon)] == ["L_" + p for p in PULLEY_PAIRS]
+
+    quad = mujoco.MjModel.from_xml_string(MT.quadruped_rig(hip_height=0.176))
+    assert quad.nu == 12, "ADR-0008's twelve leg motors, by default"
+    for i in range(quad.nu):
+        lo, hi = quad.actuator_ctrlrange[i]
+        assert lo == pytest.approx(-MT.TENSION_MAX, abs=0.5), "bidirectional"
+        assert hi == pytest.approx(+MT.TENSION_MAX, abs=0.5)
+
+    # and the legacy plant is still reachable -- the M42-M51 findings need it
+    old = mujoco.MjModel.from_xml_string(_legacy_quad(hip_height=0.176))
+    assert old.nu == 20 and old.actuator_ctrlrange[0][0] == 0.0
+
+
+def test_the_SHIPPED_map_is_CONSTANT_over_the_WHOLE_ROM_on_BOTH_legs():
+    """✅ **One measurement retires four separate routing defects.**
+
+    A clamped cable's length is `sum r·q` and a pulley transmits the pair's
+    difference, so the shipped leg's tendon Jacobian is **the constant matrix
+    `pair_rows` emits** -- not approximately, and not inside a window. Measured at
+    five poses spanning each joint's **full ROM**, on both legs, the spread is
+    **exactly zero**:
+
+    | | hip | knee | ankle |
+    |---|---|---|---|
+    | q1 | 28.000 | -8.750 | -8.750 |
+    | q2 | 0 | 25.000 | -8.750 |
+    | q3 | 0 | 0 | 14.000 |
+
+    Four findings were open against the wrapped build, and this is what closes each:
+
+    - ✅ **the ankle's sign reversal inside the ROM** -- the arm is +14.000
+      everywhere, so there is no reversal left to bound anything.
+    - ✅ **the fore leg was never mirrored** -- the fore map is *identical* to the
+      hind, so there is nothing to mirror.
+    - ✅ **the ankle anchor migration** -- unnecessary; it was a fix for a wrap
+      that no longer exists.
+    - ✅ **"only the ankles were ever validated across the gait"** -- every joint
+      is now validated across its whole range, which is more than the audit asked.
+
+    ⚠️ The four tests that measured those defects are pinned to `_legacy_*` and
+    still assert them, because they are true of the plant they name. **This test is
+    the one that fails if the shipped map ever regresses.**
+    """
+    arms = np.asarray(DEFAULT_TENDON.joint_moment_arm, float) * 1e3
+    via = MT.VIA_R * 1e3
+    want = np.array([[arms[0], 0.0, 0.0],
+                     [-via, arms[1], 0.0],
+                     [-via, -via, arms[2]]])
+
+    for leg_p in (DEFAULT_HINDLEG, DEFAULT_FORELEG):
+        m = mujoco.MjModel.from_xml_string(MT.single_leg_rig(leg_p=leg_p))
+        lo = np.array([float(leg_p.q_min[i]) for i in range(3)])
+        hi = np.array([float(leg_p.q_max[i]) for i in range(3)])
+        seen = []
+        for f in (0.0, 0.25, 0.5, 0.75, 1.0):
+            G, _ = _shipped_G(m, lo + f * (hi - lo))
+            seen.append(-G.T * 1e3)
+        seen = np.array(seen)
+        assert np.allclose(seen[0], want, atol=1e-6), f"map {seen[0]}"
+        spread = seen.max(axis=0) - seen.min(axis=0)
+        assert np.max(spread) < 1e-9, (
+            f"the map must not move across the ROM; spread {spread}"
+        )
+        # the ankle arm never reverses -- that defect is gone
+        assert np.all(seen[:, 2, 2] > 0.0)
+
+    # both legs give the SAME map -- the mirroring defect is moot
+    Gh, _ = _shipped_G(*_shipped_leg(DEFAULT_HINDLEG))
+    Gf, _ = _shipped_G(*_shipped_leg(DEFAULT_FORELEG))
+    assert np.allclose(Gh, Gf, atol=1e-9)
+
+
+def test_the_DRIVETRAIN_now_exists_BEHIND_THE_PULLEY_and_so_does_G3():
+    """✅ **M54's real discovery: G3 had no home on the robot that ships.**
+
+    ADR-0051 put the series-elastic element **in the drivetrain**, between rotor and
+    spool -- that is where the compliance physically sits. But the drivetrain named
+    its spools per *cable* (`L_hip_flex`), and the shipped plant's tendons are the
+    three *pairs* (`L_hip`). Asking for one on the other failed with MuJoCo's
+    `unknown element 'L_hip_flex'`, which names the symptom and not the cause.
+
+    So every drivetrain result -- M46's exact statics, M47's derived cascade, the
+    rotor servo -- stood on a transmission ADR-0058 had already replaced, and
+    **design goal G3 had nowhere to live on the shipped robot**. That is not a
+    number that needed re-deriving; it is a capability that did not exist.
+
+    ✅ **It exists now.** One spool per pair, because with a variable-radius pulley
+    the spool *is* the pulley: it takes up one cable while paying out the other, so
+    what winds on it is their difference -- exactly the `<fixed>` tendon. Half the
+    bodies, half the constraints, and M46's two-pass `a0` still lands the winding
+    equality on its reference pose to **4e-10 m**.
+
+    | | legacy | **shipped** |
+    |---|---|---|
+    | motors | 6 | **3** |
+    | tendons (pair + wind) | 12 | **6** |
+    | winding equalities | 6 | **3** |
+    | bodies | 18 | **12** |
+    """
+    q = list(LegModel(DEFAULT_HINDLEG).inverse((0.04, -0.17, 0.0)))
+    m = mujoco.MjModel.from_xml_string(
+        MT.single_leg_rig_spooled(q_ref=q, series_k=SERIES_K))
+
+    assert m.nu == 3, "one motor per pair, behind a real drivetrain"
+    assert m.ntendon == 6, "three pair tendons and three winding tendons"
+    assert m.neq == 3, "one winding equality per pair"
+
+    old = mujoco.MjModel.from_xml_string(
+        _legacy_spooled(q_ref=q, series_k=SERIES_K, ankle_pair=True))
+    assert (old.nu, old.ntendon, old.neq, old.nbody) == (6, 12, 6, 18)
+    assert m.nbody == 12, "six fewer bodies: the spools that are no longer separate"
+
+    # ✅ G3 is present, and it is the torsional spring ADR-0051 sized
+    k_tors = [float(m.jnt_stiffness[i]) for i in range(m.njnt)
+              if m.jnt_stiffness[i] > 0.0]
+    assert len(k_tors) == 3, "one series-elastic element per pair"
+    assert k_tors[0] == pytest.approx(SERIES_K * MT.SPOOL_R ** 2, rel=1e-9), (
+        "G3 is k_series * r_spool^2 at the rotor"
+    )
+
+    # ⚠️ M46's trap: the equality is referenced at qpos0, so the offset must land
+    d = mujoco.MjData(m)
+    for i, jn in enumerate(JNT):
+        j = mujoco.mj_name2id(m, mujoco.mjtObj.mjOBJ_JOINT, jn)
+        d.qpos[m.jnt_qposadr[j]] = q[i]
+    mujoco.mj_forward(m, d)
+    assert float(np.max(np.abs(d.efc_pos[:d.nefc]))) < 1e-8, (
+        "the two-pass a0 must satisfy the winding equality at the reference pose"
+    )
+
+
+def test_the_PULL_ONLY_ALLOCATOR_silently_DROPS_JOINTS_on_the_shipped_plant():
+    """⚠️ **The retraction M54 owes: every co-contraction-floor result is void.**
+
+    `wbc.tendon_tension` solves for pull-only cables -- it substitutes
+    `T = t_min + u, u >= 0` and runs NNLS, so no component can go negative. On the
+    shipped plant that constraint is **not physical**: ADR-0058 put one
+    *bidirectional* motor on each pair, and it drives either way.
+
+    The cost is not a rounding error. At the stance pose, given the gravity torque
+    the leg actually needs:
+
+    | | needed | NNLS delivers | |
+    |---|---|---|---|
+    | hind ankle | 0.0114 N·m | **0** | the whole joint |
+    | fore knee | 0.0492 N·m | 0.0076 | **15 %** |
+
+    It clamps to zero a command the motor could deliver, and the shortfall shows up
+    only in a residual nobody was checking. ✅ The signed solve is exact -- square,
+    unique, zero residual -- which is `wbc.pair_command`.
+
+    ⚠️ **And so `t_min` has nowhere left to act.** The co-contraction floor was a
+    coordinate of the *redundant* per-cable plant, and ADR-0058 spent that
+    redundancy. Every M42-M47 result that rested on choosing a floor describes a
+    machine this project is no longer building.
+    """
+    from tomcat_kin import wbc
+
+    for leg_p, joint, idx in ((DEFAULT_HINDLEG, "ankle", 2),
+                              (DEFAULT_FORELEG, "knee", 1)):
+        m, q = _shipped_leg(leg_p)
+        G, dof = _shipped_G(m, q)
+        d = mujoco.MjData(m)
+        for i, a in enumerate(dof):
+            d.qpos[a] = q[i]
+        mujoco.mj_forward(m, d)
+        tau = np.array([d.qfrc_bias[a] - d.qfrc_passive[a] for a in dof])
+
+        signed = wbc.pair_command(G, tau, MT.TENSION_MAX)
+        assert np.linalg.norm(G @ signed - tau) < 1e-12, (
+            "square and signed: there is one answer and it is exact"
+        )
+        assert np.any(signed < 0.0), (
+            "and it needs a negative command, which is why pull-only cannot serve"
+        )
+
+        pull_only = wbc.tendon_tension(G, tau, 0.0, MT.TENSION_MAX)
+        assert np.all(pull_only >= 0.0)
+        short = (G @ pull_only - tau)[idx]
+        assert abs(short) > 0.2 * abs(tau[idx]), (
+            f"the pull-only allocator must visibly fail the {joint}: "
+            f"short {short:.4f} of {tau[idx]:.4f} N*m"
+        )
+
+    # ⚠️ a floor cannot even be expressed: the solve is square
+    m, q = _shipped_leg()
+    G, _ = _shipped_G(m, q)
+    assert G.shape == (3, 3) and np.linalg.matrix_rank(G) == 3
+    tau = np.array([0.05, -0.04, 0.01])
+    assert np.allclose(wbc.pair_command(G, tau, MT.TENSION_MAX),
+                       wbc.pair_command(G, tau, MT.TENSION_MAX)), (
+        "no free coordinate means no choice to make"
     )

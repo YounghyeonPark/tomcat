@@ -191,6 +191,15 @@ def tendon_tension(gain: np.ndarray, tau, t_min: float = 0.0,
     ADR-0049 found the floor also keeps the solution interior so the upper clamp is
     rarely reached.
 
+    ⚠️ **This is the allocator for one motor per CABLE, and that is not what ships.**
+    ADR-0058 put one **bidirectional** motor on each antagonistic pair, so the
+    non-negativity this function enforces is no longer physical: it clamps to zero a
+    command the pair's motor can actually deliver. Measured on the shipped hind leg
+    at the stance pose it returns **zero ankle force** for a torque of 0.0114 N*m,
+    and on the fore leg it delivers **15 %** of the knee torque -- silently, with the
+    shortfall showing up only in the residual. Use `pair_command` on a pulley leg;
+    this function remains correct for the legacy per-cable plant it was written for.
+
     ⚠️ **A zero residual is not guaranteed and its absence is a design finding, not
     a solver failure.** A joint with one tendon can only be driven one way, so a
     torque of the wrong sign is unreachable at any tension -- which is exactly how
@@ -201,6 +210,30 @@ def tendon_tension(gain: np.ndarray, tau, t_min: float = 0.0,
     floor = np.full(n, float(t_min))
     u = nnls(gain, np.asarray(tau, dtype=float) - gain @ floor)
     return np.clip(floor + u, t_min, t_max)
+
+
+def pair_command(gain: np.ndarray, tau, f_max: float = np.inf) -> np.ndarray:
+    """Motor forces for one PULLEY leg -- the square, SIGNED solve.
+
+    `gain[k, i]` is the torque on joint `k` per newton commanded on pair `i`, i.e.
+    `-J_tendon^T` for the leg's `<fixed>` pair tendons. With one motor per pair the
+    system is **square**: three joints, three motors, no null space, so there is a
+    unique exact answer and nothing to choose. `lstsq` rather than `solve` so a
+    degenerate pose degrades to least squares instead of raising.
+
+    ✅ **Signed on purpose.** Pull-only is a property of a *cable*; a pair covers
+    both directions, and the variable-radius pulley turns either way. The bound is
+    the motor's, applied symmetrically.
+
+    ⚠️ There is no `t_min` here and there cannot be: the co-contraction floor was a
+    free coordinate of the redundant per-cable plant, and ADR-0058 spent it. Whatever
+    co-contraction the shipped robot has is scheduled by the pulley's radius profile,
+    which is a mechanical design task and is **not yet done** -- a constant ratio
+    schedules none.
+    """
+    gain = np.asarray(gain, dtype=float)
+    f, *_ = np.linalg.lstsq(gain, np.asarray(tau, dtype=float), rcond=None)
+    return np.clip(f, -float(f_max), float(f_max))
 
 
 def actuator_torque(data, dof, stance_tau) -> np.ndarray:

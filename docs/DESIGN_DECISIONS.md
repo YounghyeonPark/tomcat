@@ -4435,6 +4435,100 @@ That took **one missing link** and **three fixes**, and the fixes are the findin
   measurable target.
 - ✅ **The re-derivation is now unblocked and has one target**: clamped capstans,
   pulley transmission, opposite-side vias, 12 leg motors, 4.3041 kg.
+  **Done in M54 -- [ADR-0059](#adr-0059)**, which also found that the drivetrain,
+  and therefore G3, could not be built behind a pulley at all.
+
+## ADR-0059: The re-derivation -- the shipped transmission becomes the default, and eight tests had been quietly disarmed
+
+- **Status:** Accepted. `clamped`, `pulley` and `ankle_pair` now default to the
+  shipped configuration in `mjcf_tendon.py`. **Adds `wbc.pair_command`. Retracts
+  every co-contraction-floor result from M42-M47. Closes the routing findings in
+  [ADR-0053](#adr-0053) and [ADR-0054](#adr-0054) by construction. Gives
+  [G3](#adr-0051) a home on the shipped robot, which it did not have.**
+- **Context:** [ADR-0058](#adr-0058) chose the transmission; the simulation still
+  handed back the **rejected** one whenever a test asked for a leg without saying
+  otherwise. Eleven milestones of results had accumulated against that default.
+
+### What was actually done
+
+- ✅ **The default is the shipped machine.** `single_leg_rig()` with no keywords
+  is now three bidirectional motors; `quadruped_rig()` is **twelve**. The legacy
+  plant is still reachable and still measured -- 39 call sites moved behind seven
+  named wrappers (`_legacy_*` for the wrapped per-cable build, `_clamped_*` for
+  M52's half-step) so that **which machine a test measures is part of its text**.
+  The pinning was behaviour-preserving: no measured number moved.
+
+### ⚠️ The part that mattered: eight tests had stopped being able to fail
+
+- This project writes tests that **assert a defect**, so they fail when the defect
+  is fixed. Eight such tests were live. Pinning them to the legacy plant -- the
+  obvious, apparently conservative move -- would have left all eight asserting
+  defects on a machine nobody builds, where they would have passed **forever**.
+- Each was rewritten to keep its legacy measurement *and* name where the shipped
+  plant's guarantee is asserted. The defect stays recorded against the build that
+  had it; the regression guard moves to the build that ships.
+
+### ✅ One measurement retires four routing defects
+
+- On the shipped leg the tendon Jacobian is the constant matrix `pair_rows` emits.
+  Sampled at five poses spanning each joint's **entire ROM**, on **both** legs, the
+  spread is **exactly zero** -- hip 28.000, knee -8.750 / 25.000, ankle
+  -8.750 / -8.750 / 14.000.
+- That single fact closes: ADR-0049's **ankle sign reversal** (the arm is +14.000
+  everywhere), ADR-0053's **fore leg was never mirrored** (the fore map is
+  *identical*, not mirrored), ADR-0053's **anchor migration** (a fix for a wrap that
+  no longer exists), and ADR-0054's **"only the ankles were validated across the
+  gait"** (every joint is now validated across its whole range).
+
+### ⚠️ And a capability that did not exist: G3 had nowhere to live
+
+- [ADR-0051](#adr-0051) put the series-elastic element **in the drivetrain**. The
+  drivetrain named its spools per *cable* (`L_hip_flex`); the shipped plant's
+  tendons are the three *pairs* (`L_hip`). It did not build -- it failed with
+  MuJoCo's `unknown element 'L_hip_flex'`, which names the symptom, not the cause.
+- So M46's exact statics, M47's derived cascade and the rotor servo all stood on a
+  transmission ADR-0058 had already replaced, and **design goal G3 had no home on
+  the robot being built**. This was not a number needing re-derivation; it was a
+  hole.
+- ✅ **Fixed: one spool per pair.** With a variable-radius pulley the spool *is*
+  the pulley -- it takes up one cable while paying out the other, so what winds on
+  it is their difference, which is exactly the `<fixed>` tendon. Half the bodies
+  (12 vs 18), half the constraints (3 vs 6), and M46's two-pass `a0` still lands the
+  winding equality on its reference pose to **4e-10 m**.
+
+### ⚠️ The retraction: the pull-only allocator drops whole joints
+
+- `wbc.tendon_tension` enforces `T >= t_min` by NNLS. On the shipped plant that
+  constraint is **not physical** -- the pair's motor drives either way -- and the
+  cost is not a rounding error. Given the exact gravity torque at the stance pose:
+
+  | | needed | NNLS delivers | |
+  |---|---|---|---|
+  | hind ankle | 0.0114 N*m | **0** | the whole joint |
+  | fore knee | 0.0492 N*m | 0.0076 | **15 %** |
+
+  It clamps to zero a command the motor could deliver, and the shortfall appears
+  only in a residual nobody was checking.
+- ✅ **`wbc.pair_command`** is the square, signed solve: three joints, three
+  motors, unique, **zero residual**. `tendon_tension` stays correct for the legacy
+  per-cable plant and now says so.
+- ⚠️ **`t_min` has nowhere left to act.** The co-contraction floor was a coordinate
+  of the *redundant* plant and ADR-0058 spent it. Every M42-M47 result that rested
+  on choosing a floor describes a machine this project is no longer building.
+
+### ⚠️ What this milestone did NOT do
+
+- **The cascade and the rotor servo were not moved.** Now that the drivetrain
+  exists behind the pulley they *can* be, but the gains must be re-derived rather
+  than re-pointed: one spool per pair changes the reflected inertia and therefore
+  the bandwidth separation ADR-0052 derived. It is a measurement, and this project
+  has learned to do a re-derivation once.
+- **M52's six clamped tests still sit on the half-step** -- clamped capstans with a
+  motor per cable, a configuration that does not ship. They are kept because the
+  three findings they carry are the evidence ADR-0058 was decided on, and each is a
+  statement about a plant with independent motors.
+- **The variable-radius PROFILE is still undesigned**, so the shipped robot still
+  schedules zero co-contraction.
 
 ---
 

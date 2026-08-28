@@ -125,7 +125,10 @@ sequences the work that implements them.
 > ([ADR-0057](DESIGN_DECISIONS.md)).
 > **M53 done:** **ADR-0008 wins** — one motor per pair, and it cures the standing
 > tension saturation as a side effect ([ADR-0058](DESIGN_DECISIONS.md)).
-> 465 passed + 5 xfailed Python, 17 Rust.
+> **M54 done:** the shipped transmission is the **default**, the re-derivation is
+> done — and **eight tests had quietly stopped being able to fail**
+> ([ADR-0059](DESIGN_DECISIONS.md)).
+> 469 passed + 5 xfailed Python, 17 Rust.
 
 ---
 
@@ -2563,7 +2566,81 @@ the motor's **81 N continuous** rating, so the thermal item is unblocked by the
 *transmission* rather than by the posture task. ⚠️ The cost line beside it: the
 trunk sags **3.1 mm against 0.2**, the preload the co-contraction floor supplied.
 
-## Later milestones (candidate M54+, not committed)
+## Milestone M54 — The re-derivation, and eight disarmed tests (DONE)
+
+✅ **Asking for a leg now gets you the robot being built.** `single_leg_rig()`
+with no keywords is three bidirectional motors; `quadruped_rig()` is **twelve**. For
+eleven milestones the default was the plant ADR-0008 **rejected**. The legacy plant
+is still reachable and still measured — 39 call sites moved behind seven named
+wrappers, so **which machine a test measures is now part of its text**. The pinning
+was behaviour-preserving: no measured number moved.
+
+### ⚠️ The part that mattered
+
+This project writes tests that **assert a defect**, so they fail when the defect is
+fixed. **Eight were live.** Pinning them to the legacy plant — the obvious,
+apparently conservative move — would have left all eight asserting defects on a
+machine nobody builds, where they would have passed **forever**. Each was rewritten
+to keep its legacy measurement *and* name where the shipped plant's guarantee lives.
+
+### ✅ One measurement retires four routing defects
+
+On the shipped leg the tendon Jacobian is a **constant** matrix. Sampled at five
+poses spanning each joint's **entire ROM**, on **both** legs, the spread is
+**exactly zero**:
+
+| | hip | knee | ankle |
+|---|---|---|---|
+| q1 | 28.000 | —8.750 | —8.750 |
+| q2 | 0 | 25.000 | —8.750 |
+| q3 | 0 | 0 | 14.000 |
+
+That closes: the **ankle sign reversal** (the arm is +14.000 everywhere), the **fore
+leg was never mirrored** (the fore map is *identical*, not mirrored), the **anchor
+migration** (a fix for a wrap that no longer exists), and **"only the ankles were
+validated across the gait"** (every joint, whole range, which is more than the audit
+asked).
+
+### ⚠️ And a capability that did not exist: G3 had nowhere to live
+
+ADR-0051 put the series-elastic element **in the drivetrain**. The drivetrain named
+its spools per *cable* (`L_hip_flex`); the shipped plant's tendons are the three
+*pairs* (`L_hip`). It did not build — it died on `unknown element 'L_hip_flex'`,
+which names the symptom and not the cause. So M46's statics, M47's cascade and the
+rotor servo all stood on a transmission ADR-0058 had already replaced, and **design
+goal G3 had no home on the robot being built**.
+
+✅ **Fixed: one spool per pair**, because with a variable-radius pulley the spool
+*is* the pulley. Half the bodies (12 vs 18), half the constraints (3 vs 6), and
+M46's two-pass `a0` still lands the winding equality to **4e-10 m**.
+
+### ⚠️ The retraction: the pull-only allocator drops whole joints
+
+`wbc.tendon_tension` enforces `T >= t_min` by NNLS. On the shipped plant that is
+**not physical** — the pair's motor drives either way — and the cost is not a
+rounding error:
+
+| | needed | NNLS delivers | |
+|---|---|---|---|
+| hind ankle | 0.0114 N·m | **0** | the whole joint |
+| fore knee | 0.0492 N·m | 0.0076 | **15 %** |
+
+It clamps to zero a command the motor could deliver, and the shortfall appears only
+in a residual nobody was checking. ✅ **`wbc.pair_command`** is the square, signed
+solve — unique, **zero residual**. ⚠️ And `t_min` has nowhere left to act: the
+floor was a coordinate of the *redundant* plant, and ADR-0058 spent it.
+
+### ⚠️ What M54 did not do
+
+- **The cascade and rotor servo were not moved.** They *can* be now, but the gains
+  must be **re-derived, not re-pointed**: one spool per pair changes the reflected
+  inertia and so the bandwidth separation. That is a measurement, and this project
+  has learned to do a re-derivation once.
+- **M52's six clamped tests still sit on the half-step** — clamped capstans with a
+  motor per cable, which does not ship. Kept because the findings they carry are the
+  evidence ADR-0058 was decided on.
+
+## Later milestones (candidate M55+, not committed)
 
 > This list is **curated, not append-only**. When a milestone closes an item it is
 > deleted here and the reasoning kept in the [ADR log](DESIGN_DECISIONS.md). Earlier
@@ -2572,11 +2649,10 @@ trunk sags **3.1 mm against 0.2**, the preload the co-contraction floor supplied
 
 ### Next — fold it in, then re-publish
 
-- **M54 — MAKE IT THE DEFAULT AND RE-DERIVE, ONCE.** The target is settled:
-  **clamped capstans, pulley transmission, opposite-side vias, 12 leg motors,
-  4.3041 kg**. ⚠️ 17 tests across M42–M47 plus the fore-leg figures M48 flagged,
-  and every co-contraction-floor result becomes inapplicable — the allocation is a
-  square solve now. Everything needed is measured; nothing is left to sweep.
+- **M55 — RE-DERIVE THE CASCADE on the pulley drivetrain.** ⚠️ The plant exists
+  now (ADR-0059) but the gains do not: one spool per pair changes the reflected
+  inertia, so ADR-0052's bandwidth separation has to be **measured again**, not
+  re-pointed. This is the last block of M42–M47 still on a plant that does not ship.
 - **Design the variable-radius PROFILE.** ⚠️ ADR-0058 models a constant ratio, which
   schedules **zero** co-contraction. Recovering Kengoro's AIC peak-tension benefit
   means designing `r_a(theta)` and `r_b(theta)` — a mechanical task with a
@@ -2754,6 +2830,7 @@ Kept as a short table so the deletions above are auditable rather than silent.
 | Settle the hind hip's construction | M50 — [ADR-0055](DESIGN_DECISIONS.md): clamp the cable to the sheave; a resting wrap has a window, a clamped capstan does not |
 | Build the clamped transmission | M52 — [ADR-0057](DESIGN_DECISIONS.md): exact on both legs at every angle; and ADR-0002 vs ADR-0008 is a real conflict |
 | Decide ADR-0002 vs ADR-0008 | M53 — [ADR-0058](DESIGN_DECISIONS.md): ADR-0008 wins; 12 motors, 4.30 kg, and the tension saturation goes with it |
+| Re-derive onto the shipped plant | M54 — [ADR-0059](DESIGN_DECISIONS.md): it is the default now; four routing defects retire on one measurement, and G3 had no home |
 
 ## Open reconciliation items (lead)
 

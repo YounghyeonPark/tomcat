@@ -15,10 +15,10 @@ cat-like agility, energy-efficient movement, and passive shock absorption.
 
 ## Progress
 
-Fifty-three milestones in. The model now spans kinematics → real mass → 3D
+Fifty-four milestones in. The model now spans kinematics → real mass → 3D
 static stability → whole-body dynamics → a dynamic gait → closed-loop balance →
 an independent physics-engine cross-check → thermal duty → whole-body force
-allocation, with **465 passing + 5 suspended Python tests and 17 Rust** and every figure below
+allocation, with **469 passing + 5 suspended Python tests and 17 Rust** and every figure below
 generated from the live model (`python tools/make_progress_figures.py`), so a
 published number cannot drift from the code.
 
@@ -276,6 +276,7 @@ is **1.97**. That remedy *is* cheap: one step up in stock tube, under 4 g.
 | M51 | Housekeeping, mostly **blocked** | the simulation never implemented the **variable-radius pulley** — 1.05 kg of unbudgeted motor |
 | M52 | The **clamped transmission** | exact on both legs at every angle — and two accepted ADRs want **different robots** |
 | M53 | **ADR-0008 wins** | one motor per pair — 12 motors, 4.30 kg, and the standing tension **stops saturating** |
+| M54 | The **re-derivation** | the shipped plant is the default — and **eight tests had stopped being able to fail** |
 
 Full detail in the [roadmap](docs/ROADMAP.md) and the [ADR log](docs/DESIGN_DECISIONS.md).
 
@@ -618,6 +619,32 @@ Full detail in the [roadmap](docs/ROADMAP.md) and the [ADR log](docs/DESIGN_DECI
 > there is nothing to wind up. ⚠️ The cost: the trunk sags 3.1 mm against 0.2, the
 > preload the co-contraction floor used to give.
 > [ADR-0058](docs/DESIGN_DECISIONS.md).
+
+> ### ✅ M54: the re-derivation, and eight tests that had stopped being able to fail
+>
+> ✅ **Asking for a leg now gets you the robot being built** — three
+> bidirectional motors, twelve on the quadruped. For eleven milestones the default
+> was the plant ADR-0008 rejected. 39 call sites moved behind named wrappers, so
+> which machine a test measures is now part of its text.
+>
+> ⚠️ **The part that mattered.** This project writes tests that *assert a defect*,
+> so they fail when it is fixed. **Eight were live**, and pinning them to the legacy
+> plant — the obvious conservative move — would have left all eight asserting
+> defects on a machine nobody builds, passing **forever**. Each now keeps its legacy
+> measurement *and* names where the shipped guarantee lives.
+>
+> ✅ **One measurement retired four routing defects**: the shipped tendon Jacobian
+> is constant to **exactly zero spread** across each joint's whole ROM on both legs.
+> No sign reversal, the fore map *identical* to the hind, no anchor migration, and
+> every joint validated rather than just the ankles.
+>
+> ⚠️ **And a hole, not a stale number: G3 had nowhere to live.** ADR-0051 put the
+> series spring in the drivetrain, and the drivetrain could not be built behind a
+> pulley — it died on `unknown element 'L_hip_flex'`. Fixed with one spool per
+> pair. ⚠️ Also retracted: `wbc.tendon_tension` **drops whole joints** on the
+> shipped plant (100 % of the hind ankle torque, 85 % of the fore knee), because
+> pull-only is not physical once a pair shares one bidirectional motor.
+> [ADR-0059](docs/DESIGN_DECISIONS.md).
 
 ## Why tendon-driven?
 

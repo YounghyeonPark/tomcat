@@ -320,8 +320,25 @@ def spool_positions(gx: float = 0.0, sy: float = 0.0):
     }
 
 
-def tendon_names(prefix: str, ankle_pair: bool = False):
+#: Which spool each PAIR tendon winds on, under `pulley=True`.
+#: ✅ One spool per pair, not per cable, because with a variable-radius pulley the
+#: spool **is** the pulley: it takes up one cable of the pair while paying out the
+#: other, so what winds on it is their difference -- exactly the `<fixed>` tendon
+#: `pulley_tendons` emits. It sits at the flexor's spool position because that is
+#: where ADR-0058 put the one motor.
+PAIR_SPOOL_OF = {"hip": "spool_hip", "knee": "spool_knee", "ankle": "spool_ankle"}
+
+
+def pair_names(prefix: str, ankle_pair: bool = True):
+    """This leg's PAIR tendons, in the order `pulley_actuators` emits them."""
+    names = ["hip", "knee"] + (["ankle"] if ankle_pair else [])
+    return [f"{prefix}_{n}" for n in names]
+
+
+def tendon_names(prefix: str, ankle_pair: bool = True, pulley: bool = False):
     """This leg's tendons, in the order the actuators are emitted."""
+    if pulley:
+        return pair_names(prefix, ankle_pair)
     names = ["hip_flex", "hip_ext", "knee_flex", "knee_ext", "ankle"]
     if ankle_pair:
         names.append("ankle_ext")
@@ -330,18 +347,27 @@ def tendon_names(prefix: str, ankle_pair: bool = False):
 
 def drivetrain_xml(prefix: str, ankle_pair: bool, k_series: float,
                    gx: float = 0.0, sy: float = 0.0, indent: int = 6,
-                   a0: dict | None = None, servo: bool = False):
+                   a0: dict | None = None, servo: bool = False,
+                   pulley: bool = False):
     """Every spool for one leg. Returns `(bodies, winds, equalities, actuators)`.
 
     `a0` maps tendon name -> its path length at the reference pose minus its length
     at `qpos0`. See `spool_xml`: without it the constraints start violated.
+
+    ✅ **`pulley=True` is what makes G3 reachable on the shipped transmission.**
+    ADR-0051 put the series-elastic element in the drivetrain, between rotor and
+    spool -- so until the drivetrain could be built behind a pulley, the design goal
+    had nowhere to live on the robot ADR-0058 chose. One spool per pair, six fewer
+    bodies per leg, and the winding equality binds the pair's **differential**
+    length, which is the quantity the motor actually commands.
     """
     pos = spool_positions(gx, sy)
     b, w, e, a = [], [], [], []
-    for tname in tendon_names(prefix, ankle_pair):
+    of = PAIR_SPOOL_OF if pulley else SPOOL_OF
+    for tname in tendon_names(prefix, ankle_pair, pulley):
         short = tname.split("_", 1)[1]
-        site = f"{prefix}_{SPOOL_OF[short]}"
-        bb, ww, ee, aa = spool_xml(tname, site, pos[SPOOL_OF[short]],
+        site = f"{prefix}_{of[short]}"
+        bb, ww, ee, aa = spool_xml(tname, site, pos[of[short]],
                                    k_series, indent=indent,
                                    a0=(a0 or {}).get(tname, 0.0), servo=servo)
         b.append(bb)
@@ -537,10 +563,10 @@ def leg_tendon_xml(name: str, leg_p, arms, indent: int = 4,
                    elastic: dict | None = None,
                    mount=(0.0, 0.0, 0.0),
                    ankle_springref: float | None = None,
-                   ankle_pair: bool = False,
+                   ankle_pair: bool = True,
                    ankle_spring: float | None = None,
-                   clamped: bool = False,
-                   pulley: bool = False) -> tuple[str, str, str]:
+                   clamped: bool = True,
+                   pulley: bool = True) -> tuple[str, str, str]:
     """One tendon-driven leg. Returns (body_xml, tendon_xml, actuator_xml).
 
     The kinematic chain is the same four links `mjcf.py` builds. What is added:
@@ -825,10 +851,10 @@ GIRDLE_X = 0.105
 
 def quadruped_rig(hip_height: float = 0.175, elastic: dict | None = None,
                   trunk_mass: float | None = None,
-                  ankle_pair: bool = False,
+                  ankle_pair: bool = True,
                   ankle_spring: float | None = None,
-                  clamped: bool = False,
-                  pulley: bool = False) -> str:
+                  clamped: bool = True,
+                  pulley: bool = True) -> str:
     """Four tendon-driven legs on a floating trunk — the whole-body stand gate.
 
     Twelve leg DOF, **twenty tendons, twenty actuators**, all pull-only. The spine
@@ -1018,13 +1044,13 @@ def single_leg_rig_elastic(leg_p=DEFAULT_HINDLEG, arms=None, q_ref=None,
 
 def single_leg_rig(leg_p=DEFAULT_HINDLEG, arms=None, hip_height: float = 0.20,
                    fixed_hip: bool = True, elastic: dict | None = None,
-                   ankle_pair: bool = False,
+                   ankle_pair: bool = True,
                    ankle_spring: float | None = None,
                    spools: float | None = None,
                    spool_a0: dict | None = None,
                    spool_servo: bool = False,
-                   clamped: bool = False,
-                   pulley: bool = False) -> str:
+                   clamped: bool = True,
+                   pulley: bool = True) -> str:
     """A one-leg test rig — the gate before anything whole-body is attempted.
 
     `fixed_hip=True` welds the hip to the world so the question is purely *can
@@ -1063,7 +1089,7 @@ def single_leg_rig(leg_p=DEFAULT_HINDLEG, arms=None, hip_height: float = 0.20,
         tendons = re.sub(r'stiffness="[-0-9.eE+]+" springlength="[^"]*" ', "",
                          tendons)
         sb, sw, se, sa = drivetrain_xml("L", ankle_pair, spools, a0=spool_a0,
-                                        servo=spool_servo)
+                                        servo=spool_servo, pulley=pulley)
         spool_sites = spool_sites + chr(10) + sb
         tendons = tendons + chr(10) + sw
         acts = sa
