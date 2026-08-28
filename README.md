@@ -15,10 +15,10 @@ cat-like agility, energy-efficient movement, and passive shock absorption.
 
 ## Progress
 
-Forty-eight milestones in. The model now spans kinematics → real mass → 3D
+Forty-nine milestones in. The model now spans kinematics → real mass → 3D
 static stability → whole-body dynamics → a dynamic gait → closed-loop balance →
 an independent physics-engine cross-check → thermal duty → whole-body force
-allocation, with **450 passing + 5 suspended Python tests and 17 Rust** and every figure below
+allocation, with **452 passing + 5 suspended Python tests and 17 Rust** and every figure below
 generated from the live model (`python tools/make_progress_figures.py`), so a
 published number cannot drift from the code.
 
@@ -271,6 +271,7 @@ is **1.97**. That remedy *is* cheap: one step up in stock tube, under 4 g.
 | M46 | A **spool** behind every cable | the drivetrain is exact — and adding the missing DOF exposed a **missing controller** |
 | M47 | The drivetrain **cascade** | derived, not tuned — and a **firmware gain** sets how much of a mechanical spring you get |
 | M48 | The **fore leg was never mirrored** | five milestones measured one leg and generalised — and **three control findings retract** |
+| M49 | **Only the ankles** were validated | a check at one operating point is not a check — hip and knee fail on **both** legs |
 
 Full detail in the [roadmap](docs/ROADMAP.md) and the [ADR log](docs/DESIGN_DECISIONS.md).
 
@@ -494,6 +495,29 @@ Full detail in the [roadmap](docs/ROADMAP.md) and the [ADR log](docs/DESIGN_DECI
 > **86.3 N·m/rad**. Nothing lands until the fore leg is mirrored, because
 > re-deriving 17 tests on a known-broken leg would bake the wrong numbers in.
 > [ADR-0053](docs/DESIGN_DECISIONS.md).
+
+> ### ⚠️ M49: a check at one operating point is not a check
+>
+> M49 set out to mirror the fore leg and began by applying M47's criterion — the
+> pair must stay opposing, arms near specification, **everywhere the gait commands**
+> — to all six routings. Nobody had done that for the hip or the knee.
+>
+> ✅ **Only the ankles pass.** They are also the only joints anyone ever swept
+> against a range criterion. The hip and knee came from M42's 2-D heuristic and were
+> checked **at the stance pose only**, and across the gait they fail on **both** legs:
+> the hind hip goes same-sign at 6 of 13 sample points, the fore hip at 5, and the
+> fore knee's arm is **23.8 mm out on a 25 mm specification**.
+>
+> ⚠️ So M48's diagnosis was too narrow. The fore leg is worse, but only because its
+> stance pose sits **inside** its own failure band while the hind's sits outside —
+> which is exactly why five milestones of stance-pose checks saw nothing.
+>
+> ✅ Three of the four bad routings have a measured fix (hind knee 75°, fore hip
+> 135°, fore knee 285°). ⚠️ **The hind hip has none**: its gait range is 74.9°
+> wide, 2.7× the fore hip's, and wider than the sheave construction's working window
+> — no anchor angle, mirrored or capstan, and no spool offset fixes it. It needs a
+> different construction, and it is now the critical path.
+> [ADR-0054](docs/DESIGN_DECISIONS.md).
 
 ## Why tendon-driven?
 

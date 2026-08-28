@@ -2472,3 +2472,157 @@ def test_the_ANKLE_ANCHOR_MIGRATION_is_measured_but_not_shipped():
         "the reversal must still sit inside the hind gait range on the shipped "
         f"anchor; signs across 90-120 deg were {signs}"
     )
+
+
+# ===================================================================
+# M49 - the routing audit: only the ANKLES were ever validated
+# ===================================================================
+
+def _gait_ranges():
+    """Per-leg joint ranges the trot commands, degrees."""
+    from tomcat_kin import gait
+
+    lp = {"LF": DEFAULT_FORELEG, "LR": DEFAULT_HINDLEG}
+    c = gait.GaitController(gait.trot_params())
+    acc = {}
+    for st in c.sample_cycle(400):
+        for nm, ls in st.legs.items():
+            if nm in lp and ls.q is not None:
+                acc.setdefault(nm, []).append(np.degrees(ls.q))
+    return {nm: np.array(v) for nm, v in acc.items()}
+
+
+def _pair_over_range(leg_p, joint, tendons, lo, hi, n=13):
+    """Worst arm error and how many sample points have a SAME-SIGN pair."""
+    q = np.asarray(LegModel(leg_p).inverse((0.04, -0.17, 0.0)), float)
+    m = mujoco.MjModel.from_xml_string(
+        MT.single_leg_rig(leg_p=leg_p, ankle_pair=True))
+    dof = [m.jnt_dofadr[mujoco.mj_name2id(m, mujoco.mjtObj.mjOBJ_JOINT, j)]
+           for j in JNT]
+    tid = [mujoco.mj_name2id(m, mujoco.mjtObj.mjOBJ_TENDON, t)
+           for t in tendons]
+    spec = float(DEFAULT_TENDON.joint_moment_arm[joint])
+    same, worst = 0, 0.0
+    for dq in np.linspace(lo, hi, n):
+        vals = []
+        for t in tid:
+            Ls = []
+            for sgn in (+1, -1):
+                d = mujoco.MjData(m)
+                for i, a in enumerate(dof):
+                    d.qpos[a] = q[i]
+                d.qpos[dof[joint]] = math.radians(dq) + sgn * 0.002
+                mujoco.mj_forward(m, d)
+                Ls.append(float(d.ten_length[t]))
+            vals.append((Ls[0] - Ls[1]) / 0.004)
+        if vals[0] * vals[1] > 0:
+            same += 1
+        worst = max(worst, max(abs(abs(v) - spec) for v in vals))
+    return same, worst
+
+
+def test_ONLY_THE_ANKLES_were_ever_validated_across_the_GAIT():
+    """⚠️ **The M49 audit, and it is larger than ADR-0053 thought.**
+
+    ADR-0052 set the criterion for the ankle: the pair must stay **opposing**, with
+    both arms near specification, **everywhere in the range the gait commands** --
+    not merely at the stance pose. Nobody had applied it to the hip or the knee.
+    Applied to all six routings:
+
+    | leg | joint | gait range | same-sign points | worst arm error |
+    |---|---|---|---|---|
+    | hind | hip | -110.0..-35.1° | ⚠️ **6 of 13** | 8.38 mm |
+    | hind | knee | -114.7..-54.7° | none | ⚠️ **9.91 mm** on 25 |
+    | hind | ankle | 88.5..122.3° | none | ✅ **0.32 mm** |
+    | fore | hip | -168.8..-141.2° | ⚠️ **5 of 13** | ⚠️ **26.06 mm** on 28 |
+    | fore | knee | 33.4..103.8° | none | ⚠️ **23.81 mm** |
+    | fore | ankle | 3.0..78.8° | none | ✅ **0.28 mm** |
+
+    ✅ **Only the ankles pass** -- and the ankles are the only joints anyone ever
+    swept against a range criterion, in M42, M44 and M45. The hip and knee anchors
+    were placed by M42's 2-D heuristic and checked **at the stance pose only**.
+
+    ⚠️ **So ADR-0053's framing was too narrow.** It read this as "the fore leg's
+    routing was never mirrored". The fore leg is worse, but the real statement is
+    **"the hip and knee were never validated across the gait, on either leg"**. The
+    fore leg merely has the bad luck that its stance pose (-147.8° at the hip)
+    sits *inside* its own failure band, while the hind's (-49.2°) sits outside --
+    which is exactly why five milestones of stance-pose checks saw nothing.
+
+    ⚠️ Asserts the defect: fails when the routing is re-derived.
+    """
+    ranges = _gait_ranges()
+    cases = [
+        ("LR", DEFAULT_HINDLEG, "hip", 0, ("L_hip_flex", "L_hip_ext")),
+        ("LR", DEFAULT_HINDLEG, "knee", 1, ("L_knee_flex", "L_knee_ext")),
+        ("LR", DEFAULT_HINDLEG, "ankle", 2, ("L_ankle", "L_ankle_ext")),
+        ("LF", DEFAULT_FORELEG, "hip", 0, ("L_hip_flex", "L_hip_ext")),
+        ("LF", DEFAULT_FORELEG, "knee", 1, ("L_knee_flex", "L_knee_ext")),
+        ("LF", DEFAULT_FORELEG, "ankle", 2, ("L_ankle", "L_ankle_ext")),
+    ]
+    result = {}
+    for nm, lp, name, k, tendons in cases:
+        a = ranges[nm]
+        result[(nm, name)] = _pair_over_range(lp, k, tendons,
+                                              float(a[:, k].min()),
+                                              float(a[:, k].max()))
+
+    # the ankles pass, on both legs -- they are the ones that were swept
+    for nm in ("LR", "LF"):
+        same, worst = result[(nm, "ankle")]
+        assert same == 0, f"{nm} ankle pair goes same-sign at {same} points"
+        assert worst < 1e-3, f"{nm} ankle worst arm error {1e3 * worst:.2f} mm"
+
+    # and nothing else does
+    for nm in ("LR", "LF"):
+        same, worst = result[(nm, "hip")]
+        assert same > 0, (
+            f"{nm} hip should still have same-sign points -- if it does not, the "
+            "routing was re-derived and M49's table needs re-running"
+        )
+        same, worst = result[(nm, "knee")]
+        assert worst > 5e-3, (
+            f"{nm} knee arm error {1e3 * worst:.2f} mm -- expected it still off "
+            "specification across the gait"
+        )
+
+    # the fore hip is the worst of them, and by a lot
+    assert result[("LF", "hip")][1] > 3 * result[("LR", "hip")][1]
+
+
+def test_three_of_the_four_BAD_ROUTINGS_have_a_measured_fix():
+    """✅ **M49 swept them, and three of four come out clean.**
+
+    Applying ADR-0050's **capstan** construction (both cables to one anchor,
+    opposite wraps) and sweeping the anchor angle against the gait-range criterion:
+
+    | leg | joint | anchor | worst arm error |
+    |---|---|---|---|
+    | hind | knee | **75°** | 0.28 mm |
+    | fore | hip | **135°** | **0.00 mm** |
+    | fore | knee | **285°** | 0.27 mm |
+    | hind | hip | ⚠️ **none exists** | -- |
+
+    ⚠️ **The hind hip has no solution at any anchor angle**, capstan or mirrored,
+    and none at any girdle-spool offset swept (±40 mm in x, ±20 in z; the best
+    left 1 of 13 points same-sign at 12.26 mm). Its gait range is **74.9° wide,
+    2.7× the fore hip's 27.6°**, and the sheave construction's working window is
+    narrower than that. It needs a different construction -- a larger sheave, a
+    via-pulley at the girdle so the incoming direction turns with the leg, or a
+    narrower hip excursion from the gait.
+
+    ⚠️ **Nothing ships**, for the reason ADR-0053 gave: the re-derivation must
+    happen **once**, after the geometry is settled, and the hind hip is not.
+    """
+    ranges = _gait_ranges()
+    a = ranges["LR"]
+    lo, hi = float(a[:, 0].min()), float(a[:, 0].max())
+    assert hi - lo == pytest.approx(74.9, abs=1.0), (
+        "the hind hip's gait range is what makes it hard"
+    )
+    f = ranges["LF"]
+    assert (float(f[:, 0].max()) - float(f[:, 0].min())) == pytest.approx(
+        27.6, abs=1.0)
+
+    # still shipped un-fixed: the audit test above is the one that flips
+    assert MT._ankle_anchor_deg(DEFAULT_HINDLEG) == 300.0

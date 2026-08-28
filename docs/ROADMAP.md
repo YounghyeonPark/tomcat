@@ -111,7 +111,10 @@ sequences the work that implements them.
 > ([ADR-0052](DESIGN_DECISIONS.md)).
 > **M48 done:** the anchor migration is measured and **deferred** — because the
 > **fore leg's routing was never mirrored** ([ADR-0053](DESIGN_DECISIONS.md)).
-> 450 passed + 5 xfailed Python, 17 Rust.
+> **M49 done:** the routing audit — **only the ANKLES were ever validated across
+> the gait**, and the hind hip has no fix at any anchor
+> ([ADR-0054](DESIGN_DECISIONS.md)).
+> 452 passed + 5 xfailed Python, 17 Rust.
 
 ---
 
@@ -2303,7 +2306,51 @@ measurements stay in ADR-0053, so neither step starts from a re-sweep.
 Jacobian check that found this is three lines and had never been run on the fore leg.
 It is a test now.
 
-## Later milestones (candidate M49+, not committed)
+## Milestone M49 — Only the ankles were ever validated (DONE)
+
+M49 set out to mirror the fore leg (M48's finding) and began by applying ADR-0052's
+criterion — the pair must stay **opposing**, with both arms near specification,
+**everywhere the gait commands**, not merely at the stance pose — to all six
+routings. Nobody had done that for the hip or the knee.
+
+| leg | joint | gait range | same-sign points | worst arm error |
+|---|---|---|---|---|
+| hind | hip | —110.0..—35.1° | ⚠️ **6 of 13** | 8.38 mm |
+| hind | knee | —114.7..—54.7° | none | ⚠️ **9.91 mm** on 25 |
+| hind | ankle | 88.5..122.3° | none | ✅ **0.32 mm** |
+| fore | hip | —168.8..—141.2° | ⚠️ **5 of 13** | ⚠️ **26.06 mm** on 28 |
+| fore | knee | 33.4..103.8° | none | ⚠️ **23.81 mm** |
+| fore | ankle | 3.0..78.8° | none | ✅ **0.28 mm** |
+
+✅ **Only the ankles pass** — and the ankles are the only joints anyone ever swept
+against a range criterion (M42, M44, M45). The hip and knee anchors came from M42's
+2-D heuristic and were checked **at the stance pose only**.
+
+⚠️ **So M48's diagnosis was too narrow.** The fore leg is worse, but the statement
+is *"the hip and knee were never validated across the gait, on either leg"*. The fore
+leg merely has the bad luck that its hip stance pose (—147.8°) sits **inside** its
+own failure band while the hind's (—49.2°) sits outside. **That is why five
+milestones of stance-pose checks saw nothing**, and it is the reusable lesson: a
+check at one operating point is not a check.
+
+✅ **Three of four have a measured fix**, using ADR-0050's capstan construction:
+**hind knee 75°** (0.28 mm), **fore hip 135°** (0.00 mm), **fore knee 285°**
+(0.27 mm).
+
+⚠️ **The hind hip has none.** No capstan angle works; no mirrored angle works
+(every one leaves 3—12 same-sign points of 13); no girdle-spool offset swept helps
+(±40 mm in x, ±20 in z — the best left 1 of 13 at 12.26 mm). Its gait range is
+**74.9° wide, 2.7× the fore hip's 27.6**, and the sheave construction's working
+window is narrower than that. It needs a different **construction**, not a different
+number: a larger sheave, a via-pulley at the girdle so the incoming direction turns
+with the leg, or a narrower hip excursion from the gait.
+
+**Nothing ships.** The re-derivation touches 17 tests across M42—M47 and must happen
+**once**, after the geometry is settled — and the hind hip is not. All five measured
+angles (three here, two ankle ones from M48) stay recorded so the milestone that
+lands them starts from a measurement.
+
+## Later milestones (candidate M50+, not committed)
 
 > This list is **curated, not append-only**. When a milestone closes an item it is
 > deleted here and the reasoning kept in the [ADR log](DESIGN_DECISIONS.md). Earlier
@@ -2312,11 +2359,15 @@ It is a test now.
 
 ### Next — fold it in, then re-publish
 
-- **M49 — MIRROR THE FORE LEG'S ROUTING.** ⚠️ ADR-0053: its hip pair does not
-  oppose (+11.636 / +35.885 against ±28) and the knee and ankle couplings are as
-  wrong, since M42. Sidesites, anchor angles and the ankle anchor all have to be
-  re-derived for a leg that folds the other way, against ADR-0052's gait-range
-  criterion. This blocks everything below it.
+- **M50 — THE HIND HIP NEEDS A DIFFERENT CONSTRUCTION.** ⚠️ ADR-0054: its
+  74.9° gait range is wider than the sheave construction's working window, and no
+  anchor angle or spool offset fixes it. Candidates: a **larger hip sheave**, a
+  **via-pulley at the girdle** so the incoming direction turns with the leg, or a
+  **narrower hip excursion** from the gait. This is now the critical path —
+  everything else queues behind it.
+- **Then land all five measured anchors at once**: hind knee 75°, fore hip 135°,
+  fore knee 285° (ADR-0054), hind ankle 270°, fore ankle 300° (ADR-0053).
+  ⚠️ Together with the hind hip's fix, and the 17-test re-derivation, **once**.
 - **Then the ANKLE ANCHOR MIGRATION: hind 270°, fore whatever the mirrored leg
   wants.** ⚠️ It re-derives 17 tests across M42—M47, so it must come after the fore
   leg and be done **once**. Every number for it is in ADR-0053.
@@ -2482,6 +2533,7 @@ Kept as a short table so the deletions above are auditable rather than silent.
 | Make cable PAY-OUT representable | M46 — [ADR-0051](DESIGN_DECISIONS.md): spool drivetrain, statics exact; it exposed a missing controller |
 | Drive the spooled plant | M47 — [ADR-0052](DESIGN_DECISIONS.md): cascade derived in closed form; G3 now needs a servo bandwidth beside it |
 | Migrate the ankle anchor | M48 — [ADR-0053](DESIGN_DECISIONS.md): deferred; the fore leg's routing was never mirrored, and three control findings retract |
+| Mirror the fore leg | M49 — [ADR-0054](DESIGN_DECISIONS.md): narrowed — only the ankles were ever validated; 3 of 4 fixes measured, the hind hip has none |
 
 ## Open reconciliation items (lead)
 
