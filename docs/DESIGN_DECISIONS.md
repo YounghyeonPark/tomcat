@@ -220,7 +220,17 @@ context, and consequences. Status is one of: **Proposed**, **Accepted**,
   gross bias term.
 
 ## ADR-0008: Actuator sizing basis and motor count (the mass-closure decision)
-- **Status:** Accepted
+
+> ⚠️ **THE SIMULATION NEVER IMPLEMENTED THIS. [ADR-0056](#adr-0056) (M51).** The
+> decision below is one motor per antagonistic pair via the variable-radius pulley
+> -- 12 leg motors, and it is what `params.py`'s `trunk_mass` is built on.
+> `mjcf_tendon.py` emits an independent motor per **tendon**: **20** leg motors, or
+> **24** with ADR-0050's ankle pair. That is **1.054 kg** of unbudgeted actuator, or
+> **1.580 kg**, putting the body at **5.36** or **5.89 kg** against the 4-5 kg band
+> NFR5 is anchored to. Eight milestones of tendon simulation (M42-M50) rest on the
+> architecture this ADR **rejected, on these exact grounds**.
+
+- **Status:** Accepted; ⚠️ **not implemented in simulation -- see ADR-0056**
 - **Context:** The [motor down-select](notes/motor-downselect.md) replaced the
   assumed ~31 g/motor with a real QDD module (~132 g). At the counts the
   architecture called for, **the motors alone exceeded the whole 3 kg body**
@@ -3461,6 +3471,11 @@ That took **one missing link** and **three fixes**, and the fixes are the findin
 
 - **Status:** Accepted, and it **settles [ADR-0002](#adr-0002)'s open ankle
   question** after four milestones of accumulating costs against Option B.
+  ⚠️ **Its MASS COSTING is withdrawn by [ADR-0056](#adr-0056)**: "+4 motors,
+  +528 g, 4.83 kg" assumed the baseline was the simulation's 20 leg motors and that
+  `params` carried them. `params` carries **12**, per ADR-0008's variable-radius
+  pulley, so the delta from the budget is **+1.58 kg**. The ankle *decision* is
+  unaffected -- it was made on kinematic reach -- but the number is not the cost.
   `ankle_pair` and `ankle_spring` build options ship in `mjcf_tendon.py`.
   **Raises NFR5 to a projected 4.83 kg. Supersedes ADR-0049's "live decision".**
 - **Context:** ADR-0002 chose Option B for the ankle -- **one tendon plus a torsion
@@ -4087,6 +4102,105 @@ That took **one missing link** and **three fixes**, and the fixes are the findin
 - ✅ **And the reusable lesson from ADR-0054 gets its mechanism**: a check at one
   operating point is not a check, *because* contact-dependent geometry has windows,
   and a window is invisible from inside it.
+
+## ADR-0056: The simulation never implemented ADR-0008's variable-radius pulley -- and the standing tension never converges
+
+- **Status:** Accepted as **three findings from a housekeeping pass**, two of which
+  blocked the item they were meant to close. No geometry or parameter ships.
+  **Withdraws [ADR-0050](#adr-0050)'s mass costing. Corrects
+  [ADR-0049](#adr-0049)'s 205 N. Puts a banner on [ADR-0008](#adr-0008).**
+- **Context:** three items had accumulated that were independent of the routing
+  work: the suite had grown to 12 minutes, ADR-0050's 4.83 kg was never folded in,
+  and ADR-0049's 205 N standing tendon had no thermal case. M51 is that pass. One
+  closed; two turned out to be blocked, and the blockers are the findings.
+
+### ⚠️ The simulation never implemented ADR-0008's variable-radius pulley
+
+- ADR-0008 is **the mass-closure decision**. At the counts the architecture called
+  for, the motors alone exceeded the whole body (24 = 105 %, 31 = 136 % of 3 kg) and
+  **the design did not close**. Its decision was **one motor per antagonistic pair**
+  via a variable-radius pulley -- 16 motors, amended to **19** by
+  [ADR-0009](#adr-0009). `params.py` builds `trunk_mass` on exactly that: *"6 leg
+  motors x 132 g"* per girdle, **12 leg motors**, one per DOF.
+- ⚠️ **`mjcf_tendon.py` emits one motor per TENDON.**
+
+  | | leg motors | unbudgeted | body |
+  |---|---|---|---|
+  | ADR-0008 budget, as `params` carries it | **12** | -- | 4.304 kg |
+  | the simulation, lone ankle | **20** | **1.054 kg** | **5.358 kg** |
+  | the simulation, ankle pair (ADR-0050) | **24** | **1.580 kg** | **5.885 kg** |
+
+- So **M42 through M50 were built on the architecture ADR-0008 rejected**, and
+  rejected on mass grounds specifically. A domestic cat is 4-5 kg, the band NFR5 has
+  been anchored to since [ADR-0010](#adr-0010); **5.36 and 5.89 are outside it**.
+- ⚠️ **And it makes ADR-0050's costing wrong twice.** *"+4 motors, +528 g, 4.83
+  kg"* assumed the baseline was the simulation's 20 and that `params` carried them.
+  It carries 12, so the delta from the budget is **+1.58 kg**. ✅ The ankle
+  *decision* is unaffected -- it was made on kinematic reach, not mass -- but the
+  number attached to it is not the cost.
+- **This is why 4.83 kg was not folded in.** The fold-in is not an addition, it is a
+  reconciliation of two architectures, and it has to be decided first: implement the
+  variable-radius pulley (which ADR-0008 says, and which M46's spool machinery can
+  express -- one rotor, two spools), or re-open ADR-0008 at 5.36 kg.
+
+### ⚠️ The standing tension never converges -- it saturates
+
+- ADR-0049 reported the hind hip extensor at *"~205 N mean, 2.5x continuous"* and
+  left the thermal case open. **That number is not a steady state.** Run the same
+  gate longer:
+
+  | t | peak tension | trunk z | tilt |
+  |---|---|---|---|
+  | 1 s | 125.5 N | 0.17589 | 0.005 deg |
+  | 4 s | 164.8 | 0.17586 | 0.005 |
+  | 6 s | 194.3 | 0.17582 | 0.006 |
+  | **9 s** | **222.9** -- the motor ceiling | 0.17578 | 0.007 |
+  | 12 s | 222.9 | 0.17573 | 0.006 |
+
+- **It ramps monotonically to the actuator's peak rating and pins there.** ADR-0049's
+  205 N was where the ramp had reached inside its 1-3 s window.
+- ✅ **The cause is measurable and is the one [ADR-0052](#adr-0052) named**: the
+  tension tracks an uncontrolled joint drift. Hind-right drift against peak tension:
+  **2.9 deg / 125 N** at 1 s, **3.8 / 179** at 5 s, **4.3 / 217** at 7.5 s, then both
+  stop when the motor saturates. The trunk holds to 0.007 deg throughout, so this is
+  a **wind-up, not a fall**.
+- **So the thermal item is blocked behind the posture task**, and the honest
+  statement is not *"2.5x the continuous rating"* but *"the tension does not settle;
+  it saturates the actuator"*.
+
+### ✅ The suite is three times faster, and nothing was loosened
+
+- The dominant cost was not the simulated horizon but **re-measuring each leg's
+  tendon Jacobian every 25 steps** -- 24 forward passes per refresh per leg.
+  Measured on the standing gate, where the pose barely moves:
+
+  | refresh | wall | z_end | tilt | residual |
+  |---|---|---|---|---|
+  | 25 | 36.3 s | 0.17579 | 0.006 deg | 0.0170 |
+  | 250 | **18.4 s** | 0.17587 | 0.005 | 0.0175 |
+  | 500 | 17.9 s | 0.17588 | 0.005 | 0.0145 |
+
+- ⚠️ **It is not a free constant.** A test that *moves* the pose must keep 25:
+  ADR-0052 measured a Jacobian frozen across the ankle's moment-arm reversal driving
+  the joint to the opposite end stop. So the code carries **two** constants with the
+  reason attached, `REFRESH_STATIC` and `REFRESH_MOVING`, not one number tuned down.
+- `test_mjcf_tendon.py` **306 s -> 95 s**; the whole suite **12:21 -> 4:41**. No test
+  shortened, no assertion loosened.
+
+### Consequences
+
+- ⚠️ **The motor-count reconciliation is now the second thing on the critical
+  path**, beside M50's clamped-capstan rebuild -- and they touch the same file. The
+  variable-radius pulley is a transmission, so it belongs in the same rebuild.
+- ⚠️ **NFR5 is unresolved, in the opposite direction from ADR-0050's projection.**
+  Not 4.83 kg but either 4.30 (pulley implemented) or 5.36-5.89 (not).
+- ⚠️ **Every power, thermal and runtime figure rests on the 12-motor budget** while
+  every simulation result rests on 20. Neither is wrong on its own terms; they are
+  not the same robot.
+- ✅ **A process note.** Both blocked items were blocked by something the pass was
+  not looking for, and both were found by asking *"does this number converge?"* and
+  *"where does this number come from?"* -- the same two questions that found
+  ADR-0054's audit.
 
 ---
 

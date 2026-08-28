@@ -15,10 +15,10 @@ cat-like agility, energy-efficient movement, and passive shock absorption.
 
 ## Progress
 
-Fifty milestones in. The model now spans kinematics → real mass → 3D
+Fifty-one milestones in. The model now spans kinematics → real mass → 3D
 static stability → whole-body dynamics → a dynamic gait → closed-loop balance →
 an independent physics-engine cross-check → thermal duty → whole-body force
-allocation, with **454 passing + 5 suspended Python tests and 17 Rust** and every figure below
+allocation, with **457 passing + 5 suspended Python tests and 17 Rust** and every figure below
 generated from the live model (`python tools/make_progress_figures.py`), so a
 published number cannot drift from the code.
 
@@ -273,6 +273,7 @@ is **1.97**. That remedy *is* cheap: one step up in stock tube, under 4 g.
 | M48 | The **fore leg was never mirrored** | five milestones measured one leg and generalised — and **three control findings retract** |
 | M49 | **Only the ankles** were validated | a check at one operating point is not a check — hip and knee fail on **both** legs |
 | M50 | **Clamp the cable** to the sheave | a resting wrap has a working window; a clamped capstan does not — and that explains everything since M42 |
+| M51 | Housekeeping, mostly **blocked** | the simulation never implemented the **variable-radius pulley** — 1.05 kg of unbudgeted motor |
 
 Full detail in the [roadmap](docs/ROADMAP.md) and the [ADR log](docs/DESIGN_DECISIONS.md).
 
@@ -545,6 +546,31 @@ Full detail in the [roadmap](docs/ROADMAP.md) and the [ADR log](docs/DESIGN_DECI
 > stride**. What clamping costs is a cable **fixed to each sheave** — a groove and a
 > ferrule that `mechanical/` does not yet draw.
 > [ADR-0055](docs/DESIGN_DECISIONS.md).
+
+> ### ⚠️ M51: the simulation and the mass budget are not the same robot
+>
+> Three housekeeping items; one closed and two were blocked by things the pass was
+> not looking for.
+>
+> ⚠️ **ADR-0008 is the mass-closure decision** — at the counts the architecture
+> called for, the motors alone exceeded the whole body and the design did not close.
+> Its answer was **one motor per antagonistic pair** via a variable-radius pulley,
+> **12 leg motors**, and that is what `params.py` carries. **`mjcf_tendon.py` has
+> never implemented it**: it emits one motor per *tendon*, **20** — or 24 with the
+> ankle pair. That is **1.05 kg** of unbudgeted actuator, or 1.58, putting the body
+> at **5.36 or 5.89 kg** against the 4–5 kg band. Eight milestones of simulation rest
+> on the architecture ADR-0008 rejected, on these exact grounds.
+>
+> ⚠️ **And the standing tension never converges.** M44's *"205 N, 2.5× the
+> continuous rating"* is a point on a ramp: run longer and it climbs to the **222.9 N
+> motor ceiling by 9 s** and pins, tracking an uncontrolled joint drift. The trunk
+> holds to 0.007° throughout, so it is a wind-up rather than a fall — but there is
+> no steady number to hand the thermal model until the posture task lands.
+>
+> ✅ **The one clean item**: the suite went **12:21 → 4:41**, by finding that the
+> dominant cost was re-measuring the tendon Jacobian every 25 steps rather than the
+> simulated horizon. Nothing was shortened and no assertion loosened.
+> [ADR-0056](docs/DESIGN_DECISIONS.md).
 
 ## Why tendon-driven?
 

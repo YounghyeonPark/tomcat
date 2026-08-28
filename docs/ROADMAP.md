@@ -117,7 +117,10 @@ sequences the work that implements them.
 > **M50 done:** a resting wrap has a **working window**, a clamped capstan does
 > not — and that explains every routing finding since M42
 > ([ADR-0055](DESIGN_DECISIONS.md)).
-> 454 passed + 5 xfailed Python, 17 Rust.
+> **M51 done:** housekeeping — the suite is 3× faster, and **the simulation
+> never implemented ADR-0008's variable-radius pulley**
+> ([ADR-0056](DESIGN_DECISIONS.md)).
+> 457 passed + 5 xfailed Python, 17 Rust.
 
 ---
 
@@ -2396,7 +2399,58 @@ not draw.
 **Nothing ships.** M48's rule stands — the re-derivation touches 17 tests across
 M42—M47 and happens **once**. What M50 adds is a construction to re-derive *to*.
 
-## Later milestones (candidate M51+, not committed)
+## Milestone M51 — Housekeeping, and two of three items were blocked (DONE)
+
+Three items had accumulated that were independent of the routing work: the suite had
+grown to 12 minutes, ADR-0050's 4.83 kg was never folded in, and ADR-0049's 205 N
+standing tendon had no thermal case. One closed; **two turned out to be blocked, and
+the blockers are the findings.**
+
+⚠️ **The simulation never implemented ADR-0008's variable-radius pulley.** ADR-0008
+is *the mass-closure decision*: at the counts the architecture called for, the motors
+alone exceeded the whole body (24 = 105 % of 3 kg) and **the design did not close**.
+Its answer was **one motor per antagonistic pair** — 12 leg motors, and that is what
+`params.py`'s `trunk_mass` carries. `mjcf_tendon.py` emits one motor per **tendon**:
+
+| | leg motors | unbudgeted | body |
+|---|---|---|---|
+| ADR-0008 budget, as `params` carries it | **12** | — | 4.304 kg |
+| the simulation, lone ankle | **20** | **1.054 kg** | **5.358 kg** |
+| the simulation, ankle pair | **24** | **1.580 kg** | **5.885 kg** |
+
+So **M42—M50 were built on the architecture ADR-0008 rejected**, on mass grounds
+specifically, and 5.36—5.89 kg is outside the 4–5 kg band NFR5 has been anchored to
+since ADR-0010. ⚠️ It also makes ADR-0050's costing wrong twice: *"+4 motors,
++528 g"* assumed the baseline was the simulation's 20 and that `params` carried them.
+✅ The ankle *decision* is unaffected — it was made on kinematic reach — but the
+number attached to it is not the cost. **That is why 4.83 kg was not folded in:** the
+fold-in is a reconciliation of two architectures, not an addition.
+
+⚠️ **The standing tension never converges — it saturates.** ADR-0049's *"205 N
+mean, 2.5× continuous"* is not a steady state:
+
+| t | peak tension | trunk z | tilt |
+|---|---|---|---|
+| 1 s | 125.5 N | 0.17589 | 0.005° |
+| 4 s | 164.8 | 0.17586 | 0.005° |
+| **9 s** | **222.9** — the motor ceiling | 0.17578 | 0.007° |
+| 12 s | 222.9 | 0.17573 | 0.006° |
+
+It ramps to the actuator's peak and pins there; 205 N was where the ramp had reached
+in a 1–3 s window. ✅ The cause is the one M47 named — the tension tracks an
+uncontrolled joint drift (2.9°/125 N at 1 s, 4.3°/217 at 7.5 s) — and the trunk
+holds to 0.007° throughout, so it is a **wind-up, not a fall**. **The thermal item
+is blocked behind the posture task.**
+
+✅ **The suite is three times faster and nothing was loosened.** The dominant cost
+was **re-measuring each leg's tendon Jacobian every 25 steps**, not the horizon. At
+250 the standing gate is 2× faster for an answer that moves in the fifth decimal.
+⚠️ Not a free constant: a test that *moves* the pose must keep 25, because M47
+measured a frozen Jacobian driving a joint to the wrong end stop. So there are two
+constants with the reason attached. `test_mjcf_tendon.py` **306 s → 95 s**, the
+suite **12:21 → 4:41**.
+
+## Later milestones (candidate M52+, not committed)
 
 > This list is **curated, not append-only**. When a milestone closes an item it is
 > deleted here and the reasoning kept in the [ADR log](DESIGN_DECISIONS.md). Earlier
@@ -2421,16 +2475,12 @@ M42—M47 and happens **once**. What M50 adds is a construction to re-derive *to
 - **Then re-derive the fore-leg figures in M43—M47.** ⚠️ The welded/floating drift,
   ADR-0049's "the binding tendon is the hind hip extensor", ADR-0052's fore tracking
   error. The hind-leg numbers, which is most of what those ADRs argue from, stand.
-- **The TEST SUITE now takes 12 minutes**, up from about 4. ⚠️ M43–M47 added
-  real physics simulations and `tests/test_mjcf_tendon.py` alone is 5 minutes: the
-  quadruped stand fixture is 78 s, G3's series-spring gate 54 s, the cascade hold
-  35 s, the spring sweep 35 s. Reducing the simulation is **not** the answer — this
-  project keeps "a published number cannot drift from the code" by asserting those
-  numbers — so the options are a `slow` marker excluded from the default run, or
-  collapsing the gain/stiffness sweeps to one representative value each and keeping
-  the swept table in the docstring. Neither is free: a marker means the default run
-  no longer checks the headline results, and collapsing a sweep loses the evidence
-  that a value is a knee rather than a lucky point.
+- **RECONCILE THE MOTOR COUNT.** ⚠️ ADR-0056: the simulation runs 20 leg motors
+  where ADR-0008's budget carries 12. Either implement the **variable-radius
+  pulley** — which ADR-0008 decided and M46's spool machinery can express (one
+  rotor, two spools) — or re-open ADR-0008 at **5.36 kg**. It is a transmission, so
+  it belongs in the same rebuild as M50's clamped capstans, and it is now the second
+  thing on the critical path.
 - **PER-LEG outer gains.** ⚠️ On the same gains the fore leg tracks to 11.8°
   against the hind's 3.5 — different link lengths and a stance hock 81° away make
   it a different plant.
@@ -2448,10 +2498,12 @@ M42—M47 and happens **once**. What M50 adds is a construction to re-derive *to
 - **Fold in ADR-0050's 4.83 kg**, the way ADR-0046 folded in 4.30: the CAD, the mass
   closure and `params` all still say 4.3041.
 - **Four more motor DRIVERS.** ⚠️ Nothing in `electronics/` has seen Option A.
-- **The THERMAL case for a 205 N standing tendon.** ⚠️ ADR-0023 made standing the
-  worst thermal case at the nominal **19.6 N**; ADR-0049 measured the hind hip
-  extensor at **~205 N mean, 2.5× the motor's continuous rating**, just to stand.
-  Nothing in `thermal/` has seen that number.
+- **The THERMAL case for the standing tendon** — ⚠️ **blocked by ADR-0056**: the
+  tension does not converge, it ramps to the 222.9 N motor ceiling by t ~ 9 s and
+  pins, tracking an uncontrolled joint drift. There is no steady value to hand the
+  thermal model until the **posture task** lands. ADR-0023 made standing the worst
+  thermal case at the nominal 19.6 N; the real answer is worse than 2.5× and is not
+  a number yet.
 - **Fold the ATTITUDE term into `wbc.desired_wrench`.** ⚠️ It returns a zero desired
   moment, which is right for M33's in-place trot and wrong for standing; M44 adds an
   angular PD outside the function.

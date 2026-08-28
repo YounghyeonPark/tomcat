@@ -1097,7 +1097,24 @@ def test_the_allocation_must_SOLVE_the_non_negative_problem():
     )
 
 
-def _wbc_stand(m, q, *, tb=19.6, mu=0.8, seconds=3.0, refresh=25,
+#: How often the whole-body drivers re-measure each leg's tendon Jacobian, in
+#: steps. ⚠️ **It is half the cost of these tests, and the right value depends on
+#: how far the pose moves.** Measured on the standing gate, where it barely moves:
+#:
+#:     refresh   wall   z_end     tilt    residual
+#:        25    36.3 s  0.17579  0.006 deg  0.0170
+#:        50    25.4    0.17582  0.005      0.0167
+#:       250    18.4    0.17587  0.005      0.0175
+#:       500    17.9    0.17588  0.005      0.0145
+#:
+#: 250 is 2x faster for an answer that moves in the fifth decimal. ⚠️ **A test that
+#: MOVES the pose must keep 25**: ADR-0052 measured a Jacobian frozen across the
+#: ankle's moment-arm reversal driving the joint to the opposite end stop.
+REFRESH_STATIC = 250
+REFRESH_MOVING = 25
+
+
+def _wbc_stand(m, q, *, tb=19.6, mu=0.8, seconds=3.0, refresh=REFRESH_STATIC,
                attitude=(40.0, 4.0), damp=6.0):
     """Drive the tendon quadruped with ADR-0038's chain, plus M44's missing link.
 
@@ -1240,7 +1257,7 @@ def test_G3s_series_spring_is_what_MAKES_it_stand(quad):
     _, q = quad
     stiff = mujoco.MjModel.from_xml_string(
         MT.quadruped_rig_elastic(q_ref=q, hip_height=0.176, series_k=None))
-    r = _wbc_stand(stiff, q, seconds=2.0)
+    r = _wbc_stand(stiff, q, seconds=2.0, refresh=REFRESH_STATIC)
     assert r["diverged"] or r["tilt"] > 90.0, (
         f"the bare cable should invert the robot, got tilt {r['tilt']:.1f} deg"
     )
@@ -2177,7 +2194,7 @@ def test_the_SERVOS_OWN_COMPLIANCE_lands_in_series_with_G3():
 
 
 def _cascade_hold(m, q, target_q3_deg=None, kp=50.0, kd=1.0, tb=19.6,
-                  seconds=2.0, refresh=25):
+                  seconds=2.0, refresh=REFRESH_MOVING):
     """The M47 cascade: rotor servo inside, joint PD and tension allocation out.
 
     ⚠️ `G` is refreshed as the pose moves, which is not optional here: the ankle's
@@ -2781,4 +2798,153 @@ def test_the_two_ALTERNATIVES_to_clamping_are_priced_and_rejected():
     assert lost == pytest.approx(0.035, abs=0.003)
     assert lost / float(gait.trot_params().stride_length) > 0.3, (
         "over a third of the stride"
+    )
+
+
+# ===================================================================
+# M51 - housekeeping, and two of the three items were blocked
+# ===================================================================
+
+def test_the_SIMULATION_never_implemented_ADR0008s_VARIABLE_RADIUS_PULLEY():
+    """⚠️ **The largest of M51's findings, and it invalidates a mass figure this
+    project has quoted since M38.**
+
+    [ADR-0008](../docs/DESIGN_DECISIONS.md) is the mass-closure decision. At the
+    counts the architecture called for, **the motors alone exceeded the whole
+    body** (24 motors = 105 % of 3 kg, 31 = 136 %), and the design did not close.
+    Its decision was **one motor per antagonistic pair, via a variable-radius
+    pulley** -- 16 motors, amended to **19** by ADR-0009. `params.py` builds
+    `trunk_mass` on exactly that: *"6 leg motors x 132 g"* per girdle, **12 leg
+    motors**, one per DOF.
+
+    ⚠️ **`mjcf_tendon.py` has never implemented it.** It emits an independent
+    `<motor>` for every tendon:
+
+    | | leg motors | unbudgeted | body |
+    |---|---|---|---|
+    | ADR-0008 budget, as `params` carries it | **12** | -- | 4.304 kg |
+    | the simulation, lone ankle | **20** | **1.054 kg** | **5.358 kg** |
+    | the simulation, ankle pair (ADR-0050) | **24** | **1.580 kg** | **5.885 kg** |
+
+    So **eight milestones of tendon simulation (M42-M50) have been built on the
+    architecture ADR-0008 explicitly rejected**, and on mass grounds specifically.
+    A domestic cat is 4-5 kg, which NFR5 has been anchored to since ADR-0010; 5.36
+    and 5.89 kg are outside it.
+
+    ⚠️ **And it makes ADR-0050's costing wrong twice.** It priced Option A as
+    *"+4 motors, +528 g, 4.83 kg"*. That assumed the baseline was the simulation's
+    20 and that `params` already carried them. `params` carries 12, so the delta
+    from the budget is **+1.58 kg**, not +0.53.
+
+    The resolution is not to fold 4.83 kg in. It is to decide whether the
+    variable-radius pulley gets implemented -- ADR-0008 says it does -- or whether
+    ADR-0008 is re-opened at 5.36 kg. That is the next milestone.
+
+    ⚠️ Asserts the defect: fails when the pulley lands or the budget is re-derived.
+    """
+    from tomcat_kin.params import DEFAULT_BODY_MASS_KG
+
+    motor_kg = 0.1317
+    lone = mujoco.MjModel.from_xml_string(
+        MT.quadruped_rig(hip_height=0.176, ankle_pair=False))
+    paired = mujoco.MjModel.from_xml_string(
+        MT.quadruped_rig(hip_height=0.176, ankle_pair=True))
+
+    assert lone.nu == 20, "one motor per tendon, not per DOF"
+    assert paired.nu == 24
+    # ADR-0008's count is one per DOF: three per leg
+    budgeted = 12
+    assert lone.nu - budgeted == 8
+    assert paired.nu - budgeted == 12
+
+    over_lone = (lone.nu - budgeted) * motor_kg
+    over_pair = (paired.nu - budgeted) * motor_kg
+    assert over_lone == pytest.approx(1.054, abs=0.005)
+    assert over_pair == pytest.approx(1.580, abs=0.005)
+    assert DEFAULT_BODY_MASS_KG + over_lone == pytest.approx(5.358, abs=0.01)
+    assert DEFAULT_BODY_MASS_KG + over_pair == pytest.approx(5.885, abs=0.01)
+    # both are outside the 4-5 kg band NFR5 is anchored to
+    assert DEFAULT_BODY_MASS_KG + over_lone > 5.0
+
+
+def test_the_STANDING_TENSION_never_converges_it_SATURATES():
+    """⚠️ **M51's second blocked item, and it corrects a published number.**
+
+    ADR-0049 reported the hind hip extensor at *"~205 N mean, 2.5x the motor's
+    continuous rating"* while standing, and left the thermal case as an open item.
+    The thermal case cannot be computed from that number, because **it is not a
+    steady-state value**. Run the same gate longer:
+
+    | t | peak tension | trunk z | tilt |
+    |---|---|---|---|
+    | 1 s | 125.5 N | 0.17589 | 0.005° |
+    | 4 s | 164.8 | 0.17586 | 0.005° |
+    | 6 s | 194.3 | 0.17582 | 0.006° |
+    | **9 s** | **222.9** — the motor ceiling | 0.17578 | 0.007° |
+    | 12 s | 222.9 | 0.17573 | 0.006° |
+
+    **It ramps monotonically to the actuator's peak rating and pins there.**
+    ADR-0049's 205 N was simply where the ramp had reached in its 1-3 s window.
+
+    ✅ **And the cause is measurable**: the tension tracks an uncontrolled joint
+    drift, which is exactly the missing posture task [ADR-0052](../docs/DESIGN_DECISIONS.md)
+    named. Hind-right drift against peak tension: 2.9°/125 N at 1 s, 3.8°/179 at
+    5 s, 4.3°/217 at 7.5 s, then both stop when the motor saturates. The robot
+    keeps standing throughout -- the trunk holds to 0.007° -- so this is not a fall,
+    it is a wind-up.
+
+    ⚠️ **So the thermal item is blocked behind the posture task**, and the honest
+    statement is not *"2.5x the continuous rating"* but *"the tension does not
+    settle; it saturates the actuator"*.
+
+    ⚠️ Asserts the defect: fails when the tension converges below the ceiling.
+    """
+    q = _quad_poses()
+    m = mujoco.MjModel.from_xml_string(MT.quadruped_rig_elastic(
+        q_ref=q, hip_height=0.176, series_k=1.75e5))
+
+    short = _wbc_stand(m, q, seconds=1.0)
+    long = _wbc_stand(m, q, seconds=3.0)
+    assert short["peak"] < long["peak"] - 5.0, (
+        f"the tension must still be climbing: {short['peak']:.1f} N at 1 s, "
+        f"{long['peak']:.1f} at 3 s -- if these now agree, the posture task "
+        "landed and the thermal case can finally be computed"
+    )
+    # and it is a wind-up, not a fall: the trunk is holding the whole time
+    for r in (short, long):
+        assert r["z"] > 0.995 * r["z0"]
+        assert r["tilt"] < 0.05
+
+
+def test_the_SUITE_got_three_times_faster_by_measuring_what_cost_it():
+    """✅ **M51's one clean item.**
+
+    The suite had grown to **12 minutes**, and `tests/test_mjcf_tendon.py` alone to
+    five. The dominant cost was not the simulated horizon: it was **re-measuring
+    each leg's tendon Jacobian every 25 steps**, which is 24 forward passes per
+    refresh per leg.
+
+    Measured on the standing gate, where the pose barely moves:
+
+    | refresh | wall | z_end | tilt | residual |
+    |---|---|---|---|---|
+    | 25 | 36.3 s | 0.17579 | 0.006° | 0.0170 |
+    | 250 | **18.4 s** | 0.17587 | 0.005° | 0.0175 |
+    | 500 | 17.9 s | 0.17588 | 0.005° | 0.0145 |
+
+    ⚠️ **It is not a free constant.** A test that MOVES the pose must keep 25:
+    ADR-0052 measured a Jacobian frozen across the ankle's moment-arm reversal
+    driving the joint to the opposite end stop. So there are two constants with the
+    reason attached, not one number tuned down.
+
+    Result: `test_mjcf_tendon.py` **306 s → 95 s**, the whole suite **12:21 →
+    4:41**, with no test shortened and no assertion loosened.
+    """
+    assert REFRESH_STATIC == 250
+    assert REFRESH_MOVING == 25
+    # the moving gate really does still refresh often
+    import inspect
+    src = inspect.getsource(_cascade_hold)
+    assert "REFRESH_MOVING" in src, (
+        "the cascade tracking test crosses the ankle reversal and must refresh"
     )
