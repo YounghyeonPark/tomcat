@@ -2626,3 +2626,159 @@ def test_three_of_the_four_BAD_ROUTINGS_have_a_measured_fix():
 
     # still shipped un-fixed: the audit test above is the one that flips
     assert MT._ankle_anchor_deg(DEFAULT_HINDLEG) == 300.0
+
+
+# ===================================================================
+# M50 - the hip needs a CLAMPED capstan, not a resting wrap
+# ===================================================================
+
+_CLAMP_RIG = """
+<mujoco>
+  <compiler angle="radian"/>
+  <option timestep="1e-4" gravity="0 0 0"/>
+  <worldbody>
+    <site name="s_spool" pos="-0.10 0 0.034" size="0.001"/>
+    <body name="femur">
+      <joint name="q1" type="hinge" axis="0 -1 0" range="-2.1 2.1"/>
+      <geom name="sheave" type="cylinder" size="%(r).5f 0.004"
+            quat="0.70711 0.70711 0 0" mass="1e-9" contype="0" conaffinity="0"/>
+      <geom type="capsule" fromto="0 0 0 0.09 0 0" size="0.004" mass="0.066"/>
+      <site name="s_side" pos="0 0 %(side).5f" size="0.001"/>
+      <site name="s_anchor" pos="%(ax).5f 0 %(az).5f" size="0.001"/>
+    </body>
+  </worldbody>
+  <tendon>
+    <spatial name="wrapped" width="0.001">
+      <site site="s_spool"/>
+      <geom geom="sheave" sidesite="s_side"/>
+      <site site="s_anchor"/>
+    </spatial>
+    <fixed name="clamped"><joint joint="q1" coef="%(r).5f"/></fixed>
+  </tendon>
+</mujoco>
+"""
+
+
+def _clamp_arms(q1_deg, r=None):
+    r = float(DEFAULT_TENDON.joint_moment_arm[0]) if r is None else r
+    xml = _CLAMP_RIG % {"r": r, "side": -(r + 0.02), "ax": 0.55 * r,
+                        "az": -(r + 0.005)}
+    m = mujoco.MjModel.from_xml_string(xml)
+    out = []
+    for name in ("wrapped", "clamped"):
+        t = mujoco.mj_name2id(m, mujoco.mjtObj.mjOBJ_TENDON, name)
+        Ls = []
+        for sgn in (+1, -1):
+            d = mujoco.MjData(m)
+            d.qpos[0] = math.radians(q1_deg) + sgn * 0.002
+            mujoco.mj_forward(m, d)
+            Ls.append(float(d.ten_length[t]))
+        out.append((Ls[0] - Ls[1]) / 0.004 * 1e3)
+    return out
+
+
+def test_a_RESTING_WRAP_has_a_working_window_and_a_CLAMPED_one_does_not():
+    """✅ **M50's answer, and it explains every routing finding since M42.**
+
+    ADR-0054 found the hip and knee fail across the gait and the hind hip has no
+    anchor angle that works. This is why. A cable that merely **rests** on a sheave
+    gives the sheave's radius only while it actually wraps; outside that the arm is
+    whatever the straight line happens to give:
+
+    | q1 | resting wrap | clamped capstan |
+    |---|---|---|
+    | -120° (past the gait range) | 12.956 mm | 28.000 |
+    | **-110°** (its far edge) | **21.034** | 28.000 |
+    | -90° | 31.979 | 28.000 |
+    | **-60°** | **36.332** | 28.000 |
+    | -10° and above | 28.000 | 28.000 |
+
+    Across the hind hip's **-110..-35.1°** gait range the resting arm swings
+    **21.03 to 36.33 mm -- 1.73×, on a 28 mm specification** (0.75× spec at one
+    end, 1.30× at the other), and it is exact only for `q1 >= -10°`. The clamped one is
+    **exactly 28.000 at every angle**, because the cable is *fixed to the sheave*
+    rather than resting on it, so the arm is a property of the construction and not
+    of contact.
+
+    ⚠️ **And this re-frames ADR-0047's headline.** *"The moment arm is emergent from
+    the geometry"* is true **where the cable wraps** -- which for the hip is
+    `q1 >= -10°`, a fraction of its range. As a *validation* that a wrap produces
+    the sheave radius, M42's result stands. As the *model* for a wide-ROM joint it
+    does not, and five milestones of stance-pose checks never noticed because the
+    stance pose is inside the window.
+
+    ✅ Clamping costs wrapped length, and there is plenty: `r * dq` over the hind
+    hip's range is **36.7 mm** against a **176 mm** circumference -- **21 %** of one
+    turn.
+    """
+    r = float(DEFAULT_TENDON.joint_moment_arm[0])
+    spec = r * 1e3
+
+    # inside the window both constructions agree
+    for deg in (-10, 0, 15, 30):
+        wrapped, clamped = _clamp_arms(deg)
+        assert wrapped == pytest.approx(spec, abs=0.05), deg
+        assert clamped == pytest.approx(spec, abs=1e-6), deg
+
+    # across the hind hip's gait range the resting wrap does not
+    vals = [_clamp_arms(deg)[0] for deg in range(-110, -34, 10)]
+    assert min(vals) < 0.8 * spec, f"resting arm bottoms at {min(vals):.2f} mm"
+    assert max(vals) > 1.25 * spec, f"and peaks at {max(vals):.2f} mm"
+    assert max(vals) / min(vals) > 1.7, "a 1.73x swing on a 28 mm specification"
+
+    # the clamped one is exact everywhere, which is the whole point
+    for deg in range(-120, 31, 10):
+        assert _clamp_arms(deg)[1] == pytest.approx(spec, abs=1e-6)
+
+    # and the wrapped length it needs is a fifth of a turn
+    sweep = math.radians(74.9)
+    assert r * sweep / (2 * math.pi * r) == pytest.approx(0.208, abs=0.005)
+
+
+def test_the_two_ALTERNATIVES_to_clamping_are_priced_and_rejected():
+    """⚠️ **Both were measured before clamping was reached, and both are too
+    expensive. Recorded so they are not re-derived.**
+
+    **A larger hip sheave.** Swept against the real gait range with the anchor swept
+    at 5°: only **r = 50 mm** comes out clean (0 same-sign points, 0.00 mm error).
+    ✅ It would also cut the ADR-0052 standing tension from **205 N to 110 N**,
+    which is a real secondary benefit. ⚠️ But r = 50 mm is a **±100 mm diameter
+    sheave on a 90 mm femur -- 1.11× the segment it sits on.** The largest
+    manufacturable size swept (r = 36 mm, ±72 mm) still leaves 1 of 17 sample
+    points same-sign.
+
+    **A narrower hip excursion.** The routing's working window ends near **-95°**
+    and the trot commands **-110°**, so the gait would have to give up ~15° of hip
+    extension. At a 90 mm femur that is **35 mm of stride** against a
+    `stride_length` of **100 mm** -- ⚠️ **35 %**, and at fixed cadence 35 % of the
+    speed.
+
+    Clamping costs neither: it needs a cable **fixed to the sheave** rather than
+    resting on it, which is a groove and a ferrule.
+    """
+    from tomcat_kin import gait
+
+    # the working window really does end near -95 deg
+    r = float(DEFAULT_TENDON.joint_moment_arm[0]) * 1e3
+    assert _clamp_arms(-95)[0] == pytest.approx(29.9, abs=1.5), (
+        "the resting arm is already off spec at the window edge"
+    )
+    assert _clamp_arms(-110)[0] == pytest.approx(21.0, abs=1.0)
+
+    # the sheave that works is bigger than the segment it sits on
+    assert 2 * 50.0 / (1e3 * DEFAULT_HINDLEG.l1) == pytest.approx(1.11, abs=0.02)
+
+    # and the stride the gait would have to give up
+    L = LegModel(DEFAULT_HINDLEG)
+    q = np.asarray(L.inverse((0.04, -0.17, 0.0)), float)
+
+    def foot_x(q1_deg):
+        qq = q.copy()
+        qq[0] = math.radians(q1_deg)
+        return float(L.joint_positions(qq)[-1][0])
+
+    lost = abs(foot_x(-95.0) - foot_x(-110.0))
+    assert lost == pytest.approx(0.035, abs=0.003)
+    assert lost / float(gait.trot_params().stride_length) > 0.3, (
+        "over a third of the stride"
+    )

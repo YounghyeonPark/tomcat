@@ -2979,6 +2979,14 @@ coupling itself. On dualis 0.2 the pack is a real domain on the same bus, so
 > ✅ **What did NOT move: the +/-8.750 coupling column (Finding 1), and G3's
 > ~175 kN/m (Finding 3).** Those are the two conclusions this ADR is cited for.
 >
+> ⚠️ **But Finding 1 needs qualifying, by [ADR-0055](#adr-0055) (M50).** *"The
+> moment arm is emergent from the geometry"* holds **where the cable actually
+> wraps**, and this ADR measured it only at the stance pose. For the hip that window
+> is `q1 >= -10 deg`; across the range the trot commands (-110..-35.1) the same
+> construction gives **21.0 to 36.3 mm on a 28 mm specification, a 1.73x swing**. As
+> a *validation* that a wrap reproduces the sheave radius, this finding stands. As
+> the *model* for a wide-ROM joint it does not.
+>
 > ⚠️ **[ADR-0049](#adr-0049) (M44) moved the G3 band once more**, to **150-200
 > kN/m** (from 125-175): re-routing the ankle changed that cable's run length and
 > every stiffness with it. **175 kN/m is still the point value**, and ADR-0049
@@ -3984,6 +3992,101 @@ That took **one missing link** and **three fixes**, and the fixes are the findin
 - ✅ **The ankles are sound**, on both legs, and that is not luck -- it is the one
   place a range criterion was applied. The lesson generalises: **sweep against the
   range the thing actually operates over, not the pose you happen to model.**
+
+## ADR-0055: A resting wrap has a working window; a clamped capstan does not
+
+- **Status:** Accepted as the **construction decision** [ADR-0054](#adr-0054) said
+  was needed. No geometry ships yet -- the re-derivation still happens once -- but
+  the question of *what construction* is settled. **Qualifies
+  [ADR-0047](#adr-0047)'s emergent-moment-arm finding. Removes the cause behind
+  ADR-0054's audit, [ADR-0052](#adr-0052)'s anchor sweeps and
+  [ADR-0049](#adr-0049)'s moment-arm reversal.**
+- **Context:** ADR-0054 found the hip and knee fail across the gait on both legs,
+  and that the **hind hip has no anchor angle that works** at any sweep tried. It
+  called for a different construction. This is that construction, and it explains
+  every routing finding since M42.
+
+### The mechanism
+
+- A cable that merely **rests** on a sheave gives the sheave's radius only while it
+  actually wraps. Outside that the arm is whatever the straight line happens to
+  give:
+
+  | q1 | resting wrap | clamped capstan |
+  |---|---|---|
+  | -120 deg (past the gait range) | 12.956 mm | 28.000 |
+  | **-110 deg** (its far edge) | **21.034** | 28.000 |
+  | -90 deg | 31.979 | 28.000 |
+  | **-60 deg** | **36.332** | 28.000 |
+  | -10 deg and above | 28.000 | 28.000 |
+
+- Across the hind hip's **-110..-35.1 deg** gait range the resting arm swings
+  **21.03 to 36.33 mm -- 1.73x, on a 28 mm specification** (0.75x spec at one end,
+  1.30x at the other). ✅ **The clamped one is exactly 28.000 at every angle**,
+  because the cable is *fixed to the sheave* rather than resting on it, so the arm
+  is a property of the construction and not of contact.
+- ✅ **And the wrapped length it costs is trivial**: `r * dq` over the hind hip's
+  range is **36.7 mm** against a **176 mm** circumference -- **21 % of one turn**.
+
+### What it explains
+
+- ✅ **ADR-0054's audit.** The hip and knee fail across the gait because a resting
+  wrap has a window and their windows are narrower than their gait ranges. The
+  ankles pass because M42-M45 swept them *into* their windows -- which is why the
+  one criterion anyone applied happened to work.
+- ✅ **ADR-0049's moment-arm reversal.** A clamped cable cannot reverse; the
+  reversal is a property of resting contact. So is the "dead spot" ADR-0047 found
+  and ADR-0048 retracted.
+- ✅ **The whole anchor-sweep programme** -- ADR-0052's criterion, ADR-0053's two
+  ankle angles, ADR-0054's three -- is a search for the corner of a window. With
+  clamped capstans there is no window and no sweep.
+- ⚠️ **And it qualifies ADR-0047's headline.** *"The moment arm is emergent from the
+  geometry"* is true **where the cable wraps**, which for the hip is a fraction of
+  its range. As a validation that a wrap reproduces the sheave radius, that finding
+  stands and is worth having. As the model for a wide-ROM joint it does not, and
+  five milestones of stance-pose checks never noticed because the stance pose sits
+  inside the window.
+
+### The two alternatives, priced and rejected
+
+- **A larger hip sheave.** Swept against the real gait range with the anchor swept at
+  5 deg, only **r = 50 mm** comes out clean (0 same-sign points, 0.00 mm error).
+  ✅ It would also cut ADR-0052's standing tension from **205 N to 110 N**, a real
+  secondary benefit. ⚠️ But that is a **100 mm diameter sheave on a 90 mm femur --
+  1.11x the segment it sits on**, and the largest manufacturable size swept
+  (r = 36 mm) still leaves 1 of 17 points same-sign.
+- **A narrower hip excursion.** The window ends near **-95 deg** and the trot
+  commands **-110**, so the gait would give up ~15 deg of hip extension: at a 90 mm
+  femur, **35 mm of stride against a 100 mm `stride_length`** -- ⚠️ **35 %**, and at
+  fixed cadence 35 % of the speed.
+- Clamping costs neither. What it costs is a **cable fixed to each sheave** -- a
+  groove and a ferrule or set screw -- which `mechanical/` does not currently draw.
+
+### Decision
+
+- **Every antagonistic joint becomes a CLAMPED capstan.** The cable is terminated on
+  the sheave, not routed over it, and the moment arm is `r` by construction.
+- ⚠️ **In the model this is an analytic `r * q` term rather than a wrap geom**, the
+  same way M46's spool carries its wound length. That is a real modelling change and
+  it trades emergence for exactness -- deliberately, because the emergent version is
+  only correct inside a window that the gait leaves.
+- **Nothing ships in this ADR.** ADR-0053's and ADR-0054's rule stands: the
+  re-derivation touches 17 tests across M42-M47 and happens **once**. What M50 adds
+  is that it now has a construction to re-derive *to*.
+
+### Consequences
+
+- ⚠️ **`mechanical/` owes a cable termination at every sheave.** ADR-0043's leg was
+  drawn with cables resting in grooves; they now have to be clamped, which is a
+  fitting, a groove profile and an assembly step per joint.
+- ✅ **The anchor angles ADR-0053 and ADR-0054 measured become unnecessary** for
+  any joint that clamps. They stay recorded, because a joint that stays a resting
+  wrap still needs them.
+- ⚠️ **The 205 N standing tendon is untouched** by this. The larger sheave would
+  have halved it; clamping does not. That remains ADR-0052's open thermal item.
+- ✅ **And the reusable lesson from ADR-0054 gets its mechanism**: a check at one
+  operating point is not a check, *because* contact-dependent geometry has windows,
+  and a window is invisible from inside it.
 
 ---
 

@@ -15,10 +15,10 @@ cat-like agility, energy-efficient movement, and passive shock absorption.
 
 ## Progress
 
-Forty-nine milestones in. The model now spans kinematics → real mass → 3D
+Fifty milestones in. The model now spans kinematics → real mass → 3D
 static stability → whole-body dynamics → a dynamic gait → closed-loop balance →
 an independent physics-engine cross-check → thermal duty → whole-body force
-allocation, with **452 passing + 5 suspended Python tests and 17 Rust** and every figure below
+allocation, with **454 passing + 5 suspended Python tests and 17 Rust** and every figure below
 generated from the live model (`python tools/make_progress_figures.py`), so a
 published number cannot drift from the code.
 
@@ -272,6 +272,7 @@ is **1.97**. That remedy *is* cheap: one step up in stock tube, under 4 g.
 | M47 | The drivetrain **cascade** | derived, not tuned — and a **firmware gain** sets how much of a mechanical spring you get |
 | M48 | The **fore leg was never mirrored** | five milestones measured one leg and generalised — and **three control findings retract** |
 | M49 | **Only the ankles** were validated | a check at one operating point is not a check — hip and knee fail on **both** legs |
+| M50 | **Clamp the cable** to the sheave | a resting wrap has a working window; a clamped capstan does not — and that explains everything since M42 |
 
 Full detail in the [roadmap](docs/ROADMAP.md) and the [ADR log](docs/DESIGN_DECISIONS.md).
 
@@ -518,6 +519,32 @@ Full detail in the [roadmap](docs/ROADMAP.md) and the [ADR log](docs/DESIGN_DECI
 > — no anchor angle, mirrored or capstan, and no spool offset fixes it. It needs a
 > different construction, and it is now the critical path.
 > [ADR-0054](docs/DESIGN_DECISIONS.md).
+
+> ### ✅ M50: clamp the cable, and the window disappears
+>
+> A cable that merely **rests** on a sheave gives the sheave's radius only while it
+> actually wraps. Across the hind hip's gait range the resting arm swings **21.0 to
+> 36.3 mm on a 28 mm specification — 1.73×**. Clamp the cable to the sheave and it
+> is **exactly 28.000 at every angle**, because the arm becomes a property of the
+> construction rather than of contact. It costs **21 % of one turn** of wrapped
+> length.
+>
+> ✅ That explains everything since M42: M49's audit (the windows are narrower than
+> the gait ranges, and the ankles pass only because they were swept *into* theirs),
+> M44's moment-arm reversal (a clamped cable cannot reverse), and the whole
+> anchor-sweep programme, which was a search for the corner of a window.
+>
+> ⚠️ **And it qualifies M42's headline.** *"The moment arm is emergent from the
+> geometry"* holds **where the cable wraps** — for the hip, a fraction of its range.
+> As a validation that a wrap reproduces the sheave radius it stands; as the model
+> for a wide-ROM joint it does not. Five milestones never noticed **because the
+> stance pose sits inside the window**.
+>
+> The alternatives were measured and rejected: a sheave big enough to work is
+> **1.11× the femur it sits on**, and narrowing the hip excursion costs **35 % of the
+> stride**. What clamping costs is a cable **fixed to each sheave** — a groove and a
+> ferrule that `mechanical/` does not yet draw.
+> [ADR-0055](docs/DESIGN_DECISIONS.md).
 
 ## Why tendon-driven?
 

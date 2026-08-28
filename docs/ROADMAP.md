@@ -114,7 +114,10 @@ sequences the work that implements them.
 > **M49 done:** the routing audit — **only the ANKLES were ever validated across
 > the gait**, and the hind hip has no fix at any anchor
 > ([ADR-0054](DESIGN_DECISIONS.md)).
-> 452 passed + 5 xfailed Python, 17 Rust.
+> **M50 done:** a resting wrap has a **working window**, a clamped capstan does
+> not — and that explains every routing finding since M42
+> ([ADR-0055](DESIGN_DECISIONS.md)).
+> 454 passed + 5 xfailed Python, 17 Rust.
 
 ---
 
@@ -2350,7 +2353,50 @@ with the leg, or a narrower hip excursion from the gait.
 angles (three here, two ankle ones from M48) stay recorded so the milestone that
 lands them starts from a measurement.
 
-## Later milestones (candidate M50+, not committed)
+## Milestone M50 — A clamped capstan has no working window (DONE)
+
+M49 found the hind hip has **no anchor angle that works** and called for a different
+construction. This is it, and it explains everything since M42.
+
+A cable that merely **rests** on a sheave gives the sheave's radius only while it
+actually wraps. Outside that the arm is whatever the straight line gives:
+
+| q1 | resting wrap | clamped capstan |
+|---|---|---|
+| —120° (past the gait range) | 12.956 mm | 28.000 |
+| **—110°** (its far edge) | **21.034** | 28.000 |
+| —90° | 31.979 | 28.000 |
+| **—60°** | **36.332** | 28.000 |
+| —10° and above | 28.000 | 28.000 |
+
+Across the hind hip's —110..—35.1° gait range the resting arm swings **21.03 to
+36.33 mm — 1.73× on a 28 mm specification**. ✅ **The clamped one is exactly
+28.000 at every angle**, because the cable is *fixed to the sheave* rather than
+resting on it. ✅ And it costs **21 % of one turn** of wrapped length.
+
+✅ **What it explains:** M49's audit (the windows are narrower than the gait
+ranges, and the ankles pass only because M42—M45 swept them *into* their windows);
+M44's moment-arm reversal (a clamped cable cannot reverse); and the whole
+anchor-sweep programme, which was a search for the corner of a window.
+
+⚠️ **And it qualifies M42's headline.** *"The moment arm is emergent from the
+geometry"* is true **where the cable wraps** — for the hip, `q1 >= —10°`, a
+fraction of its range. As a validation that a wrap reproduces the sheave radius it
+stands. As the model for a wide-ROM joint it does not, and five milestones of
+stance-pose checks never noticed **because the stance pose sits inside the window**.
+
+**The two alternatives, priced and rejected.** A **larger sheave**: only r = 50 mm
+is clean, and it would also cut the standing tension 205 → 110 N — but that is a
+±100 mm sheave on a **90 mm femur, 1.11× the segment it sits on**. A **narrower
+hip excursion**: the window ends near —95° and the trot commands —110, so the gait
+gives up ~15° of extension — **35 mm of a 100 mm stride, 35 %**. Clamping costs
+neither; what it costs is a **cable fixed to each sheave**, which `mechanical/` does
+not draw.
+
+**Nothing ships.** M48's rule stands — the re-derivation touches 17 tests across
+M42—M47 and happens **once**. What M50 adds is a construction to re-derive *to*.
+
+## Later milestones (candidate M51+, not committed)
 
 > This list is **curated, not append-only**. When a milestone closes an item it is
 > deleted here and the reasoning kept in the [ADR log](DESIGN_DECISIONS.md). Earlier
@@ -2359,15 +2405,16 @@ lands them starts from a measurement.
 
 ### Next — fold it in, then re-publish
 
-- **M50 — THE HIND HIP NEEDS A DIFFERENT CONSTRUCTION.** ⚠️ ADR-0054: its
-  74.9° gait range is wider than the sheave construction's working window, and no
-  anchor angle or spool offset fixes it. Candidates: a **larger hip sheave**, a
-  **via-pulley at the girdle** so the incoming direction turns with the leg, or a
-  **narrower hip excursion** from the gait. This is now the critical path —
-  everything else queues behind it.
-- **Then land all five measured anchors at once**: hind knee 75°, fore hip 135°,
-  fore knee 285° (ADR-0054), hind ankle 270°, fore ankle 300° (ADR-0053).
-  ⚠️ Together with the hind hip's fix, and the 17-test re-derivation, **once**.
+- **M51 — REBUILD THE ROUTING ON CLAMPED CAPSTANS**, and do the 17-test
+  re-derivation **once**. ⚠️ ADR-0055 settled the construction; this lands it. The
+  moment arm becomes an analytic `r·q` term rather than a wrap geom, the way M46's
+  spool carries its wound length — trading emergence for exactness, deliberately,
+  because the emergent version is only correct inside a window the gait leaves.
+  ✅ The anchor angles M48 and M49 measured become unnecessary for any joint that
+  clamps; they stay recorded for any that does not.
+- **`mechanical/` owes a CABLE TERMINATION at every sheave.** ⚠️ ADR-0043's leg was
+  drawn with cables resting in grooves. Clamping needs a fitting, a groove profile
+  and an assembly step per joint.
 - **Then the ANKLE ANCHOR MIGRATION: hind 270°, fore whatever the mirrored leg
   wants.** ⚠️ It re-derives 17 tests across M42—M47, so it must come after the fore
   leg and be done **once**. Every number for it is in ADR-0053.
@@ -2534,6 +2581,7 @@ Kept as a short table so the deletions above are auditable rather than silent.
 | Drive the spooled plant | M47 — [ADR-0052](DESIGN_DECISIONS.md): cascade derived in closed form; G3 now needs a servo bandwidth beside it |
 | Migrate the ankle anchor | M48 — [ADR-0053](DESIGN_DECISIONS.md): deferred; the fore leg's routing was never mirrored, and three control findings retract |
 | Mirror the fore leg | M49 — [ADR-0054](DESIGN_DECISIONS.md): narrowed — only the ankles were ever validated; 3 of 4 fixes measured, the hind hip has none |
+| Settle the hind hip's construction | M50 — [ADR-0055](DESIGN_DECISIONS.md): clamp the cable to the sheave; a resting wrap has a window, a clamped capstan does not |
 
 ## Open reconciliation items (lead)
 
