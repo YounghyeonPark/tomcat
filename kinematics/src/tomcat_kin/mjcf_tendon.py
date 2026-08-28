@@ -352,6 +352,68 @@ def drivetrain_xml(prefix: str, ankle_pair: bool, k_series: float,
     return nl.join(b), nl.join(w), nl.join(e), nl.join(a)
 
 
+def clamped_tendons(name: str, arms, ankle_pair: bool = True) -> str:
+    """Every cable of one leg, as a CLAMPED capstan.
+
+    ✅ [ADR-0055](../../../docs/DESIGN_DECISIONS.md) settled the construction: a
+    cable **fixed to the sheave** has a moment arm of exactly `r` at every angle,
+    where one that merely rests on it has a working window. The hind hip's window is
+    `q1 >= -10 deg` against a gait range of -110..-35.1, and across that the resting
+    arm swings **21.0 to 36.3 mm on a 28 mm specification**.
+
+    A clamped cable's length is therefore **exactly** `sum r_j * q_j` over the joints
+    it crosses, which is a `<fixed>` tendon and not a routed path.
+
+    ⚠️ **That means the moment arm stops being emergent, and it is worth being
+    plain about what that costs.** ADR-0047's headline -- the arm comes out as the
+    sheave radius from the geometry alone, and ADR-0042's +/-8.75 mm/rad coupling
+    with it -- was measured on the wrapped construction, at the stance pose. It is a
+    real *validation* that a wrap reproduces the radius where it wraps. It is not
+    the model any more: with the cable clamped, the map **is** the analytic one
+    `TendonMap` has carried since M4, and the simulation no longer derives it
+    independently.
+
+    Signs are the design intent, and they match what the wrapped plant measured at
+    the stance pose where its wrap is correct: the pair straddles each sheave, and
+    every distal cable picks up the proximal joints at the via-pulley radius.
+    """
+    r_hip, r_knee, r_ankle = (float(a) for a in arms)
+    v = VIA_R
+    rows = {
+        "hip_flex": [("q1", +r_hip)],
+        "hip_ext": [("q1", -r_hip)],
+        "knee_flex": [("q1", -v), ("q2", +r_knee)],
+        "knee_ext": [("q1", -v), ("q2", -r_knee)],
+        "ankle": [("q1", -v), ("q2", -v), ("q3", -r_ankle)],
+    }
+    if ankle_pair:
+        rows["ankle_ext"] = [("q1", -v), ("q2", -v), ("q3", +r_ankle)]
+    out = []
+    for tname in tendon_names(name, ankle_pair):
+        short = tname.split("_", 1)[1]
+        out.append(f'    <fixed name="{tname}">')
+        for jn, coef in rows[short]:
+            out.append(f'      <joint joint="{name}_{jn}" coef="{coef:.6f}"/>')
+        out.append("    </fixed>")
+    return "\n".join(out)
+
+
+def clamped_actuators(name: str, ankle_pair: bool = True) -> str:
+    """Pull-only motors on the clamped cables, one per tendon.
+
+    ⚠️ One per TENDON, which is [ADR-0002](../../../docs/DESIGN_DECISIONS.md)'s
+    architecture and not [ADR-0008](../../../docs/DESIGN_DECISIONS.md)'s. ADR-0056
+    found the two conflict and nobody has decided between them; see ADR-0057. This
+    keeps the count the simulation has always had so that the transmission change
+    is measured on its own.
+    """
+    return "\n".join(
+        f'    <motor name="m_{t}" tendon="{t}" gear="-1" '
+        f'ctrlrange="0 {TENSION_MAX:.0f}" ctrllimited="true" '
+        f'forcerange="0 {TENSION_MAX:.0f}" forcelimited="true"/>'
+        for t in tendon_names(name, ankle_pair))
+
+
 def _ankle_anchor_deg(leg_p) -> float:
     """Where this leg's ankle cables anchor on the sheave, in degrees.
 
@@ -413,7 +475,8 @@ def leg_tendon_xml(name: str, leg_p, arms, indent: int = 4,
                    mount=(0.0, 0.0, 0.0),
                    ankle_springref: float | None = None,
                    ankle_pair: bool = False,
-                   ankle_spring: float | None = None) -> tuple[str, str, str]:
+                   ankle_spring: float | None = None,
+                   clamped: bool = False) -> tuple[str, str, str]:
     """One tendon-driven leg. Returns (body_xml, tendon_xml, actuator_xml).
 
     The kinematic chain is the same four links `mjcf.py` builds. What is added:
@@ -621,6 +684,20 @@ def leg_tendon_xml(name: str, leg_p, arms, indent: int = 4,
     S = lambda s: f'      <site site="{s}"/>'                       # noqa: E731
     G = lambda g, sd: f'      <geom geom="{g}" sidesite="{sd}"/>'   # noqa: E731
 
+    if clamped:
+        if elastic:
+            raise ValueError(
+                "cable elasticity cannot live on a CLAMPED tendon. A `<fixed>` "
+                "tendon's length is the commanded sum r*q, so a `stiffness` on it "
+                "is a passive JOINT spring, not a stretching cable -- and adding "
+                "one would pull the joints toward `springlength`. With the cable "
+                "clamped, ADR-0047's G3 series element belongs in the drivetrain: "
+                "build with `spools=<series_k>` (ADR-0051), where it is an exact "
+                "torsional spring between rotor and spool. Asking for both used "
+                "to return a silently INELASTIC plant.")
+        return "\n".join(b), clamped_tendons(name, arms, ankle_pair), \
+            clamped_actuators(name, ankle_pair)
+
     t = []
     # hip: antagonistic pair, both on the hip sheave, opposite sides
     t.append(spatial(f"{name}_hip_flex", [
@@ -682,7 +759,8 @@ GIRDLE_X = 0.105
 def quadruped_rig(hip_height: float = 0.175, elastic: dict | None = None,
                   trunk_mass: float | None = None,
                   ankle_pair: bool = False,
-                  ankle_spring: float | None = None) -> str:
+                  ankle_spring: float | None = None,
+                  clamped: bool = False) -> str:
     """Four tendon-driven legs on a floating trunk — the whole-body stand gate.
 
     Twelve leg DOF, **twenty tendons, twenty actuators**, all pull-only. The spine
@@ -708,7 +786,7 @@ def quadruped_rig(hip_height: float = 0.175, elastic: dict | None = None,
                                  mount=(gx, ty, 0.0),
                                  ankle_springref=_stance_ankle(lp),
                                  ankle_pair=ankle_pair,
-                                 ankle_spring=ankle_spring)
+                                 ankle_spring=ankle_spring, clamped=clamped)
         bodies.append(b)
         tendons.append(t)
         acts.append(a)
@@ -875,7 +953,8 @@ def single_leg_rig(leg_p=DEFAULT_HINDLEG, arms=None, hip_height: float = 0.20,
                    ankle_spring: float | None = None,
                    spools: float | None = None,
                    spool_a0: dict | None = None,
-                   spool_servo: bool = False) -> str:
+                   spool_servo: bool = False,
+                   clamped: bool = False) -> str:
     """A one-leg test rig — the gate before anything whole-body is attempted.
 
     `fixed_hip=True` welds the hip to the world so the question is purely *can
@@ -887,7 +966,7 @@ def single_leg_rig(leg_p=DEFAULT_HINDLEG, arms=None, hip_height: float = 0.20,
     body, tendons, acts = leg_tendon_xml(
         "L", leg_p, arms, indent=6, elastic=elastic,
         ankle_springref=_stance_ankle(leg_p), ankle_pair=ankle_pair,
-        ankle_spring=ankle_spring)
+        ankle_spring=ankle_spring, clamped=clamped)
 
     # spool sites live on the fixed mount, i.e. the girdle
     spool_sites = chr(10).join(

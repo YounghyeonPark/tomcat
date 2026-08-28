@@ -15,10 +15,10 @@ cat-like agility, energy-efficient movement, and passive shock absorption.
 
 ## Progress
 
-Fifty-one milestones in. The model now spans kinematics → real mass → 3D
+Fifty-two milestones in. The model now spans kinematics → real mass → 3D
 static stability → whole-body dynamics → a dynamic gait → closed-loop balance →
 an independent physics-engine cross-check → thermal duty → whole-body force
-allocation, with **457 passing + 5 suspended Python tests and 17 Rust** and every figure below
+allocation, with **461 passing + 5 suspended Python tests and 17 Rust** and every figure below
 generated from the live model (`python tools/make_progress_figures.py`), so a
 published number cannot drift from the code.
 
@@ -274,6 +274,7 @@ is **1.97**. That remedy *is* cheap: one step up in stock tube, under 4 g.
 | M49 | **Only the ankles** were validated | a check at one operating point is not a check — hip and knee fail on **both** legs |
 | M50 | **Clamp the cable** to the sheave | a resting wrap has a working window; a clamped capstan does not — and that explains everything since M42 |
 | M51 | Housekeeping, mostly **blocked** | the simulation never implemented the **variable-radius pulley** — 1.05 kg of unbudgeted motor |
+| M52 | The **clamped transmission** | exact on both legs at every angle — and two accepted ADRs want **different robots** |
 
 Full detail in the [roadmap](docs/ROADMAP.md) and the [ADR log](docs/DESIGN_DECISIONS.md).
 
@@ -571,6 +572,26 @@ Full detail in the [roadmap](docs/ROADMAP.md) and the [ADR log](docs/DESIGN_DECI
 > dominant cost was re-measuring the tendon Jacobian every 25 steps rather than the
 > simulated horizon. Nothing was shortened and no assertion loosened.
 > [ADR-0056](docs/DESIGN_DECISIONS.md).
+
+> ### ✅ M52: the clamped transmission, and a conflict worth naming
+>
+> ✅ **Built, and exact.** A clamped cable's length is exactly `sum r·q` over the
+> joints it crosses, so the moment arms are the specification **at every angle on
+> both legs** — ±28.000 at the hip, ±25.000 at the knee, ±14.000 at the ankle,
+> —8.750 couplings — where the wrapped construction was 23.8 mm out on a 25 mm
+> specification at the fore knee. M49's audit would pass outright, so the routing
+> programme that ran from M47 to M50 is finished. ⚠️ The price, stated plainly: the
+> moment arm is no longer *emergent*, it is the analytic map again.
+>
+> ⚠️ **And two accepted decisions want different robots.** ADR-0002 makes
+> co-contraction a **first-class control input**; ADR-0008 runs **one motor per
+> antagonistic pair** and calls it *"a change of transmission, not of DOF"*. That is
+> true of the joint angles and **false of the stiffness** — co-contraction is the
+> redundant coordinate, and measured, the paired leg has a **three-dimensional null
+> space** that one motor per pair would remove entirely. So it is: co-contraction
+> commandable at **5.36 kg**, or the budget closed at **4.30** with stiffness
+> scheduled by pulley geometry. M52 does not decide it; it is a requirements trade
+> with an accepted ADR on each side. [ADR-0057](docs/DESIGN_DECISIONS.md).
 
 ## Why tendon-driven?
 

@@ -27,7 +27,17 @@ context, and consequences. Status is one of: **Proposed**, **Accepted**,
 > during SWING**, and under Option B nothing pulls that way at all. Cost: four
 > motors, **+528 g**, 19 → 23 actuators.
 
-- **Status:** Accepted; the ankle case revised by ADR-0050
+> ⚠️ **IN CONFLICT WITH [ADR-0008](#adr-0008), and [ADR-0057](#adr-0057) (M52)
+> shows it cannot be papered over.** This ADR makes co-contraction `T_bias` a
+> **first-class control input**. ADR-0008 runs **one motor per antagonistic pair**
+> and calls it *"a change of transmission, not of DOF"* -- true of the joint angles,
+> **false of the stiffness**. Co-contraction is the redundant coordinate, and one
+> motor per pair removes it: measured, the paired leg's allocation has **three**
+> co-contraction directions and ADR-0008's would have **none**. The project has been
+> running this ADR in simulation and ADR-0008 in the mass budget.
+
+- **Status:** Accepted; the ankle case revised by ADR-0050; ⚠️ **conflicts with
+  ADR-0008 -- see ADR-0057**
 - **Context:** A cable can only pull, not push. Each DOF needs a way to move in
   both directions.
 - **Options:**
@@ -4201,6 +4211,93 @@ That took **one missing link** and **three fixes**, and the fixes are the findin
   not looking for, and both were found by asking *"does this number converge?"* and
   *"where does this number come from?"* -- the same two questions that found
   ADR-0054's audit.
+
+## ADR-0057: The clamped transmission, built -- and ADR-0002 and ADR-0008 want different robots
+
+- **Status:** Accepted. The clamped-capstan transmission ships as `clamped=True` in
+  `mjcf_tendon.py`. **Implements [ADR-0055](#adr-0055). Passes
+  [ADR-0054](#adr-0054)'s audit outright. Sharpens [ADR-0056](#adr-0056)'s
+  motor-count finding into a conflict between two accepted decisions, and does not
+  resolve it.**
+- **Context:** ADR-0055 settled that every antagonistic joint should be a **clamped
+  capstan** rather than a resting wrap, because a resting wrap's moment arm is the
+  sheave radius only inside a window the gait leaves. ADR-0056 then found the
+  simulation runs 20 leg motors where the mass budget carries 12. M52 builds the
+  first and takes the measure of the second.
+
+### ✅ The clamped transmission is exact
+
+- Clamped, a cable's length is exactly `sum r_j * q_j` over the joints it crosses --
+  a `<fixed>` tendon, not a routed path. Built:
+
+  | | hip pair | knee pair | ankle pair | couplings |
+  |---|---|---|---|---|
+  | hind, stance | +/-28.000 | +/-25.000 | +/-14.000 | -8.750 |
+  | hind, q1 = -110 deg | +/-28.000 | +/-25.000 | +/-14.000 | -8.750 |
+  | fore, stance | +/-28.000 | +/-25.000 | +/-14.000 | -8.750 |
+  | fore, q1 = -168 deg | +/-28.000 | +/-25.000 | +/-14.000 | -8.750 |
+
+  Against the wrapped construction ADR-0054 audited: hind hip same-sign at 6 of 13
+  gait samples, fore hip at 5, fore knee **23.81 mm out on a 25 mm specification**.
+- ✅ **And it holds on gravity feedforward alone** -- 0.00 deg at `kp = 0`, on a
+  co-contraction floor, and at every joint gain tried. With every pair exact the
+  non-negative allocation is never tight, which is the same reason
+  [ADR-0053](#adr-0053) retracted ADR-0047's *"feedforward cannot hold a pose"*.
+- ⚠️ **The arm is no longer emergent, and that is the price.** ADR-0047's headline
+  was that the sheave radius comes out of the routing on its own, with ADR-0042's
+  +/-8.75 mm/rad coupling alongside it. Clamped, the map **is** the analytic one
+  `TendonMap` has carried since M4; the simulation no longer derives it
+  independently. ADR-0055 made that trade knowingly -- the emergent version is only
+  correct inside a window -- but it should be said plainly rather than left for a
+  reader to notice.
+- ⚠️ **A silent failure closed on the way.** `single_leg_rig_elastic(clamped=True)`
+  used to return a plant with **stiffness 0.0 on every tendon** while the caller
+  believed it had asked for 175 kN/m: a `<fixed>` tendon's length is the commanded
+  `sum r*q`, so a `stiffness` on it is a passive **joint** spring, not a stretching
+  cable. It raises now, and points at where the G3 element belongs with a clamped
+  cable -- the drivetrain, `spools=<series_k>` from [ADR-0051](#adr-0051).
+
+### ⚠️ ADR-0002 and ADR-0008 want different robots
+
+- ADR-0056 called this *"the simulation never implemented the variable-radius
+  pulley"*. It is worse than an omission. Read the two decisions side by side:
+  - [ADR-0002](#adr-0002): antagonistic pairs *"for joints whose **stiffness must
+    vary**, with co-contraction bias `T_bias` exposed as a **first-class control
+    input**"*, closing *"Stiffness becomes commandable."*
+  - [ADR-0008](#adr-0008): *"one motor per antagonistic pair via the variable-radius
+    pulley"*, and *"**Full articulation is retained** -- this is a change of
+    transmission, not of DOF."*
+- ⚠️ **That last sentence is true of the joint angles and false of the stiffness.**
+  Co-contraction is not a position DOF, it is the **redundant coordinate**. Measured
+  on the clamped paired leg, the allocation `G` is 3x6 with a **three-dimensional
+  null space** -- one co-contraction direction per pair -- and the same joint torque
+  is reachable at a 5 N floor and at a 40 N floor. One motor per pair leaves
+  **none**: a variable radius lets co-contraction be *scheduled* against joint angle,
+  baked into the pulley, not commanded at runtime. **ADR-0008 never mentions
+  stiffness or co-contraction.**
+- So the choice is not budget-versus-simulation. It is:
+  - **Keep ADR-0002.** Co-contraction stays commandable; the leg motor count is 20,
+    and the body is **5.36 kg** (5.89 with ADR-0050's ankle pair) against the 4-5 kg
+    band NFR5 has been anchored to since [ADR-0010](#adr-0010).
+  - **Keep ADR-0008.** The budget closes at 4.30 kg, and the project gives up what
+    [ADR-0021](#adr-0021) priced standing on, what ADR-0002's AIC rule is built
+    around, and what M43 measured as the thing that keeps the clipped allocator
+    exact.
+- **M52 does not decide it.** It is a requirements-level trade between mass and
+  controllability, and both sides have accepted ADRs behind them.
+
+### Consequences
+
+- ✅ **`clamped=True` is available and exact**, and it is what the re-derivation
+  should target. It is not yet the default, because the default carries M42-M51's
+  published numbers and the re-derivation happens **once**.
+- ⚠️ **The motor-count decision now blocks the re-derivation**, because it sets how
+  many actuators the re-derived plant has. That is the next milestone and it is a
+  decision, not a measurement.
+- ⚠️ **NFR5 has no single answer until it is made**: 4.30, 5.36 or 5.89 kg.
+- ✅ **ADR-0054's audit would pass on the clamped plant**, on both legs, at every
+  angle -- so the routing programme that ran from ADR-0052 to ADR-0055 is finished,
+  and what remains is bookkeeping plus one decision.
 
 ---
 

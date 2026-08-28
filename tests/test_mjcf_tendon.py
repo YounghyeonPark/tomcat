@@ -2948,3 +2948,222 @@ def test_the_SUITE_got_three_times_faster_by_measuring_what_cost_it():
     assert "REFRESH_MOVING" in src, (
         "the cascade tracking test crosses the ankle reversal and must refresh"
     )
+
+
+# ===================================================================
+# M52 - the clamped transmission, built
+# ===================================================================
+
+def test_the_CLAMPED_transmission_is_EXACT_on_both_legs_everywhere():
+    """✅ **ADR-0055's construction, built, and it passes ADR-0054's audit
+    outright.**
+
+    Clamped, a cable's length is exactly `sum r_j * q_j` over the joints it crosses,
+    so the moment arms are the specification at every angle, on both legs:
+
+    | | hip pair | knee pair | ankle pair | couplings |
+    |---|---|---|---|---|
+    | hind, stance | ±28.000 | ±25.000 | ±14.000 | -8.750 |
+    | hind, q1 = -110° | ±28.000 | ±25.000 | ±14.000 | -8.750 |
+    | fore, stance | ±28.000 | ±25.000 | ±14.000 | -8.750 |
+    | fore, q1 = -168° | ±28.000 | ±25.000 | ±14.000 | -8.750 |
+
+    Compare the wrapped construction the same audit measured: the hind hip
+    same-sign at 6 of 13 gait samples, the fore hip at 5, the fore knee **23.81 mm
+    out on a 25 mm specification**.
+
+    ⚠️ **And the arm is no longer emergent.** ADR-0047's headline was that the
+    sheave radius comes out of the routing on its own; clamped, the map **is** the
+    analytic one `TendonMap` has carried since M4, and the simulation no longer
+    derives it independently. That is the trade ADR-0055 made deliberately: the
+    emergent version is only correct inside a window the gait leaves.
+    """
+    arms = np.asarray(DEFAULT_TENDON.joint_moment_arm) * 1e3
+    via = MT.VIA_R * 1e3
+    names = ["L_hip_flex", "L_hip_ext", "L_knee_flex", "L_knee_ext",
+             "L_ankle", "L_ankle_ext"]
+
+    for leg_p, extreme in ((DEFAULT_HINDLEG, -110.0), (DEFAULT_FORELEG, -168.0)):
+        q = np.asarray(LegModel(leg_p).inverse((0.04, -0.17, 0.0)), float)
+        m = mujoco.MjModel.from_xml_string(
+            MT.single_leg_rig(leg_p=leg_p, clamped=True, ankle_pair=True))
+        tid = [mujoco.mj_name2id(m, mujoco.mjtObj.mjOBJ_TENDON, n)
+               for n in names]
+        dof = [m.jnt_dofadr[mujoco.mj_name2id(m, mujoco.mjtObj.mjOBJ_JOINT, n)]
+               for n in JNT]
+        for q1 in (None, extreme):
+            J = np.zeros((6, 3))
+            for k in range(3):
+                Ls = []
+                for sgn in (+1, -1):
+                    d = mujoco.MjData(m)
+                    for i, a in enumerate(dof):
+                        d.qpos[a] = q[i]
+                    if q1 is not None:
+                        d.qpos[dof[0]] = math.radians(q1)
+                    d.qpos[dof[k]] += sgn * 0.002
+                    mujoco.mj_forward(m, d)
+                    Ls.append(np.array([d.ten_length[t] for t in tid]))
+                J[:, k] = (Ls[0] - Ls[1]) / 0.004
+            J = J * 1e3
+            assert J[0, 0] == pytest.approx(+arms[0], abs=1e-6)
+            assert J[1, 0] == pytest.approx(-arms[0], abs=1e-6)
+            assert J[2, 1] == pytest.approx(+arms[1], abs=1e-6)
+            assert J[3, 1] == pytest.approx(-arms[1], abs=1e-6)
+            assert J[4, 2] == pytest.approx(-arms[2], abs=1e-6)
+            assert J[5, 2] == pytest.approx(+arms[2], abs=1e-6)
+            for row in (2, 3, 4, 5):
+                assert J[row, 0] == pytest.approx(-via, abs=1e-6)
+
+
+def test_the_clamped_leg_HOLDS_on_gravity_feedforward_alone():
+    """✅ **And it is well conditioned enough that the control findings which
+    M48 retracted stay retracted, for the same reason.**
+
+    With every joint's pair exact at every angle, the non-negative allocation is
+    never tight, and the leg holds to **0.00°** on gravity feedforward alone
+    (`kp = 0`), on a co-contraction floor, and at every joint gain tried.
+
+    ⚠️ ADR-0047 reported that feedforward *cannot* hold a pose. ADR-0053 already
+    retracted that as a consequence of an under-actuated ankle rather than of the
+    control law; this shows the same on a plant whose arms are exact rather than
+    merely better.
+    """
+    q = np.asarray(LegModel(DEFAULT_HINDLEG).inverse((0.04, -0.17, 0.0)), float)
+    names = ["L_hip_flex", "L_hip_ext", "L_knee_flex", "L_knee_ext",
+             "L_ankle", "L_ankle_ext"]
+    m = mujoco.MjModel.from_xml_string(
+        MT.single_leg_rig(clamped=True, ankle_pair=True))
+    tid = [mujoco.mj_name2id(m, mujoco.mjtObj.mjOBJ_TENDON, n) for n in names]
+    dof = [m.jnt_dofadr[mujoco.mj_name2id(m, mujoco.mjtObj.mjOBJ_JOINT, n)]
+           for n in JNT]
+    A = [mujoco.mj_name2id(m, mujoco.mjtObj.mjOBJ_ACTUATOR, "m_" + n)
+         for n in names]
+    J = np.zeros((6, 3))
+    for k in range(3):
+        Ls = []
+        for sgn in (+1, -1):
+            d = mujoco.MjData(m)
+            for i, a in enumerate(dof):
+                d.qpos[a] = q[i]
+            d.qpos[dof[k]] += sgn * 0.002
+            mujoco.mj_forward(m, d)
+            Ls.append(np.array([d.ten_length[t] for t in tid]))
+        J[:, k] = (Ls[0] - Ls[1]) / 0.004
+    G = (-J).T
+
+    for kp, kd, tb in ((0.0, 0.0, 19.6), (10.0, 0.2, 5.0), (50.0, 1.0, 19.6)):
+        d = mujoco.MjData(m)
+        for i, a in enumerate(dof):
+            d.qpos[a] = q[i]
+        for _ in range(20000):
+            mujoco.mj_forward(m, d)
+            e = np.array([q[i] - d.qpos[a] for i, a in enumerate(dof)])
+            ev = np.array([-d.qvel[a] for a in dof])
+            T = wbc.tendon_tension(G, wbc.actuator_torque(d, dof,
+                                                          kp * e + kd * ev),
+                                   t_min=tb, t_max=MT.TENSION_MAX)
+            for i, a in enumerate(A):
+                d.ctrl[a] = float(T[i])
+            mujoco.mj_step(m, d)
+            assert np.all(np.isfinite(d.qpos)), f"kp={kp} diverged"
+        drift = np.degrees(np.array([d.qpos[a] for a in dof]) - q)
+        assert float(np.max(np.abs(drift))) < 0.01, f"kp={kp}: {drift}"
+
+
+def test_asking_for_ELASTICITY_on_a_clamped_tendon_now_RAISES():
+    """⚠️ **It used to return a silently inelastic plant, which is the failure
+    mode this project keeps paying for.**
+
+    A `<fixed>` tendon's length is the commanded `sum r*q`, not a physical distance,
+    so a `stiffness` on it is a passive **joint** spring pulling toward
+    `springlength` -- not a stretching cable. `clamped_tendons` therefore emits no
+    springs at all, and `single_leg_rig_elastic(clamped=True)` used to hand back a
+    plant with **stiffness 0.0 on every tendon** while the caller believed it had
+    asked for 175 kN/m.
+
+    ✅ With the cable clamped, ADR-0047's **G3 series element belongs in the
+    drivetrain**: `spools=<series_k>` (ADR-0051) puts it where it physically is, as
+    an exact torsional spring between rotor and spool.
+    """
+    q = np.asarray(LegModel(DEFAULT_HINDLEG).inverse((0.04, -0.17, 0.0)), float)
+    with pytest.raises(ValueError, match="CLAMPED"):
+        MT.single_leg_rig_elastic(q_ref=q, series_k=1.75e5, clamped=True)
+    # and the inelastic clamped plant is still buildable, which is what M52 uses
+    m = mujoco.MjModel.from_xml_string(
+        MT.single_leg_rig(clamped=True, ankle_pair=True))
+    assert m.ntendon == 6 and m.nu == 6
+
+
+def test_ADR0002_and_ADR0008_want_DIFFERENT_TRANSMISSIONS():
+    """⚠️ **M51 called this "the simulation never implemented the pulley". It is
+    worse than an omission: the two accepted decisions cannot both be had.**
+
+    [ADR-0002](../docs/DESIGN_DECISIONS.md) decides antagonistic pairs *"for joints
+    whose **stiffness must vary**, with co-contraction bias `T_bias` exposed as a
+    **first-class control input**"*, and closes: *"Stiffness becomes commandable."*
+
+    [ADR-0008](../docs/DESIGN_DECISIONS.md) decides *"one motor per antagonistic
+    pair via the variable-radius pulley"* and says *"**Full articulation is
+    retained** -- this is a change of transmission, not of DOF."*
+
+    ⚠️ **That last sentence is true of the joint angles and false of the
+    stiffness.** Co-contraction is not a position DOF, it is the **redundant
+    coordinate**: with two motors on one joint the tension allocation has one degree
+    of freedom to spend on `T_bias`, and with one motor it has none. A variable
+    radius lets co-contraction be **scheduled** as a function of joint angle, baked
+    into the pulley; it cannot be commanded at runtime. ADR-0008 never mentions
+    stiffness or co-contraction at all.
+
+    So the two are not "budget vs simulation" -- they are **two architectures**, and
+    the project has been running ADR-0002's in simulation and ADR-0008's in the mass
+    budget. Choosing ADR-0008 gives back **1.05 kg** and costs the co-contraction
+    that ADR-0021 priced standing on, ADR-0043 built the AIC rule around, and M43
+    measured as what keeps the clipped allocator exact.
+
+    ⚠️ Asserts the defect: fails when one of the two is withdrawn.
+    """
+    # the simulation implements ADR-0002: an independent actuator per tendon
+    m = mujoco.MjModel.from_xml_string(
+        MT.quadruped_rig(hip_height=0.176, clamped=True, ankle_pair=False))
+    assert m.nu == 20, "one motor per tendon -- ADR-0002's architecture"
+
+    # and the allocation really does have the redundancy ADR-0008 would remove
+    q = np.asarray(LegModel(DEFAULT_HINDLEG).inverse((0.04, -0.17, 0.0)), float)
+    # the PAIRED leg: every joint has an antagonist, so raising the floor can leave
+    # the joint torques alone. With a lone ankle it cannot -- its torque follows its
+    # tension, which is ADR-0050's finding and not this one.
+    leg = mujoco.MjModel.from_xml_string(
+        MT.single_leg_rig(clamped=True, ankle_pair=True))
+    names = ["L_hip_flex", "L_hip_ext", "L_knee_flex", "L_knee_ext", "L_ankle",
+             "L_ankle_ext"]
+    tid = [mujoco.mj_name2id(leg, mujoco.mjtObj.mjOBJ_TENDON, n) for n in names]
+    dof = [leg.jnt_dofadr[mujoco.mj_name2id(leg, mujoco.mjtObj.mjOBJ_JOINT, n)]
+           for n in JNT]
+    J = np.zeros((6, 3))
+    for k in range(3):
+        Ls = []
+        for sgn in (+1, -1):
+            d = mujoco.MjData(leg)
+            for i, a in enumerate(dof):
+                d.qpos[a] = q[i]
+            d.qpos[dof[k]] += sgn * 0.002
+            mujoco.mj_forward(leg, d)
+            Ls.append(np.array([d.ten_length[t] for t in tid]))
+        J[:, k] = (Ls[0] - Ls[1]) / 0.004
+    G = (-J).T
+    assert G.shape == (3, 6)
+    # six tendons, three joints: THREE dimensions of co-contraction to command,
+    # one per antagonistic pair -- exactly what one motor per pair would remove
+    assert G.shape[1] - np.linalg.matrix_rank(G) == 3, (
+        "ADR-0002's architecture leaves one co-contraction direction per pair; "
+        "ADR-0008's one-motor-per-pair leaves none"
+    )
+    # a different T_bias really does change the tensions at the same torque
+    tau = np.array([0.3, -0.2, -0.1])
+    low = wbc.tendon_tension(G, tau, t_min=5.0, t_max=MT.TENSION_MAX)
+    high = wbc.tendon_tension(G, tau, t_min=40.0, t_max=MT.TENSION_MAX)
+    assert float(np.min(high)) > float(np.min(low)) + 20.0
+    assert np.allclose(G @ low, G @ high, atol=1e-9), (
+        "same joint torque, different co-contraction -- the freedom ADR-0008 spends"
+    )

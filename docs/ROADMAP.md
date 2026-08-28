@@ -120,7 +120,10 @@ sequences the work that implements them.
 > **M51 done:** housekeeping — the suite is 3× faster, and **the simulation
 > never implemented ADR-0008's variable-radius pulley**
 > ([ADR-0056](DESIGN_DECISIONS.md)).
-> 457 passed + 5 xfailed Python, 17 Rust.
+> **M52 done:** the **clamped transmission** is built and exact — and ADR-0002
+> and ADR-0008 turn out to want **different robots**
+> ([ADR-0057](DESIGN_DECISIONS.md)).
+> 461 passed + 5 xfailed Python, 17 Rust.
 
 ---
 
@@ -2450,7 +2453,58 @@ measured a frozen Jacobian driving a joint to the wrong end stop. So there are t
 constants with the reason attached. `test_mjcf_tendon.py` **306 s → 95 s**, the
 suite **12:21 → 4:41**.
 
-## Later milestones (candidate M52+, not committed)
+## Milestone M52 — The clamped transmission, and a conflict between two ADRs (DONE)
+
+✅ **The clamped capstan is built and it is exact.** A clamped cable's length is
+exactly `sum r·q` over the joints it crosses — a `<fixed>` tendon, not a routed
+path — so the moment arms are the specification at every angle, on both legs:
+
+| | hip pair | knee pair | ankle pair | couplings |
+|---|---|---|---|---|
+| hind, stance | ±28.000 | ±25.000 | ±14.000 | —8.750 |
+| hind, q1 = —110° | ±28.000 | ±25.000 | ±14.000 | —8.750 |
+| fore, stance | ±28.000 | ±25.000 | ±14.000 | —8.750 |
+| fore, q1 = —168° | ±28.000 | ±25.000 | ±14.000 | —8.750 |
+
+Against the wrapped construction M49 audited — hind hip same-sign at 6 of 13 gait
+samples, fore knee **23.81 mm out on a 25 mm specification**. ✅ **M49's audit would
+pass outright**, so the routing programme that ran from M47 to M50 is finished.
+✅ And the leg holds on **gravity feedforward alone**, 0.00° at `kp = 0`.
+
+⚠️ **The arm is no longer emergent, and that is the price.** M42's headline was that
+the sheave radius comes out of the routing on its own. Clamped, the map **is** the
+analytic one `TendonMap` has carried since M4. M50 made that trade knowingly, but it
+should be said plainly.
+
+⚠️ **A silent failure closed on the way**: `single_leg_rig_elastic(clamped=True)`
+used to return a plant with **stiffness 0.0 on every tendon** while the caller
+believed it had asked for 175 kN/m. It raises now — with a clamped cable the G3
+element belongs in the drivetrain (`spools=`), where M46 put it.
+
+⚠️ **And ADR-0002 and ADR-0008 want different robots.** M51 called this *"the
+simulation never implemented the variable-radius pulley"*; it is worse than an
+omission:
+
+- **ADR-0002**: antagonistic pairs *"for joints whose **stiffness must vary**, with
+  co-contraction bias `T_bias` exposed as a **first-class control input**"*.
+- **ADR-0008**: *"one motor per antagonistic pair via the variable-radius pulley"*,
+  and *"**full articulation is retained** — a change of transmission, not of DOF"*.
+
+That last sentence is true of the joint angles and **false of the stiffness**.
+Co-contraction is the **redundant coordinate**: measured on the clamped paired leg,
+`G` is 3×6 with a **three-dimensional null space**, and the same joint torque is
+reachable at a 5 N floor and at a 40 N floor. One motor per pair leaves **none** — a
+variable radius *schedules* co-contraction against angle, it does not command it.
+ADR-0008 never mentions stiffness at all.
+
+So the choice is **keep ADR-0002** (co-contraction commandable, 20 leg motors,
+**5.36 kg**, or 5.89 with the ankle pair) or **keep ADR-0008** (budget closes at
+**4.30 kg**, and the project gives up what M41 priced standing on, what ADR-0002's
+AIC rule is built around, and what M43 measured as keeping the clipped allocator
+exact). **M52 does not decide it** — it is a requirements-level trade with an
+accepted ADR on each side.
+
+## Later milestones (candidate M53+, not committed)
 
 > This list is **curated, not append-only**. When a milestone closes an item it is
 > deleted here and the reasoning kept in the [ADR log](DESIGN_DECISIONS.md). Earlier
@@ -2459,13 +2513,14 @@ suite **12:21 → 4:41**.
 
 ### Next — fold it in, then re-publish
 
-- **M51 — REBUILD THE ROUTING ON CLAMPED CAPSTANS**, and do the 17-test
-  re-derivation **once**. ⚠️ ADR-0055 settled the construction; this lands it. The
-  moment arm becomes an analytic `r·q` term rather than a wrap geom, the way M46's
-  spool carries its wound length — trading emergence for exactness, deliberately,
-  because the emergent version is only correct inside a window the gait leaves.
-  ✅ The anchor angles M48 and M49 measured become unnecessary for any joint that
-  clamps; they stay recorded for any that does not.
+- **M53 — DECIDE ADR-0002 vs ADR-0008.** ⚠️ ADR-0057: co-contraction
+  commandable at **5.36 kg**, or the budget closed at **4.30** with co-contraction
+  scheduled by pulley geometry instead. It is a requirements trade, not a
+  measurement, and **it blocks the re-derivation** because it sets how many
+  actuators the re-derived plant has.
+- **Then make `clamped=True` the default and re-derive, ONCE.** ⚠️ 17 tests across
+  M42–M47, plus the fore-leg figures M48 flagged. Everything needed is measured and
+  recorded; nothing is left to sweep.
 - **`mechanical/` owes a CABLE TERMINATION at every sheave.** ⚠️ ADR-0043's leg was
   drawn with cables resting in grooves. Clamping needs a fitting, a groove profile
   and an assembly step per joint.
@@ -2634,6 +2689,7 @@ Kept as a short table so the deletions above are auditable rather than silent.
 | Migrate the ankle anchor | M48 — [ADR-0053](DESIGN_DECISIONS.md): deferred; the fore leg's routing was never mirrored, and three control findings retract |
 | Mirror the fore leg | M49 — [ADR-0054](DESIGN_DECISIONS.md): narrowed — only the ankles were ever validated; 3 of 4 fixes measured, the hind hip has none |
 | Settle the hind hip's construction | M50 — [ADR-0055](DESIGN_DECISIONS.md): clamp the cable to the sheave; a resting wrap has a window, a clamped capstan does not |
+| Build the clamped transmission | M52 — [ADR-0057](DESIGN_DECISIONS.md): exact on both legs at every angle; and ADR-0002 vs ADR-0008 is a real conflict |
 
 ## Open reconciliation items (lead)
 
