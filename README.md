@@ -15,10 +15,10 @@ cat-like agility, energy-efficient movement, and passive shock absorption.
 
 ## Progress
 
-Fifty-seven milestones in. The model now spans kinematics → real mass → 3D
+Fifty-eight milestones in. The model now spans kinematics → real mass → 3D
 static stability → whole-body dynamics → a dynamic gait → closed-loop balance →
 an independent physics-engine cross-check → thermal duty → whole-body force
-allocation, with **481 passing + 5 suspended Python tests and 17 Rust** and every figure below
+allocation, with **484 passing + 5 suspended Python tests and 17 Rust** and every figure below
 generated from the live model (`python tools/make_progress_figures.py`), so a
 published number cannot drift from the code.
 
@@ -280,6 +280,7 @@ is **1.97**. That remedy *is* cheap: one step up in stock tube, under 4 g.
 | M55 | The **cascade**, re-derived | the gains transfer unchanged — the cost was **headroom**, and a step command is not a test |
 | M56 | The profile, **priced and declined** | the one joint that needs help has **no shape to exploit** |
 | M57 | The **articulated spine** | 18 of 19 DOF and it **stands** — the sagittal axis had never been in any model |
+| M58 | The sway, **on the real plant** | 6 % of what was designed, every paw slides — two ADRs want **different robots** |
 
 Full detail in the [roadmap](docs/ROADMAP.md) and the [ADR log](docs/DESIGN_DECISIONS.md).
 
@@ -723,6 +724,29 @@ Full detail in the [roadmap](docs/ROADMAP.md) and the [ADR log](docs/DESIGN_DECI
 > and what they need is a control term, not a stiffer body.**
 > ⚠️ The tail remains owed — a motor in the mass budget, and no parameters,
 > joint or body anywhere. [ADR-0062](docs/DESIGN_DECISIONS.md).
+
+> ### ⚠️ M58: the sway does not come out, and a conflict to name
+>
+> M57 built ADR-0009's three lateral spine motors; **nothing had ever asked them
+> to do the job they were bought for.** ADR-0009's case, and M5's careful sway law,
+> are **analytic geometry and a quasi-static margin**.
+>
+> ⚠️ **Run on the plant, the body gets 4.1 mm of the designed 66.7 mm** — about
+> **6 %** — while sliding every paw 7–16 mm, *further than the CoM moves*, and
+> already using **95 %** of the spine's continuous rating. Raising the gain does not
+> sway, it **skates**: at `kp = 100` the "98.9 mm of sway" comes with **484 mm** of
+> scrub, because the robot is sliding across the floor.
+>
+> ✅ **The mechanism was already written down** in `mjcf.py`'s own warning: the
+> legs are planar because **ADR-0017 rejected abduction**, so a sway over planted
+> feet needs foot slip or body roll. Held at ±11°/segment the CoM moves 31.7 mm
+> while the fore feet are carried **82.7 and 98.1 mm**.
+>
+> So two accepted decisions want different robots: **ADR-0009** buys motors to sway
+> the CoM, **ADR-0017** removes the only joint that lets a paw follow. ⚠️ M58 names
+> and measures it, and **does not decide it** — but it suspends ADR-0009's
+> *"+10.1 mm polygon margin"* as an actuated result.
+> [ADR-0063](docs/DESIGN_DECISIONS.md).
 
 ## Why tendon-driven?
 

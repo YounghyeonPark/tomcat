@@ -137,7 +137,10 @@ sequences the work that implements them.
 > **M57 done:** the **articulated spine** ships — 18 of NFR2c's 19 DOF, and the
 > body stands, but only with the stance reaction a chain carries
 > ([ADR-0062](DESIGN_DECISIONS.md)).
-> 481 passed + 5 xfailed Python, 17 Rust.
+> **M58 done:** the sway ADR-0009 bought **does not come out** on the actuated
+> plant — and ADR-0009 and ADR-0017 want different robots
+> ([ADR-0063](DESIGN_DECISIONS.md)).
+> 484 passed + 5 xfailed Python, 17 Rust.
 
 ---
 
@@ -2825,7 +2828,63 @@ degrees of freedom, and what they need is a **control term**, not a stiffer body
 — exactly what M43 suspected when it made the trunk rigid so the gate had *"one
 thing to get wrong"*.
 
-## Later milestones (candidate M58+, not committed)
+## Milestone M58 — The sway does not come out, and a conflict to name (DONE)
+
+M57 built ADR-0009's three lateral spine motors. **It never asked them to do the
+job they were bought for.** ADR-0009's whole case — and M5's careful sway law,
+raised-cosine inside the four-foot windows — is **analytic geometry and a
+quasi-static margin**. This milestone runs it on the plant that has to produce it.
+
+### ⚠️ It does not come out
+
+Shipped walk (period 5 s, duty 0.90, ±11°/segment), at the only gain that keeps
+the six spine motors inside their rating:
+
+| | analytic | measured |
+|---|---|---|
+| CoM sway | **66.7 mm** p-p | **4.1 mm** |
+| foot slip | — (the model has no ground) | **7.3–15.8 mm, all four feet** |
+| spine force | — | **76.8 N** of 81.1 continuous |
+
+⚠️ **The slip is larger than the sway.** The body gets about **6 %** of the
+designed shift and pays by sliding every paw further than the CoM moves — while
+already using **95 %** of the spine's continuous rating to do it.
+
+### ⚠️ More gain skates, it does not sway
+
+| `kp` | track err | CoM "sway" | spine force | foot slip |
+|---|---|---|---|---|
+| 8 | 12.95° | 4.1 mm | 76.8 N | 25.7 mm |
+| 30 | 9.07° | 12.1 mm | **222.9 N, saturated** | 122 mm |
+| 100 | 5.69° | 98.9 mm | saturated | **484 mm** |
+| 300 | 3.80° | 22.8 mm | saturated | 280 mm |
+
+The 98.9 mm at `kp = 100` is **not sway** — it is the robot sliding across the
+floor, which is what the 484 mm of scrub beside it says.
+
+### ✅ The mechanism was already written down
+
+`mjcf.py` carries the warning: the legs are planar because **ADR-0017 rejected
+abduction**, so *"a sway over planted feet needs foot slip or body roll"*. Written
+of the rigid model; it holds on the actuated free-root body too. Held at
+±11°/segment with the root pinned, the CoM moves **31.7 mm** while the fore feet
+are carried **82.7 and 98.1 mm**.
+
+⚠️ That fixed-root figure **overstates the fore share** — with a free root the
+body counter-rotates and the hind feet move too (**2.1×** fore-to-hind, not 3×
+with the hind at zero). What does not change is that **all four paws slide**.
+
+### The conflict, not decided
+
+- **ADR-0009** buys three lateral spine motors so the CoM can sway.
+- **ADR-0017** rejects leg abduction, so no leg joint can move a foot sideways.
+
+A requirements-level trade with an accepted ADR on each side — the same shape as
+ADR-0057's. ⚠️ **M58 does not decide it**, and it suspends ADR-0009's *"+10.1 mm
+polygon margin"* as an actuated result: that margin is computed from a sway the
+plant does not produce.
+
+## Later milestones (candidate M59+, not committed)
 
 > This list is **curated, not append-only**. When a milestone closes an item it is
 > deleted here and the reasoning kept in the [ADR log](DESIGN_DECISIONS.md). Earlier
@@ -2843,9 +2902,15 @@ thing to get wrong"*.
   ⚠️ It named the hind ankle using the **30.2 %** fore share; the chain gives
   **33.0 %**. The verdict may well survive — the profile's yield was *zero*, not
   marginal — but the survey itself was run on the rigid box.
-- **A MOVING spine is untested.** ⚠️ M57's gate is quasi-static standing. Every
-  gait result still assumes a rigid trunk, and `mjcf.py` already warns that a sway
-  over planted feet needs foot slip or body roll.
+- **DECIDE ADR-0009 vs ADR-0017.** ⚠️ ADR-0063: the sway is only realisable if
+  the paws can translate laterally, and ADR-0017 removed the joint that could do
+  it. Options to price: **accept paw scrub** (size it against ADR-0009's own
+  friction limit), **add abduction** (+4 motors against a budget ADR-0058 only just
+  closed), **lengthen the lateral moment arm** (mechanical, trades against
+  tension), or **drop static stability** for dynamic walking — ADR-0009's option
+  E, rejected then because the dynamics milestone did not exist. It exists now.
+- **A WALKING spine is still untested.** ⚠️ M58 is sway *in place*, legs planted.
+  Swing legs and contact transitions are not in it.
 - **`mechanical/` owes a PER-LEG ANKLE ARM.** ⚠️ ADR-0061: the hind ankle runs at
   **1.19×** its continuous rating over a trot and the fix is a constant,
   **14.0 → 16.6 mm**. The arms are shared between legs today and the hind leg's
@@ -3028,6 +3093,7 @@ Kept as a short table so the deletions above are auditable rather than silent.
 | Re-derive the cascade | M55 — [ADR-0060](DESIGN_DECISIONS.md): the gains transfer unchanged; the cost was headroom, and a step command is not a test |
 | Price the variable-radius profile | M56 — [ADR-0061](DESIGN_DECISIONS.md): declined; the binding joint has no shape, and the load split named the other leg |
 | Build the articulated spine | M57 — [ADR-0062](DESIGN_DECISIONS.md): 18 of 19 DOF and it stands; the sagittal axis had never been in any model |
+| Run the sway on the actuated plant | M58 — [ADR-0063](DESIGN_DECISIONS.md): 6 % of the designed sway, and every paw slides; ADR-0009 vs ADR-0017 |
 
 ## Open reconciliation items (lead)
 

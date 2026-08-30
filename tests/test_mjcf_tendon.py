@@ -4707,3 +4707,293 @@ def test_the_SIX_EXTRA_DOF_are_the_DIFFICULTY_not_the_GEOMETRY():
     assert welded["peak"] < box["peak"] + 5.0, (
         f"nor peak force: {welded['peak']:.1f} vs {box['peak']:.1f} N"
     )
+
+
+# ==========================================================================
+# M58 -- the sway ADR-0009 paid three motors for, on the actuated spine
+# ==========================================================================
+
+LAT_IDX = (1, 3, 5)          # the lateral joints inside SPINE_PAIRS
+
+
+def _walk():
+    from tomcat_kin import gait
+
+    p = gait.GaitParams()
+    return p, gait.GaitController(p)
+
+
+def _sway_run(m, q, ctl, *, seconds, phase0, period, kp=8.0, kd=None,
+              mu=0.8, refresh=REFRESH_STATIC, attitude=(40.0, 4.0), damp=6.0):
+    """Hold the standing pose while commanding ADR-0009's lateral sway law.
+
+    Reports the pre-clamp spine force, so saturation is visible rather than
+    hidden by the clamp -- the lesson [ADR-0060](../docs/DESIGN_DECISIONS.md)
+    drew when M47's ankle test turned out to be measuring saturation.
+    """
+    kd = 2.0 * math.sqrt(kp) * 0.05 if kd is None else kd
+    d = mujoco.MjData(m)
+    for nm in QLEGS:
+        for k, a in enumerate(_qadr(m, nm)):
+            d.qpos[a] = q[nm][k]
+    mujoco.mj_forward(m, d)
+
+    sid = {nm: mujoco.mj_name2id(m, mujoco.mjtObj.mjOBJ_SITE, f"{nm}_foot")
+           for nm in QLEGS}
+    dof = {nm: _dofs(m, nm) for nm in QLEGS}
+    acts = {nm: [_adr(m, mujoco.mjtObj.mjOBJ_ACTUATOR, f"m_{nm}_{p}")
+                 for p in PULLEY_PAIRS] for nm in QLEGS}
+    tid = {nm: [_adr(m, mujoco.mjtObj.mjOBJ_TENDON, f"{nm}_{p}")
+                for p in PULLEY_PAIRS] for nm in QLEGS}
+    sq = [m.jnt_qposadr[_adr(m, mujoco.mjtObj.mjOBJ_JOINT, n)]
+          for n in SPINE_PAIRS]
+    sv = [m.jnt_dofadr[_adr(m, mujoco.mjtObj.mjOBJ_JOINT, n)]
+          for n in SPINE_PAIRS]
+    sa = [_adr(m, mujoco.mjtObj.mjOBJ_ACTUATOR, "m_" + n) for n in SPINE_PAIRS]
+    stn = [_adr(m, mujoco.mjtObj.mjOBJ_TENDON, n) for n in SPINE_PAIRS]
+
+    gain = []
+    for a, t in zip(sq, stn):
+        Ls = []
+        for sgn in (+1, -1):
+            dd = mujoco.MjData(m)
+            dd.qpos[:] = d.qpos
+            dd.qpos[a] += sgn * 0.002
+            mujoco.mj_forward(m, dd)
+            Ls.append(float(dd.ten_length[t]))
+        gain.append(-(Ls[0] - Ls[1]) / 0.004)
+    gain = np.array(gain)
+
+    def leg_maps():
+        out = {}
+        for nm in QLEGS:
+            J = np.zeros((3, 3))
+            qa = _qadr(m, nm)
+            base = [float(d.qpos[a]) for a in qa]
+            for k in range(3):
+                Ls = []
+                for sgn in (+1, -1):
+                    dd = mujoco.MjData(m)
+                    dd.qpos[:] = d.qpos
+                    dd.qpos[qa[k]] = base[k] + sgn * 0.002
+                    mujoco.mj_forward(m, dd)
+                    Ls.append(np.array([dd.ten_length[t] for t in tid[nm]]))
+                J[:, k] = (Ls[0] - Ls[1]) / 0.004
+            out[nm] = (-J).T
+        return out
+
+    G = leg_maps()
+    mass = float(sum(m.body_mass))
+    h0 = float(d.subtree_com[0][2])
+    omega = float(np.sqrt(9.81 / h0))
+    foot0 = {nm: d.site_xpos[sid[nm]].copy() for nm in QLEGS}
+    raw_peak, track, ys = 0.0, 0.0, []
+    slip = {nm: 0.0 for nm in QLEGS}
+
+    for it in range(int(seconds / m.opt.timestep)):
+        if it and it % refresh == 0:
+            G = leg_maps()
+        want = np.zeros(len(SPINE_PAIRS))
+        lat = ctl(phase0 + it * m.opt.timestep / period)
+        for k, i in enumerate(LAT_IDX):
+            want[i] = lat[k]
+
+        mujoco.mj_subtreeVel(m, d)
+        com = np.array(d.subtree_com[0])
+        vel = np.array(d.subtree_linvel[0])
+        feet = np.array([d.site_xpos[sid[nm]] for nm in QLEGS])
+        cop = wbc.realisable_cop(feet, com[:2])
+        w = wbc.desired_wrench(mass, com, vel, cop, omega, damp=damp, height=h0)
+        kp_r, kd_r = attitude
+        sgn0 = 1.0 if float(d.qpos[3]) >= 0.0 else -1.0
+        rot = 2.0 * sgn0 * np.array([float(v) for v in d.qpos[4:7]])
+        w[3:6] = -kp_r * rot - kd_r * np.array(d.qvel[3:6])
+        f = wbc.allocate(feet, com, w, mu)
+        forces = {nm: f[i] for i, nm in enumerate(QLEGS)}
+        stq = wbc.stance_torque(mujoco, m, d, sid, forces, dof)
+        for nm in QLEGS:
+            tau = wbc.actuator_torque(d, dof[nm], stq[nm])
+            T = wbc.pair_command(G[nm], tau, MT.TENSION_MAX)
+            for i, a in enumerate(acts[nm]):
+                d.ctrl[a] = float(T[i])
+
+        have = np.array([float(d.qpos[a]) for a in sq])
+        e = want - have
+        tau_s = np.array([float(d.qfrc_bias[a] - d.qfrc_passive[a])
+                          for a in sv]) \
+            + wbc.chain_reaction(mujoco, m, d, sid, forces, sv) \
+            + kp * e - kd * np.array([float(d.qvel[a]) for a in sv])
+        raw = tau_s / gain
+        raw_peak = max(raw_peak, float(np.max(np.abs(raw))))
+        for i, a in enumerate(sa):
+            d.ctrl[a] = float(np.clip(raw[i], -MT.TENSION_MAX, MT.TENSION_MAX))
+
+        mujoco.mj_step(m, d)
+        if not np.all(np.isfinite(d.qpos)):
+            return None
+        if it > 200:
+            track = max(track,
+                        float(np.max(np.abs(np.degrees(e[list(LAT_IDX)])))))
+        ys.append(float(d.subtree_com[0][1]))
+        for nm in QLEGS:
+            slip[nm] = max(slip[nm],
+                           abs(float(d.site_xpos[sid[nm]][1] - foot0[nm][1])))
+
+    return dict(sway=1e3 * (max(ys) - min(ys)), track=track,
+                raw_peak=raw_peak, slip={k: 1e3 * v for k, v in slip.items()})
+
+
+def test_the_SWAY_ADR0009_BOUGHT_needs_the_FEET_TO_SLIDE():
+    """⚠️ **The lateral spine motors have never been asked to do their job, and
+    on the plant that has to do it the sway does not come out.**
+
+    [ADR-0009](../docs/DESIGN_DECISIONS.md) bought three lateral spine motors to
+    recover static stability by swaying the CoM over the support triangle, and M5
+    designed the law carefully -- a raised-cosine traverse confined to the
+    four-foot windows, after finding a sinusoid *worse than no sway at all*. All of
+    that is **analytic geometry**. M57 built the actuators; nothing had ever run
+    the law on them.
+
+    Run on the shipped walk (period 5 s, duty 0.90, ±11°/segment), at the only
+    gain that keeps the motors inside their rating:
+
+    | | analytic | measured |
+    |---|---|---|
+    | CoM sway | **66.7 mm** p-p | **4.1 mm** |
+    | foot slip | -- (no ground) | **7.3-15.8 mm, all four feet** |
+    | spine force | -- | 76.8 N of 81.1 continuous |
+
+    ⚠️ **The slip is larger than the sway.** The body gets about **6 %** of the
+    designed CoM shift and pays for it by sliding every paw further than the CoM
+    moves.
+
+    ✅ **The mechanism was already written down**, in `mjcf.py`'s own warning: the
+    legs are planar because [ADR-0017](../docs/DESIGN_DECISIONS.md) rejected
+    abduction, so *"a sway over planted feet needs foot slip or body roll"*. That
+    was said of the rigid model; it holds on the actuated free-root body too.
+    """
+    p, c = _walk()
+    m, q = _spine_quad()
+
+    assert math.degrees(p.lateral_amplitude) == pytest.approx(11.0, abs=0.01)
+    lq = np.array([c.lateral_q(i / 200.0) for i in range(200)])
+    ya = np.array([c.body.center_of_mass_y(lq[i]) for i in range(0, 200, 2)])
+    analytic = 1e3 * (ya.max() - ya.min())
+    assert analytic == pytest.approx(66.7, abs=1.0), (
+        f"the analytic model promises {analytic:.1f} mm of sway"
+    )
+
+    r = _sway_run(m, q, c.lateral_q, seconds=0.9, phase0=0.86, period=p.period)
+    assert r is not None
+    assert r["sway"] < 0.2 * analytic, (
+        f"the sway must not come out: {r['sway']:.2f} of {analytic:.1f} mm"
+    )
+    assert max(r["slip"].values()) > r["sway"], (
+        f"and the slip exceeds it: {r['slip']} mm vs {r['sway']:.2f} mm sway"
+    )
+    assert min(r["slip"].values()) > 1.0, (
+        f"every foot slides, not just the fore pair: {r['slip']}"
+    )
+
+
+def test_RAISING_THE_SPINE_GAIN_makes_it_SKATE_not_SWAY():
+    """⚠️ **The obvious fix does not work, and it is worth showing why.**
+
+    The tracking error at the holding gain is large, so the natural move is more
+    gain. Logging the force **before** the clamp:
+
+    | `kp` | track err | CoM sway | spine force | foot slip |
+    |---|---|---|---|---|
+    | 8 | 12.95° | 4.1 mm | 76.8 N | 25.7 mm |
+    | 30 | 9.07° | 12.1 mm | **222.9 N, saturated** | 122 mm |
+    | 100 | 5.69° | 98.9 mm | saturated | **484 mm** |
+    | 300 | 3.80° | 22.8 mm | saturated | 280 mm |
+
+    ⚠️ The 98.9 mm at `kp = 100` is **not sway** -- it is the robot sliding across
+    the floor, which is why the slip beside it is 484 mm. Every gain that improves
+    tracking pins all six motors at 222.9 N and buys the improvement in scrub.
+
+    ⚠️ Note the lateral moment arm is **20 mm** against the sagittal 30, and
+    `params.py` already warns that a short lateral arm *"directly amplifies cable
+    tension"*. At the holding gain the spine is already at **95 %** of its
+    continuous rating for 6 % of the designed sway.
+    """
+    p, c = _walk()
+    m, q = _spine_quad()
+
+    low = _sway_run(m, q, c.lateral_q, seconds=0.9, phase0=0.86,
+                    period=p.period, kp=8.0)
+    high = _sway_run(m, q, c.lateral_q, seconds=0.9, phase0=0.86,
+                     period=p.period, kp=100.0)
+    assert low is not None and high is not None
+
+    assert low["raw_peak"] < MT.TENSION_MAX, "the holding gain stays inside"
+    assert low["raw_peak"] > 0.8 * MT.TENSION_CONTINUOUS, (
+        f"but only just: {low['raw_peak']:.1f} N of {MT.TENSION_CONTINUOUS:.1f}"
+    )
+    assert high["raw_peak"] > MT.TENSION_MAX, (
+        f"more gain saturates: raw {high['raw_peak']:.0f} N"
+    )
+    assert high["track"] < low["track"], "tracking does improve"
+    assert max(high["slip"].values()) > 5.0 * max(low["slip"].values()), (
+        "but it is bought entirely in scrub: "
+        f"{max(high['slip'].values()):.0f} mm vs "
+        f"{max(low['slip'].values()):.0f} mm"
+    )
+
+
+def test_the_SWAY_GEOMETRY_puts_ADR0009_and_ADR0017_in_CONFLICT():
+    """⚠️ **Two accepted decisions want different robots, and this one is
+    geometric rather than a matter of control.**
+
+    - **[ADR-0009](../docs/DESIGN_DECISIONS.md)** buys three lateral spine motors
+      so the CoM can sway over the support triangle.
+    - **[ADR-0017](../docs/DESIGN_DECISIONS.md)** rejects leg abduction, so no leg
+      joint can move a foot sideways at all.
+
+    A lateral spine bend swings the front girdle in `y`, and the fore legs hang off
+    it. Held at the shipped ±11°/segment with the root pinned, the CoM moves
+    **31.7 mm** while the fore feet are carried **82.7 and 98.1 mm** -- so the sway
+    is only realisable if the paws can travel about **three times further than the
+    CoM does**, and nothing in the leg can deliver it.
+
+    ⚠️ **The fixed-root figure overstates the fore share**, and the correction
+    matters: with a free root the body counter-rotates and the hind feet move too
+    (measured 2.1× fore-to-hind at the holding gain, not 3× with the hind at
+    zero). ⚠️ What does not change is that **all four paws must slide**.
+
+    This is a requirements-level trade with an accepted ADR on each side, of the
+    same kind [ADR-0057](../docs/DESIGN_DECISIONS.md) named for ADR-0002 vs
+    ADR-0008. **M58 does not decide it.**
+    """
+    m, _ = _spine_quad()
+    d = mujoco.MjData(m)
+
+    def pose(lat_deg):
+        for nm in QLEGS:
+            lp = DEFAULT_FORELEG if nm[1] == "F" else DEFAULT_HINDLEG
+            qq = LegModel(lp).inverse((0.04, -0.17, 0.0))
+            for k, a in enumerate(_qadr(m, nm)):
+                d.qpos[a] = qq[k]
+        for i in (1, 2, 3):
+            for ax, val in (("y", math.radians(lat_deg)), ("p", 0.0)):
+                j = _adr(m, mujoco.mjtObj.mjOBJ_JOINT, f"spine_{ax}{i}")
+                d.qpos[m.jnt_qposadr[j]] = val
+        mujoco.mj_forward(m, d)
+        feet = {nm: d.site_xpos[mujoco.mj_name2id(
+            m, mujoco.mjtObj.mjOBJ_SITE, f"{nm}_foot")].copy() for nm in QLEGS}
+        return float(d.subtree_com[0][1]), feet
+
+    com0, feet0 = pose(0.0)
+    com1, feet1 = pose(11.0)
+
+    dcom = 1e3 * (com1 - com0)
+    dfore = max(1e3 * abs(feet1[nm][1] - feet0[nm][1]) for nm in ("LF", "RF"))
+    dhind = max(1e3 * abs(feet1[nm][1] - feet0[nm][1]) for nm in ("LR", "RR"))
+
+    assert dcom == pytest.approx(31.7, abs=1.0), f"CoM sway {dcom:.1f} mm"
+    assert dfore == pytest.approx(98.1, abs=2.0), f"fore foot {dfore:.1f} mm"
+    assert dhind < 1e-6, "with the root pinned the hind feet cannot move at all"
+    assert dfore / dcom > 2.5, (
+        f"the paw must travel {dfore / dcom:.1f}x further than the CoM"
+    )

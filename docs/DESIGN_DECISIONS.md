@@ -363,6 +363,14 @@ context, and consequences. Status is one of: **Proposed**, **Accepted**,
   - Forward mass bias is retained as a **free secondary trim** — it reduces the
     lateral ROM the gait must command, buying margin.
   - NFR2c total actuated DOF **16 → 19**.
+> ⚠️ **THE SWAY DOES NOT COME OUT ON THE ACTUATED PLANT.
+> [ADR-0063](#adr-0063) (M58).** Everything below is analytic geometry and a
+> quasi-static margin. Run the law on M57's tendon-driven spine and the body
+> gets **4.1 mm** of the designed **66.7 mm**, while every paw slides further
+> than the CoM moves. The mechanism is this ADR against
+> [ADR-0017](#adr-0017): a lateral bend swings the front girdle, the fore legs
+> hang off it, and no planar leg can move a foot sideways.
+
 - **Implementation outcome (M5) — decision upheld, two claims corrected.**
   The lateral DOF is now built (`SpineModel.lateral_vertebra_xy`,
   `WholeBody.center_of_mass_y`, `GaitController.lateral_q`) and the default walk
@@ -4793,6 +4801,95 @@ Quasi-static motor force over one cycle at the measured split:
 - ✅ A stale `params.py` comment was corrected on the way: the girdle masses are
   computed from the surveyed **132 g** motor, while the comment beside them still
   said the superseded 77 g.
+
+## ADR-0063: The sway does not come out -- ADR-0009 and ADR-0017 want different robots
+
+- **Status:** Accepted as a **measurement and a named conflict. It decides
+  nothing.** No geometry or gain ships. **Puts a banner on
+  [ADR-0009](#adr-0009). ⚠️ Suspends its "+10.1 mm polygon margin" as an
+  actuated result.**
+- **Context:** ADR-0009 bought three lateral spine motors so the CoM could sway
+  over the support triangle, and M5 designed the law with care -- a raised-cosine
+  traverse confined to the four-foot windows, after finding a sinusoid *worse than
+  no sway at all*, and after M6 caught a linear ramp's acceleration impulse. All of
+  that is **analytic geometry and a quasi-static margin**. [ADR-0062](#adr-0062)
+  built the actuators. Nothing had ever run the law on them.
+
+### ⚠️ What the actuated plant does
+
+On the shipped walk (period 5 s, duty 0.90, +-11 deg/segment), at the only gain
+that keeps the six spine motors inside their rating:
+
+| | analytic | measured |
+|---|---|---|
+| CoM sway | **66.7 mm** peak-to-peak | **4.1 mm** |
+| foot slip | -- (the model has no ground) | **7.3-15.8 mm, all four feet** |
+| spine force | -- | **76.8 N** of 81.1 N continuous |
+
+- ⚠️ **The slip is larger than the sway.** The body gets about **6 %** of the
+  designed CoM shift and pays for it by sliding every paw further than the CoM
+  moves.
+- ⚠️ **The spine is already at 95 % of its continuous rating** delivering that
+  6 %. The lateral moment arm is **20 mm** against the sagittal 30, and `params.py`
+  already warned that a short lateral arm *"directly amplifies cable tension"*.
+
+### ⚠️ More gain does not help; it skates
+
+Logging the force **before** the clamp, as [ADR-0060](#adr-0060) requires:
+
+| `kp` | track err | CoM "sway" | spine force | foot slip |
+|---|---|---|---|---|
+| 8 | 12.95 deg | 4.1 mm | 76.8 N | 25.7 mm |
+| 30 | 9.07 deg | 12.1 mm | **222.9 N, saturated** | 122 mm |
+| 100 | 5.69 deg | 98.9 mm | saturated | **484 mm** |
+| 300 | 3.80 deg | 22.8 mm | saturated | 280 mm |
+
+⚠️ The 98.9 mm at `kp = 100` is **not sway** -- it is the robot sliding across the
+floor, which is what the 484 mm of scrub beside it says. Every gain that improves
+tracking pins all six motors and buys the improvement in scrub.
+
+### ✅ The mechanism, and it was already written down
+
+`mjcf.py` carries this warning about a moving spine: the legs are planar because
+[ADR-0017](#adr-0017) rejected abduction, so *"a sway over planted feet needs foot
+slip or body roll, and locking roll leaves neither"*. It was written of the rigid,
+planar-root model. **It holds on the actuated, free-root body as well.**
+
+- Held at +-11 deg/segment with the root pinned, the CoM moves **31.7 mm** while
+  the fore feet are carried **82.7 and 98.1 mm** -- the paws must travel about
+  **three times further than the CoM does**.
+- ⚠️ **That fixed-root figure overstates the fore share.** With a free root the
+  body counter-rotates and the hind feet move too: measured **2.1x** fore-to-hind
+  at the holding gain, not 3x with the hind at zero. What does not change is that
+  **all four paws slide**.
+
+### The conflict, stated plainly
+
+- **ADR-0009** buys three lateral spine motors so the CoM can sway.
+- **ADR-0017** rejects leg abduction, so no leg joint can move a foot sideways.
+
+A lateral bend swings the front girdle and the fore legs hang off it. The sway is
+therefore only realisable if the paws can translate laterally, and ADR-0017 removed
+the only joint that could deliver it without scrubbing. This is a
+requirements-level trade with an accepted ADR on each side, of exactly the kind
+[ADR-0057](#adr-0057) named for ADR-0002 vs ADR-0008. **This ADR does not decide
+it.**
+
+### Consequences
+
+- ⚠️ **ADR-0009's "+10.1 mm polygon margin" is suspended as an actuated result.**
+  It is a quasi-static geometric margin computed from a sway the plant does not
+  produce. It may still be reachable -- with abduction, with a longer lateral arm,
+  or by accepting scrub -- but it is not currently demonstrated.
+- ⚠️ **Scope: this is sway in place, with the legs planted.** It isolates the
+  question ADR-0009 raised. A walking gait adds swing legs and contact transitions
+  and is not tested here.
+- Options a future milestone would have to price: **accept paw scrub** (and size
+  it against ADR-0009's friction limit), **add abduction** (re-opening ADR-0017,
+  +4 motors against a mass budget ADR-0058 only just closed), **lengthen the
+  lateral moment arm** (mechanical, and it trades against tension), or **drop
+  static stability** for dynamic walking -- which ADR-0009 listed as option E and
+  rejected because the dynamics milestone did not exist. It exists now.
 
 ---
 
