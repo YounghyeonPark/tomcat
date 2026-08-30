@@ -5127,3 +5127,244 @@ def test_ONLY_THE_PAD_touches_the_ground():
                 f"the contact must be at a foot site, {1e3 * near:.1f} mm away"
             )
     assert all(g.endswith("_pad") for g in touched), touched
+
+
+# ==========================================================================
+# M60 -- the lateral arm buys cost, not sway
+# ==========================================================================
+
+
+def _lat_arm(xml, mm):
+    """Rewrite the lateral spine pairs' moment arm. The `coef` IS the arm."""
+    return re.sub(r'(<joint joint="spine_y\d" coef=")[-0-9.]+(")',
+                  lambda mo: mo.group(1) + ("%.6f" % (mm * 1e-3)) + mo.group(2),
+                  xml)
+
+
+def _aniso(xml, lat, fwd=1.0):
+    """A directional pad: low laterally, gripping fore-aft."""
+    rows = "\n".join(
+        f'    <pair geom1="floor" geom2="{nm}_pad" condim="4" '
+        f'friction="{fwd} {lat} 0.005 0.0001 0.0001"/>' for nm in QLEGS)
+    return xml.replace("</mujoco>",
+                       "  <contact>\n%s\n  </contact>\n</mujoco>" % rows)
+
+
+def _combo(lat_arm_mm=20.0, aniso=None):
+    xml = MT.quadruped_rig(hip_height=0.176, spine=True)
+    if abs(lat_arm_mm - 20.0) > 1e-9:
+        xml = _lat_arm(xml, lat_arm_mm)
+    if aniso is not None:
+        xml = _aniso(xml, aniso)
+    return mujoco.MjModel.from_xml_string(xml), _quad_poses()
+
+
+def _sway_pair_peaks(m, q, ctl, *, phase0, period, seconds=0.9, kp=8.0):
+    """Peak PRE-CLAMP demand on each of the six spine pairs, in order."""
+    kd = 2.0 * math.sqrt(kp) * 0.05
+    d = mujoco.MjData(m)
+    for nm in QLEGS:
+        for k, a in enumerate(_qadr(m, nm)):
+            d.qpos[a] = q[nm][k]
+    mujoco.mj_forward(m, d)
+    sid = {nm: mujoco.mj_name2id(m, mujoco.mjtObj.mjOBJ_SITE, f"{nm}_foot")
+           for nm in QLEGS}
+    dof = {nm: _dofs(m, nm) for nm in QLEGS}
+    acts = {nm: [_adr(m, mujoco.mjtObj.mjOBJ_ACTUATOR, f"m_{nm}_{x}")
+                 for x in PULLEY_PAIRS] for nm in QLEGS}
+    tid = {nm: [_adr(m, mujoco.mjtObj.mjOBJ_TENDON, f"{nm}_{x}")
+                for x in PULLEY_PAIRS] for nm in QLEGS}
+    sq = [m.jnt_qposadr[_adr(m, mujoco.mjtObj.mjOBJ_JOINT, n)]
+          for n in SPINE_PAIRS]
+    sv = [m.jnt_dofadr[_adr(m, mujoco.mjtObj.mjOBJ_JOINT, n)]
+          for n in SPINE_PAIRS]
+    sa = [_adr(m, mujoco.mjtObj.mjOBJ_ACTUATOR, "m_" + n) for n in SPINE_PAIRS]
+    stn = [_adr(m, mujoco.mjtObj.mjOBJ_TENDON, n) for n in SPINE_PAIRS]
+
+    gain = []
+    for a, t in zip(sq, stn):
+        Ls = []
+        for s in (+1, -1):
+            dd = mujoco.MjData(m)
+            dd.qpos[:] = d.qpos
+            dd.qpos[a] += s * 0.002
+            mujoco.mj_forward(m, dd)
+            Ls.append(float(dd.ten_length[t]))
+        gain.append(-(Ls[0] - Ls[1]) / 0.004)
+    gain = np.array(gain)
+
+    def legmaps():
+        out = {}
+        for nm in QLEGS:
+            J = np.zeros((3, 3))
+            qa = _qadr(m, nm)
+            base = [float(d.qpos[a]) for a in qa]
+            for k in range(3):
+                Ls = []
+                for s in (+1, -1):
+                    dd = mujoco.MjData(m)
+                    dd.qpos[:] = d.qpos
+                    dd.qpos[qa[k]] = base[k] + s * 0.002
+                    mujoco.mj_forward(m, dd)
+                    Ls.append(np.array([dd.ten_length[t] for t in tid[nm]]))
+                J[:, k] = (Ls[0] - Ls[1]) / 0.004
+            out[nm] = (-J).T
+        return out
+
+    G = legmaps()
+    mass = float(sum(m.body_mass))
+    h0 = float(d.subtree_com[0][2])
+    om = float(np.sqrt(9.81 / h0))
+    peaks = np.zeros(len(SPINE_PAIRS))
+    for it in range(int(seconds / m.opt.timestep)):
+        if it and it % REFRESH_STATIC == 0:
+            G = legmaps()
+        want = np.zeros(len(SPINE_PAIRS))
+        lat = ctl(phase0 + it * m.opt.timestep / period)
+        for k, i in enumerate(LAT_IDX):
+            want[i] = lat[k]
+        mujoco.mj_subtreeVel(m, d)
+        com = np.array(d.subtree_com[0])
+        vel = np.array(d.subtree_linvel[0])
+        feet = np.array([d.site_xpos[sid[nm]] for nm in QLEGS])
+        w = wbc.desired_wrench(mass, com, vel, wbc.realisable_cop(feet, com[:2]),
+                               om, damp=6.0, height=h0)
+        sg = 1.0 if float(d.qpos[3]) >= 0.0 else -1.0
+        w[3:6] = (-40.0 * 2.0 * sg
+                  * np.array([float(v) for v in d.qpos[4:7]])
+                  - 4.0 * np.array(d.qvel[3:6]))
+        f = wbc.allocate(feet, com, w, 0.8)
+        forces = {nm: f[i] for i, nm in enumerate(QLEGS)}
+        stq = wbc.stance_torque(mujoco, m, d, sid, forces, dof)
+        for nm in QLEGS:
+            T = wbc.pair_command(G[nm], wbc.actuator_torque(d, dof[nm], stq[nm]),
+                                 MT.TENSION_MAX)
+            for i, a in enumerate(acts[nm]):
+                d.ctrl[a] = float(T[i])
+        have = np.array([float(d.qpos[a]) for a in sq])
+        bias = np.array([float(d.qfrc_bias[a] - d.qfrc_passive[a])
+                         for a in sv])
+        tau_s = (bias
+                 + wbc.chain_reaction(mujoco, m, d, sid, forces, sv)
+                 + kp * (want - have)
+                 - kd * np.array([float(d.qvel[a]) for a in sv]))
+        raw = tau_s / gain
+        peaks = np.maximum(peaks, np.abs(raw))
+        for i, a in enumerate(sa):
+            d.ctrl[a] = float(np.clip(raw[i], -MT.TENSION_MAX, MT.TENSION_MAX))
+        mujoco.mj_step(m, d)
+    return peaks
+
+
+def test_the_LATERAL_ARM_buys_COST_not_SWAY():
+    """⚠️ **M59 named the wrong constraint, and this is the measurement that
+    corrects it.**
+
+    ADR-0064 concluded that with a directional pad *"the binding constraint moves
+    from friction to the spine's own torque capacity"*, through the 20 mm lateral
+    moment arm. Lengthen that arm and the sway does not move **at all**:
+
+    | foot | lateral arm | CoM sway | max slip |
+    |---|---|---|---|
+    | as built | 20 mm | 2.60 mm | 17.0 mm |
+    | as built | 60 mm | **2.60 mm** | 17.0 mm |
+    | anisotropic 0.03 | 20 mm | 8.26 mm | 13.4 mm |
+    | anisotropic 0.03 | 60 mm | **8.26 mm** | 13.4 mm |
+
+    Identical to three significant figures across a **3×** change. ✅ The reason
+    is elementary once stated: the controller commands a **torque**, `kp·e`, and
+    the arm only sets what that torque costs in cable force, `f = tau/r`. Same
+    gain, same error, same torque, same motion.
+
+    ⚠️ **So torque capacity was never the constraint** -- nothing was ever clipped;
+    the demand was delivered in full. What limits the sway is the **control law**:
+    `kp = 8` asks for what it asks for, and
+    `test_RAISING_THE_SPINE_GAIN_makes_it_SKATE_not_SWAY` shows every higher gain
+    diverges.
+
+    ✅ **What the arm does buy is real, and it is thermal.** The lateral demand
+    falls **exactly** in proportion: 76.8 N at 20 mm, **25.6 N** at 60 -- from 95 %
+    of the continuous rating to 32 %.
+    """
+    designed = 66.7
+    p, c = _walk()
+
+    runs = {}
+    for label, arm, an in (("plain20", 20.0, None), ("plain60", 60.0, None),
+                           ("aniso20", 20.0, 0.03)):
+        m, q = _combo(lat_arm_mm=arm, aniso=an)
+        runs[label] = _sway_run(m, q, c.lateral_q, seconds=0.9, phase0=0.86,
+                                period=p.period, kp=8.0)
+        assert runs[label] is not None, label
+
+    # ⚠️ tripling the arm changes the motion by nothing at all
+    assert runs["plain60"]["sway"] == pytest.approx(runs["plain20"]["sway"],
+                                                    rel=0.02), (
+        f"the arm must not change the sway: {runs['plain20']['sway']:.2f} vs "
+        f"{runs['plain60']['sway']:.2f} mm"
+    )
+    # ✅ but it cuts the cost in exact proportion
+    assert runs["plain60"]["raw_peak"] < 0.55 * runs["plain20"]["raw_peak"], (
+        f"3x the arm must cut the demand: {runs['plain20']['raw_peak']:.1f} -> "
+        f"{runs['plain60']['raw_peak']:.1f} N"
+    )
+    # ✅ and the directional pad is what actually moves the body
+    assert runs["aniso20"]["sway"] > 2.5 * runs["plain20"]["sway"], (
+        f"the pad triples the sway: {runs['aniso20']['sway']:.2f} vs "
+        f"{runs['plain20']['sway']:.2f} mm"
+    )
+    assert max(runs["aniso20"]["slip"].values()) < max(
+        runs["plain20"]["slip"].values()), "and it does so with LESS slip"
+    # ⚠️ none of it reaches what ADR-0009 designed
+    assert runs["aniso20"]["sway"] < 0.2 * designed, (
+        f"still {100 * runs['aniso20']['sway'] / designed:.0f} % of {designed} mm"
+    )
+
+
+def test_the_DIRECTIONAL_PAD_CHARGES_the_SAGITTAL_spine():
+    """⚠️ **The pad's bill does not go where the obvious fix would pay it.**
+
+    Peak raw demand per spine pair, sway in place through a crossover. `p` is
+    sagittal (30 mm arm, never changed here), `y` lateral:
+
+    | foot | arm | p1 | y1 | p2 | y2 | p3 | y3 |
+    |---|---|---|---|---|---|---|---|
+    | as built | 20 | 36.5 | **76.8** | 17.6 | **76.8** | 22.8 | **76.8** |
+    | as built | 60 | 36.5 | **25.6** | 17.6 | **25.6** | 22.8 | **25.6** |
+    | anisotropic | 20 | **130.6** | 76.8 | **136.5** | 76.8 | **127.8** | 76.8 |
+
+    ✅ On the plain foot the **lateral** pairs bind, and lengthening their arm
+    fixes it exactly -- 76.8 → 25.6 N, precisely 20/60.
+
+    ⚠️ **With the directional pad the binding pairs are SAGITTAL**, at ~136 N and
+    **1.68× the continuous rating**, up from ~36 N. Letting the feet slide
+    laterally lets the body move more, and holding it up is the sagittal spine's
+    job: **the pad buys lateral motion and charges it to the sagittal pairs.**
+
+    So the intuitive follow-up -- lengthen the lateral arm to pay for the pad --
+    does not work. It reduces a demand that is no longer the binding one.
+    """
+    p, c = _walk()
+    peaks = {}
+    for label, arm, an in (("plain20", 20.0, None), ("aniso20", 20.0, 0.03)):
+        m, q = _combo(lat_arm_mm=arm, aniso=an)
+        peaks[label] = _sway_pair_peaks(m, q, c.lateral_q, phase0=0.86,
+                                        period=p.period)
+
+    sag = [0, 2, 4]
+    lat = [1, 3, 5]
+    plain, pad = peaks["plain20"], peaks["aniso20"]
+
+    assert max(plain[i] for i in lat) > max(plain[i] for i in sag), (
+        f"on a plain foot the LATERAL pairs bind: {np.round(plain, 1)}"
+    )
+    assert max(pad[i] for i in sag) > max(pad[i] for i in lat), (
+        f"⚠️ with the pad the SAGITTAL pairs bind: {np.round(pad, 1)}"
+    )
+    assert max(pad[i] for i in sag) > 3.0 * max(plain[i] for i in sag), (
+        f"and the pad raises the sagittal demand several fold: "
+        f"{max(plain[i] for i in sag):.1f} -> {max(pad[i] for i in sag):.1f} N"
+    )
+    assert max(pad[i] for i in sag) > MT.TENSION_CONTINUOUS, (
+        "past the continuous rating, which is the cost the pad actually incurs"
+    )

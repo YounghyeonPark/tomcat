@@ -15,10 +15,10 @@ cat-like agility, energy-efficient movement, and passive shock absorption.
 
 ## Progress
 
-Fifty-nine milestones in. The model now spans kinematics → real mass → 3D
+Sixty milestones in. The model now spans kinematics → real mass → 3D
 static stability → whole-body dynamics → a dynamic gait → closed-loop balance →
 an independent physics-engine cross-check → thermal duty → whole-body force
-allocation, with **485 passing + 5 suspended Python tests and 17 Rust** and every figure below
+allocation, with **487 passing + 5 suspended Python tests and 17 Rust** and every figure below
 generated from the live model (`python tools/make_progress_figures.py`), so a
 published number cannot drift from the code.
 
@@ -282,6 +282,7 @@ is **1.97**. That remedy *is* cheap: one step up in stock tube, under 4 g.
 | M57 | The **articulated spine** | 18 of 19 DOF and it **stands** — the sagittal axis had never been in any model |
 | M58 | The sway, **on the real plant** | 6 % of what was designed, every paw slides — two ADRs want **different robots** |
 | M59 | The **foot was not a foot** | 8.3 mm of silent contact error — and **five published results** moved |
+| M60 | The arm buys **cost, not sway** | triple the moment arm, identical motion — the gap is **control** |
 
 Full detail in the [roadmap](docs/ROADMAP.md) and the [ADR log](docs/DESIGN_DECISIONS.md).
 
@@ -773,6 +774,27 @@ Full detail in the [roadmap](docs/ROADMAP.md) and the [ADR log](docs/DESIGN_DECI
 > not sufficient**: 12 % of the designed sway, and the binding constraint moves
 > from friction to the **spine's own torque capacity**.
 > [ADR-0064](docs/DESIGN_DECISIONS.md).
+
+> ### ⚠️ M60: the arm buys cost, not sway
+>
+> M59 concluded the binding constraint had moved to the spine's torque capacity,
+> through the 20 mm lateral moment arm. **Triple that arm and the sway does not
+> move at all** — 2.60 and 8.26 mm, identical to three significant figures. The
+> controller commands a **torque**; the arm only sets what that torque costs. Same
+> gain, same error, same motion. ⚠️ **The arm is a price list, not a capability,
+> and M59 named the wrong constraint** — nothing was ever clipped.
+>
+> ✅ **What the arm does buy is thermal**: the lateral demand falls exactly in
+> proportion, 76.8 → **25.6 N**, from 95 % of the continuous rating to 32 %.
+>
+> ⚠️ **And the pad's bill goes somewhere the arm cannot pay it.** With a
+> directional pad the binding pairs become **sagittal**, at ~136 N and 1.68×
+> continuous, up from ~36 — letting the feet slide laterally lets the body move
+> more, and holding it up is the sagittal spine's job.
+>
+> So the sway stays at **12 %** of what ADR-0009 designed, and the remaining gap is
+> a **control** problem: `kp = 8` is the only stable gain and it asks for no more.
+> [ADR-0065](docs/DESIGN_DECISIONS.md).
 
 ## Why tendon-driven?
 

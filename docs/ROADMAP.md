@@ -142,7 +142,9 @@ sequences the work that implements them.
 > ([ADR-0063](DESIGN_DECISIONS.md)).
 > **M59 done:** the **foot was not a foot** — a millimetre of contact geometry
 > moved five published results ([ADR-0064](DESIGN_DECISIONS.md)).
-> 485 passed + 5 xfailed Python, 17 Rust.
+> **M60 done:** the lateral arm buys **cost, not sway** — and M59 named the
+> wrong constraint ([ADR-0065](DESIGN_DECISIONS.md)).
+> 487 passed + 5 xfailed Python, 17 Rust.
 
 ---
 
@@ -2945,7 +2947,57 @@ is **12 %** of the designed 66.7, and it costs **1.68×** the spine's continuous
 rating. **The binding constraint moves from friction to the spine's own torque
 capacity.** Necessary, not sufficient.
 
-## Later milestones (candidate M60+, not committed)
+## Milestone M60 — The arm buys cost, not sway (DONE)
+
+M59 measured a directional pad tripling the sway and concluded the binding
+constraint had *"moved to the spine's own torque capacity"* through the 20 mm
+lateral moment arm. The obvious follow-up is to lengthen it. This does.
+
+### ⚠️ The arm does not change the sway. At all.
+
+| foot | lateral arm | CoM sway | max slip |
+|---|---|---|---|
+| as built | 20 mm | 2.60 mm | 17.0 mm |
+| as built | 60 mm | **2.60 mm** | 17.0 mm |
+| anisotropic 0.03 | 20 mm | 8.26 mm | 13.4 mm |
+| anisotropic 0.03 | 60 mm | **8.26 mm** | 13.4 mm |
+
+Identical to three significant figures across a **3×** change. ✅ The reason is
+elementary once stated: the controller commands a **torque**, `kp·e`, and the arm
+only sets what that torque costs in cable force, `f = tau/r`. Same gain, same
+error, same torque, same motion. **The arm is a price list, not a capability.**
+
+### ⚠️ So M59 named the wrong constraint
+
+Torque capacity was never binding — nothing was clipped, and 76.8 N and 136.5 N
+are both inside the 222.9 N peak. **What limits the sway is the control law**:
+`kp = 8` asks for what it asks for, and every higher gain **diverges** (65.7° of
+tracking error at `kp = 30`, a raw demand of 31 750 N). ⚠️ Neither the foot nor
+the arm moves that wall.
+
+### ✅ What the arm does buy is thermal
+
+The **lateral** demand falls in exact proportion: **76.8 N at 20 mm, 25.6 N at
+60** — precisely 20/60, from **95 %** of the continuous rating to **32 %**. Worth
+having; simply not what ADR-0009 wanted.
+
+### ⚠️ And the pad's bill goes where the arm cannot pay it
+
+Peak pre-clamp demand per pair; `p` sagittal (30 mm, unchanged), `y` lateral:
+
+| foot | arm | p1 | y1 | p2 | y2 | p3 | y3 |
+|---|---|---|---|---|---|---|---|
+| as built | 20 | 36.5 | **76.8** | 17.6 | **76.8** | 22.8 | **76.8** |
+| as built | 60 | 36.5 | **25.6** | 17.6 | **25.6** | 22.8 | **25.6** |
+| anisotropic | 20 | **130.6** | 76.8 | **136.5** | 76.8 | **127.8** | 76.8 |
+
+⚠️ **With the pad the binding pairs are SAGITTAL**, at ~136 N and 1.68×
+continuous, up from ~36. Letting the feet slide laterally lets the body move more,
+and holding it up is the sagittal spine's job: **the pad buys lateral motion and
+charges it to the sagittal pairs.** So "lengthen the lateral arm to pay for the
+pad" reduces a demand that is no longer the binding one.
+
+## Later milestones (candidate M61+, not committed)
 
 > This list is **curated, not append-only**. When a milestone closes an item it is
 > deleted here and the reasoning kept in the [ADR log](DESIGN_DECISIONS.md). Earlier
@@ -2963,10 +3015,11 @@ capacity.** Necessary, not sufficient.
   ⚠️ It named the hind ankle using the **30.2 %** fore share; the chain gives
   **33.0 %**. The verdict may well survive — the profile's yield was *zero*, not
   marginal — but the survey itself was run on the rigid box.
-- **The ANISOTROPIC FOOT plus a LONGER LATERAL ARM, together.** ✅ ADR-0064
-  measured each constraint separately: a directional pad triples the sway without
-  scrub, and then the **20 mm lateral moment arm** binds at 1.68× the continuous
-  rating. Whether the pair reaches ADR-0009's designed sway is **not measured**.
+- **The SWAY GAP IS A CONTROL PROBLEM.** ⚠️ ADR-0065: neither the foot nor the
+  moment arm moves it. The sway sits at **12 %** of ADR-0009's design because
+  `kp = 8` is the only stable gain and it asks for no more. Anything proposed has
+  to beat that, and a different control structure is what it would take — none is
+  proposed yet.
 - **DECIDE ADR-0009 vs ADR-0017.** ⚠️ ADR-0063: the sway is only realisable if
   the paws can translate laterally, and ADR-0017 removed the joint that could do
   it. Options to price: **accept paw scrub** (size it against ADR-0009's own
@@ -3160,6 +3213,7 @@ Kept as a short table so the deletions above are auditable rather than silent.
 | Build the articulated spine | M57 — [ADR-0062](DESIGN_DECISIONS.md): 18 of 19 DOF and it stands; the sagittal axis had never been in any model |
 | Run the sway on the actuated plant | M58 — [ADR-0063](DESIGN_DECISIONS.md): 6 % of the designed sway, and every paw slides; ADR-0009 vs ADR-0017 |
 | Make the foot a foot | M59 — [ADR-0064](DESIGN_DECISIONS.md): the contact sat 8.3 mm behind the site, and five published results moved |
+| Price the pad and the arm together | M60 — [ADR-0065](DESIGN_DECISIONS.md): the arm buys cost not sway; the remaining gap is control |
 
 ## Open reconciliation items (lead)
 

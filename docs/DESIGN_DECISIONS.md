@@ -4986,9 +4986,17 @@ motor rating:
   what propulsion needs.
 - ⚠️ **But it does not close the gap.** 8.26 mm is **12 %** of ADR-0009's designed
   66.7 mm, and it costs **136.5 N** of spine force -- **1.68x** the continuous
-  rating. **The binding constraint moves from friction to the spine's own torque
+  rating. ~~**The binding constraint moves from friction to the spine's own torque
   capacity**, through the 20 mm lateral moment arm `params.py` already warns
-  amplifies tension.
+  amplifies tension.~~
+
+  > ⚠️ **CORRECTED by [ADR-0065](#adr-0065) (M60): torque capacity was never the
+  > constraint.** Nothing was clipped -- the demand was delivered in full. Triple
+  > the lateral moment arm and the sway does not move **at all** (2.60 and 8.26 mm,
+  > identical to three significant figures), because the controller commands a
+  > *torque* and the arm only sets what that torque costs. What limits the sway is
+  > the **control law**. ⚠️ And the 136.5 N is on the **sagittal** pairs, not the
+  > lateral ones, so the lateral arm does not pay for it either.
 - So the anisotropic foot is **necessary but not sufficient**. Whether it plus a
   longer lateral moment arm reaches the designed sway is not measured.
 - ⚠️ **Confidence:** one 0.9 s window per configuration, and these sweeps have been
@@ -5004,6 +5012,81 @@ motor rating:
   anything using measured contact forces would not be.
 - ✅ A regression guard ships with the fix: only the pads may collide, and a
   controlled stand must put every contact within 1 mm of a `_foot` site.
+
+## ADR-0065: The lateral arm buys cost, not sway -- and the pad's bill goes to the sagittal spine
+
+- **Status:** Accepted as a **measurement**. No geometry ships. **Corrects
+  [ADR-0064](#adr-0064)'s attribution of the constraint.**
+- **Context:** ADR-0064 measured a directional pad tripling the sway and then
+  concluded the binding constraint had *"moved to the spine's own torque
+  capacity"* through the 20 mm lateral moment arm. The obvious follow-up is to
+  lengthen that arm. This ADR does it.
+
+### ⚠️ The arm does not change the sway. At all.
+
+| foot | lateral arm | CoM sway | max slip |
+|---|---|---|---|
+| as built | 20 mm | 2.60 mm | 17.0 mm |
+| as built | 60 mm | **2.60 mm** | 17.0 mm |
+| anisotropic 0.03 | 20 mm | 8.26 mm | 13.4 mm |
+| anisotropic 0.03 | 60 mm | **8.26 mm** | 13.4 mm |
+
+- Identical to three significant figures across a **3x** change in the arm.
+- ✅ **The reason is elementary once stated.** The controller commands a
+  **torque**, `kp*e`; the arm only sets what that torque costs in cable force,
+  `f = tau/r`. Same gain, same error, same torque, same motion. The arm is a price
+  list, not a capability.
+
+### ⚠️ So ADR-0064 named the wrong constraint
+
+- **Torque capacity was never binding.** Nothing was ever clipped -- 76.8 N and
+  136.5 N are both inside the 222.9 N peak, and the commanded value was delivered
+  in full every step.
+- **What limits the sway is the control law.** `kp = 8` asks for what it asks for,
+  and [ADR-0063](#adr-0063) (as re-derived by ADR-0064) shows every higher gain
+  **diverges**: 65.7 deg of tracking error at `kp = 30`, a raw demand of 31 750 N.
+- ⚠️ Neither the foot nor the arm moves that wall. **A different control
+  structure would be required, and none is proposed here.**
+
+### ✅ What the arm does buy is real, and it is thermal
+
+- The **lateral** demand falls in exact proportion: **76.8 N at 20 mm, 25.6 N at
+  60** -- precisely 20/60, from **95 %** of the continuous rating to **32 %**.
+- That is worth having. It is simply not the thing ADR-0009 wanted.
+
+### ⚠️ And the pad's bill goes somewhere the arm cannot pay it
+
+Peak pre-clamp demand per spine pair; `p` sagittal (30 mm arm, unchanged), `y`
+lateral:
+
+| foot | arm | p1 | y1 | p2 | y2 | p3 | y3 |
+|---|---|---|---|---|---|---|---|
+| as built | 20 | 36.5 | **76.8** | 17.6 | **76.8** | 22.8 | **76.8** |
+| as built | 60 | 36.5 | **25.6** | 17.6 | **25.6** | 22.8 | **25.6** |
+| anisotropic | 20 | **130.6** | 76.8 | **136.5** | 76.8 | **127.8** | 76.8 |
+
+- On a plain foot the **lateral** pairs bind, and lengthening their arm fixes it
+  exactly.
+- ⚠️ **With the directional pad the binding pairs are SAGITTAL**, at ~136 N and
+  **1.68x** continuous, up from ~36 N. Letting the feet slide laterally lets the
+  body move more, and holding it up is the sagittal spine's job: **the pad buys
+  lateral motion and charges it to the sagittal pairs.**
+- So the intuitive follow-up -- lengthen the lateral arm to pay for the pad --
+  reduces a demand that is no longer the binding one.
+
+### Consequences
+
+- ✅ **The directional pad remains the one intervention that moved the sway**:
+  3x, with *less* foot slip. That result stands.
+- ⚠️ **The sway remains at 12 % of ADR-0009's design**, and the remaining gap is a
+  **control** problem, not a mechanical one. Anything proposed for it should be
+  measured against `kp = 8`, which is the only gain shown to be stable.
+- ⚠️ If a longer arm is pursued for thermal reasons, the one to lengthen with a
+  pad fitted is the **sagittal** 30 mm, not the lateral 20 mm. Both cost cable
+  travel, spool capacity and a bigger vertebral post; none of that is priced here.
+- ⚠️ **Confidence:** 0.9 s windows, one per configuration. The insensitivity to
+  the arm is exact and structural, so that conclusion is firm; the magnitudes
+  carry ADR-0064's provisional label.
 
 ---
 
