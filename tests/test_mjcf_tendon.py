@@ -5703,3 +5703,162 @@ def test_the_RIGHTING_REFLEX_is_a_FACTOR_of_FIVE_SHORT():
         "the rate does not scale steeply enough with amplitude for ROM to be "
         f"the answer: {abs(small):.1f} -> {abs(rate):.1f} deg/s"
     )
+
+
+# ==========================================================================
+# M64 -- the designed righting manoeuvre: it helps by half, not by five
+# ==========================================================================
+
+
+def _right_with_legs(*, tuck_deg=0.0, tuck_phase=0.0, period=0.30,
+                     p_amp=25.0, y_amp=15.0, cycles=5.0,
+                     kp=300.0, kd=12.0, leg_kp=8.0, leg_kd=0.5):
+    """Precessing spine bend plus fore/hind ANTI-PHASE leg tuck.
+
+    That is the cat's own pattern: the front half's inertia about the roll axis
+    falls while the rear's rises, so the same bend buys more body rotation. Every
+    command is clipped to the real motor.
+    """
+    m, q = _freefall()
+    d = mujoco.MjData(m)
+    for nm in QLEGS:
+        for k, a in enumerate(_qadr(m, nm)):
+            d.qpos[a] = q[nm][k]
+    mujoco.mj_forward(m, d)
+
+    sq = [m.jnt_qposadr[_adr(m, mujoco.mjtObj.mjOBJ_JOINT, n)]
+          for n in SPINE_PAIRS]
+    sv = [m.jnt_dofadr[_adr(m, mujoco.mjtObj.mjOBJ_JOINT, n)]
+          for n in SPINE_PAIRS]
+    sa = [_adr(m, mujoco.mjtObj.mjOBJ_ACTUATOR, "m_" + n) for n in SPINE_PAIRS]
+    stn = [_adr(m, mujoco.mjtObj.mjOBJ_TENDON, n) for n in SPINE_PAIRS]
+    gain = []
+    for a, t in zip(sq, stn):
+        Ls = []
+        for s in (+1, -1):
+            dd = mujoco.MjData(m)
+            dd.qpos[:] = d.qpos
+            dd.qpos[a] += s * 0.002
+            mujoco.mj_forward(m, dd)
+            Ls.append(float(dd.ten_length[t]))
+        gain.append(-(Ls[0] - Ls[1]) / 0.004)
+    gain = np.array(gain)
+
+    qa = {nm: _qadr(m, nm) for nm in QLEGS}
+    dof = {nm: _dofs(m, nm) for nm in QLEGS}
+    acts = {nm: [_adr(m, mujoco.mjtObj.mjOBJ_ACTUATOR, f"m_{nm}_{x}")
+                 for x in PULLEY_PAIRS] for nm in QLEGS}
+    tid = {nm: [_adr(m, mujoco.mjtObj.mjOBJ_TENDON, f"{nm}_{x}")
+                for x in PULLEY_PAIRS] for nm in QLEGS}
+    q0 = {nm: np.array([float(d.qpos[a]) for a in qa[nm]]) for nm in QLEGS}
+
+    def legG(nm):
+        J = np.zeros((3, 3))
+        base = [float(d.qpos[a]) for a in qa[nm]]
+        for k in range(3):
+            Ls = []
+            for s in (+1, -1):
+                dd = mujoco.MjData(m)
+                dd.qpos[:] = d.qpos
+                dd.qpos[qa[nm][k]] = base[k] + s * 0.002
+                mujoco.mj_forward(m, dd)
+                Ls.append(np.array([dd.ten_length[t] for t in tid[nm]]))
+            J[:, k] = (Ls[0] - Ls[1]) / 0.004
+        return (-J).T
+
+    G = {nm: legG(nm) for nm in QLEGS}
+    knee = np.zeros(2)
+    roll = 0.0
+    for it in range(int(cycles * period / m.opt.timestep)):
+        if it and it % 200 == 0:
+            G = {nm: legG(nm) for nm in QLEGS}
+        ph = 2.0 * math.pi * it * m.opt.timestep / period
+        want = np.array([math.radians(p_amp) * math.sin(ph),
+                         math.radians(y_amp) * math.cos(ph)] * 3)
+        have = np.array([float(d.qpos[x]) for x in sq])
+        bias = np.array([float(d.qfrc_bias[x] - d.qfrc_passive[x]) for x in sv])
+        raw = (bias + kp * (want - have)
+               - kd * np.array([float(d.qvel[x]) for x in sv])) / gain
+        for i, x in enumerate(sa):
+            d.ctrl[x] = float(np.clip(raw[i], -MT.TENSION_MAX, MT.TENSION_MAX))
+
+        if tuck_deg:
+            s_t = math.sin(ph + tuck_phase)
+            for nm in QLEGS:
+                sign = 1.0 if nm[1] == "F" else -1.0
+                tgt = q0[nm].copy()
+                tgt[1] += math.radians(tuck_deg) * s_t * sign
+                have_l = np.array([float(d.qpos[a]) for a in qa[nm]])
+                bias_l = np.array([float(d.qfrc_bias[a] - d.qfrc_passive[a])
+                                   for a in dof[nm]])
+                tau = (bias_l + leg_kp * (tgt - have_l)
+                       - leg_kd * np.array([float(d.qvel[a])
+                                            for a in dof[nm]]))
+                T = wbc.pair_command(G[nm], tau, MT.TENSION_MAX)
+                for i, x in enumerate(acts[nm]):
+                    d.ctrl[x] = float(T[i])
+
+        mujoco.mj_step(m, d)
+        assert np.all(np.isfinite(d.qpos))
+        knee = np.maximum(knee, [abs(math.degrees(float(d.qpos[qa["LR"][1]]))),
+                                 abs(math.degrees(float(d.qpos[qa["LF"][1]])))])
+        w, x, y, z = (float(v) for v in d.qpos[3:7])
+        roll = math.degrees(math.atan2(2 * (w * x + y * z),
+                                       1 - 2 * (x * x + y * y)))
+    return roll / (cycles * period), knee
+
+
+def test_the_DESIGNED_MANOEUVRE_helps_by_HALF_not_by_FIVE():
+    """⚠️ **Option 1, tried: a designed righting law closes half a decade of the
+    gap, not the factor of five.**
+
+    [ADR-0068](../docs/DESIGN_DECISIONS.md) measured a naive precessing bend at
+    **52.7°/s** against the **282–730°/s** a fall allows, and left open
+    whether a *designed* manoeuvre could close it. So: add the cat's own trick.
+    Tuck the fore legs while the hind pair extends, so the front half's inertia
+    about the roll axis falls while the rear's rises, and the same bend buys more
+    body rotation.
+
+    ✅ **It works, and the biology is the optimum.** Swept over tuck mode, phase
+    and frequency, the best is **fore/hind ANTI-PHASE at the precession
+    frequency** -- exactly the pattern a falling cat uses. Symmetric tucking is
+    worse (68.2°/s), and every one of 24 configurations kept the same sign, so
+    the mechanism is robust rather than numerical.
+
+    | manoeuvre | roll rate |
+    |---|---|
+    | spine only (ADR-0068) | 52.7°/s |
+    | + symmetric tuck | 68.2°/s |
+    | **+ anti-phase tuck, 30°, 0.30 s** | **78.4°/s** |
+
+    ⚠️ **+49 %, and still 3.6× short.** 180° takes **2.30 s** -- a fall from
+    **25.8 m**. Against a cat-like 0.3 m drop it is **9.3×** short.
+
+    ⚠️ **And pushing past the joint limits makes it unreliable, not stronger.**
+    30° of knee tuck is the largest legal amplitude (the hind knee sits at
+    -102.8° in a -150..0° range). At 60°, outside the ROM, a 0.1 s change of
+    period flips the roll **direction**: -95.9°/s at 0.30 s, **+82.8** at 0.40.
+    A manoeuvre whose direction depends on the period that finely is not a reflex.
+    """
+    base, _ = _right_with_legs(tuck_deg=0.0, period=0.30)
+    best, knee = _right_with_legs(tuck_deg=30.0, tuck_phase=0.0, period=0.30)
+
+    # ✅ the designed manoeuvre helps, and by a real margin
+    assert abs(best) > 1.3 * abs(base), (
+        f"the leg tuck must help: {abs(base):.1f} -> {abs(best):.1f} deg/s"
+    )
+    # ✅ and it stays inside the knee ROM, which 60 deg would not
+    assert knee[0] < 150.0 and knee[1] < 150.0, (
+        f"30 deg of tuck is legal: knees reached {knee[0]:.1f} / {knee[1]:.1f}"
+    )
+
+    # ⚠️ but it does not close the gap
+    need_2m = 180.0 / math.sqrt(2 * 2.0 / 9.81)
+    assert abs(best) < 0.4 * need_2m, (
+        f"{abs(best):.1f} deg/s against {need_2m:.0f} needed from 2 m"
+    )
+    seconds = 180.0 / abs(best)
+    assert 0.5 * 9.81 * seconds ** 2 > 15.0, (
+        f"180 deg takes {seconds:.2f} s, a fall from "
+        f"{0.5 * 9.81 * seconds ** 2:.1f} m"
+    )

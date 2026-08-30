@@ -15,10 +15,10 @@ cat-like agility, energy-efficient movement, and passive shock absorption.
 
 ## Progress
 
-Sixty-three milestones in. The model now spans kinematics → real mass → 3D
+Sixty-four milestones in. The model now spans kinematics → real mass → 3D
 static stability → whole-body dynamics → a dynamic gait → closed-loop balance →
 an independent physics-engine cross-check → thermal duty → whole-body force
-allocation, with **490 passing + 5 suspended Python tests and 17 Rust** and every figure below
+allocation, with **491 passing + 5 suspended Python tests and 17 Rust** and every figure below
 generated from the live model (`python tools/make_progress_figures.py`), so a
 published number cannot drift from the code.
 
@@ -286,6 +286,7 @@ is **1.97**. That remedy *is* cheap: one step up in stock tube, under 4 g.
 | M61 | **No frontier** | one gain pair stands — and it buys **4 %** of the sway |
 | M62 | Static stability is **already gone** | the achieved sway recovers **3.9 %** — a factor of twenty short |
 | M63 | **Righting**, measured | a factor of **five** short — and the DOF it was specified on **does not exist** |
+| M64 | The **designed manoeuvre** | **+49 %**, not 5× — and the cat's own pattern is the optimum |
 
 Full detail in the [roadmap](docs/ROADMAP.md) and the [ADR log](docs/DESIGN_DECISIONS.md).
 
@@ -872,6 +873,28 @@ Full detail in the [roadmap](docs/ROADMAP.md) and the [ADR log](docs/DESIGN_DECI
 > reclaiming them** — an optimised manoeuvre is untested and the gap is the
 > burden. But **G6 is not met, with no measured route to being met.**
 > [ADR-0068](docs/DESIGN_DECISIONS.md).
+
+> ### ⚠️ M64: the designed manoeuvre helps by half, not by five
+>
+> M63 left the burden on a *designed* righting law. So: add the cat's own trick —
+> tuck the fore legs while the hind pair extends, dropping the front half's inertia
+> about the roll axis while the rear's rises.
+>
+> ✅ **It works, and the biology is the optimum.** Swept over tuck mode, phase
+> and frequency, the best is **fore/hind anti-phase at the precession frequency** —
+> exactly what a falling cat does. All 24 configurations kept the same sign, so the
+> mechanism is robust: **52.7 → 78.4°/s**.
+>
+> ⚠️ **But +49 % is not 5×.** Still **3.6×** short from a 2 m drop and 9.3×
+> from a cat-like 0.3 m; 180° would take a fall from **25.8 m**. And pushing past
+> the joint limits makes it *unreliable* rather than stronger — at 60° of tuck,
+> outside the ROM, a 0.1 s change of period flips the roll **direction**.
+>
+> The reason trajectory shape is not the dominant variable: rotation from a shape
+> cycle scales with the **area enclosed in shape space**, and the ROM bounds that
+> area. Opening the lateral amplitude bought 1.6×; trajectory design bought
+> 1.49×. Together about 2.4 — not 5, and only with a ROM that does not exist.
+> [ADR-0069](docs/DESIGN_DECISIONS.md).
 
 ## Why tendon-driven?
 

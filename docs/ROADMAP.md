@@ -150,7 +150,9 @@ sequences the work that implements them.
 > recovers **3.9 %** of the margin ([ADR-0067](DESIGN_DECISIONS.md)).
 > **M63 done:** righting is a **factor of five short**, and the DOF it was
 > specified on **does not exist** ([ADR-0068](DESIGN_DECISIONS.md)).
-> 490 passed + 5 xfailed Python, 17 Rust.
+> **M64 done:** the designed righting manoeuvre gives **+49 %**, not the factor
+> of five ([ADR-0069](DESIGN_DECISIONS.md)).
+> 491 passed + 5 xfailed Python, 17 Rust.
 
 ---
 
@@ -3139,7 +3141,55 @@ Reclaiming them returns ~396 g, 9 % of the budget. **This does not recommend tha
 it records that nothing currently earns them. ⚠️ And **G6 is not met**, with no
 measured route to being met.
 
-## Later milestones (candidate M64+, not committed)
+## Milestone M64 — The designed manoeuvre helps by half, not by five (DONE)
+
+M63 measured a naive precessing bend at **52.7°/s** against the
+**282–730°/s** a fall allows, and said the burden was on a *designed*
+manoeuvre. This is that attempt.
+
+### ✅ It works, and the biology is the optimum
+
+Add the cat's own trick: tuck the fore legs while the hind pair extends, so the
+front half's inertia about the roll axis falls while the rear's rises and the same
+bend buys more body rotation.
+
+| manoeuvre | roll rate |
+|---|---|
+| spine only (M63) | 52.7°/s |
+| + symmetric tuck | 68.2°/s |
+| **+ anti-phase tuck, 30°, 0.30 s** | **78.4°/s** |
+
+Swept over tuck mode, phase and frequency, the best is **fore/hind anti-phase at
+the precession frequency** — exactly the pattern a falling cat uses. All 24
+configurations kept the same sign, so the mechanism is robust rather than
+numerical, and the phase sweep spans only 56–75°/s: the manoeuvre's *shape*
+matters at the tens-of-percent level.
+
+### ⚠️ But +49 % is not 5×
+
+**78.4°/s** against **282** needed from 2.0 m is **3.6× short**; against 398
+from 1.0 m, 5.1×; against 730 from a cat-like 0.3 m, **9.3×**. 180° takes
+**2.30 s** — a fall from **25.8 m**.
+
+⚠️ **And pushing past the joint limits makes it unreliable, not stronger.** 30°
+of knee tuck is the largest legal amplitude (the hind knee sits at —102.8° in a
+—150..0° range). At 60°, outside the ROM, a 0.1 s change of period flips the
+roll **direction**: —95.9°/s at 0.30 s, **+82.8** at 0.40.
+
+### Why trajectory shape is not the dominant variable
+
+Rotation from a shape cycle scales with the **area enclosed in shape space**, and
+that area is bounded by the ROM: ±25° sagittal, ±15° lateral, ±30° of
+legal knee tuck. M63 measured that opening the lateral amplitude 15 → 25°
+buys **1.6×**; trajectory design moved it **1.49×**. Neither is the missing
+**5×**, and together they reach about 2.4 — while requiring a ROM that does not
+exist.
+
+✅ **What is now known that was not**: the mechanism is real, the cat's pattern is
+the optimum, and the rate is **78.4°/s**. A future axial-DOF proposal has a
+number to beat and a manoeuvre to start from.
+
+## Later milestones (candidate M65+, not committed)
 
 > This list is **curated, not append-only**. When a milestone closes an item it is
 > deleted here and the reasoning kept in the [ADR log](DESIGN_DECISIONS.md). Earlier
@@ -3167,11 +3217,12 @@ measured route to being met.
   a choice: static stability is already gone, so a walk has to be dynamically
   stable or it does not happen. The tools exist (ADR-0052, ADR-0060) and have only
   ever been used for **standing**.
-- **CLOSE THE RIGHTING GAP, OR DECIDE AGAINST G6.** ⚠️ ADR-0068 measured
-  **53°/s** against the **282–730°/s** a fall allows. Three routes, none
-  measured: an **optimised manoeuvre** (the 5× gap is the burden), the **axial
-  DOF** ADR-0007 actually specified (+3 motors on a closed budget), or **dropping
-  G6**. ⚠️ Until one lands, nothing earns the three lateral spine motors.
+- **DECIDE G6.** ⚠️ ADR-0069 closed the manoeuvre route: a designed law gives
+  **78.4°/s**, still 3.6× short from 2 m. Two routes remain, and both are
+  decisions rather than measurements: build the **axial DOF** ADR-0007 actually
+  specified (+3 motors on a budget ADR-0058 only just closed, and **its authority
+  is itself unmeasured**), or **drop G6**. ⚠️ Until one lands, nothing earns the
+  three lateral spine motors.
 - **A WALKING spine is still untested.** ⚠️ M58 is sway *in place*, legs planted.
   Swing legs and contact transitions are not in it.
 - **`mechanical/` owes a PER-LEG ANKLE ARM.** ⚠️ ADR-0061: the hind ankle runs at
@@ -3362,6 +3413,7 @@ Kept as a short table so the deletions above are auditable rather than silent.
 | Retune the sway loop | M61 — [ADR-0066](DESIGN_DECISIONS.md): no frontier — one gain pair stands and it buys 4 % |
 | Re-run ADR-0009's own margin | M62 — [ADR-0067](DESIGN_DECISIONS.md): static stability is already gone; the sway recovers 3.9 % |
 | Measure the righting reflex | M63 — [ADR-0068](DESIGN_DECISIONS.md): a factor of five short, and the DOF it was specified on does not exist |
+| Try a designed righting law | M64 — [ADR-0069](DESIGN_DECISIONS.md): +49 %, not 5×; the cat's own pattern is the optimum |
 
 ## Open reconciliation items (lead)
 

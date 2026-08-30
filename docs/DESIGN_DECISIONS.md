@@ -5294,6 +5294,11 @@ result depends on the dynamics rather than on quasi-static geometry alone, and a
 optimised manoeuvre is genuinely untested. The measured gap is **5-14x**; the
 burden is on a manoeuvre that closes it.
 
+> ⚠️ **[ADR-0069](#adr-0069) (M64) took that burden up. A designed manoeuvre
+> gives +49 %, not 5x.** Adding the cat's own fore/hind anti-phase leg tuck raises
+> the rate from 52.7 to **78.4 deg/s** -- still **3.6x** short from 2 m and 9.3x
+> from a cat-like 0.3 m, and 180 deg would take a fall from **25.8 m**.
+
 ### Consequences
 
 - ⚠️ **The three lateral spine motors now have no measured justification.**
@@ -5308,6 +5313,66 @@ burden is on a manoeuvre that closes it.
 - ✅ The tail, per ADR-0007, is *"a coarse inertial assist, not controlled
   reorientation"*. It is still unbuilt ([ADR-0062](#adr-0062)) and is not a
   candidate for closing this gap.
+
+## ADR-0069: The designed righting manoeuvre gives +49 %, not the factor of five
+
+- **Status:** Accepted as a **measurement**. Nothing ships. **Closes the
+  "optimised manoeuvre" option [ADR-0068](#adr-0068) left open.**
+- **Context:** ADR-0068 measured a naive precessing bend at 52.7 deg/s against the
+  282-730 deg/s a fall allows, and said the burden was on a designed manoeuvre.
+  This is that attempt.
+
+### ✅ It works, and the biology is the optimum
+
+Add the cat's own trick: tuck the fore legs while the hind pair extends, so the
+front half's inertia about the roll axis falls while the rear's rises and the same
+bend buys more body rotation.
+
+| manoeuvre | roll rate |
+|---|---|
+| spine only (ADR-0068) | 52.7 deg/s |
+| + symmetric tuck | 68.2 deg/s |
+| **+ anti-phase tuck, 30 deg, 0.30 s** | **78.4 deg/s** |
+
+- Swept over tuck mode, phase and frequency, the best is **fore/hind anti-phase at
+  the precession frequency** -- exactly the pattern a falling cat uses.
+- All 24 configurations kept the same sign, so the mechanism is robust rather than
+  numerical. ✅ The phase sweep spans only 56-75 deg/s, which says the manoeuvre's
+  *shape* matters at the tens-of-percent level.
+
+### ⚠️ But +49 % is not 5x
+
+- **78.4 deg/s** against **282** needed from 2.0 m: **3.6x short**. Against 398
+  from 1.0 m: 5.1x. Against 730 from a cat-like 0.3 m: **9.3x**.
+- 180 deg takes **2.30 s** -- a fall from **25.8 m**.
+- ⚠️ **Pushing past the joint limits makes it unreliable, not stronger.** 30 deg of
+  knee tuck is the largest legal amplitude (the hind knee sits at -102.8 deg in a
+  -150..0 range). At 60 deg, outside the ROM, a 0.1 s change of period flips the
+  roll **direction**: -95.9 deg/s at 0.30 s, **+82.8** at 0.40. A manoeuvre whose
+  direction turns on the period that finely is not a reflex.
+
+### Why the shape of the trajectory is not the dominant variable
+
+Rotation from a shape cycle scales with the **area enclosed in shape space**, and
+that area is bounded by the range of motion: +-25 deg sagittal, +-15 lateral,
++-30 of legal knee tuck. ADR-0068 already measured that opening the lateral
+amplitude 15 -> 25 deg buys **1.6x**. Trajectory design moved it **1.49x**. Neither
+is the missing **5x**, and they multiply to about 2.4 at best -- while requiring a
+ROM that does not exist.
+
+### Consequences
+
+- ⚠️ **Option 1 is closed.** A designed manoeuvre does not reach G6. What remains
+  is the **axial DOF ADR-0007 actually specified** (+3 motors on a budget
+  [ADR-0058](#adr-0058) only just closed) or **dropping G6**.
+- ✅ **One thing is now known that was not**: the mechanism is real, the cat's own
+  pattern is the optimum, and the rate is **78.4 deg/s**. A future axial-DOF
+  proposal has a number to beat and a manoeuvre to start from.
+- ⚠️ **Confidence:** free-fall, zero gravity, angular momentum conserved to
+  2.4e-4. The manoeuvre space was swept on six axes (bend amplitude, bend period,
+  tuck amplitude, tuck phase, tuck frequency, fore/hind pattern), not optimised
+  globally. A better trajectory may exist; a 5x better one is not consistent with
+  the ROM bound above.
 
 ---
 
