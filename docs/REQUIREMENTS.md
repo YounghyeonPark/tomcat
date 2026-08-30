@@ -75,7 +75,7 @@ curve.
 | NFR1  | Degrees of freedom per leg                       | 3 (hip, knee, ankle)|
 | NFR2  | Spine segments (serial, tendon-driven)           | **3** (ADR-0006)     |
 | NFR2b | DOF per spine segment                            | **2** — dorsoventral + lateral (ADR-0006/0009) |
-| NFR2c | Total actuated DOF (12 legs + 6 spine + 1 tail)  | **19** (= 19 motors, ADR-0008 + **ADR-0009** lateral). ✅ Confirmed against the routed drive (M37): 3 motors per leg, each driving an antagonistic pair through the ADR-0008 variable-radius pulley, ankle single-tendon + return spring. |
+| NFR2c | Total actuated DOF (12 legs + 6 spine + 1 tail)  | **19** (= 19 motors, ADR-0008 + **ADR-0009** lateral). ⚠️ **18 of 19 BUILT** (M57, [ADR-0062](DESIGN_DECISIONS.md)): 12 leg + 6 spine, and the 18-DOF body stands. The **tail is owed** — it has a motor in the mass budget and no parameters, joint or body anywhere. ⚠️ The earlier "confirmed against the routed drive (M37)" was a check of the *motor count*, not of actuated DOF: until M57 no MuJoCo model had more than **15**, and none had a **sagittal** spine joint at all. |
 | NFR2d | Tail actuation (coarse assist, no accuracy)      | 1 tendon + passive return |
 | NFR2e | Spine LATERAL bend ROM (per segment)             | **±15°** (ADR-0009; gait commands 11°, so ~4° spare) |
 | NFR2f | Spine lateral **slew rate** (per segment)         | **≥ 119 °/s** — sized to a FAST reference manoeuvre (righting / future dynamic gait), **not** the 5 s crawl, which needs only ~29 °/s (ADR-0010) |

@@ -212,6 +212,39 @@ def tendon_tension(gain: np.ndarray, tau, t_min: float = 0.0,
     return np.clip(floor + u, t_min, t_max)
 
 
+def chain_reaction(mujoco, model, data, site_ids, forces, dof) -> np.ndarray:
+    """Torque that a set of foot forces induces on a SHARED set of joints.
+
+    `stance_torque` answers *"what does this foot's force ask of its own leg?"*.
+    This answers *"what does it ask of everything between that foot and the
+    root?"* -- which on an articulated body means the spine, and which nothing
+    computed while the trunk was a rigid box.
+
+    ⚠️ **It is not a refinement; without it the robot falls.** Measured on the
+    18-DOF spine quadruped, holding the spine on gravity compensation alone gives
+    a **77 deg** tilt with both leg and spine motors pinned at 222.9 N. Adding
+    this term, the same gate holds the spine to **0.001 deg** at a peak spine force
+    of 39.3 N.
+
+    ✅ It is the same omission [ADR-0044](../../../docs/DESIGN_DECISIONS.md)
+    found for the legs -- `actuator_torque` had to carry the stance term, not just
+    gravity -- reappearing one level up. A foot force loads every joint on the path
+    to the root; a rigid trunk simply had none of them.
+
+    `site_ids` maps leg name -> foot site id, `forces` maps leg name -> its 3-vector
+    foot force, and `dof` is the list of velocity addresses to report against.
+    """
+    out = np.zeros(len(dof), dtype=float)
+    jacp = np.zeros((3, model.nv))
+    for nm, sid in site_ids.items():
+        f = forces.get(nm)
+        if f is None:
+            continue
+        mujoco.mj_jacSite(model, data, jacp, None, sid)
+        out -= jacp[:, dof].T @ np.asarray(f, dtype=float)
+    return out
+
+
 def pair_command(gain: np.ndarray, tau, f_max: float = np.inf) -> np.ndarray:
     """Motor forces for one PULLEY leg -- the square, SIGNED solve.
 

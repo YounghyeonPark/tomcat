@@ -15,10 +15,10 @@ cat-like agility, energy-efficient movement, and passive shock absorption.
 
 ## Progress
 
-Fifty-six milestones in. The model now spans kinematics → real mass → 3D
+Fifty-seven milestones in. The model now spans kinematics → real mass → 3D
 static stability → whole-body dynamics → a dynamic gait → closed-loop balance →
 an independent physics-engine cross-check → thermal duty → whole-body force
-allocation, with **477 passing + 5 suspended Python tests and 17 Rust** and every figure below
+allocation, with **481 passing + 5 suspended Python tests and 17 Rust** and every figure below
 generated from the live model (`python tools/make_progress_figures.py`), so a
 published number cannot drift from the code.
 
@@ -279,6 +279,7 @@ is **1.97**. That remedy *is* cheap: one step up in stock tube, under 4 g.
 | M54 | The **re-derivation** | the shipped plant is the default — and **eight tests had stopped being able to fail** |
 | M55 | The **cascade**, re-derived | the gains transfer unchanged — the cost was **headroom**, and a step command is not a test |
 | M56 | The profile, **priced and declined** | the one joint that needs help has **no shape to exploit** |
+| M57 | The **articulated spine** | 18 of 19 DOF and it **stands** — the sagittal axis had never been in any model |
 
 Full detail in the [roadmap](docs/ROADMAP.md) and the [ADR log](docs/DESIGN_DECISIONS.md).
 
@@ -697,6 +698,31 @@ Full detail in the [roadmap](docs/ROADMAP.md) and the [ADR log](docs/DESIGN_DECI
 > rating. ⚠️ The hind ankle goes to `mechanical/` instead, where the fix is a
 > constant — **14.0 → 16.6 mm**, and per-leg.
 > [ADR-0061](docs/DESIGN_DECISIONS.md).
+
+> ### ✅ M57: the articulated spine — 18 of 19 DOF, and it stands
+>
+> ⚠️ **NFR2c has claimed 19 actuated DOF since ADR-0009; nothing in the repo had
+> more than 15**, and the shipped tendon plant had 12. Worse, **the sagittal axis
+> was in no MuJoCo model at all** — the axis ADR-0006 is actually about, and the
+> only spine axis that works against gravity. The requirement was being checked
+> against a plant that could not meet it.
+>
+> ✅ **Built: three segments, sagittal and lateral, six bidirectional motors**
+> on ADR-0058's transmission unchanged — **18 actuated DOF at exactly zero mass
+> cost**, because the girdles and segments sum to precisely the `trunk_mass` the
+> rigid box carried in one lump.
+>
+> ✅ **And it stands** — 2.82 mm of sag, 0.006° of tilt, the spine held to
+> **0.001°** — slightly *better* than the box it replaces. ⚠️ But only with
+> one term: a foot force loads **every joint between that foot and the root**, and
+> on a rigid box there were none. Without it the robot tilts **77°** with every
+> motor saturated. It is M44's omission one level up, derived rather than tuned.
+>
+> ✅ Welding the chain's joints isolates it: same geometry, same mass, zero spine
+> DOF stands *better* than the box. **The difficulty is the six degrees of freedom,
+> and what they need is a control term, not a stiffer body.**
+> ⚠️ The tail remains owed — a motor in the mass budget, and no parameters,
+> joint or body anywhere. [ADR-0062](docs/DESIGN_DECISIONS.md).
 
 ## Why tendon-driven?
 

@@ -4368,3 +4368,342 @@ def test_the_VARIABLE_RADIUS_PROFILE_CANNOT_BUY_what_ADR0002_wanted():
     r_ankle = float(DEFAULT_TENDON.joint_moment_arm[2]) * 1e3
     assert r_ankle == pytest.approx(14.0, abs=1e-6)
     assert r_ankle * rms / MT.TENSION_CONTINUOUS == pytest.approx(16.6, abs=0.6)
+
+
+# ==========================================================================
+# M57 -- the ARTICULATED spine: 12 DOF becomes 18, and it stands
+# ==========================================================================
+
+SPINE_PAIRS = ("spine_p1", "spine_y1", "spine_p2", "spine_y2",
+               "spine_p3", "spine_y3")
+
+
+def _spine_quad():
+    """The shipped quadruped with ADR-0006's vertebral chain in place of the box."""
+    m = mujoco.MjModel.from_xml_string(
+        MT.quadruped_rig(hip_height=0.176, spine=True))
+    return m, _quad_poses()
+
+
+def _welded_spine_quad():
+    """The same chain with its joints removed -- geometry and mass, zero DOF."""
+    xml = MT.quadruped_rig(hip_height=0.176, spine=True)
+    xml = re.sub(r'\s*<joint name="spine_[py]\d" [^/]*/>', "", xml)
+    xml = re.sub(r'\s*<fixed name="spine_[py]\d">.*?</fixed>', "", xml,
+                 flags=re.S)
+    xml = re.sub(r'\s*<motor name="m_spine_[py]\d"[^/]*/>', "", xml)
+    return mujoco.MjModel.from_xml_string(xml), _quad_poses()
+
+
+def _spine_stand(m, q, *, seconds=3.0, spine_react=True, spine_kp=8.0,
+                 spine_kd=0.4, mu=0.8, refresh=REFRESH_STATIC,
+                 attitude=(40.0, 4.0), damp=6.0):
+    """`_wbc_stand` for a body with a spine: pair_command on the legs, and the
+    spine held by gravity compensation plus -- optionally -- the stance reaction
+    the chain carries."""
+    has_spine = any(mujoco.mj_name2id(m, mujoco.mjtObj.mjOBJ_JOINT, n) >= 0
+                    for n in SPINE_PAIRS)
+    d = mujoco.MjData(m)
+    for nm in QLEGS:
+        for k, a in enumerate(_qadr(m, nm)):
+            d.qpos[a] = q[nm][k]
+    mujoco.mj_forward(m, d)
+
+    sid = {nm: mujoco.mj_name2id(m, mujoco.mjtObj.mjOBJ_SITE, f"{nm}_foot")
+           for nm in QLEGS}
+    dof = {nm: _dofs(m, nm) for nm in QLEGS}
+    acts = {nm: [_adr(m, mujoco.mjtObj.mjOBJ_ACTUATOR, f"m_{nm}_{p}")
+                 for p in PULLEY_PAIRS] for nm in QLEGS}
+    tid = {nm: [_adr(m, mujoco.mjtObj.mjOBJ_TENDON, f"{nm}_{p}")
+                for p in PULLEY_PAIRS] for nm in QLEGS}
+
+    sq = sv = sa = st_ = []
+    if has_spine:
+        sq = [m.jnt_qposadr[_adr(m, mujoco.mjtObj.mjOBJ_JOINT, n)]
+              for n in SPINE_PAIRS]
+        sv = [m.jnt_dofadr[_adr(m, mujoco.mjtObj.mjOBJ_JOINT, n)]
+              for n in SPINE_PAIRS]
+        sa = [_adr(m, mujoco.mjtObj.mjOBJ_ACTUATOR, "m_" + n)
+              for n in SPINE_PAIRS]
+        st_ = [_adr(m, mujoco.mjtObj.mjOBJ_TENDON, n) for n in SPINE_PAIRS]
+
+    def measure(addrs, tendons, extra=None):
+        out = []
+        for a, t in zip(addrs, tendons):
+            Ls = []
+            for sgn in (+1, -1):
+                dd = mujoco.MjData(m)
+                dd.qpos[:] = d.qpos
+                dd.qpos[a] += sgn * 0.002
+                mujoco.mj_forward(m, dd)
+                Ls.append(float(dd.ten_length[t]))
+            out.append(-(Ls[0] - Ls[1]) / 0.004)
+        return np.array(out)
+
+    # ⚠️ MEASURE the spine gain. Assuming `+r` inverts gravity compensation into
+    # gravity amplification: the shipped sign is -r, and the leg learned the same
+    # lesson in M43.
+    sp_gain = measure(sq, st_) if has_spine else None
+
+    def leg_maps():
+        out = {}
+        for nm in QLEGS:
+            J = np.zeros((3, 3))
+            qa = _qadr(m, nm)
+            base = [float(d.qpos[a]) for a in qa]
+            for k in range(3):
+                Ls = []
+                for sgn in (+1, -1):
+                    dd = mujoco.MjData(m)
+                    dd.qpos[:] = d.qpos
+                    dd.qpos[qa[k]] = base[k] + sgn * 0.002
+                    mujoco.mj_forward(m, dd)
+                    Ls.append(np.array([dd.ten_length[t] for t in tid[nm]]))
+                J[:, k] = (Ls[0] - Ls[1]) / 0.004
+            out[nm] = (-J).T
+        return out
+
+    G = leg_maps()
+    mass = float(sum(m.body_mass))
+    h0 = float(d.subtree_com[0][2])
+    omega = float(np.sqrt(9.81 / h0))
+    z0 = float(d.qpos[2])
+    peak = peak_sp = 0.0
+
+    for it in range(int(seconds / m.opt.timestep)):
+        if it and it % refresh == 0:
+            G = leg_maps()
+        mujoco.mj_subtreeVel(m, d)
+        com = np.array(d.subtree_com[0])
+        vel = np.array(d.subtree_linvel[0])
+        feet = np.array([d.site_xpos[sid[nm]] for nm in QLEGS])
+        cop = wbc.realisable_cop(feet, com[:2])
+        w = wbc.desired_wrench(mass, com, vel, cop, omega, damp=damp, height=h0)
+        kp_r, kd_r = attitude
+        sign = 1.0 if float(d.qpos[3]) >= 0.0 else -1.0
+        rot = 2.0 * sign * np.array([float(v) for v in d.qpos[4:7]])
+        w[3:6] = -kp_r * rot - kd_r * np.array(d.qvel[3:6])
+        f = wbc.allocate(feet, com, w, mu)
+        forces = {nm: f[i] for i, nm in enumerate(QLEGS)}
+        stq = wbc.stance_torque(mujoco, m, d, sid, forces, dof)
+        for nm in QLEGS:
+            tau = wbc.actuator_torque(d, dof[nm], stq[nm])
+            T = wbc.pair_command(G[nm], tau, MT.TENSION_MAX)
+            peak = max(peak, float(np.max(np.abs(T))))
+            for i, a in enumerate(acts[nm]):
+                d.ctrl[a] = float(T[i])
+        if has_spine:
+            e = np.array([-float(d.qpos[a]) for a in sq])
+            ev = np.array([-float(d.qvel[a]) for a in sv])
+            tau_s = np.array([float(d.qfrc_bias[a] - d.qfrc_passive[a])
+                              for a in sv]) + spine_kp * e + spine_kd * ev
+            if spine_react:
+                tau_s = tau_s + wbc.chain_reaction(mujoco, m, d, sid, forces, sv)
+            Ts = np.clip(tau_s / sp_gain, -MT.TENSION_MAX, MT.TENSION_MAX)
+            peak_sp = max(peak_sp, float(np.max(np.abs(Ts))))
+            for i, a in enumerate(sa):
+                d.ctrl[a] = float(Ts[i])
+        mujoco.mj_step(m, d)
+        if not np.all(np.isfinite(d.qpos)):
+            return None
+
+    quat = np.array([float(v) for v in d.qpos[3:7]])
+    return dict(
+        sag=1e3 * (z0 - float(d.qpos[2])),
+        tilt=2.0 * math.degrees(math.acos(min(1.0, abs(quat[0])))),
+        peak=peak, peak_spine=peak_sp,
+        bend=(np.degrees([float(d.qpos[a]) for a in sq]) if has_spine
+              else np.zeros(0)))
+
+
+def test_NO_MJCF_had_a_SAGITTAL_SPINE_DOF_before_M57():
+    """⚠️ **NFR2c says 19 actuated DOF. Nothing in this repo had more than 15.**
+
+    Measured, not read off the requirement:
+
+    | model | actuated | leg | spine | tail |
+    |---|---|---|---|---|
+    | `mjcf` rigid trunk | 12 | 12 | 0 | 0 |
+    | `mjcf` `spine_dof=True` | 15 | 12 | **3, lateral only** | 0 |
+    | `mjcf_tendon` (the shipped plant) | 12 | 12 | 0 | 0 |
+
+    ⚠️ **The sagittal axis was in no MuJoCo model at all** -- and it is the axis
+    [ADR-0006](../docs/DESIGN_DECISIONS.md) is actually about (dorsoventral arch,
+    whole-body curvature) and the only one that does work against gravity. What
+    existed was ADR-0009's lateral sway, and only in the rigid, position-servo
+    model. The requirement had been checked against a plant that could not meet it.
+
+    ⚠️ **And the tail is nowhere.** It has a motor in the mass budget -- the
+    7-motor spine+tail bank -- and no `TailParams`, no joint, no body. It cannot
+    be modelled without inventing its geometry, so 19 remains **18 + 1 owed**.
+    """
+    from tomcat_kin import gait, mjcf
+
+    def actuated(m):
+        hinge = [mujoco.mj_id2name(m, mujoco.mjtObj.mjOBJ_JOINT, i)
+                 for i in range(m.njnt)
+                 if m.jnt_type[i] == mujoco.mjtJoint.mjJNT_HINGE]
+        return (m.nu,
+                sum(1 for n in hinge if n and n[-2:] in ("q1", "q2", "q3")),
+                [n for n in hinge if n and "spine" in n],
+                [n for n in hinge if n and "tail" in n])
+
+    c = gait.GaitController(gait.trot_params())
+    qq = mjcf.stance_pose(c, 0.25)
+    h = mjcf.rest_height(c, qq, ("LF", "RR"))
+
+    nu, leg, spine, tail = actuated(
+        mujoco.MjModel.from_xml_string(mjcf.build_mjcf(c, qq, height=h)))
+    assert (nu, leg, spine, tail) == (12, 12, [], [])
+
+    nu, leg, spine, tail = actuated(mujoco.MjModel.from_xml_string(
+        mjcf.build_mjcf(c, qq, height=h, spine_dof=True)))
+    assert nu == 15 and len(spine) == 3 and not tail
+    assert all(n.startswith("spine_y") for n in spine), (
+        "the only spine DOF that ever existed is the LATERAL one"
+    )
+
+    # ✅ and what M57 builds
+    m, _ = _spine_quad()
+    nu, leg, spine, tail = actuated(m)
+    assert nu == 18 and leg == 12 and len(spine) == 6
+    assert sorted(spine) == sorted(SPINE_PAIRS)
+    assert not tail, "still owed: the tail has no parameters to model it from"
+
+
+def test_the_SPINE_CHAIN_costs_NO_MASS_and_corrects_the_WHEELBASE():
+    """✅ **The chain redistributes the box; it does not add to it.**
+
+    Total mass is **4.3081 kg either way**, to the last digit: the girdles and the
+    three segments sum to exactly `DEFAULT_SPINE.trunk_mass`, which is what the
+    rigid box carried in one lump.
+
+    ⚠️ **And it settles two numbers nobody had reconciled.** The rigid trunk put
+    the girdles `2 * GIRDLE_X = 210 mm` apart; ADR-0006's segment lengths sum to
+    **195 mm**. The chain is the sourced number, so the wheelbase shortens by
+    **15 mm** and the fore load share moves **30.2 % → 33.0 %** -- which is the
+    split [ADR-0061](../docs/DESIGN_DECISIONS.md) used to name the hind ankle as
+    the one pair over its thermal rating. That verdict wants re-checking on this
+    body, and it is recorded here rather than assumed to survive.
+    """
+    from tomcat_kin.params import DEFAULT_SPINE, DEFAULT_FORELEG
+
+    rigid = mujoco.MjModel.from_xml_string(MT.quadruped_rig(hip_height=0.176))
+    m, q = _spine_quad()
+    assert m.body_subtreemass[0] == pytest.approx(
+        float(rigid.body_subtreemass[0]), abs=1e-9), "no mass added, none lost"
+    assert (float(DEFAULT_SPINE.front_girdle_mass)
+            + float(DEFAULT_SPINE.rear_girdle_mass)
+            + float(sum(DEFAULT_SPINE.segment_mass))) == pytest.approx(
+        float(DEFAULT_SPINE.trunk_mass), abs=1e-9)
+
+    def geometry(model):
+        d = mujoco.MjData(model)
+        lp = {"LF": DEFAULT_FORELEG, "RF": DEFAULT_FORELEG,
+              "LR": DEFAULT_HINDLEG, "RR": DEFAULT_HINDLEG}
+        for nm in QLEGS:
+            for k, a in enumerate(_qadr(model, nm)):
+                d.qpos[a] = LegModel(lp[nm]).inverse((0.04, -0.17, 0.0))[k]
+        mujoco.mj_forward(model, d)
+        p = {nm: d.site_xpos[mujoco.mj_name2id(
+            model, mujoco.mjtObj.mjOBJ_SITE, f"{nm}_foot")].copy()
+            for nm in QLEGS}
+        fx = np.mean([p[n][0] for n in ("LF", "RF")])
+        rx = np.mean([p[n][0] for n in ("LR", "RR")])
+        return abs(fx - rx), float((d.subtree_com[0][0] - rx) / (fx - rx))
+
+    wb_rigid, share_rigid = geometry(rigid)
+    wb_spine, share_spine = geometry(m)
+    assert wb_rigid == pytest.approx(2 * MT.GIRDLE_X, abs=1e-4)
+    assert wb_spine == pytest.approx(
+        float(sum(DEFAULT_SPINE.segment_lengths)), abs=1e-4)
+    assert wb_rigid - wb_spine == pytest.approx(0.015, abs=1e-4)
+    assert share_rigid == pytest.approx(0.302, abs=0.01)
+    assert share_spine == pytest.approx(0.330, abs=0.01)
+
+
+def test_the_SPINE_QUADRUPED_STANDS_but_only_with_the_STANCE_REACTION():
+    """✅ **M43's deferred risk, closed: the 18-DOF body stands.**
+
+    M43 made the trunk a rigid box on purpose, so the standing gate had *one*
+    thing to get wrong. Six milestones later the transmission is decided
+    (ADR-0058), re-derived (ADR-0059) and its controller measured (ADR-0060), so
+    the spine is the only new variable -- and it holds.
+
+    ⚠️ **But only with one term, and without it the robot falls over.** The spine
+    controller was gravity compensation plus a PD to zero. That misses what a foot
+    force does to every joint between that foot and the root -- which on a chain is
+    the whole spine, and on a rigid box was nothing:
+
+    | | sag | tilt | leg peak | spine peak |
+    |---|---|---|---|---|
+    | gravity compensation only | 89.7 mm | **77.0°** | 222.9 N | 222.9 N |
+    | **+ `wbc.chain_reaction`** | **2.82 mm** | **0.006°** | 65.8 N | **39.3 N** |
+    | rigid box, for reference | 3.08 mm | 0.006° | 68.2 N | -- |
+
+    ✅ It is [ADR-0044](../docs/DESIGN_DECISIONS.md)'s omission one level up: the
+    legs needed the stance term in `actuator_torque` for exactly the same reason.
+    Derived, not tuned.
+
+    ✅ **And the articulated body is slightly BETTER than the box** -- 2.82 mm of
+    sag against 3.08, 65.8 N of leg force against 68.2 -- while holding the spine
+    to **0.001°** at 39.3 N, inside the 81.1 N continuous rating.
+    """
+    m, q = _spine_quad()
+
+    fell = _spine_stand(m, q, spine_react=False)
+    assert fell is not None
+    assert fell["tilt"] > 30.0, (
+        f"without the chain reaction it must fall: tilt {fell['tilt']:.1f} deg"
+    )
+    assert fell["peak_spine"] == pytest.approx(MT.TENSION_MAX, abs=1.0), (
+        "and it saturates the spine motors doing it"
+    )
+
+    ok = _spine_stand(m, q, spine_react=True)
+    assert ok is not None, "with it, the 18-DOF body must stand"
+    assert ok["tilt"] < 0.05, f"tilt {ok['tilt']:.4f} deg"
+    assert ok["sag"] < 5.0, f"sag {ok['sag']:.2f} mm"
+    assert np.max(np.abs(ok["bend"])) < 0.05, (
+        f"and the spine holds straight: {np.round(ok['bend'], 4)} deg"
+    )
+    assert ok["peak_spine"] < MT.TENSION_CONTINUOUS, (
+        f"spine peak {ok['peak_spine']:.1f} N must be inside continuous"
+    )
+    assert ok["peak"] < 80.0, f"leg peak {ok['peak']:.1f} N"
+
+
+def test_the_SIX_EXTRA_DOF_are_the_DIFFICULTY_not_the_GEOMETRY():
+    """✅ **Isolated: the chain's shape and mass cost nothing at all.**
+
+    Build the same chain with its joints removed -- identical segment geometry,
+    identical distributed mass, zero spine DOF -- and the standing gate is
+    *better* than the rigid box it replaces:
+
+    | | sag | tilt | leg peak |
+    |---|---|---|---|
+    | rigid box (M53) | 3.08 mm | 0.006° | 68.2 N |
+    | **welded chain** | **2.95 mm** | 0.006° | **65.4 N** |
+    | articulated, no chain reaction | 89.7 mm | 77.0° | 222.9 N |
+
+    So the 15 mm shorter wheelbase and the redistributed mass are free. ⚠️ **What
+    is not free is the six degrees of freedom**, and what they need is a control
+    term, not a stiffer body -- which is exactly what M43 suspected when it wrote
+    that an articulated spine *"would add a second thing to get wrong"*.
+    """
+    mw, qw = _welded_spine_quad()
+    assert mw.nu == 12, "geometry and mass only, no spine actuation"
+
+    welded = _spine_stand(mw, qw)
+    assert welded is not None and welded["tilt"] < 0.05
+    assert welded["sag"] < 3.5, f"welded chain sag {welded['sag']:.2f} mm"
+
+    rigid = mujoco.MjModel.from_xml_string(MT.quadruped_rig(hip_height=0.176))
+    box = _spine_stand(rigid, _quad_poses())
+    assert box is not None and box["tilt"] < 0.05
+    assert welded["sag"] < box["sag"] + 0.5, (
+        f"the chain must not cost sag: {welded['sag']:.2f} vs {box['sag']:.2f} mm"
+    )
+    assert welded["peak"] < box["peak"] + 5.0, (
+        f"nor peak force: {welded['peak']:.1f} vs {box['peak']:.1f} N"
+    )

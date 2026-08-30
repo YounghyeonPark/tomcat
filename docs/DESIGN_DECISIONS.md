@@ -4710,6 +4710,90 @@ Quasi-static motor force over one cycle at the measured split:
   that continuous trotting is out of spec in still air.
 - ✅ ADR-0002's antagonistic pairs survive; only its AIC rationale is retired.
 
+## ADR-0062: The articulated spine ships -- 18 of NFR2c's 19 DOF, and it stands
+
+- **Status:** Accepted. `quadruped_rig(spine=True)` emits ADR-0006's vertebral
+  chain with **both** its sagittal and lateral DOF; `wbc.chain_reaction` ships with
+  it. **Closes the deferral [ADR-0043](#adr-0043) took when it made the trunk a
+  rigid box. ⚠️ Puts a banner on NFR2c: 18 built, the tail still owed.
+  ⚠️ Re-opens [ADR-0061](#adr-0061)'s load split for re-checking.**
+- **Context:** NFR2c has claimed **19 actuated DOF** since ADR-0009. Nothing in the
+  repository had more than 15, and the shipped tendon plant had 12.
+
+### ⚠️ What the census found
+
+| model | actuated | leg | spine | tail |
+|---|---|---|---|---|
+| `mjcf`, rigid trunk | 12 | 12 | 0 | 0 |
+| `mjcf`, `spine_dof=True` | 15 | 12 | **3, lateral only** | 0 |
+| `mjcf_tendon`, the shipped plant | 12 | 12 | 0 | 0 |
+
+- ⚠️ **The sagittal axis was in no MuJoCo model at all.** It is the axis ADR-0006
+  is about -- dorsoventral arch, whole-body curvature -- and the only spine axis
+  that does work against gravity. What existed was ADR-0009's lateral sway, and
+  only in the rigid, position-servo model. **The requirement was being checked
+  against a plant that could not meet it.**
+- ⚠️ **The tail is nowhere.** It has a motor in the mass budget (the 7-motor
+  spine+tail bank) and no `TailParams`, no joint, no body. It cannot be modelled
+  without inventing its geometry.
+
+### ✅ What was built
+
+- Three segments, each with a sagittal and a lateral joint: **six pairs, six
+  bidirectional motors**, ADR-0058's transmission applied unchanged to the spine.
+  Mono-articular, moment arms straight from `params` (30 mm sagittal, 20 mm
+  lateral). **18 actuated DOF.**
+- ✅ **Mass cost is exactly zero**: 4.3081 kg either way. The girdles and three
+  segments sum to precisely the `trunk_mass` the box carried in one lump.
+- ⚠️ **It settles two numbers nobody had reconciled.** The rigid trunk put the
+  girdles `2 * GIRDLE_X = 210 mm` apart; ADR-0006's segment lengths sum to
+  **195 mm**. The chain is the sourced number, so the wheelbase shortens by 15 mm
+  and the fore load share moves **30.2 % -> 33.0 %**.
+- ⚠️ **`TendonMap.from_spine`'s `pretension` has nowhere to act** on a pulley
+  spine, for the same reason `wbc.tendon_tension`'s `t_min` does not on a pulley
+  leg ([ADR-0059](#adr-0059)).
+
+### ✅ It stands -- and one term is the difference between standing and falling
+
+| | sag | tilt | leg peak | spine peak |
+|---|---|---|---|---|
+| gravity compensation only | 89.7 mm | **77.0 deg** | 222.9 N | 222.9 N |
+| **+ `wbc.chain_reaction`** | **2.82 mm** | **0.006 deg** | 65.8 N | **39.3 N** |
+| rigid box, for reference | 3.08 mm | 0.006 deg | 68.2 N | -- |
+
+- The missing term is what a foot force does to **every joint between that foot and
+  the root**. On a rigid box there were none; on a chain it is the whole spine.
+  ✅ It is [ADR-0044](#adr-0044)'s omission one level up -- the legs needed the
+  stance term in `actuator_torque` for exactly the same reason. Derived, not tuned.
+- ✅ **The articulated body is slightly BETTER than the box**: 2.82 mm of sag
+  against 3.08, 65.8 N of leg force against 68.2, while holding the spine to
+  **0.001 deg** at 39.3 N -- inside the 81.1 N continuous rating.
+
+### ✅ The difficulty is the six DOF, not the geometry
+
+- Built with the joints removed -- same segment geometry, same distributed mass,
+  zero spine DOF -- the welded chain stands **better** than the box it replaces:
+  **2.95 mm** of sag and **65.4 N** of leg force. The shorter wheelbase and the
+  redistributed mass are free.
+- ⚠️ What is not free is the six degrees of freedom, and what they need is a
+  **control term**, not a stiffer body. That is precisely what ADR-0043 suspected
+  when it made the trunk rigid so the gate had *"one thing to get wrong"*.
+
+### Consequences
+
+- ⚠️ **NFR2c is 18 of 19.** The tail is owed and cannot be built from what exists.
+- ⚠️ **[ADR-0061](#adr-0061)'s verdict wants re-checking on this body.** It named
+  the hind ankle as the one pair over its thermal rating using the **30.2 %** fore
+  share; on the chain that is **33.0 %**. The finding may well survive -- the
+  profile's yield was *zero*, not marginal -- but the tension survey itself was run
+  on the box.
+- ⚠️ **A moving spine is not tested.** This gate is quasi-static standing. Every
+  gait result in the project still assumes a rigid trunk, and `mjcf.py` already
+  warns that a swaying spine over planted feet needs foot slip or body roll.
+- ✅ A stale `params.py` comment was corrected on the way: the girdle masses are
+  computed from the surveyed **132 g** motor, while the comment beside them still
+  said the superseded 77 g.
+
 ---
 
 ### How to add an ADR

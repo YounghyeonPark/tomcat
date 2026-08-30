@@ -415,10 +415,12 @@ class SpineParams:
     # FRONT = shoulder girdle; it deliberately ABSORBS the HEAD + NECK, which are
     # not separate bodies in this model. REAR = pelvic girdle. Both are now a
     # bottom-up COUNT of what each girdle actually holds, not a free variable:
-    #     front = 6 leg motors x 77 g + head/neck 0.240 + structure 0.090
-    #     rear  = 6 leg motors x 77 g + structure 0.110
-    # where 77 g = the down-selected 72 g motor + a 5 g driver board. The rear
-    # girdle is now the LIGHTER one: the spine/tail bank moved to the mid-body.
+    #     front = 6 leg motors x 132 g + head/neck 0.240 + structure 0.090
+    #     rear  = 6 leg motors x 132 g + structure 0.110
+    # where 132 g = the SURVEYED part (SteadyWin GIM3505-9: 120 g motor + driver),
+    # which is what the values below are built from -- this comment said 77 g
+    # (the superseded 72 g class + 5 g board) until M57 checked the arithmetic.
+    # The rear girdle is the LIGHTER one: the spine/tail bank moved to the mid-body.
     front_girdle_mass: float = 1.122
     rear_girdle_mass: float = 0.902
 

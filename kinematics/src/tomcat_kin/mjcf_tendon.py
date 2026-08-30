@@ -209,6 +209,15 @@ def _rod_inertia(mass: float, length: float, radius: float) -> tuple:
     return (ixx, ixx, izz)
 
 
+def _box_inertia(mass: float, hx: float, hy: float, hz: float) -> tuple:
+    """Solid-box diagonal inertia about its COM — matches `mjcf.py` exactly."""
+    return (
+        mass * ((2 * hy) ** 2 + (2 * hz) ** 2) / 12.0,
+        mass * ((2 * hx) ** 2 + (2 * hz) ** 2) / 12.0,
+        mass * ((2 * hx) ** 2 + (2 * hy) ** 2) / 12.0,
+    )
+
+
 def _cable_k(length_m: float, dia_m: float = 1.75e-3) -> float:
     """Axial stiffness of one cable run, `EA/L` — per-tendon, as §2 requires."""
     area = math.pi * (dia_m / 2.0) ** 2
@@ -849,12 +858,109 @@ TRACK_HALF = 0.048
 GIRDLE_X = 0.105
 
 
+#: Capsule radius drawn for a spine segment. Cosmetic; the mass is in `<inertial>`.
+SPINE_RADIUS = 0.018
+
+#: Spine joint order per segment, with the axis and the params fields that size it.
+#: ⚠️ **The sagittal axis is the one ADR-0006 is actually about** -- dorsoventral
+#: arch, the "Halloween cat" curl -- and it is the one that does work against
+#: gravity. `mjcf.py` has only ever emitted the LATERAL joint (ADR-0009's sway),
+#: so before M57 no MuJoCo model in this project had a sagittal spine DOF at all.
+#: `axis="0 -1 0"` matches the leg's hinge convention, so a positive angle means the
+#: same thing on the spine as it does on a stifle.
+SPINE_AXES = (
+    ("p", "0 -1 0", "q_min", "q_max", "joint_moment_arm"),
+    ("y", "0 0 1", "lateral_q_min", "lateral_q_max", "lateral_moment_arm"),
+)
+
+
+def spine_pair_names(n_segments: int = 3):
+    """The spine's antagonistic pairs, in the order the actuators are emitted."""
+    return [f"spine_{ax}{i + 1}"
+            for i in range(n_segments) for ax, *_ in SPINE_AXES]
+
+
+def spine_chain_xml(sp, indent: int, legs_front: str, spool_front: str) -> str:
+    """The vertebral chain, built innermost-out, with the FRONT girdle at its end.
+
+    Mirrors `mjcf.build_mjcf`'s rigid chain -- rear girdle -> N segments -> front
+    girdle -- but gives every segment **both** of ADR-0006's sagittal and lateral
+    DOF rather than the lateral one alone, and hangs the fore legs off the far end
+    so a bend carries them with it.
+    """
+    n = sp.n_segments
+    pad = " " * (indent + 2 * n)
+    chain = "\n".join([
+        f'{pad}<body name="front_girdle" pos="{sp.segment_lengths[-1]:.5f} 0 0">',
+        f'{pad}  <geom name="front_girdle_g" type="box" '
+        f'size="0.030 0.030 0.028" mass="{sp.front_girdle_mass:.5f}"/>',
+        spool_front,
+        legs_front,
+        f'{pad}</body>',
+    ])
+    for i in range(n - 1, -1, -1):
+        pad = " " * (indent + 2 * i)
+        pos = 0.0 if i == 0 else sp.segment_lengths[i - 1]
+        ln, mass = sp.segment_lengths[i], sp.segment_mass[i]
+        ix, iy, iz = _box_inertia(mass, ln / 2, 0.030, 0.030)
+        joints = "".join(
+            f'{pad}  <joint name="spine_{ax}{i + 1}" type="hinge" axis="{axis}" '
+            f'range="{getattr(sp, lo)[i]:.5f} {getattr(sp, hi)[i]:.5f}"/>\n'
+            for ax, axis, lo, hi, _ in SPINE_AXES)
+        chain = (
+            f'{pad}<body name="spine{i + 1}" pos="{pos:.5f} 0 0">\n'
+            f'{joints}'
+            f'{pad}  <inertial pos="{sp.segment_com_frac[i] * ln:.5f} 0 0" '
+            f'mass="{mass:.5f}" diaginertia="{ix:.9g} {iy:.9g} {iz:.9g}"/>\n'
+            f'{pad}  <geom type="capsule" fromto="0 0 0 {ln:.5f} 0 0" '
+            f'size="{SPINE_RADIUS}" mass="0" contype="0" conaffinity="0" '
+            f'rgba="0.7 0.6 0.6 0.35"/>\n'
+            f'{chain}\n'
+            f'{pad}</body>'
+        )
+    return chain
+
+
+def spine_tendons(sp) -> str:
+    """One `<fixed>` tendon per spine pair -- ADR-0058's transmission, on the spine.
+
+    ✅ Mono-articular, which is what `TendonMap.from_spine` has always modelled:
+    one pair per joint, moment arm straight out of `params`. No via terms, because
+    a spine tendon does not have to get past another joint's sheave the way a
+    knee cable gets past the hip.
+
+    ⚠️ **`TendonMap.from_spine`'s `pretension` has nowhere to act here**, for the
+    same reason `wbc.tendon_tension`'s `t_min` does not on a pulley leg
+    ([ADR-0059](../../../docs/DESIGN_DECISIONS.md)): one bidirectional motor per
+    pair leaves no redundant coordinate to spend on a co-contraction floor.
+    """
+    out = []
+    for i in range(sp.n_segments):
+        for ax, _axis, _lo, _hi, arm in SPINE_AXES:
+            r = float(getattr(sp, arm)[i])
+            out.append(f'    <fixed name="spine_{ax}{i + 1}">')
+            out.append(f'      <joint joint="spine_{ax}{i + 1}" '
+                       f'coef="{r:.6f}"/>')
+            out.append("    </fixed>")
+    return "\n".join(out)
+
+
+def spine_actuators(sp) -> str:
+    """One bidirectional motor per spine pair. Six of them, ADR-0009's count."""
+    return "\n".join(
+        f'    <motor name="m_{nm}" tendon="{nm}" gear="-1" '
+        f'ctrlrange="-{TENSION_MAX:.0f} {TENSION_MAX:.0f}" ctrllimited="true" '
+        f'forcerange="-{TENSION_MAX:.0f} {TENSION_MAX:.0f}" forcelimited="true"/>'
+        for nm in spine_pair_names(sp.n_segments))
+
+
 def quadruped_rig(hip_height: float = 0.175, elastic: dict | None = None,
                   trunk_mass: float | None = None,
                   ankle_pair: bool = True,
                   ankle_spring: float | None = None,
                   clamped: bool = True,
-                  pulley: bool = True) -> str:
+                  pulley: bool = True,
+                  spine: bool = False) -> str:
     """Four tendon-driven legs on a floating trunk — the whole-body stand gate.
 
     Twelve leg DOF, **twenty tendons, twenty actuators**, all pull-only. The spine
@@ -875,34 +981,47 @@ def quadruped_rig(hip_height: float = 0.175, elastic: dict | None = None,
             ("RR", DEFAULT_HINDLEG, -GIRDLE_X, -TRACK_HALF)]
 
     bodies, tendons, acts, spools = [], [], [], []
+    fore_bodies, hind_bodies, fore_spools, hind_spools = [], [], [], []
     for nm, lp, gx, ty in legs:
+        # ⚠️ On a spine chain the hip sits at its GIRDLE's origin: the chain
+        # already carries the fore-aft offset, so keeping GIRDLE_X here as well
+        # doubles the wheelbase (0.210 -> 0.405 m, measured). Same rule as
+        # `mjcf.build_mjcf`.
+        mx = 0.0 if spine else gx
         b, t, a = leg_tendon_xml(nm, lp, arms, indent=6, elastic=elastic,
-                                 mount=(gx, ty, 0.0),
+                                 mount=(mx, ty, 0.0),
                                  ankle_springref=_stance_ankle(lp),
                                  ankle_pair=ankle_pair,
                                  ankle_spring=ankle_spring, clamped=clamped,
                                  pulley=pulley)
+        (fore_bodies if gx > 0 else hind_bodies).append(b)
         bodies.append(b)
         tendons.append(t)
         acts.append(a)
         # spools on the girdle: inboard of the limb plane, above the hip
         sy = ty - 0.030 * (1.0 if ty > 0 else -1.0)
-        spools += [
-            f'      <site name="{nm}_spool_hip"     pos="{gx - 0.042:.4f} '
+        here = fore_spools if gx > 0 else hind_spools
+        here += [
+            f'      <site name="{nm}_spool_hip"     pos="{mx - 0.042:.4f} '
             f'{sy + 0.012:.4f}  0.034" size="0.002"/>',
-            f'      <site name="{nm}_spool_hip_x"   pos="{gx - 0.042:.4f} '
+            f'      <site name="{nm}_spool_hip_x"   pos="{mx - 0.042:.4f} '
             f'{sy + 0.012:.4f} -0.034" size="0.002"/>',
-            f'      <site name="{nm}_spool_knee"    pos="{gx - 0.050:.4f} '
+            f'      <site name="{nm}_spool_knee"    pos="{mx - 0.050:.4f} '
             f'{sy + 0.024:.4f}  0.034" size="0.002"/>',
-            f'      <site name="{nm}_spool_knee_x"  pos="{gx - 0.050:.4f} '
+            f'      <site name="{nm}_spool_knee_x"  pos="{mx - 0.050:.4f} '
             f'{sy + 0.024:.4f} -0.030" size="0.002"/>',
-            f'      <site name="{nm}_spool_ankle_x" pos="{gx - 0.066:.4f} '
+            f'      <site name="{nm}_spool_ankle_x" pos="{mx - 0.066:.4f} '
             f'{sy + 0.030:.4f} -0.030" size="0.002"/>',
-            f'      <site name="{nm}_spool_ankle"   pos="{gx - 0.058:.4f} '
+            f'      <site name="{nm}_spool_ankle"   pos="{mx - 0.058:.4f} '
             f'{sy + 0.030:.4f}  0.034" size="0.002"/>',
         ]
+        spools += here[-6:]
 
     nl = chr(10)
+    if spine:
+        return _spine_quadruped(hip_height, trunk_mass, nl.join(tendons),
+                                nl.join(acts), fore_bodies, hind_bodies,
+                                fore_spools, hind_spools)
     return f"""<mujoco model="tomcat_quadruped_tendon">
   <compiler angle="radian" autolimits="true"/>
   <option timestep="1e-4" gravity="0 0 {-GRAVITY}" integrator="implicitfast"/>
@@ -927,6 +1046,68 @@ def quadruped_rig(hip_height: float = 0.175, elastic: dict | None = None,
 
   <actuator>
 {nl.join(acts)}
+  </actuator>
+</mujoco>
+"""
+
+
+def _spine_quadruped(hip_height, trunk_mass, tendons, acts,
+                     fore_bodies, hind_bodies, fore_spools, hind_spools) -> str:
+    """The quadruped with ADR-0006's ARTICULATED spine instead of a rigid box.
+
+    ✅ **What M43 deliberately left out, and why it is safe to add now.** The
+    rigid trunk was chosen so the standing gate had *one* thing to get wrong; six
+    milestones later the leg transmission is settled (ADR-0058), re-derived
+    (ADR-0059) and its controller is measured (ADR-0060), so the spine is now the
+    only new variable.
+
+    ⚠️ **The girdle span changes, and it is not a free choice.** The rigid box put
+    the girdles `2 * GIRDLE_X = 210 mm` apart; ADR-0006's segment lengths sum to
+    **195 mm**. The chain is the sourced number, so building it shortens the
+    wheelbase by **15 mm** and every standing figure measured on the box moves with
+    it. Nothing reconciled those two numbers before M57.
+
+    Legs hang off their own girdle: the hind pair on the root body, the fore pair
+    on the far end of the chain, so a bend carries them the way `spine.py`'s
+    girdle composition says it must.
+    """
+    sp = DEFAULT_SPINE
+    total = float(sum(sp.segment_lengths))
+    nl = chr(10)
+
+    # keep the body centred on the origin, as the rigid box was
+    pad = " " * 6
+    fore = nl.join(fore_bodies)
+    fspool = nl.join(fore_spools)
+    chain = spine_chain_xml(sp, 6, fore, fspool)
+
+    return f"""<mujoco model="tomcat_quadruped_tendon_spine">
+  <compiler angle="radian" autolimits="true"/>
+  <option timestep="1e-4" gravity="0 0 {-GRAVITY}" integrator="implicitfast"/>
+  <default>
+    <geom rgba="0.84 0.68 0.53 1"/>
+  </default>
+  <worldbody>
+    <geom name="floor" type="plane" size="3 3 0.1" rgba="0.9 0.9 0.9 1"
+          friction="0.8 0.005 0.0001"/>
+    <body name="trunk" pos="{-total / 2.0:.5f} 0 {hip_height:.4f}">
+      <freejoint name="root"/>
+      <geom name="rear_girdle_g" type="box" size="0.030 0.030 0.028"
+            mass="{sp.rear_girdle_mass:.5f}"/>
+{nl.join(hind_spools)}
+{nl.join(hind_bodies)}
+{chain}
+    </body>
+  </worldbody>
+
+  <tendon>
+{tendons}
+{spine_tendons(sp)}
+  </tendon>
+
+  <actuator>
+{acts}
+{spine_actuators(sp)}
   </actuator>
 </mujoco>
 """

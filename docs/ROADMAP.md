@@ -134,7 +134,10 @@ sequences the work that implements them.
 > **M56 done:** the variable-radius profile is **priced and declined** — the one
 > joint that needs help has **no shape to exploit**
 > ([ADR-0061](DESIGN_DECISIONS.md)).
-> 477 passed + 5 xfailed Python, 17 Rust.
+> **M57 done:** the **articulated spine** ships — 18 of NFR2c's 19 DOF, and the
+> body stands, but only with the stance reaction a chain carries
+> ([ADR-0062](DESIGN_DECISIONS.md)).
+> 481 passed + 5 xfailed Python, 17 Rust.
 
 ---
 
@@ -2768,7 +2771,61 @@ unspent here because the arms are shared between legs and the hind leg's other p
 have 5× margin, so the right change is a **per-leg** arm — a decision that needs
 a sheave that fits, not a simulation.
 
-## Later milestones (candidate M57+, not committed)
+## Milestone M57 — The articulated spine: 18 of 19 DOF, and it stands (DONE)
+
+### ⚠️ What the census found
+
+NFR2c has claimed **19 actuated DOF** since ADR-0009. Measured:
+
+| model | actuated | leg | spine | tail |
+|---|---|---|---|---|
+| `mjcf`, rigid trunk | 12 | 12 | 0 | 0 |
+| `mjcf`, `spine_dof=True` | 15 | 12 | **3, lateral only** | 0 |
+| `mjcf_tendon`, the shipped plant | 12 | 12 | 0 | 0 |
+
+⚠️ **The sagittal axis was in no MuJoCo model at all** — the axis ADR-0006 is
+actually about, and the only spine axis that does work against gravity. What
+existed was ADR-0009's lateral sway, in the rigid position-servo model.
+**The requirement was being checked against a plant that could not meet it.**
+
+### ✅ What was built
+
+Three segments, each with a sagittal **and** a lateral joint: **six pairs, six
+bidirectional motors**, ADR-0058's transmission applied unchanged. **18 actuated
+DOF**, and the mass cost is **exactly zero** — 4.3081 kg either way, because the
+girdles and segments sum to precisely the `trunk_mass` the box carried in one lump.
+
+⚠️ It also settles two numbers nobody had reconciled: the rigid trunk put the
+girdles **210 mm** apart, ADR-0006's segments sum to **195 mm**. The chain is the
+sourced number, so the wheelbase shortens 15 mm and the fore load share moves
+**30.2 % → 33.0 %**.
+
+### ✅ It stands — and one term is the difference between standing and falling
+
+| | sag | tilt | leg peak | spine peak |
+|---|---|---|---|---|
+| gravity compensation only | 89.7 mm | **77.0°** | 222.9 N | 222.9 N |
+| **+ `wbc.chain_reaction`** | **2.82 mm** | **0.006°** | 65.8 N | **39.3 N** |
+| rigid box, for reference | 3.08 mm | 0.006° | 68.2 N | — |
+
+The missing term is what a foot force does to **every joint between that foot and
+the root**. On a rigid box there were none; on a chain it is the whole spine.
+✅ It is ADR-0044's omission one level up — the legs needed the stance term in
+`actuator_torque` for the same reason. Derived, not tuned.
+
+✅ **And the articulated body is slightly better than the box**: 2.82 mm of sag
+against 3.08, 65.8 N against 68.2, while holding the spine to **0.001°**.
+
+### ✅ The difficulty is the six DOF, not the geometry
+
+Weld the chain's joints — same geometry, same distributed mass, zero spine DOF
+— and it stands **better** than the box: **2.95 mm** sag, **65.4 N**. The shorter
+wheelbase and the redistributed mass are free. ⚠️ What is not free is the six
+degrees of freedom, and what they need is a **control term**, not a stiffer body
+— exactly what M43 suspected when it made the trunk rigid so the gate had *"one
+thing to get wrong"*.
+
+## Later milestones (candidate M58+, not committed)
 
 > This list is **curated, not append-only**. When a milestone closes an item it is
 > deleted here and the reasoning kept in the [ADR log](DESIGN_DECISIONS.md). Earlier
@@ -2777,6 +2834,18 @@ a sheave that fits, not a simulation.
 
 ### Next — fold it in, then re-publish
 
+- **The TAIL, and it cannot be built from what exists.** ⚠️ ADR-0062: it has a
+  motor in the mass budget (the 7-motor spine+tail bank) and **no `TailParams`, no
+  joint, no body**. Modelling it means sourcing its geometry first — length,
+  mass, ROM, moment arm — which is a `mechanical/` task, not a simulation one.
+  Until then NFR2c is **18 + 1 owed**.
+- **RE-CHECK [ADR-0061](DESIGN_DECISIONS.md)'s tension survey on the spine body.**
+  ⚠️ It named the hind ankle using the **30.2 %** fore share; the chain gives
+  **33.0 %**. The verdict may well survive — the profile's yield was *zero*, not
+  marginal — but the survey itself was run on the rigid box.
+- **A MOVING spine is untested.** ⚠️ M57's gate is quasi-static standing. Every
+  gait result still assumes a rigid trunk, and `mjcf.py` already warns that a sway
+  over planted feet needs foot slip or body roll.
 - **`mechanical/` owes a PER-LEG ANKLE ARM.** ⚠️ ADR-0061: the hind ankle runs at
   **1.19×** its continuous rating over a trot and the fix is a constant,
   **14.0 → 16.6 mm**. The arms are shared between legs today and the hind leg's
@@ -2958,6 +3027,7 @@ Kept as a short table so the deletions above are auditable rather than silent.
 | Re-derive onto the shipped plant | M54 — [ADR-0059](DESIGN_DECISIONS.md): it is the default now; four routing defects retire on one measurement, and G3 had no home |
 | Re-derive the cascade | M55 — [ADR-0060](DESIGN_DECISIONS.md): the gains transfer unchanged; the cost was headroom, and a step command is not a test |
 | Price the variable-radius profile | M56 — [ADR-0061](DESIGN_DECISIONS.md): declined; the binding joint has no shape, and the load split named the other leg |
+| Build the articulated spine | M57 — [ADR-0062](DESIGN_DECISIONS.md): 18 of 19 DOF and it stands; the sagittal axis had never been in any model |
 
 ## Open reconciliation items (lead)
 
