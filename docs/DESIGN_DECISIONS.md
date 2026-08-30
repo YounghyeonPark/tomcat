@@ -3463,6 +3463,13 @@ That took **one missing link** and **three fixes**, and the fixes are the findin
 
 ### It stands, but not indefinitely
 
+> ⚠️ **THE BINDING TENDON IS THE FORE KNEE FLEXOR, NOT THE HIND HIP EXTENSOR.
+> [ADR-0064](#adr-0064) (M59).** The table below was measured while the fore legs
+> rested partly on their metatarsals, 8.3 mm behind the contact site, which
+> unloaded them. On a point-foot contact: **fore knee flexor 100.5 N (1.24x
+> continuous)**, hind ankle 67.8, and the **hind hip extensor 63.4 N -- inside its
+> rating**. The overrun is real, smaller, and at the other end of the robot.
+
 - ⚠️ Per-tendon tension while standing, against a motor rated **81 N continuous**
   and **223 N peak**:
 
@@ -4406,6 +4413,15 @@ That took **one missing link** and **three fixes**, and the fixes are the findin
   **4.3041 kg**.
 - ✅ **The unloaded leg holds to 0.00 deg at a peak cable force of 1.7 N**, against
   the independent-pair plant's 205 N standing figure.
+> ⚠️ **EVERY FIGURE IN THIS SECTION WAS RE-DERIVED BY [ADR-0064](#adr-0064)
+> (M59), and the finding got stronger.** These were measured on a contact model
+> where the body sagged 3.1 mm onto the metatarsals before anything carried load.
+> On a point foot the standing force **decays** rather than converging: 60.0 N at
+> 1 s, 35.2 at 4 s, **33.6 N at 12 s**, with the trunk sagging **0.18 mm** rather
+> than 3.1. ✅ No saturation, at **41 %** of the published figure and a twentieth
+> of the sag. ⚠️ The claim that the force *"converges and holds"* is withdrawn --
+> it falls.
+
 - ✅ **And it cures ADR-0056's tension saturation, which was not expected.** That
   ADR measured the standing force ramping to the **222.9 N motor ceiling by 9 s** and
   pinning there. On the pulley transmission the same gate runs 12 s with the force
@@ -4835,6 +4851,16 @@ that keeps the six spine motors inside their rating:
 
 ### ⚠️ More gain does not help; it skates
 
+> ⚠️ **RE-DERIVED BY [ADR-0064](#adr-0064) (M59): on a point foot it does not
+> skate, it DIVERGES.** The table below was measured while the fore legs rested on
+> their metatarsals, where more gain looked like it bought tracking in return for
+> scrub. It does not: at `kp = 30` the tracking error is **65.7 deg**, five times
+> worse than at `kp = 8`, and the raw demand reaches **31 750 N -- 142x the
+> motor's peak**. `kp = 8` is the only gain tried that stays inside the rating,
+> and there the sway is **2.6 mm of the designed 66.7**, less than this ADR
+> reported. The conclusion is unchanged and the reason is different: it is not
+> that friction eats the sway, it is that the loop does not close above that gain.
+
 Logging the force **before** the clamp, as [ADR-0060](#adr-0060) requires:
 
 | `kp` | track err | CoM "sway" | spine force | foot slip |
@@ -4890,6 +4916,94 @@ it.**
   lateral moment arm** (mechanical, and it trades against tension), or **drop
   static stability** for dynamic walking -- which ADR-0009 listed as option E and
   rejected because the dynamics milestone did not exist. It exists now.
+
+## ADR-0064: The foot was not a foot -- a millimetre of contact geometry moved five published results
+
+- **Status:** Accepted. Bones no longer collide; the pad is the only leg geom that
+  touches the ground. **Corrects [ADR-0049](#adr-0049)'s standing tension survey,
+  [ADR-0058](#adr-0058)'s standing force and sag, and [ADR-0063](#adr-0063)'s
+  gain sweep. ✅ Answers the low-friction-foot question that prompted it.**
+- **Context:** A design suggestion -- *put something low-friction on the foot so
+  the paw can follow the sway* -- needed a friction study. Setting the friction
+  turned out to change nothing, and chasing why exposed the contact model.
+
+### ⚠️ The defect
+
+- The distal limb carries three geoms within two millimetres of each other: the
+  **pad** sphere at the toe (the contact the model intends), the **paw capsule**
+  2 mm above it, and the fore **metatarsal** 1 mm above it.
+- Standing sagged the trunk **3.06 mm**, which is more than either clearance, so
+  all three took load. Measured during a controlled stand: pad 200 samples in 200,
+  hind paw capsule 196, **fore metatarsal 91**.
+- ⚠️ **The consequence: the fore legs' effective contact sat 8.3 mm BEHIND the
+  `_foot` site** every controller and every support-polygon calculation uses.
+  On a 210 mm wheelbase, against the +-16 to 30 mm margins ADR-0009 argues over,
+  that is half the quantity in dispute -- and it was silent.
+
+### ✅ The fix, and what it bought
+
+Bones do not collide. This is not a convenience: **the model now matches its own
+stated abstraction**, a point foot at `_foot`.
+
+| | before | after |
+|---|---|---|
+| contact-vs-site offset, fore | 8.3 mm | **0.0 mm** |
+| geoms touching | pad + paw capsule + metatarsal | **pad only** |
+| standing sag | +3.06 mm | **-0.57 mm** |
+
+### ⚠️ Five published results moved
+
+- **[ADR-0049](#adr-0049)'s standing survey inverts.** The binding tendon is the
+  **fore knee flexor at 100.5 N (1.24x continuous)**; the **hind hip extensor** the
+  headline named is at **63.4 N, inside its rating**. The old survey's *"the fore
+  legs are comfortable"* was the fore legs resting on their metatarsals.
+- **[ADR-0058](#adr-0058)'s standing force.** Not 68.2 N converged, but **60.0 N
+  decaying to 33.6 N**, with **0.18 mm** of sag rather than 3.1. The conclusion is
+  stronger; the numbers were all wrong.
+- **[ADR-0063](#adr-0063)'s gain sweep.** Not skating but **divergence**: 65.7 deg
+  of tracking error at `kp = 30` and a raw demand of **31 750 N**.
+- Standing sag itself, and the contact offset.
+
+⚠️ Only **3 of 484** tests failed on the change. That is because most of the suite
+is quasi-static or kinematic, not because the defect was small.
+
+### ✅ And the question that started it, answered
+
+Sway in place through a crossover, at the only spine gain that stays inside the
+motor rating:
+
+| foot | CoM sway | max foot slip | spine raw demand |
+|---|---|---|---|
+| as built (mu 0.8) | 2.60 mm | 17.0 mm | 76.8 N |
+| isotropic 0.10 | 9.17 mm | **115.9 mm** | 76.8 N |
+| **anisotropic 0.03 lateral / 1.0 fore-aft** | **8.26 mm** | **13.4 mm** | 136.5 N |
+
+- ✅ **The anisotropic foot works in the direction intended**: it roughly
+  **triples** the sway while *reducing* foot slip, which is exactly the trade a
+  directional pad is meant to buy.
+- ⚠️ **Isotropic does not.** It reaches a similar sway only by letting the whole
+  robot skate **116 mm**. Fore-aft grip is what separates the two, and it is also
+  what propulsion needs.
+- ⚠️ **But it does not close the gap.** 8.26 mm is **12 %** of ADR-0009's designed
+  66.7 mm, and it costs **136.5 N** of spine force -- **1.68x** the continuous
+  rating. **The binding constraint moves from friction to the spine's own torque
+  capacity**, through the 20 mm lateral moment arm `params.py` already warns
+  amplifies tension.
+- So the anisotropic foot is **necessary but not sufficient**. Whether it plus a
+  longer lateral moment arm reaches the designed sway is not measured.
+- ⚠️ **Confidence:** one 0.9 s window per configuration, and these sweeps have been
+  jumpy. The direction is clear; treat the magnitudes as provisional.
+
+### Consequences
+
+- ⚠️ **Anything measured against foot contact before M59 is suspect** -- load
+  splits, centre of pressure, support polygons, per-tendon standing loads. The
+  three findings above are the ones the suite caught.
+- ⚠️ [ADR-0061](#adr-0061)'s tension survey is quasi-static and did not move, but
+  it uses a **load split** computed from CoM geometry; that is unaffected, while
+  anything using measured contact forces would not be.
+- ✅ A regression guard ships with the fix: only the pads may collide, and a
+  controlled stand must put every contact within 1 mm of a `_foot` site.
 
 ---
 

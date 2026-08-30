@@ -592,10 +592,18 @@ def leg_tendon_xml(name: str, leg_p, arms, indent: int = 4,
     m = leg_p.link_mass
     r_hip, r_knee, r_ankle = arms
 
+    # ⚠️ **Bones do not collide; the PAD is the foot.** Every controller here,
+    # and ADR-0009's support-polygon argument, treats a foot as a point at the
+    # `_foot` site. Before M59 the limb did not: the paw capsule sits 2 mm above
+    # the pad and the fore metatarsal 1 mm, and a standing sag of 3.06 mm put
+    # both down. Measured, that dragged the fore legs' effective contact **8.3 mm
+    # behind the site the controller was using** -- half the margin ADR-0009
+    # argues over, on a 210 mm wheelbase, and silently.
     def bone(i, tag):
         ixx = _rod_inertia(m[i], L[i], 0.005)
         return (f'{pad}  <geom name="{name}_{tag}" type="capsule" '
-                f'fromto="0 0 0 {L[i]:.5f} 0 0" size="0.005" mass="{m[i]:.5f}"/>\n'
+                f'fromto="0 0 0 {L[i]:.5f} 0 0" size="0.005" mass="{m[i]:.5f}" '
+                f'contype="0" conaffinity="0"/>\n'
                 f'{pad}  <!-- I = {ixx[0]:.3e} -->\n')
 
     # ------------------------------------------------------------------ bodies
@@ -755,7 +763,7 @@ def leg_tendon_xml(name: str, leg_p, arms, indent: int = 4,
              f'euler="0 {-leg_p.paw_angle:.6f} 0">')
     b.append(f'{pad}        <geom name="{name}_pawlink" type="capsule" '
              f'fromto="0 0 0 {L[3]:.5f} 0 0" size="0.004" '
-             f'mass="{m[3]:.5f}"/>')
+             f'mass="{m[3]:.5f}" contype="0" conaffinity="0"/>')
     b.append(f'{pad}        <geom name="{name}_pad" type="sphere" size="0.006" '
              f'pos="{L[3]:.5f} 0 0" mass="0.001" '
              f'friction="0.8 0.005 0.0001"/>')

@@ -1331,9 +1331,24 @@ def test_G3s_series_spring_is_what_MAKES_it_stand(quad):
     )
 
 
-def test_standing_runs_the_hind_hip_extensor_OVER_its_continuous_rating(stood):
+def test_standing_runs_the_FORE_KNEE_FLEXOR_over_its_continuous_rating(stood):
     """⚠️ **It stands, but not indefinitely — and ADR-0023's thermal case does not
     cover this.**
+
+    ⚠️ **M59 moved this finding to the other end of the robot.** Until the foot
+    was a foot, the fore legs rested partly on their metatarsals 8.3 mm behind the
+    contact site, which unloaded them; the survey then named the **hind hip
+    extensor** at ~2.5× continuous. On a point-foot contact the ranking inverts:
+
+    | tendon | rms | vs 81.1 N continuous |
+    |---|---|---|
+    | **fore knee flexor** | **100.5 N** | **1.24×** |
+    | hind ankle | 67.8 N | 0.84× |
+    | hind hip extensor | 63.4 N | **0.78×, inside** |
+
+    So the overrun is real but **smaller and on the fore leg**, and the tendon the
+    old headline named is comfortable. The table below is what the wrapped plant
+    measured on the old contact model and is kept as the record.
 
     Per-tendon tension while standing, against a motor rated **81 N continuous** and
     **223 N peak** (ADR-0048):
@@ -1362,12 +1377,23 @@ def test_standing_runs_the_hind_hip_extensor_OVER_its_continuous_rating(stood):
             rms = float(np.sqrt((a[:, i] ** 2).mean()))
             if rms > worst:
                 worst, worst_name = rms, f"{nm}_{t}"
-    assert worst > 1.5 * MT.TENSION_CONTINUOUS, (
+    assert worst > MT.TENSION_CONTINUOUS, (
         f"worst tendon {worst_name} at {worst:.1f} N against a "
         f"{MT.TENSION_CONTINUOUS:.1f} N continuous rating"
     )
-    assert worst_name.endswith("hip_ext") and worst_name.startswith(("LR", "RR")), (
-        f"expected a hind hip extensor to be the binding tendon, got {worst_name}"
+    assert worst == pytest.approx(100.5, abs=3.0), (
+        f"the overrun is 1.24x, not the 2.5x the old contact model gave: {worst:.1f} N"
+    )
+    assert worst_name.endswith("knee_flex") and worst_name.startswith(("LF", "RF")), (
+        f"⚠️ M59: the binding tendon is a FORE knee flexor, not a hind hip "
+        f"extensor -- got {worst_name}"
+    )
+    # ⚠️ and the tendon the old headline named is now comfortably inside
+    hind_hip = max(
+        float(np.sqrt((np.array(rows)[:, TEN_PER_LEG.index("hip_ext")] ** 2).mean()))
+        for nm, rows in stood["tens"].items() if nm.startswith(("LR", "RR")))
+    assert hind_hip < MT.TENSION_CONTINUOUS, (
+        f"the hind hip extensor is inside its rating now: {hind_hip:.1f} N"
     )
     # and it stays under the peak rating, so this is thermal and not a stall
     assert stood["peak"] <= MT.TENSION_MAX + 1e-9
@@ -3479,6 +3505,22 @@ def test_the_pulley_plant_holds_at_ONE_AND_A_HALF_NEWTONS():
 def test_the_pulley_also_CURES_the_standing_TENSION_SATURATION():
     """✅ **The finding of M53, and it was a side effect.**
 
+    ⚠️ **M59 re-derived every number here, and the finding got stronger.** These
+    were measured while the fore legs rested partly on their metatarsals, so the
+    body sagged 3.1 mm before anything carried load. On a point-foot contact the
+    standing force **decays** rather than converging, and it decays much further:
+
+    | t | as published (M53) | re-derived (M59) |
+    |---|---|---|
+    | 1 s | 68.2 N | 60.0 N |
+    | 4 s | 68.2 N | 35.2 N |
+    | 12 s | 68.2 N | **33.6 N** |
+    | trunk sag | 3.1 mm | **0.18 mm** |
+
+    ✅ ADR-0058's conclusion survives and improves: no saturation, a steady figure
+    **41 %** of what M53 published, at a twentieth of the sag. ⚠️ Its claim that
+    the force *"converges and holds"* is withdrawn -- it falls.
+
     ADR-0056 measured the standing tension ramping to the **222.9 N motor ceiling
     by t = 9 s** and pinning there, tracking an uncontrolled joint drift, and left
     the thermal case blocked behind a posture task.
@@ -3578,9 +3620,13 @@ def test_the_pulley_also_CURES_the_standing_TENSION_SATURATION():
         1.0 - 2.0 * (d.qpos[4] ** 2 + d.qpos[5] ** 2), -1.0, 1.0))))
     assert float(d.qpos[2]) > 0.17, f"it must still be standing: {d.qpos[2]:.5f}"
     assert tilt < 0.05, f"tilt {tilt:.3f} deg"
-    # the force has CONVERGED, which is the whole finding
-    assert abs(late - early) < 2.0, (
-        f"force must not ramp: {early:.1f} N at 1 s, {late:.1f} at 4 s"
+    # ⚠️ the force must not RAMP -- that was M51's defect. M59: it does not
+    # converge either, it DECAYS, which is a stronger version of the same finding.
+    assert late < early, (
+        f"the force must fall, not ramp: {early:.1f} N at 1 s, {late:.1f} at 4 s"
+    )
+    assert late == pytest.approx(35.2, abs=4.0), (
+        f"re-derived on a point foot: {late:.1f} N at 4 s"
     )
     assert late < MT.TENSION_CONTINUOUS, (
         f"and it must sit inside the {MT.TENSION_CONTINUOUS:.0f} N continuous "
@@ -4909,9 +4955,22 @@ def test_RAISING_THE_SPINE_GAIN_makes_it_SKATE_not_SWAY():
     | 100 | 5.69° | 98.9 mm | saturated | **484 mm** |
     | 300 | 3.80° | 22.8 mm | saturated | 280 mm |
 
-    ⚠️ The 98.9 mm at `kp = 100` is **not sway** -- it is the robot sliding across
-    the floor, which is why the slip beside it is 484 mm. Every gain that improves
-    tracking pins all six motors at 222.9 N and buys the improvement in scrub.
+⚠️ **M59 re-derived this on a point foot, and there is no exchange at all.**
+    The old table was measured while the fore legs rested on their metatarsals;
+    there, more gain looked like it bought tracking in return for scrub. It does
+    not:
+
+    | `kp` | track err | CoM "sway" | spine raw demand | foot slip |
+    |---|---|---|---|---|
+    | 8 | 12.94° | 2.6 mm | 76.8 N, inside | 17 mm |
+    | 30 | **65.74°** | 101.7 mm | **31 750 N** | 338 mm |
+    | 100 | 27.19° | 185.6 mm | 5 574 N | 349 mm |
+    | 300 | 41.71° | 407.5 mm | 24 900 N | 704 mm |
+
+    Tracking gets **five times worse** at `kp = 30` and the raw demand reaches
+    **142× the motor's peak**. The "sway" figures are the robot being flung
+    across the floor. `kp = 8` is the only gain tried that stays inside the
+    rating.
 
     ⚠️ Note the lateral moment arm is **20 mm** against the sagittal 30, and
     `params.py` already warns that a short lateral arm *"directly amplifies cable
@@ -4934,9 +4993,15 @@ def test_RAISING_THE_SPINE_GAIN_makes_it_SKATE_not_SWAY():
     assert high["raw_peak"] > MT.TENSION_MAX, (
         f"more gain saturates: raw {high['raw_peak']:.0f} N"
     )
-    assert high["track"] < low["track"], "tracking does improve"
+    assert high["track"] > low["track"], (
+        f"⚠️ M59: more gain makes tracking WORSE, not better -- "
+        f"{high['track']:.1f}° against {low['track']:.1f}°"
+    )
+    assert high["raw_peak"] > 10.0 * MT.TENSION_MAX, (
+        f"and the demand is far past any motor: {high['raw_peak']:.0f} N"
+    )
     assert max(high["slip"].values()) > 5.0 * max(low["slip"].values()), (
-        "but it is bought entirely in scrub: "
+        "while the feet are flung across the floor: "
         f"{max(high['slip'].values()):.0f} mm vs "
         f"{max(low['slip'].values()):.0f} mm"
     )
@@ -4997,3 +5062,68 @@ def test_the_SWAY_GEOMETRY_puts_ADR0009_and_ADR0017_in_CONFLICT():
     assert dfore / dcom > 2.5, (
         f"the paw must travel {dfore / dcom:.1f}x further than the CoM"
     )
+
+
+# ==========================================================================
+# M59 -- the foot is a foot: only the pad touches the ground
+# ==========================================================================
+
+
+def test_ONLY_THE_PAD_touches_the_ground():
+    """✅ **M59: the contact is where the controller thinks the foot is.**
+
+    Every controller here, and ADR-0009's support-polygon argument, treats a foot
+    as a **point at the `_foot` site**. Until M59 the limb did not: the paw capsule
+    sits 2 mm above the pad, the fore metatarsal 1 mm, and the standing sag of
+    3.06 mm put both of them down. Measured during a controlled stand, the fore
+    legs' effective contact sat **8.3 mm behind the site the controller used** --
+    half the margin ADR-0009 argues over, on a 210 mm wheelbase, and silently.
+
+    ✅ Bones no longer collide. What that bought, all measured:
+
+    | | before | after |
+    |---|---|---|
+    | contact-vs-site offset, fore | 8.3 mm | **0.0 mm** |
+    | geoms touching | pad + pawlink + meta | **pad only** |
+    | standing sag | +3.06 mm | **—0.57 mm** |
+
+    ⚠️ It also moved three published findings; see
+    `test_standing_runs_the_FORE_KNEE_FLEXOR_over_its_continuous_rating`,
+    `test_the_pulley_also_CURES_the_standing_TENSION_SATURATION` and
+    `test_RAISING_THE_SPINE_GAIN_makes_it_SKATE_not_SWAY`.
+    """
+    for spine in (False, True):
+        m = mujoco.MjModel.from_xml_string(
+            MT.quadruped_rig(hip_height=0.176, spine=spine))
+        legs = [mujoco.mj_id2name(m, mujoco.mjtObj.mjOBJ_GEOM, i)
+                for i in range(m.ngeom)
+                if (m.geom_contype[i] or m.geom_conaffinity[i])
+                and (mujoco.mj_id2name(m, mujoco.mjtObj.mjOBJ_GEOM, i) or "")[:2]
+                in ("LF", "RF", "LR", "RR")]
+        assert sorted(legs) == ["LF_pad", "LR_pad", "RF_pad", "RR_pad"], (
+            f"only the pads may collide, got {sorted(legs)}"
+        )
+
+    # ✅ and during a controlled stand the contact lands ON the site
+    m, q = _spine_quad()
+    d = mujoco.MjData(m)
+    for nm in QLEGS:
+        for k, a in enumerate(_qadr(m, nm)):
+            d.qpos[a] = q[nm][k]
+    mujoco.mj_forward(m, d)
+    for _ in range(400):
+        mujoco.mj_step(m, d)
+    sid = {nm: mujoco.mj_name2id(m, mujoco.mjtObj.mjOBJ_SITE, f"{nm}_foot")
+           for nm in QLEGS}
+    touched = set()
+    for i in range(d.ncon):
+        g = mujoco.mj_id2name(m, mujoco.mjtObj.mjOBJ_GEOM, d.contact[i].geom2)
+        if g and g[:2] in QLEGS:
+            touched.add(g)
+            near = min(float(np.linalg.norm(
+                np.array(d.contact[i].pos[:2]) - np.array(d.site_xpos[s][:2])))
+                for s in sid.values())
+            assert near < 1e-3, (
+                f"the contact must be at a foot site, {1e3 * near:.1f} mm away"
+            )
+    assert all(g.endswith("_pad") for g in touched), touched

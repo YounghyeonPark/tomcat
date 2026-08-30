@@ -15,10 +15,10 @@ cat-like agility, energy-efficient movement, and passive shock absorption.
 
 ## Progress
 
-Fifty-eight milestones in. The model now spans kinematics → real mass → 3D
+Fifty-nine milestones in. The model now spans kinematics → real mass → 3D
 static stability → whole-body dynamics → a dynamic gait → closed-loop balance →
 an independent physics-engine cross-check → thermal duty → whole-body force
-allocation, with **484 passing + 5 suspended Python tests and 17 Rust** and every figure below
+allocation, with **485 passing + 5 suspended Python tests and 17 Rust** and every figure below
 generated from the live model (`python tools/make_progress_figures.py`), so a
 published number cannot drift from the code.
 
@@ -281,6 +281,7 @@ is **1.97**. That remedy *is* cheap: one step up in stock tube, under 4 g.
 | M56 | The profile, **priced and declined** | the one joint that needs help has **no shape to exploit** |
 | M57 | The **articulated spine** | 18 of 19 DOF and it **stands** — the sagittal axis had never been in any model |
 | M58 | The sway, **on the real plant** | 6 % of what was designed, every paw slides — two ADRs want **different robots** |
+| M59 | The **foot was not a foot** | 8.3 mm of silent contact error — and **five published results** moved |
 
 Full detail in the [roadmap](docs/ROADMAP.md) and the [ADR log](docs/DESIGN_DECISIONS.md).
 
@@ -747,6 +748,31 @@ Full detail in the [roadmap](docs/ROADMAP.md) and the [ADR log](docs/DESIGN_DECI
 > and measures it, and **does not decide it** — but it suspends ADR-0009's
 > *"+10.1 mm polygon margin"* as an actuated result.
 > [ADR-0063](docs/DESIGN_DECISIONS.md).
+
+> ### ⚠️ M59: the foot was not a foot
+>
+> A suggestion — *put something low-friction on the paw* — needed a friction
+> study. Setting the friction changed nothing, and chasing why exposed the contact
+> model. ⚠️ **Three geoms sit within two millimetres at the foot**, and the
+> standing sag of 3.06 mm put all three down: the fore legs' effective contact sat
+> **8.3 mm behind the `_foot` site** every controller uses — half the margin
+> ADR-0009 argues over, silently.
+>
+> ✅ **Fixed: bones do not collide.** The offset goes to **0.0 mm** and the sag
+> to **—0.57**. ⚠️ **Five published results moved with it** — ADR-0049's
+> binding tendon inverts from the hind hip extensor (now *inside* its rating) to
+> the **fore knee flexor at 1.24×**; ADR-0058's standing force is not 68.2 N
+> converged but **33.6 N decaying**; ADR-0063's gain sweep is not skating but
+> **divergence at 142× the motor's peak**. Only 3 of 484 tests caught it, because
+> most of the suite is quasi-static — not because the defect was small.
+>
+> ✅ **And the original question got an answer.** An **anisotropic** pad — low
+> laterally, gripping fore-aft — roughly **triples** the sway while *reducing*
+> foot slip, which is exactly the trade intended. Isotropic does not: it reaches a
+> similar figure only by letting the robot skate 116 mm. ⚠️ But it is **necessary,
+> not sufficient**: 12 % of the designed sway, and the binding constraint moves
+> from friction to the **spine's own torque capacity**.
+> [ADR-0064](docs/DESIGN_DECISIONS.md).
 
 ## Why tendon-driven?
 

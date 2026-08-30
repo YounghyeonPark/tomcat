@@ -140,7 +140,9 @@ sequences the work that implements them.
 > **M58 done:** the sway ADR-0009 bought **does not come out** on the actuated
 > plant — and ADR-0009 and ADR-0017 want different robots
 > ([ADR-0063](DESIGN_DECISIONS.md)).
-> 484 passed + 5 xfailed Python, 17 Rust.
+> **M59 done:** the **foot was not a foot** — a millimetre of contact geometry
+> moved five published results ([ADR-0064](DESIGN_DECISIONS.md)).
+> 485 passed + 5 xfailed Python, 17 Rust.
 
 ---
 
@@ -2884,7 +2886,66 @@ ADR-0057's. ⚠️ **M58 does not decide it**, and it suspends ADR-0009's *"+10.
 polygon margin"* as an actuated result: that margin is computed from a sway the
 plant does not produce.
 
-## Later milestones (candidate M59+, not committed)
+## Milestone M59 — The foot was not a foot (DONE)
+
+A design suggestion — *put something low-friction on the paw so it can follow the
+sway* — needed a friction study. Setting the friction changed nothing, and chasing
+why exposed the contact model.
+
+### ⚠️ The defect
+
+The distal limb carries three geoms within two millimetres: the **pad** at the toe
+(the contact the model intends), the **paw capsule** 2 mm above, the fore
+**metatarsal** 1 mm above. Standing sagged the trunk **3.06 mm** — more than
+either clearance — so all three took load. Measured in a controlled stand: pad
+200/200, hind paw capsule 196, **fore metatarsal 91**.
+
+⚠️ **So the fore legs' effective contact sat 8.3 mm BEHIND the `_foot` site** every
+controller and every support-polygon calculation uses. On a 210 mm wheelbase,
+against the ±16–30 mm margins ADR-0009 argues over, that is half the quantity in
+dispute — and it was silent.
+
+### ✅ The fix
+
+Bones do not collide. Not a convenience: **the model now matches its own stated
+abstraction**, a point foot at `_foot`.
+
+| | before | after |
+|---|---|---|
+| contact-vs-site offset, fore | 8.3 mm | **0.0 mm** |
+| geoms touching | pad + capsule + metatarsal | **pad only** |
+| standing sag | +3.06 mm | **—0.57 mm** |
+
+### ⚠️ Five published results moved
+
+- **ADR-0049's standing survey inverts.** The binding tendon is the **fore knee
+  flexor at 100.5 N (1.24×)**; the **hind hip extensor** the headline named is at
+  **63.4 N, inside its rating**. Its *"the fore legs are comfortable"* was the fore
+  legs resting on their metatarsals.
+- **ADR-0058's standing force**: not 68.2 N converged but **60.0 N decaying to
+  33.6**, sag **0.18 mm** not 3.1. Conclusion stronger, numbers all wrong.
+- **ADR-0063's gain sweep**: not skating but **divergence** — 65.7° of tracking
+  error at `kp = 30`, raw demand **31 750 N**.
+
+⚠️ Only **3 of 484** tests failed. That is because most of the suite is
+quasi-static or kinematic, not because the defect was small.
+
+### ✅ And the question that started it
+
+| foot | CoM sway | max slip | spine raw |
+|---|---|---|---|
+| as built | 2.60 mm | 17.0 mm | 76.8 N |
+| isotropic 0.10 | 9.17 mm | **115.9 mm** | 76.8 N |
+| **anisotropic 0.03 / 1.0** | **8.26 mm** | **13.4 mm** | 136.5 N |
+
+✅ **The anisotropic foot works as intended** — roughly **triples** the sway
+while *reducing* slip. ⚠️ Isotropic does not: it reaches a similar figure only by
+letting the robot skate **116 mm**. ⚠️ **But it does not close the gap**: 8.26 mm
+is **12 %** of the designed 66.7, and it costs **1.68×** the spine's continuous
+rating. **The binding constraint moves from friction to the spine's own torque
+capacity.** Necessary, not sufficient.
+
+## Later milestones (candidate M60+, not committed)
 
 > This list is **curated, not append-only**. When a milestone closes an item it is
 > deleted here and the reasoning kept in the [ADR log](DESIGN_DECISIONS.md). Earlier
@@ -2902,6 +2963,10 @@ plant does not produce.
   ⚠️ It named the hind ankle using the **30.2 %** fore share; the chain gives
   **33.0 %**. The verdict may well survive — the profile's yield was *zero*, not
   marginal — but the survey itself was run on the rigid box.
+- **The ANISOTROPIC FOOT plus a LONGER LATERAL ARM, together.** ✅ ADR-0064
+  measured each constraint separately: a directional pad triples the sway without
+  scrub, and then the **20 mm lateral moment arm** binds at 1.68× the continuous
+  rating. Whether the pair reaches ADR-0009's designed sway is **not measured**.
 - **DECIDE ADR-0009 vs ADR-0017.** ⚠️ ADR-0063: the sway is only realisable if
   the paws can translate laterally, and ADR-0017 removed the joint that could do
   it. Options to price: **accept paw scrub** (size it against ADR-0009's own
@@ -3094,6 +3159,7 @@ Kept as a short table so the deletions above are auditable rather than silent.
 | Price the variable-radius profile | M56 — [ADR-0061](DESIGN_DECISIONS.md): declined; the binding joint has no shape, and the load split named the other leg |
 | Build the articulated spine | M57 — [ADR-0062](DESIGN_DECISIONS.md): 18 of 19 DOF and it stands; the sagittal axis had never been in any model |
 | Run the sway on the actuated plant | M58 — [ADR-0063](DESIGN_DECISIONS.md): 6 % of the designed sway, and every paw slides; ADR-0009 vs ADR-0017 |
+| Make the foot a foot | M59 — [ADR-0064](DESIGN_DECISIONS.md): the contact sat 8.3 mm behind the site, and five published results moved |
 
 ## Open reconciliation items (lead)
 
