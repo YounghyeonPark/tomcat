@@ -4835,6 +4835,10 @@ def _sway_run(m, q, ctl, *, seconds, phase0, period, kp=8.0, kd=None,
     foot0 = {nm: d.site_xpos[sid[nm]].copy() for nm in QLEGS}
     raw_peak, track, ys = 0.0, 0.0, []
     slip = {nm: 0.0 for nm in QLEGS}
+    # ⚠️ Without this the sway and force columns are unreadable: a "better"
+    # number is often the robot on its way to the floor. M61 misread the gain
+    # sweep exactly that way before adding it.
+    tilt_max = 0.0
 
     for it in range(int(seconds / m.opt.timestep)):
         if it and it % refresh == 0:
@@ -4881,11 +4885,14 @@ def _sway_run(m, q, ctl, *, seconds, phase0, period, kp=8.0, kd=None,
             track = max(track,
                         float(np.max(np.abs(np.degrees(e[list(LAT_IDX)])))))
         ys.append(float(d.subtree_com[0][1]))
+        qq = np.array([float(v) for v in d.qpos[3:7]])
+        tilt_max = max(tilt_max,
+                       2.0 * math.degrees(math.acos(min(1.0, abs(qq[0])))))
         for nm in QLEGS:
             slip[nm] = max(slip[nm],
                            abs(float(d.site_xpos[sid[nm]][1] - foot0[nm][1])))
 
-    return dict(sway=1e3 * (max(ys) - min(ys)), track=track,
+    return dict(sway=1e3 * (max(ys) - min(ys)), track=track, tilt=tilt_max,
                 raw_peak=raw_peak, slip={k: 1e3 * v for k, v in slip.items()})
 
 
@@ -4942,7 +4949,7 @@ def test_the_SWAY_ADR0009_BOUGHT_needs_the_FEET_TO_SLIDE():
     )
 
 
-def test_RAISING_THE_SPINE_GAIN_makes_it_SKATE_not_SWAY():
+def test_RAISING_THE_SPINE_GAIN_makes_it_FALL_OVER():
     """⚠️ **The obvious fix does not work, and it is worth showing why.**
 
     The tracking error at the holding gain is large, so the natural move is more
@@ -5004,6 +5011,14 @@ def test_RAISING_THE_SPINE_GAIN_makes_it_SKATE_not_SWAY():
         "while the feet are flung across the floor: "
         f"{max(high['slip'].values()):.0f} mm vs "
         f"{max(low['slip'].values()):.0f} mm"
+    )
+    # ⚠️ M61: and the reason is simpler than "skating" -- it is FALLING. The
+    # tilt column is the one that says so, and it was not being read.
+    assert high["tilt"] > 15.0, (
+        f"the high-gain run is a fall, not a slide: tilt {high['tilt']:.1f}°"
+    )
+    assert low["tilt"] < 5.0, (
+        f"while the shipped gain stands: tilt {low['tilt']:.2f}°"
     )
 
 
@@ -5090,7 +5105,7 @@ def test_ONLY_THE_PAD_touches_the_ground():
     ⚠️ It also moved three published findings; see
     `test_standing_runs_the_FORE_KNEE_FLEXOR_over_its_continuous_rating`,
     `test_the_pulley_also_CURES_the_standing_TENSION_SATURATION` and
-    `test_RAISING_THE_SPINE_GAIN_makes_it_SKATE_not_SWAY`.
+    `test_RAISING_THE_SPINE_GAIN_makes_it_FALL_OVER`.
     """
     for spine in (False, True):
         m = mujoco.MjModel.from_xml_string(
@@ -5279,8 +5294,8 @@ def test_the_LATERAL_ARM_buys_COST_not_SWAY():
     ⚠️ **So torque capacity was never the constraint** -- nothing was ever clipped;
     the demand was delivered in full. What limits the sway is the **control law**:
     `kp = 8` asks for what it asks for, and
-    `test_RAISING_THE_SPINE_GAIN_makes_it_SKATE_not_SWAY` shows every higher gain
-    diverges.
+    `test_RAISING_THE_SPINE_GAIN_makes_it_FALL_OVER` shows every higher gain
+    puts the robot on the floor.
 
     ✅ **What the arm does buy is real, and it is thermal.** The lateral demand
     falls **exactly** in proportion: 76.8 N at 20 mm, **25.6 N** at 60 -- from 95 %
@@ -5368,3 +5383,89 @@ def test_the_DIRECTIONAL_PAD_CHARGES_the_SAGITTAL_spine():
     assert max(pad[i] for i in sag) > MT.TENSION_CONTINUOUS, (
         "past the continuous rating, which is the cost the pad actually incurs"
     )
+
+
+# ==========================================================================
+# M61 -- there is no frontier to trade along; there is one working point
+# ==========================================================================
+
+
+def test_ONLY_ONE_GAIN_PAIR_actually_STANDS():
+    """⚠️ **The measurement that closes the sway question, and it needed a column
+    nobody was reading.**
+
+    M58 concluded the sway does not come out; M59 re-derived it; M60 showed neither
+    the foot nor the moment arm moves it, leaving the **control law**. The obvious
+    next move is to retune: the WBC's attitude term fights the spine (a lateral
+    bend rotates the front girdle, and the attitude term regulates the **root**),
+    so lower it and give the spine room.
+
+    Measured across attitude gain × spine gain, **with the trunk tilt reported**:
+
+    | attitude `kp` | spine `kp` | CoM sway | spine raw | tilt | |
+    |---|---|---|---|---|---|
+    | **40** | **8** | **2.60 mm** | **76.8 N** | **2.03°** | ✅ **stands** |
+    | 40 | 30 | 101.74 mm | 31 750 N | **179.91°** | upside down |
+    | 20 | 30 | 15.08 mm | 288 N | 14.96° | falling |
+    | 10 | 30 | 8.23 mm | 288 N | 14.68° | falling |
+    | 10 | 8 | 1.88 mm | 76.8 N | 6.26° | falling |
+    | 0 | 8 | 0.31 mm | 77.8 N | 30.23° | falling |
+
+    ⚠️ **Every apparent improvement is the robot on its way to the floor.** The
+    8.23 mm at attitude 10 looks like the trade working; the tilt says 14.68°.
+
+    ✅ **And the attitude term turns out to be doing two jobs at once.** It is
+    what converts a spine bend into CoM *translation* -- at attitude 0 the trunk
+    simply counter-rotates and the sway collapses to **0.31 mm** even though the
+    spine tracks its reference better than anywhere else. It is also what keeps the
+    robot upright at all: at attitude 0 the tilt is **30°**. So it cannot be
+    lowered to make room for the spine loop.
+
+    **There is no frontier to trade along. There is one working point**, it is the
+    shipped one, and it delivers **4 %** of what ADR-0009 designed.
+
+    ⚠️ Even that point is disturbed: commanding the sway takes the tilt from
+    M57's undisturbed **0.006°** to **2.03°**, some 300x.
+    """
+    p, c = _walk()
+    m, q = _spine_quad()
+    designed = 66.7
+
+    def go(att, kp):
+        r = _sway_run(m, q, c.lateral_q, seconds=0.9, phase0=0.86,
+                      period=p.period, kp=kp, attitude=att)
+        assert r is not None, f"att={att} kp={kp} went non-finite"
+        return r
+
+    shipped = go((40.0, 4.0), 8.0)
+    assert shipped["tilt"] < 5.0, f"the shipped point stands: {shipped['tilt']:.2f}"
+    assert shipped["raw_peak"] < MT.TENSION_CONTINUOUS
+    assert shipped["sway"] / designed < 0.06, (
+        f"and it delivers {100 * shipped['sway'] / designed:.0f} % of the design"
+    )
+
+    # ⚠️ more spine gain: the robot goes over
+    hot = go((40.0, 4.0), 30.0)
+    assert hot["tilt"] > 90.0, f"it turns over: {hot['tilt']:.1f} deg"
+    assert hot["sway"] > shipped["sway"], (
+        "and its 'sway' looks better, which is the trap this test exists for"
+    )
+
+    # ⚠️ less attitude gain to make room: it falls before the spine is useful
+    soft = go((10.0, 2.0), 8.0)
+    assert soft["tilt"] > shipped["tilt"], (
+        f"lowering the attitude gain costs standing: {soft['tilt']:.2f} vs "
+        f"{shipped['tilt']:.2f} deg"
+    )
+    assert soft["sway"] < shipped["sway"], "and it buys no sway either"
+
+    # ✅ attitude is what makes the bend a translation, and what keeps it up
+    none = go((0.0, 0.0), 8.0)
+    assert none["sway"] < 0.2 * shipped["sway"], (
+        f"with no attitude term the trunk counter-rotates instead: "
+        f"{none['sway']:.2f} mm"
+    )
+    assert none["track"] < shipped["track"], (
+        "even though the spine tracks its reference BETTER, which is the point"
+    )
+    assert none["tilt"] > 20.0, f"and it is not standing at all: {none['tilt']:.1f}"

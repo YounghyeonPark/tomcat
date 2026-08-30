@@ -5048,6 +5048,13 @@ motor rating:
 - ⚠️ Neither the foot nor the arm moves that wall. **A different control
   structure would be required, and none is proposed here.**
 
+  > ⚠️ **[ADR-0066](#adr-0066) (M61) tried the obvious one and it does not
+  > exist.** Retuning the attitude term to give the spine room fails, because that
+  > term is doing **two** jobs: it is what converts a spine bend into CoM
+  > *translation*, and it is what keeps the robot upright. Lower it and the sway
+  > collapses **and** the robot falls. There is one working point, it is the
+  > shipped one, and it delivers **4 %**.
+
 ### ✅ What the arm does buy is real, and it is thermal
 
 - The **lateral** demand falls in exact proportion: **76.8 N at 20 mm, 25.6 N at
@@ -5087,6 +5094,70 @@ lateral:
 - ⚠️ **Confidence:** 0.9 s windows, one per configuration. The insensitivity to
   the arm is exact and structural, so that conclusion is firm; the magnitudes
   carry ADR-0064's provisional label.
+
+## ADR-0066: There is no frontier -- one gain pair stands, and it buys 4 % of the sway
+
+- **Status:** Accepted as a **measurement**. Nothing ships. **Closes the retuning
+  option [ADR-0065](#adr-0065) left open. ⚠️ Supplies the number
+  [ADR-0009](#adr-0009) vs [ADR-0017](#adr-0017) has to be decided on.**
+- **Context:** ADR-0063 found the sway does not come out; ADR-0064 re-derived it on
+  a corrected foot; ADR-0065 showed neither the pad nor the moment arm moves it and
+  named the **control law**. The obvious next move is to retune. The WBC's attitude
+  term regulates the **root** body, and a lateral spine bend rotates the front
+  girdle relative to it, so the two fight. Lower the attitude gain, give the spine
+  room. This measures that.
+
+### ⚠️ It needed a column nobody was reading
+
+Across attitude gain x spine gain, **with the trunk tilt reported**:
+
+| attitude `kp` | spine `kp` | CoM sway | spine raw | tilt | |
+|---|---|---|---|---|---|
+| **40** | **8** | **2.60 mm** | **76.8 N** | **2.03 deg** | ✅ **stands** |
+| 40 | 30 | 101.74 mm | 31 750 N | **179.91 deg** | upside down |
+| 40 | 60 | 79.66 mm | 576 N | 24.22 deg | falling |
+| 20 | 30 | 15.08 mm | 288 N | 14.96 deg | falling |
+| 10 | 30 | 8.23 mm | 288 N | 14.68 deg | falling |
+| 10 | 8 | 1.88 mm | 76.8 N | 6.26 deg | falling |
+| 5 | 8 | 1.51 mm | 76.8 N | 9.62 deg | falling |
+| 0 | 8 | 0.31 mm | 77.8 N | 30.23 deg | falling |
+
+- ⚠️ **Every apparent improvement is the robot on its way to the floor.** The
+  8.23 mm at attitude 10 reads like the trade working; the tilt says 14.68 deg.
+  This ADR's first pass reported that row as *"stable, and tracking seven times
+  better"* -- it was neither. It was falling, and the spine tracked its reference
+  freely **because** the body was tumbling.
+
+### ✅ The attitude term is doing two jobs at once
+
+- It is what **converts a spine bend into CoM translation**. At attitude 0 the
+  trunk simply counter-rotates: the sway collapses to **0.31 mm** even though the
+  spine tracks its reference **better than anywhere else in the sweep** (2.82 deg
+  against the shipped point's 12.94).
+- It is also what **keeps the robot upright**: at attitude 0 the tilt is **30 deg**.
+- ⚠️ So it cannot be lowered to make room for the spine loop. The room and the
+  standing are the same quantity.
+
+### Consequences
+
+- **There is one working point**: attitude 40/4, spine `kp = 8`. It delivers
+  **2.60 mm** of CoM sway -- **4 %** of ADR-0009's designed 66.7 mm -- at 76.8 N,
+  inside the continuous rating, at 2.03 deg of tilt.
+- ⚠️ **Even that point is disturbed.** Commanding the sway takes the tilt from
+  ADR-0062's undisturbed **0.006 deg** to **2.03**, some 300x.
+- ⚠️ **This is the number ADR-0009 vs ADR-0017 has to be decided on.** ADR-0009
+  bought three lateral spine motors to sway the CoM ~42.8 mm; on the shipped plant,
+  with the shipped controller, at the only configuration that stands, they deliver
+  **2.60 mm**. Whether that is worth three motors is a requirements decision, and
+  it is not made here.
+- ⚠️ **What is NOT ruled out**: a controller that does not regulate root attitude
+  against the spine -- one that treats the bend as commanded rather than as
+  disturbance, or regulates a whole-body attitude instead of the root's. That is a
+  design task with a measurable target (beat 2.60 mm while standing), and nothing
+  in this project proposes one yet.
+- ⚠️ **Confidence:** 0.9 s windows. A tilt of 6 deg inside 0.9 s is a fall in
+  progress rather than a settled state, but the separation from the working point's
+  2.03 deg is wide and the direction is unambiguous.
 
 ---
 

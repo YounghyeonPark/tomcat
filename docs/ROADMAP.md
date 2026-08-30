@@ -144,7 +144,9 @@ sequences the work that implements them.
 > moved five published results ([ADR-0064](DESIGN_DECISIONS.md)).
 > **M60 done:** the lateral arm buys **cost, not sway** — and M59 named the
 > wrong constraint ([ADR-0065](DESIGN_DECISIONS.md)).
-> 487 passed + 5 xfailed Python, 17 Rust.
+> **M61 done:** there is **no frontier** — one gain pair stands, and it buys
+> **4 %** of the sway ([ADR-0066](DESIGN_DECISIONS.md)).
+> 488 passed + 5 xfailed Python, 17 Rust.
 
 ---
 
@@ -2997,7 +2999,54 @@ and holding it up is the sagittal spine's job: **the pad buys lateral motion and
 charges it to the sagittal pairs.** So "lengthen the lateral arm to pay for the
 pad" reduces a demand that is no longer the binding one.
 
-## Later milestones (candidate M61+, not committed)
+## Milestone M61 — There is no frontier (DONE)
+
+M60 left the sway gap as a **control** problem. The obvious move is to retune: the
+WBC's attitude term regulates the **root** body, a lateral spine bend rotates the
+front girdle relative to it, so the two fight — lower the attitude gain and give
+the spine room. This measures that.
+
+### ⚠️ It needed a column nobody was reading
+
+| attitude `kp` | spine `kp` | CoM sway | spine raw | tilt | |
+|---|---|---|---|---|---|
+| **40** | **8** | **2.60 mm** | **76.8 N** | **2.03°** | ✅ **stands** |
+| 40 | 30 | 101.74 mm | 31 750 N | **179.91°** | upside down |
+| 20 | 30 | 15.08 mm | 288 N | 14.96° | falling |
+| 10 | 30 | 8.23 mm | 288 N | 14.68° | falling |
+| 10 | 8 | 1.88 mm | 76.8 N | 6.26° | falling |
+| 0 | 8 | 0.31 mm | 77.8 N | 30.23° | falling |
+
+⚠️ **Every apparent improvement is the robot on its way to the floor.** The
+8.23 mm at attitude 10 reads like the trade working; the tilt says 14.68°. This
+milestone's own first pass reported that row as *"stable, and tracking seven times
+better"* — it was neither, and the spine tracked freely **because** the body was
+tumbling.
+
+### ✅ The attitude term is doing two jobs at once
+
+It is what **converts a spine bend into CoM translation** — at attitude 0 the
+trunk counter-rotates instead and the sway collapses to **0.31 mm**, even though
+the spine tracks its reference **better than anywhere else** (2.82° against the
+shipped point's 12.94). And it is what **keeps the robot upright** — at attitude
+0 the tilt is **30°**.
+
+⚠️ So it cannot be lowered to make room for the spine loop. **The room and the
+standing are the same quantity.**
+
+### The number the ADR-0009 decision needs
+
+One working point: attitude 40/4, spine `kp = 8`. **2.60 mm** of CoM sway, **4 %**
+of ADR-0009's designed 66.7, at 76.8 N and 2.03° of tilt. ⚠️ Even that point is
+disturbed — commanding the sway takes the tilt from M57's undisturbed 0.006°
+to 2.03, some 300×.
+
+⚠️ **Not ruled out**: a controller that does not regulate root attitude against
+the spine — one treating the bend as commanded rather than as disturbance, or
+regulating a whole-body attitude instead of the root's. A design task with a
+measurable target (beat 2.60 mm while standing). None is proposed yet.
+
+## Later milestones (candidate M62+, not committed)
 
 > This list is **curated, not append-only**. When a milestone closes an item it is
 > deleted here and the reasoning kept in the [ADR log](DESIGN_DECISIONS.md). Earlier
@@ -3015,11 +3064,12 @@ pad" reduces a demand that is no longer the binding one.
   ⚠️ It named the hind ankle using the **30.2 %** fore share; the chain gives
   **33.0 %**. The verdict may well survive — the profile's yield was *zero*, not
   marginal — but the survey itself was run on the rigid box.
-- **The SWAY GAP IS A CONTROL PROBLEM.** ⚠️ ADR-0065: neither the foot nor the
-  moment arm moves it. The sway sits at **12 %** of ADR-0009's design because
-  `kp = 8` is the only stable gain and it asks for no more. Anything proposed has
-  to beat that, and a different control structure is what it would take — none is
-  proposed yet.
+- **A CONTROLLER THAT DOES NOT FIGHT THE SPINE.** ⚠️ ADR-0066: retuning fails,
+  because the attitude term both converts the bend into translation **and** keeps
+  the robot upright. What is left is a different structure — treat the commanded
+  bend as feed-forward rather than as a disturbance to reject, or regulate a
+  whole-body attitude instead of the root's. Target: beat **2.60 mm** while
+  standing.
 - **DECIDE ADR-0009 vs ADR-0017.** ⚠️ ADR-0063: the sway is only realisable if
   the paws can translate laterally, and ADR-0017 removed the joint that could do
   it. Options to price: **accept paw scrub** (size it against ADR-0009's own
@@ -3214,6 +3264,7 @@ Kept as a short table so the deletions above are auditable rather than silent.
 | Run the sway on the actuated plant | M58 — [ADR-0063](DESIGN_DECISIONS.md): 6 % of the designed sway, and every paw slides; ADR-0009 vs ADR-0017 |
 | Make the foot a foot | M59 — [ADR-0064](DESIGN_DECISIONS.md): the contact sat 8.3 mm behind the site, and five published results moved |
 | Price the pad and the arm together | M60 — [ADR-0065](DESIGN_DECISIONS.md): the arm buys cost not sway; the remaining gap is control |
+| Retune the sway loop | M61 — [ADR-0066](DESIGN_DECISIONS.md): no frontier — one gain pair stands and it buys 4 % |
 
 ## Open reconciliation items (lead)
 

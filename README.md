@@ -15,10 +15,10 @@ cat-like agility, energy-efficient movement, and passive shock absorption.
 
 ## Progress
 
-Sixty milestones in. The model now spans kinematics → real mass → 3D
+Sixty-one milestones in. The model now spans kinematics → real mass → 3D
 static stability → whole-body dynamics → a dynamic gait → closed-loop balance →
 an independent physics-engine cross-check → thermal duty → whole-body force
-allocation, with **487 passing + 5 suspended Python tests and 17 Rust** and every figure below
+allocation, with **488 passing + 5 suspended Python tests and 17 Rust** and every figure below
 generated from the live model (`python tools/make_progress_figures.py`), so a
 published number cannot drift from the code.
 
@@ -283,6 +283,7 @@ is **1.97**. That remedy *is* cheap: one step up in stock tube, under 4 g.
 | M58 | The sway, **on the real plant** | 6 % of what was designed, every paw slides — two ADRs want **different robots** |
 | M59 | The **foot was not a foot** | 8.3 mm of silent contact error — and **five published results** moved |
 | M60 | The arm buys **cost, not sway** | triple the moment arm, identical motion — the gap is **control** |
+| M61 | **No frontier** | one gain pair stands — and it buys **4 %** of the sway |
 
 Full detail in the [roadmap](docs/ROADMAP.md) and the [ADR log](docs/DESIGN_DECISIONS.md).
 
@@ -795,6 +796,30 @@ Full detail in the [roadmap](docs/ROADMAP.md) and the [ADR log](docs/DESIGN_DECI
 > So the sway stays at **12 %** of what ADR-0009 designed, and the remaining gap is
 > a **control** problem: `kp = 8` is the only stable gain and it asks for no more.
 > [ADR-0065](docs/DESIGN_DECISIONS.md).
+
+> ### ⚠️ M61: there is no frontier
+>
+> M60 left the sway gap as a control problem, so: retune. The WBC's attitude term
+> regulates the **root**, a lateral bend rotates the front girdle against it, and
+> the two fight — lower the attitude gain, give the spine room.
+>
+> ⚠️ **It does not work, and finding out needed a column nobody was reading.**
+> Across fifteen gain pairs, exactly **one stands**: the shipped attitude 40/4 with
+> spine `kp = 8`, at **2.60 mm** of sway and 2.03° of tilt. Every apparent
+> improvement is the robot on its way to the floor — the 8.23 mm that looks like
+> the trade working comes with **14.68°** of tilt, and 40/4 at `kp = 30` reaches
+> **179.91°**, upside down. This milestone's own first pass called that row
+> *"stable"*.
+>
+> ✅ **The attitude term turns out to do two jobs.** It converts a spine bend
+> into CoM *translation* — at attitude 0 the trunk just counter-rotates and the
+> sway collapses to 0.31 mm, even though the spine tracks **better than anywhere
+> else**. And it keeps the robot upright — at attitude 0 the tilt is 30°. The
+> room and the standing are the same quantity.
+>
+> So the sway ADR-0009 bought three motors for delivers **4 %** of its design at
+> the only configuration that stands. **That is the number the ADR-0009 vs
+> ADR-0017 decision needs.** [ADR-0066](docs/DESIGN_DECISIONS.md).
 
 ## Why tendon-driven?
 
