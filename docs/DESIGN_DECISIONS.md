@@ -213,7 +213,20 @@ context, and consequences. Status is one of: **Proposed**, **Accepted**,
   torque/tension budget alongside the leg budget.
 
 ## ADR-0007: Mid-air righting — spine + legs primary, coarse tail assist
+
+> ⚠️ **THE MECHANISM THIS ADR NAMES DOES NOT EXIST, AND THE SUBSTITUTE IS A
+> FACTOR OF FIVE SHORT. [ADR-0068](#adr-0068) (M63).** This ADR puts righting
+> authority in the **spine axial-twist DOF**. [ADR-0006](#adr-0006) targeted three
+> DOF per segment (pitch, yaw, **axial roll**) and deferred the last two;
+> [ADR-0009](#adr-0009) then bought the **lateral** DOF and cited righting as dual
+> use, writing *"lateral/axial"* as one thing. **Axial roll is in no budget and no
+> model.** ✅ Pitch and yaw alone *can* right a body -- a precessing bend needs no
+> twist -- but measured at the joint limits it gives **53 deg/s** against the
+> **282-730 deg/s** a 2.0 m to 0.3 m fall allows.
+
 - **Status:** Accepted (revised — tail simplified per project-owner)
+  ⚠️ **its righting mechanism unbuilt and its substitute unmet — see
+  [ADR-0068](#adr-0068)**
 - **Context:** Mid-air righting (landing feet-first) is an in-scope goal (G6).
   Reorientation conserves angular momentum via shape change; the question is
   which appendage provides it. **Design directive:** the tail does not need
@@ -5217,6 +5230,84 @@ Across attitude gain x spine gain, **with the trunk tilt reported**:
   what ADR-0009 used; the 2.60 mm input is a dynamic measurement over a 0.9 s
   window. Mixing them is deliberate -- it puts the measured capability into the
   original argument -- but neither half is a duty-cycle model.
+
+## ADR-0068: Righting is a factor of five short, and the DOF it was specified on does not exist
+
+- **Status:** Accepted as a **measurement**. Nothing ships. **Banners
+  [ADR-0007](#adr-0007). ⚠️ Removes the last justification
+  [ADR-0067](#adr-0067) left for the three lateral spine motors, without
+  proposing what to do about it.**
+- **Context:** ADR-0067 showed the lateral spine motors recover 3.9 % of the
+  static-stability margin they were bought for, leaving ADR-0007's righting reflex
+  as their whole remaining case. It had never been measured.
+
+### ⚠️ First: the specified DOF is not in the robot
+
+- **ADR-0006** targets three DOF per segment -- dorsoventral pitch, lateral yaw,
+  **axial roll** -- and says the first pass exercises pitch, leaving
+  *"lateral/axial parameterized for later"*.
+- **ADR-0007** makes **axial twist** the primary righting authority:
+  *"ADR-0006's axial-twist spine DOF becomes load-bearing for this goal"*.
+- **ADR-0009** bought the **lateral** DOF for sway and justified it partly as
+  *"the same lateral/axial spine authority serves ADR-0007 righting"* -- eliding
+  the two.
+- **NFR2c's 19 motors** are 12 leg + 6 spine (3 pitch + 3 yaw) + 1 tail.
+  ⚠️ **Axial roll has no motors, and [ADR-0062](#adr-0062)'s census found it in no
+  model.**
+
+### ✅ The substitute mechanism is real
+
+Driving pitch and yaw 90 deg out of phase makes the bend *direction* precess, and
+a body with zero angular momentum then rotates about its own long axis. That is
+the falling cat's bend-without-twist and it needs no axial joint.
+
+- Measured in free fall (floor and gravity removed) the angular momentum stays at
+  **2.4e-4 kg*m^2/s**, so the rotation is shape change, not a leak.
+- The control confirms it: a **pitch-only** oscillation gives **+0.02 deg per
+  cycle**.
+
+### ⚠️ But the rate is short by five to fourteen times
+
+At the joint limits (+-25 deg sagittal, +-15 lateral), command clipped to the real
+motor:
+
+| commanded | roll rate | achieved pitch / yaw |
+|---|---|---|
+| **25 / 15 deg @ 0.4 s** | **-52.7 deg/s** | 22.1 / 13.1 |
+| 15 / 15 deg @ 0.4 s | -41.9 deg/s | 14.1 / 13.0 |
+| 10 / 10 deg @ 0.4 s | -12.3 deg/s | 8.7 / 8.8 |
+
+- Righting 180 deg needs **730 deg/s** from a cat-like 0.3 m drop, **398** from
+  1.0 m, **282** from 2.0 m. At 53 deg/s the robot needs **3.4 s** -- a fall from
+  **57 m**.
+- ⚠️ **Range of motion is not where the missing factor lives.** Raising the lateral
+  amplitude from 15 to 25 deg -- past the +-15 limit, so not even legal -- buys
+  **1.6x**, not 5x.
+- ⚠️ **The legs contribute 1.8 deg/s** on their own with the manoeuvre tried,
+  though ADR-0007 names them as a co-equal mechanism.
+
+### ⚠️ What this does not settle
+
+These are naive sinusoidal shape cycles, not a designed righting law. The roll rate
+**changes sign with the cycle period** (-66 deg/s at 0.4 s, +44 at 0.8), so the
+result depends on the dynamics rather than on quasi-static geometry alone, and an
+optimised manoeuvre is genuinely untested. The measured gap is **5-14x**; the
+burden is on a manoeuvre that closes it.
+
+### Consequences
+
+- ⚠️ **The three lateral spine motors now have no measured justification.**
+  ADR-0067 removed the static-stability case; this removes the righting case as
+  demonstrated. Reclaiming them returns **~396 g, 9 %** of the mass budget.
+  **This ADR does not recommend that** -- it records that nothing currently earns
+  them.
+- ⚠️ **G6 (land feet-first) is not met and has no route to being met** that has
+  been measured. Either an optimised manoeuvre closes a 5x gap, or the axial DOF
+  ADR-0007 specified gets built and budgeted -- three more motors on a budget
+  ADR-0058 only just closed.
+- ✅ The tail, per ADR-0007, is *"a coarse inertial assist, not controlled
+  reorientation"*. It is still unbuilt ([ADR-0062](#adr-0062)) and is not a
+  candidate for closing this gap.
 
 ---
 

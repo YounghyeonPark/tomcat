@@ -5561,3 +5561,145 @@ def test_the_ACHIEVED_SWAY_recovers_NONE_of_the_polygon_margin():
         f"zero margin needs {1e3 * hi:.2f} mm of sway"
     )
     assert 1.30 / (1e3 * hi) < 0.10, "the plant delivers under a tenth of it"
+
+
+# ==========================================================================
+# M63 -- the righting reflex, measured
+# ==========================================================================
+
+
+def _freefall():
+    """The spine quadruped with no floor and no gravity.
+
+    Angular momentum about the CoM is then exactly conserved, so any net body
+    rotation has to come from **shape change alone** -- which is the whole
+    question a righting reflex asks.
+    """
+    xml = MT.quadruped_rig(hip_height=0.176, spine=True)
+    xml = xml.replace('gravity="0 0 -9.81"', 'gravity="0 0 0"')
+    xml = re.sub(r'\s*<geom name="floor"[^/]*/>', "", xml)
+    return mujoco.MjModel.from_xml_string(xml), _quad_poses()
+
+
+def _precess(p_amp_deg, y_amp_deg, period, *, cycles=5.0, kp=300.0, kd=12.0):
+    """Roll rate from a PRECESSING BEND: pitch and yaw 90° out of phase.
+
+    That makes the bend *direction* rotate around the body's long axis, which is
+    the falling cat's bend-without-twist. It needs no axial joint, which matters
+    because this robot has none.
+
+    Returns `(deg_per_second, achieved_pitch_deg, achieved_yaw_deg)`. The command
+    is clipped to the real motor, so what comes back is what the plant can do.
+    """
+    m, q = _freefall()
+    d = mujoco.MjData(m)
+    for nm in QLEGS:
+        for k, a in enumerate(_qadr(m, nm)):
+            d.qpos[a] = q[nm][k]
+    mujoco.mj_forward(m, d)
+
+    sq = [m.jnt_qposadr[_adr(m, mujoco.mjtObj.mjOBJ_JOINT, n)]
+          for n in SPINE_PAIRS]
+    sv = [m.jnt_dofadr[_adr(m, mujoco.mjtObj.mjOBJ_JOINT, n)]
+          for n in SPINE_PAIRS]
+    sa = [_adr(m, mujoco.mjtObj.mjOBJ_ACTUATOR, "m_" + n) for n in SPINE_PAIRS]
+    stn = [_adr(m, mujoco.mjtObj.mjOBJ_TENDON, n) for n in SPINE_PAIRS]
+
+    gain = []
+    for a, t in zip(sq, stn):
+        Ls = []
+        for s in (+1, -1):
+            dd = mujoco.MjData(m)
+            dd.qpos[:] = d.qpos
+            dd.qpos[a] += s * 0.002
+            mujoco.mj_forward(m, dd)
+            Ls.append(float(dd.ten_length[t]))
+        gain.append(-(Ls[0] - Ls[1]) / 0.004)
+    gain = np.array(gain)
+
+    n = int(cycles * period / m.opt.timestep)
+    amax = np.zeros(len(SPINE_PAIRS))
+    roll = 0.0
+    for it in range(n):
+        ph = 2.0 * math.pi * it * m.opt.timestep / period
+        want = np.array([math.radians(p_amp_deg) * math.sin(ph),
+                         math.radians(y_amp_deg) * math.cos(ph)] * 3)
+        have = np.array([float(d.qpos[x]) for x in sq])
+        amax = np.maximum(amax, np.abs(np.degrees(have)))
+        bias = np.array([float(d.qfrc_bias[x] - d.qfrc_passive[x]) for x in sv])
+        raw = (bias + kp * (want - have)
+               - kd * np.array([float(d.qvel[x]) for x in sv])) / gain
+        for i, x in enumerate(sa):
+            d.ctrl[x] = float(np.clip(raw[i], -MT.TENSION_MAX, MT.TENSION_MAX))
+        mujoco.mj_step(m, d)
+        assert np.all(np.isfinite(d.qpos))
+        w, x, y, z = (float(v) for v in d.qpos[3:7])
+        roll = math.degrees(math.atan2(2 * (w * x + y * z),
+                                       1 - 2 * (x * x + y * y)))
+    return roll / (cycles * period), amax[0], amax[1]
+
+
+def test_the_RIGHTING_REFLEX_is_a_FACTOR_of_FIVE_SHORT():
+    """⚠️ **The lateral spine motors' only remaining justification, measured.**
+
+    [ADR-0067](../docs/DESIGN_DECISIONS.md) left the three lateral spine motors
+    earning exactly one thing: [ADR-0007](../docs/DESIGN_DECISIONS.md)'s righting
+    reflex. It had never been measured.
+
+    ✅ **The mechanism works.** Driving pitch and yaw 90° out of phase makes the
+    bend *direction* precess, and a body with zero angular momentum rotates about
+    its own long axis -- the falling cat's bend-without-twist. Measured in free
+    fall with the floor and gravity removed, angular momentum stays at
+    **2.4e-4 kg@MID@m°/s**, so the rotation is shape change and not a leak.
+    Controls confirm it: a pitch-only oscillation gives **+0.02° per cycle**.
+
+    ⚠️ **But the rate is a factor of five to fourteen short.** At the joint limits
+    (±25° sagittal, ±15° lateral), command clipped to the real motor:
+
+    | commanded | roll rate | achieved pitch / yaw |
+    |---|---|---|
+    | **25 / 15° @ 0.4 s** | **—52.7°/s** | 22.1 / 13.1 |
+    | 15 / 15° @ 0.4 s | —41.9°/s | 14.1 / 13.0 |
+    | 10 / 10° @ 0.4 s | —12.3°/s | 8.7 / 8.8 |
+
+    Righting 180° needs **730°/s** from a cat-like 0.3 m drop, **398** from
+    1.0 m, **282** from 2.0 m. At 53°/s the robot needs **3.4 s**, which is a fall
+    from **57 m**.
+
+    ⚠️ **And the range of motion is not where the missing factor lives.** Going
+    from 15° to 25° of lateral amplitude -- past the ±15° limit, so not
+    even legal -- buys **1.6×**, not the 5× needed. ⚠️ The legs contribute
+    **1.8°/s** on their own with the manoeuvre tried, though ADR-0007 names them
+    as a co-equal mechanism.
+
+    ⚠️ **What this does NOT settle:** these are naive sinusoidal shape cycles, not
+    a designed righting law. The roll rate changes sign with the cycle period
+    (—66°/s at 0.4 s, +44 at 0.8), so the result depends on the dynamics rather
+    than on quasi-static geometry alone, and an optimised manoeuvre is genuinely
+    untested. The gap is 5–14×; the burden is on a manoeuvre that closes it.
+    """
+    # ✅ the mechanism exists
+    rate, p_got, y_got = _precess(25.0, 15.0, 0.4)
+    assert abs(rate) > 20.0, f"a precessing bend must rotate the body: {rate:.1f}"
+    assert p_got < 25.5 and y_got < 15.5, (
+        f"and it must stay inside the ROM: {p_got:.1f} / {y_got:.1f} deg"
+    )
+
+    # ⚠️ a single axis does not -- the control that says this is not a leak
+    flat, _, _ = _precess(25.0, 0.0, 0.4)
+    assert abs(flat) < 0.2 * abs(rate), (
+        f"pitch alone must not right the body: {flat:.2f} deg/s"
+    )
+
+    # ⚠️ and the rate is nowhere near what a fall allows
+    need_2m = 180.0 / math.sqrt(2 * 2.0 / 9.81)
+    assert abs(rate) < 0.25 * need_2m, (
+        f"{abs(rate):.1f} deg/s against {need_2m:.0f} needed from 2 m"
+    )
+
+    # ⚠️ opening the amplitude does not supply the missing factor
+    small, _, _ = _precess(15.0, 15.0, 0.4)
+    assert abs(rate) < 2.0 * abs(small), (
+        "the rate does not scale steeply enough with amplitude for ROM to be "
+        f"the answer: {abs(small):.1f} -> {abs(rate):.1f} deg/s"
+    )

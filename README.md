@@ -15,10 +15,10 @@ cat-like agility, energy-efficient movement, and passive shock absorption.
 
 ## Progress
 
-Sixty-two milestones in. The model now spans kinematics → real mass → 3D
+Sixty-three milestones in. The model now spans kinematics → real mass → 3D
 static stability → whole-body dynamics → a dynamic gait → closed-loop balance →
 an independent physics-engine cross-check → thermal duty → whole-body force
-allocation, with **489 passing + 5 suspended Python tests and 17 Rust** and every figure below
+allocation, with **490 passing + 5 suspended Python tests and 17 Rust** and every figure below
 generated from the live model (`python tools/make_progress_figures.py`), so a
 published number cannot drift from the code.
 
@@ -285,6 +285,7 @@ is **1.97**. That remedy *is* cheap: one step up in stock tube, under 4 g.
 | M60 | The arm buys **cost, not sway** | triple the moment arm, identical motion — the gap is **control** |
 | M61 | **No frontier** | one gain pair stands — and it buys **4 %** of the sway |
 | M62 | Static stability is **already gone** | the achieved sway recovers **3.9 %** — a factor of twenty short |
+| M63 | **Righting**, measured | a factor of **five** short — and the DOF it was specified on **does not exist** |
 
 Full detail in the [roadmap](docs/ROADMAP.md) and the [ADR log](docs/DESIGN_DECISIONS.md).
 
@@ -845,6 +846,32 @@ Full detail in the [roadmap](docs/ROADMAP.md) and the [ADR log](docs/DESIGN_DECI
 > the dual use ADR-0009 cited, now their whole justification, and never measured.
 > ✅ Standing is unaffected; this is a walking finding.
 > [ADR-0067](docs/DESIGN_DECISIONS.md).
+
+> ### ⚠️ M63: righting is a factor of five short
+>
+> M62 left the three lateral spine motors earning one thing: ADR-0007's righting
+> reflex, never measured.
+>
+> ⚠️ **First, the DOF that ADR names is not in the robot.** ADR-0007 puts righting
+> in the **spine axial twist**; ADR-0006 targeted pitch, yaw and **axial roll** and
+> deferred the last two; ADR-0009 then bought the **lateral** DOF and justified it
+> as *"the same lateral/axial spine authority"*, eliding them. **Axial roll is in
+> no budget and no model.**
+>
+> ✅ **The substitute works** — pitch and yaw 90° out of phase make the bend
+> *direction* precess, which rotates a zero-momentum body about its long axis with
+> no axial joint. Angular momentum holds at 2.4e—4, and a pitch-only control
+> gives 0.02° per cycle.
+>
+> ⚠️ **But it gives 53°/s where a fall allows 282–730.** 180° would take
+> **3.4 s** — a drop from 57 m. Opening the lateral ROM past its limit buys
+> 1.6×, not the 5× needed, so range of motion is not where the missing factor
+> lives.
+>
+> So nothing currently earns those three motors. ⚠️ **This does not recommend
+> reclaiming them** — an optimised manoeuvre is untested and the gap is the
+> burden. But **G6 is not met, with no measured route to being met.**
+> [ADR-0068](docs/DESIGN_DECISIONS.md).
 
 ## Why tendon-driven?
 

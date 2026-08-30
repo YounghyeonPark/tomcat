@@ -148,7 +148,9 @@ sequences the work that implements them.
 > **4 %** of the sway ([ADR-0066](DESIGN_DECISIONS.md)).
 > **M62 done:** static stability is **already gone** — the achieved sway
 > recovers **3.9 %** of the margin ([ADR-0067](DESIGN_DECISIONS.md)).
-> 489 passed + 5 xfailed Python, 17 Rust.
+> **M63 done:** righting is a **factor of five short**, and the DOF it was
+> specified on **does not exist** ([ADR-0068](DESIGN_DECISIONS.md)).
+> 490 passed + 5 xfailed Python, 17 Rust.
 
 ---
 
@@ -3082,7 +3084,62 @@ measured. Reclaiming them returns ~396 g (9 % of the budget) and gives up righti
 
 ✅ **Standing is unaffected.** This is a walking finding.
 
-## Later milestones (candidate M63+, not committed)
+## Milestone M63 — Righting, measured (DONE)
+
+M62 left the three lateral spine motors earning exactly one thing: ADR-0007's
+righting reflex. It had never been measured.
+
+### ⚠️ First: the specified DOF is not in the robot
+
+- **ADR-0006** targets three DOF per segment — pitch, yaw, **axial roll** — and
+  defers *"lateral/axial parameterized for later"*.
+- **ADR-0007** makes **axial twist** the primary righting authority:
+  *"ADR-0006's axial-twist spine DOF becomes load-bearing for this goal"*.
+- **ADR-0009** bought the **lateral** DOF for sway, justified partly as *"the same
+  lateral/axial spine authority serves ADR-0007 righting"* — eliding the two.
+- **NFR2c's 19 motors** are 12 leg + 6 spine (**3 pitch + 3 yaw**) + 1 tail.
+  ⚠️ **Axial roll has no motors, and M57's census found it in no model.**
+
+### ✅ The substitute mechanism is real
+
+Driving pitch and yaw 90° out of phase makes the bend *direction* precess, and a
+body with zero angular momentum rotates about its own long axis — the falling
+cat's bend-without-twist, needing no axial joint. In free fall (floor and gravity
+removed) the angular momentum stays at **2.4e—4 kg·m×m/s**, and a
+**pitch-only** control gives **+0.02° per cycle**. It is shape change, not a leak.
+
+### ⚠️ But it is short by five to fourteen times
+
+At the joint limits (±25° sagittal, ±15° lateral), clipped to the motor:
+
+| commanded | roll rate | achieved pitch / yaw |
+|---|---|---|
+| **25 / 15° @ 0.4 s** | **—52.7°/s** | 22.1 / 13.1 |
+| 15 / 15° @ 0.4 s | —41.9°/s | 14.1 / 13.0 |
+| 10 / 10° @ 0.4 s | —12.3°/s | 8.7 / 8.8 |
+
+180° needs **730°/s** from a cat-like 0.3 m drop, **398** from 1.0 m, **282**
+from 2.0 m. At 53°/s the robot needs **3.4 s** — a fall from **57 m**.
+
+⚠️ **Range of motion is not where the missing factor lives**: raising the lateral
+amplitude 15 → 25°, past the ±15° limit and so not even legal, buys
+**1.6×**. ⚠️ The legs give **1.8°/s** alone, though ADR-0007 names them
+co-equal.
+
+### ⚠️ What this does not settle
+
+Naive sinusoidal shape cycles, not a designed righting law. The roll rate **changes
+sign with the period** (—66°/s at 0.4 s, +44 at 0.8), so it depends on the
+dynamics rather than quasi-static geometry, and an optimised manoeuvre is untested.
+The gap is 5–14×; the burden is on a manoeuvre that closes it.
+
+⚠️ **So the three lateral spine motors have no measured justification left** —
+M62 removed the static-stability case, this removes righting as *demonstrated*.
+Reclaiming them returns ~396 g, 9 % of the budget. **This does not recommend that**;
+it records that nothing currently earns them. ⚠️ And **G6 is not met**, with no
+measured route to being met.
+
+## Later milestones (candidate M64+, not committed)
 
 > This list is **curated, not append-only**. When a milestone closes an item it is
 > deleted here and the reasoning kept in the [ADR log](DESIGN_DECISIONS.md). Earlier
@@ -3110,10 +3167,11 @@ measured. Reclaiming them returns ~396 g (9 % of the budget) and gives up righti
   a choice: static stability is already gone, so a walk has to be dynamically
   stable or it does not happen. The tools exist (ADR-0052, ADR-0060) and have only
   ever been used for **standing**.
-- **IS THE RIGHTING REFLEX WORTH THREE MOTORS?** ⚠️ ADR-0067: that is now the
-  lateral spine motors' whole justification, and [ADR-0007](DESIGN_DECISIONS.md)'s
-  righting has **never been measured**. Reclaiming them returns ~396 g, 9 % of the
-  mass budget.
+- **CLOSE THE RIGHTING GAP, OR DECIDE AGAINST G6.** ⚠️ ADR-0068 measured
+  **53°/s** against the **282–730°/s** a fall allows. Three routes, none
+  measured: an **optimised manoeuvre** (the 5× gap is the burden), the **axial
+  DOF** ADR-0007 actually specified (+3 motors on a closed budget), or **dropping
+  G6**. ⚠️ Until one lands, nothing earns the three lateral spine motors.
 - **A WALKING spine is still untested.** ⚠️ M58 is sway *in place*, legs planted.
   Swing legs and contact transitions are not in it.
 - **`mechanical/` owes a PER-LEG ANKLE ARM.** ⚠️ ADR-0061: the hind ankle runs at
@@ -3303,6 +3361,7 @@ Kept as a short table so the deletions above are auditable rather than silent.
 | Price the pad and the arm together | M60 — [ADR-0065](DESIGN_DECISIONS.md): the arm buys cost not sway; the remaining gap is control |
 | Retune the sway loop | M61 — [ADR-0066](DESIGN_DECISIONS.md): no frontier — one gain pair stands and it buys 4 % |
 | Re-run ADR-0009's own margin | M62 — [ADR-0067](DESIGN_DECISIONS.md): static stability is already gone; the sway recovers 3.9 % |
+| Measure the righting reflex | M63 — [ADR-0068](DESIGN_DECISIONS.md): a factor of five short, and the DOF it was specified on does not exist |
 
 ## Open reconciliation items (lead)
 
