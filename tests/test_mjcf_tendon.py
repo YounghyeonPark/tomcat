@@ -4107,3 +4107,264 @@ def test_the_ankle_TRACKS_EXACTLY_and_the_bound_is_now_the_JOINT_LIMIT():
     _, step_peak, step_sat, _ = _ship_run(m, q, dq3_deg=20.0, ramp_s=None)
     assert step_peak > 1000.0, f"the step demanded {step_peak:.0f} N"
     assert step_sat > 0.9, f"saturated {100 * step_sat:.0f} % of the horizon"
+
+
+# ==========================================================================
+# M56 -- the variable-radius profile: what it could buy, measured
+# ==========================================================================
+
+#: Trot samples per leg for the demand survey. 60 is enough to resolve the shape;
+#: the full 200 changes no figure below by more than 0.1 N.
+TROT_N = 60
+
+
+def _trot_traj(n=TROT_N):
+    """One trot cycle of joint angles per leg, with the stance flag."""
+    from tomcat_kin import gait
+
+    c = gait.GaitController(gait.trot_params())
+    out = {}
+    for st in c.sample_cycle(n):
+        for nm, ls in st.legs.items():
+            if ls.q is not None:
+                out.setdefault(nm, []).append(
+                    (np.asarray(ls.q, float), bool(ls.in_stance)))
+    return out
+
+
+def _leg_rig(leg_p):
+    m = mujoco.MjModel.from_xml_string(MT.single_leg_rig(leg_p=leg_p))
+    dof = [m.jnt_dofadr[_adr(m, mujoco.mjtObj.mjOBJ_JOINT, n)] for n in JNT]
+    qa = [m.jnt_qposadr[_adr(m, mujoco.mjtObj.mjOBJ_JOINT, n)] for n in JNT]
+    tid = [_adr(m, mujoco.mjtObj.mjOBJ_TENDON, "L_" + p) for p in PULLEY_PAIRS]
+    sid = _adr(m, mujoco.mjtObj.mjOBJ_SITE, "L_foot")
+    return m, dof, qa, tid, sid
+
+
+def _pair_force(rig, q, stance, foot_load):
+    """Motor force per pair, quasi-static, with a vertical foot load in stance."""
+    m, dof, qa, tid, sid = rig
+    d = mujoco.MjData(m)
+    for i, a in enumerate(qa):
+        d.qpos[a] = q[i]
+    mujoco.mj_forward(m, d)
+    tau = np.array([d.qfrc_bias[a] - d.qfrc_passive[a] for a in dof])
+    if stance:
+        jacp = np.zeros((3, m.nv))
+        mujoco.mj_jacSite(m, d, jacp, None, sid)
+        tau = tau - jacp[2, dof] * foot_load
+    J = np.zeros((3, 3))
+    for k in range(3):
+        Ls = []
+        for sgn in (+1, -1):
+            dd = mujoco.MjData(m)
+            for i, a in enumerate(qa):
+                dd.qpos[a] = q[i]
+            dd.qpos[qa[k]] += sgn * 0.002
+            mujoco.mj_forward(m, dd)
+            Ls.append(np.array([dd.ten_length[t] for t in tid]))
+        J[:, k] = (Ls[0] - Ls[1]) / 0.004
+    return wbc.pair_command((-J).T, tau, np.inf)
+
+
+def _load_split():
+    """Fraction of body weight on the FORE pair at the stance pose, measured."""
+    from tomcat_kin.params import DEFAULT_FORELEG
+
+    lp = {"LF": DEFAULT_FORELEG, "RF": DEFAULT_FORELEG,
+          "LR": DEFAULT_HINDLEG, "RR": DEFAULT_HINDLEG}
+    m = mujoco.MjModel.from_xml_string(MT.quadruped_rig(hip_height=0.176))
+    d = mujoco.MjData(m)
+    for nm, p in lp.items():
+        q = LegModel(p).inverse((0.04, -0.17, 0.0))
+        for i in range(3):
+            j = _adr(m, mujoco.mjtObj.mjOBJ_JOINT, f"{nm}_q{i + 1}")
+            d.qpos[m.jnt_qposadr[j]] = q[i]
+    mujoco.mj_forward(m, d)
+    feet = {}
+    for i in range(m.nsite):
+        n = mujoco.mj_id2name(m, mujoco.mjtObj.mjOBJ_SITE, i)
+        if n and n.endswith("_foot"):
+            feet[n] = d.site_xpos[i].copy()
+    fx = np.mean([p[0] for n, p in feet.items() if n[1] == "F"])
+    rx = np.mean([p[0] for n, p in feet.items() if n[1] == "R"])
+    return float((d.subtree_com[0][0] - rx) / (fx - rx)), float(
+        m.body_subtreemass[0])
+
+
+def test_the_TROT_LOAD_SPLIT_is_REAR_biased_and_params_SAID_SO():
+    """⚠️ **Get this wrong and the whole tension survey names the wrong joint.**
+
+    A trot puts one fore and one hind foot down, each carrying its girdle's share,
+    so the split decides which leg is worked hardest. Measured on the shipped
+    quadruped at the stance pose: **30.2 % fore, 69.8 % hind** -- 12.75 N on the
+    fore foot, 29.47 N on the hind.
+
+    ✅ **`params.py` predicted exactly this, and had already retracted the
+    opposite.** Review finding F2 records that the original budget *tuned girdle
+    masses to hit a 60/40 front-heavy split*, that the split is properly an
+    **output** of where the hardware sits, and that the motors do not sit forward
+    -- ADR-0005 puts more of them on the pelvis.
+
+    ⚠️ Assume 50/50 and the survey reports the **fore knee** as the pair over its
+    rating; assume the discredited 60/40 fore-bias and it reports the fore knee and
+    ankle. Both are wrong, and both point at the wrong leg.
+    """
+    frac_fore, mass = _load_split()
+    assert frac_fore == pytest.approx(0.302, abs=0.01), (
+        f"fore pair carries {100 * frac_fore:.1f} %"
+    )
+    assert frac_fore < 0.5, "rear-biased, as params F2 says it must be"
+
+    W = mass * 9.81
+    assert W * frac_fore == pytest.approx(12.75, abs=0.3)
+    assert W * (1.0 - frac_fore) == pytest.approx(29.47, abs=0.5)
+
+
+def test_the_GAIT_holds_the_PAW_FLAT_so_the_ANKLE_DEMAND_HAS_NO_SHAPE():
+    """✅ **The fact that decides M56, and it is exact rather than approximate.**
+
+    Through the whole stance phase the gait holds `q1 + q2 + q3` at **-55.0000°**
+    -- span **8.5e-14°**. That is the paw's *absolute* orientation, and holding it
+    fixed is what keeps the foot flat on the ground while the body passes over it.
+
+    ⚠️ **The consequence for a variable-radius pulley is fatal.** A profile can only
+    exploit a demand that *varies with joint angle*. With the paw held flat, the
+    ankle's torque is a **constant** through stance -- measured, the hind ankle's
+    motor force is 136.338 N at every sample, standard deviation **4e-12 N**, so
+    peak/mean is **1.0000**. There is no shape for a profile to remove.
+    """
+    traj = _trot_traj()
+    stance = [q for q, ins in traj["LR"] if ins]
+    total = np.degrees([q.sum() for q in stance])
+    assert total.max() - total.min() < 1e-9, (
+        f"the paw must stay flat: span {total.max() - total.min():.2e} deg"
+    )
+    assert total.mean() == pytest.approx(-55.0, abs=1e-6)
+
+    rig = _leg_rig(DEFAULT_HINDLEG)
+    frac_fore, mass = _load_split()
+    load = (1.0 - frac_fore) * mass * 9.81
+    f = np.abs([_pair_force(rig, q, True, load)[2] for q in stance])
+    assert f.std() < 1e-9, f"the ankle demand must be constant: std {f.std():.2e}"
+    assert f.max() / f.mean() == pytest.approx(1.0, abs=1e-9)
+
+
+def test_the_ONE_PAIR_over_its_CONTINUOUS_rating_is_the_HIND_ANKLE():
+    """⚠️ **One pair of six is over, thermally. Nothing is close structurally.**
+
+    Quasi-static motor force over one trot cycle, at the measured 30/70 split:
+
+    | | peak | RMS | RMS / 81.1 N | peak / 222.9 N |
+    |---|---|---|---|---|
+    | hind hip | 106.1 | 43.0 | 0.53 | 0.48 |
+    | hind knee | 32.6 | 15.5 | 0.19 | 0.15 |
+    | **hind ankle** | 136.3 | **96.4** | **1.19** | 0.61 |
+    | fore hip | 74.4 | 35.4 | 0.44 | 0.33 |
+    | fore knee | 89.0 | 49.9 | 0.62 | 0.40 |
+    | fore ankle | 67.1 | 47.5 | 0.59 | 0.30 |
+
+    ✅ **Structurally there is no case at all**: the worst peak is 61 % of the
+    motor's peak rating. ⚠️ **Thermally there is exactly one**: the hind ankle at
+    **1.19×** the continuous rating -- and RMS, not peak, is what heats a motor.
+
+    ⚠️ This is a quasi-static survey: gravity plus a vertical foot load, no
+    inertial or horizontal terms. It bounds the *shape* of the demand, which is what
+    M56 needs; it is not a duty-cycle model.
+    """
+    from tomcat_kin.params import DEFAULT_FORELEG
+
+    traj = _trot_traj()
+    frac_fore, mass = _load_split()
+    W = mass * 9.81
+    want = {("LR", 0): 0.53, ("LR", 1): 0.19, ("LR", 2): 1.19,
+            ("LF", 0): 0.44, ("LF", 1): 0.62, ("LF", 2): 0.59}
+
+    over, worst_pk = [], 0.0
+    for nm, leg_p, load in (("LR", DEFAULT_HINDLEG, (1 - frac_fore) * W),
+                            ("LF", DEFAULT_FORELEG, frac_fore * W)):
+        rig = _leg_rig(leg_p)
+        F = np.array([_pair_force(rig, q, ins, load) for q, ins in traj[nm]])
+        for j in range(3):
+            f = np.abs(F[:, j])
+            rms = float(np.sqrt((f ** 2).mean()))
+            worst_pk = max(worst_pk, f.max() / MT.TENSION_MAX)
+            assert rms / MT.TENSION_CONTINUOUS == pytest.approx(
+                want[(nm, j)], abs=0.06), (
+                f"{nm} {PULLEY_PAIRS[j]}: rms {rms:.1f} N"
+            )
+            if rms > MT.TENSION_CONTINUOUS:
+                over.append((nm, PULLEY_PAIRS[j], rms))
+
+    assert worst_pk < 0.7, f"structurally clear: worst peak {worst_pk:.2f} of max"
+    assert len(over) == 1 and over[0][:2] == ("LR", "ankle"), (
+        f"exactly one pair over its continuous rating: {over}"
+    )
+
+
+def test_the_VARIABLE_RADIUS_PROFILE_CANNOT_BUY_what_ADR0002_wanted():
+    """⚠️ **M56's verdict: do not design the profile. Measured yield is zero.**
+
+    [ADR-0002](../docs/DESIGN_DECISIONS.md) justified commandable co-contraction on
+    *"Kengoro AIC, which cut peak tendon tension 43→28 kgf"*, and
+    [ADR-0058](../docs/DESIGN_DECISIONS.md) speculated the benefit *"may be
+    recoverable in the radius profile"*. Both are wrong, for different reasons.
+
+    ⚠️ **The cited mechanism does not apply.** AIC is a *control rule* -- hold the
+    antagonist at `T_bias` while the agonist works -- and its 43→28 kgf is
+    measured against a **fixed high co-contraction**. The shipped pulley cannot
+    co-contract at all, so it is already at that optimum. There is nothing left for
+    an AIC-like schedule to remove.
+
+    ⚠️ **And the mechanism that does apply pays nothing here.** A variable radius is
+    a *gear ratio that varies with joint angle*: it helps where the demand is
+    peaked, by trading speed for force at the peak. Measured:
+
+    | | peak/mean in stance | RMS vs rating | what a profile buys |
+    |---|---|---|---|
+    | **hind ankle** (the one over) | **1.0000** | **1.19×** | **0 %** |
+    | hind hip | 1.99 | 0.53× | nothing needed |
+    | fore knee | 1.29 | 0.62× | nothing needed |
+
+    The one pair that needs help has **no shape at all**, because the gait holds the
+    paw flat. The pairs with shape have 1.6→5× of margin already. ⚠️ And RMS
+    is dominated by the *mean*, which a profile does not change -- flattening the
+    most-peaked pair in the survey moves its RMS by under 2 %.
+
+    ✅ **What does fix the hind ankle is a constant: 14.0 → 16.6 mm**, a
+    parameter and a sheave, not a profile. ⚠️ It is left unspent here because the
+    arms are shared between legs and the hind leg's other pairs have 5× margin,
+    so the right change is a **per-leg** arm -- a mechanical decision with a
+    drawing attached, not a simulation one.
+    """
+    traj = _trot_traj()
+    frac_fore, mass = _load_split()
+    load = (1.0 - frac_fore) * mass * 9.81
+    rig = _leg_rig(DEFAULT_HINDLEG)
+
+    F = np.array([_pair_force(rig, q, ins, load) for q, ins in traj["LR"]])
+    stance = np.array([ins for _, ins in traj["LR"]])
+    f = np.abs(F[:, 2])
+    rms = float(np.sqrt((f ** 2).mean()))
+    assert rms / MT.TENSION_CONTINUOUS == pytest.approx(1.19, abs=0.06)
+
+    # a PERFECT profile flattens the stance demand to its mean. Here that is a
+    # no-op, because the demand already IS its mean.
+    flat = f.copy()
+    flat[stance] = f[stance].mean()
+    rms_flat = float(np.sqrt((flat ** 2).mean()))
+    assert rms_flat == pytest.approx(rms, rel=1e-9), (
+        "the profile's yield on the binding pair must be exactly zero"
+    )
+
+    # where shape exists, there is already margin -- so nothing to spend it on
+    hip = np.abs(F[:, 0])
+    assert hip[stance].max() / hip[stance].mean() > 1.8, "the hip IS peaked"
+    assert float(np.sqrt((hip ** 2).mean())) < 0.6 * MT.TENSION_CONTINUOUS, (
+        "but it is nowhere near its rating, so flattening it buys nothing"
+    )
+
+    # and the fix that does work is a constant arm
+    r_ankle = float(DEFAULT_TENDON.joint_moment_arm[2]) * 1e3
+    assert r_ankle == pytest.approx(14.0, abs=1e-6)
+    assert r_ankle * rms / MT.TENSION_CONTINUOUS == pytest.approx(16.6, abs=0.6)

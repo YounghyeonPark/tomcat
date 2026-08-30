@@ -15,10 +15,10 @@ cat-like agility, energy-efficient movement, and passive shock absorption.
 
 ## Progress
 
-Fifty-five milestones in. The model now spans kinematics → real mass → 3D
+Fifty-six milestones in. The model now spans kinematics → real mass → 3D
 static stability → whole-body dynamics → a dynamic gait → closed-loop balance →
 an independent physics-engine cross-check → thermal duty → whole-body force
-allocation, with **473 passing + 5 suspended Python tests and 17 Rust** and every figure below
+allocation, with **477 passing + 5 suspended Python tests and 17 Rust** and every figure below
 generated from the live model (`python tools/make_progress_figures.py`), so a
 published number cannot drift from the code.
 
@@ -278,6 +278,7 @@ is **1.97**. That remedy *is* cheap: one step up in stock tube, under 4 g.
 | M53 | **ADR-0008 wins** | one motor per pair — 12 motors, 4.30 kg, and the standing tension **stops saturating** |
 | M54 | The **re-derivation** | the shipped plant is the default — and **eight tests had stopped being able to fail** |
 | M55 | The **cascade**, re-derived | the gains transfer unchanged — the cost was **headroom**, and a step command is not a test |
+| M56 | The profile, **priced and declined** | the one joint that needs help has **no shape to exploit** |
 
 Full detail in the [roadmap](docs/ROADMAP.md) and the [ADR log](docs/DESIGN_DECISIONS.md).
 
@@ -670,6 +671,32 @@ Full detail in the [roadmap](docs/ROADMAP.md) and the [ADR log](docs/DESIGN_DECI
 > shipped cascade tracks the ankle to **0.00° at 3.1 N out to +52°**, and what
 > bounds it now is the **150° joint limit**, not the moment arm.
 > [ADR-0060](docs/DESIGN_DECISIONS.md).
+
+> ### ✅ M56: the variable-radius profile, priced and declined
+>
+> An item open since ADR-0002, closed by measurement. ⚠️ **Two mechanisms were
+> being conflated.** Kengoro's AIC is a *control rule*, and its 43 → 28 kgf is
+> measured against a **fixed high co-contraction** — which the shipped pulley
+> cannot produce, so it is already at that optimum. A variable radius is a
+> *transmission*: a gear ratio varying with joint angle. Real, but not the cited
+> mechanism.
+>
+> ⚠️ **The load split had to be settled first, and it names the other leg.**
+> Measured: **30.2 % fore, 69.8 % hind**, exactly as `params.py`'s finding F2 said
+> when it retracted the old 60/40 front-heavy assumption. Assume 50/50 and the
+> survey blames the fore knee; the measured split blames the **hind ankle**, at
+> **1.19×** its continuous rating.
+>
+> ✅ **And the profile's yield on that pair is exactly zero.** The gait holds the
+> paw flat — `q1+q2+q3` = **—55.0000°** through the whole stance, span
+> 8.5e—14 — so the ankle's demand is a *constant*: std **4e—12 N**, peak/mean
+> **1.0000**. A profile can only remove shape, and there is none. The pairs that
+> *are* peaked already run at half their rating.
+>
+> ✅ Structurally nothing is close: the worst peak is 61 % of the motor's peak
+> rating. ⚠️ The hind ankle goes to `mechanical/` instead, where the fix is a
+> constant — **14.0 → 16.6 mm**, and per-leg.
+> [ADR-0061](docs/DESIGN_DECISIONS.md).
 
 ## Why tendon-driven?
 

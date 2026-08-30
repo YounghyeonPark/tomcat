@@ -131,7 +131,10 @@ sequences the work that implements them.
 > **M55 done:** the cascade transfers **unchanged** — what the pulley cost was
 > **headroom**, and M47's ankle test had been measuring saturation
 > ([ADR-0060](DESIGN_DECISIONS.md)).
-> 473 passed + 5 xfailed Python, 17 Rust.
+> **M56 done:** the variable-radius profile is **priced and declined** — the one
+> joint that needs help has **no shape to exploit**
+> ([ADR-0061](DESIGN_DECISIONS.md)).
+> 477 passed + 5 xfailed Python, 17 Rust.
 
 ---
 
@@ -2707,7 +2710,65 @@ leaves it **36.3°** out.
 ✅ **M42–M47 is now entirely re-derived.** Nothing in the control story still
 rests on a plant that is not being built.
 
-## Later milestones (candidate M56+, not committed)
+## Milestone M56 — The variable-radius profile, priced and declined (DONE)
+
+An item open since ADR-0002, closed by measurement rather than by design.
+
+### ⚠️ Two mechanisms were being conflated
+
+**Kengoro's AIC is a control rule** — hold the antagonist at `T_bias` while the
+agonist works — and its 43 → 28 kgf is measured **against a fixed high
+co-contraction**. The shipped pulley cannot co-contract at all, so it is already at
+that optimum. **A variable radius is a transmission**: a gear ratio varying with
+joint angle, trading speed for force where the demand peaks. That mechanism is real
+— it is just not the one ADR-0002 cited, and it is the one M56 measured.
+
+### ⚠️ The load split had to be settled first, and it names the other leg
+
+A trot puts one fore and one hind foot down, each carrying its girdle's share.
+Measured at the stance pose: **30.2 % fore, 69.8 % hind** — 12.75 N on the fore
+foot, 29.47 N on the hind. ✅ `params.py`'s review finding **F2 had already said
+so**: the original budget *tuned girdle masses to hit a 60/40 front-heavy split*,
+and F2 retracted it, because the split is an **output** of where the hardware sits
+and ADR-0005 puts more motors on the pelvis.
+
+⚠️ Assume 50/50 and the survey names the **fore knee**; assume the discredited
+60/40 fore-bias and it names the fore knee and ankle. Both point at the wrong leg.
+
+### What the trot demands, quasi-statically
+
+| | peak | RMS | RMS / 81.1 N | peak / 222.9 N |
+|---|---|---|---|---|
+| hind hip | 106.1 | 43.0 | 0.53 | 0.48 |
+| hind knee | 32.6 | 15.5 | 0.19 | 0.15 |
+| **hind ankle** | 136.3 | **96.4** | **1.19** | 0.61 |
+| fore hip | 74.4 | 35.4 | 0.44 | 0.33 |
+| fore knee | 89.0 | 49.9 | 0.62 | 0.40 |
+| fore ankle | 67.1 | 47.5 | 0.59 | 0.30 |
+
+✅ **Structurally there is no case at all** — the worst peak is **61 %** of the
+motor's peak rating. ⚠️ **Thermally there is exactly one**: the hind ankle at
+**1.19×** continuous, and RMS is what heats a motor.
+
+### ⚠️ And the profile's yield on that pair is exactly zero
+
+Through the whole stance phase the gait holds `q1 + q2 + q3` at **—55.0000°**,
+span **8.5e—14** — the paw's *absolute* orientation, held fixed so the foot stays
+flat while the body passes over it. So the ankle's demand is a **constant**:
+136.338 N at every sample, std **4e—12 N**, peak/mean **1.0000**. **There is no
+shape to remove.**
+
+The pairs that *are* peaked have margin already — the hind hip is the most peaked
+at 1.99 and runs at 0.53× its rating. And RMS is dominated by the **mean**, which a
+profile does not change: flattening the most peaked pair moves its RMS by under 2 %.
+
+✅ **Verdict: do not design it.** ⚠️ The hind ankle's 1.19× goes to
+`mechanical/` instead, where the fix is a constant: **14.0 → 16.6 mm**. Left
+unspent here because the arms are shared between legs and the hind leg's other pairs
+have 5× margin, so the right change is a **per-leg** arm — a decision that needs
+a sheave that fits, not a simulation.
+
+## Later milestones (candidate M57+, not committed)
 
 > This list is **curated, not append-only**. When a milestone closes an item it is
 > deleted here and the reasoning kept in the [ADR log](DESIGN_DECISIONS.md). Earlier
@@ -2716,10 +2777,11 @@ rests on a plant that is not being built.
 
 ### Next — fold it in, then re-publish
 
-- **Design the variable-radius PROFILE.** ⚠️ ADR-0058 models a constant ratio, which
-  schedules **zero** co-contraction. Recovering Kengoro's AIC peak-tension benefit
-  means designing `r_a(theta)` and `r_b(theta)` — a mechanical task with a
-  measurable target.
+- **`mechanical/` owes a PER-LEG ANKLE ARM.** ⚠️ ADR-0061: the hind ankle runs at
+  **1.19×** its continuous rating over a trot and the fix is a constant,
+  **14.0 → 16.6 mm**. The arms are shared between legs today and the hind leg's
+  other pairs have 5× margin, so this wants a per-leg number and a sheave that
+  fits.
 - **`mechanical/` owes TWO routing features**: the cable **clamped** at each sheave
   (ADR-0055) and each pair **split across its via-pulleys** (ADR-0058). Neither is
   drawn.
@@ -2895,6 +2957,7 @@ Kept as a short table so the deletions above are auditable rather than silent.
 | Decide ADR-0002 vs ADR-0008 | M53 — [ADR-0058](DESIGN_DECISIONS.md): ADR-0008 wins; 12 motors, 4.30 kg, and the tension saturation goes with it |
 | Re-derive onto the shipped plant | M54 — [ADR-0059](DESIGN_DECISIONS.md): it is the default now; four routing defects retire on one measurement, and G3 had no home |
 | Re-derive the cascade | M55 — [ADR-0060](DESIGN_DECISIONS.md): the gains transfer unchanged; the cost was headroom, and a step command is not a test |
+| Price the variable-radius profile | M56 — [ADR-0061](DESIGN_DECISIONS.md): declined; the binding joint has no shape, and the load split named the other leg |
 
 ## Open reconciliation items (lead)
 

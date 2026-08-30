@@ -4433,6 +4433,13 @@ That took **one missing link** and **three fixes**, and the fixes are the findin
   ratio, which schedules zero co-contraction. Recovering Kengoro's AIC benefit means
   designing `r_a(theta)` and `r_b(theta)`, and that is a mechanical task with a
   measurable target.
+
+  > ✅ **CLOSED by [ADR-0061](#adr-0061) (M56): do not design it.** The sentence
+  > above names the wrong mechanism -- AIC is a control rule measured against a
+  > fixed high co-contraction, and a pulley that cannot co-contract is already at
+  > that optimum. The mechanism that *does* apply, a gear ratio varying with joint
+  > angle, was measured and yields **exactly zero** on the only pair that needs
+  > help, because the gait holds the paw flat and that demand has no shape.
 - ✅ **The re-derivation is now unblocked and has one target**: clamped capstans,
   pulley transmission, opposite-side vias, 12 leg motors, 4.3041 kg.
   **Done in M54 -- [ADR-0059](#adr-0059)**, which also found that the drivetrain,
@@ -4622,6 +4629,86 @@ That took **one missing link** and **three fixes**, and the fixes are the findin
 - ⚠️ Still open and untouched by this ADR: the **variable-radius profile**, the two
   routing features `mechanical/` owes, and the null-space posture task -- which the
   shipped transmission removed the symptom of, not the need for.
+
+## ADR-0061: The variable-radius profile is priced and declined -- the binding joint has no shape to exploit
+
+- **Status:** Accepted as a **decision not to build**. No geometry ships. **Closes
+  the profile item [ADR-0058](#adr-0058) left open. Retires
+  [ADR-0002](#adr-0002)'s AIC rationale as inapplicable rather than unmet.
+  ⚠️ Names one real thermal overrun and hands it to `mechanical/`.**
+- **Context:** ADR-0058 chose one motor per pair and left the radius profile
+  undesigned, speculating that Kengoro's peak-tension benefit *"may be recoverable
+  in the radius profile"*. This milestone measures what such a profile could buy
+  before designing one.
+
+### ⚠️ Two mechanisms were being conflated
+
+- **Kengoro's AIC is a control rule** -- hold the antagonist at `T_bias` while the
+  agonist works -- and its 43 -> 28 kgf is measured **against a fixed high
+  co-contraction**. The shipped pulley cannot co-contract at all, so it is already
+  at that optimum. There is nothing for an AIC-like schedule to remove.
+- **A variable radius is a transmission** -- a gear ratio that varies with joint
+  angle, trading speed for force where the demand peaks. That mechanism is real and
+  available. It is not the one ADR-0002 cited, and it is the one that was measured.
+
+### ⚠️ The load split had to be settled first, and it points at the other leg
+
+- A trot puts one fore and one hind foot down, each carrying its girdle's share.
+  Measured on the shipped quadruped at the stance pose: **30.2 % fore, 69.8 %
+  hind** -- 12.75 N on the fore foot, 29.47 N on the hind.
+- ✅ `params.py` review finding **F2 had already said so**: the original budget
+  *tuned girdle masses to hit a 60/40 front-heavy split*, and F2 retracted it,
+  because the split is an **output** of where the hardware sits and ADR-0005 puts
+  more motors on the pelvis than the shoulder.
+- ⚠️ Assuming 50/50 makes the survey name the **fore knee**; assuming the
+  discredited 60/40 fore-bias makes it name the fore knee and ankle. Both point at
+  the wrong leg. The measured split names the **hind ankle**.
+
+### What the trot actually demands
+
+Quasi-static motor force over one cycle at the measured split:
+
+| | peak | RMS | RMS / 81.1 N | peak / 222.9 N |
+|---|---|---|---|---|
+| hind hip | 106.1 | 43.0 | 0.53 | 0.48 |
+| hind knee | 32.6 | 15.5 | 0.19 | 0.15 |
+| **hind ankle** | 136.3 | **96.4** | **1.19** | 0.61 |
+| fore hip | 74.4 | 35.4 | 0.44 | 0.33 |
+| fore knee | 89.0 | 49.9 | 0.62 | 0.40 |
+| fore ankle | 67.1 | 47.5 | 0.59 | 0.30 |
+
+- ✅ **Structurally there is no case at all**: the worst peak is **61 %** of the
+  motor's peak rating.
+- ⚠️ **Thermally there is exactly one**: the hind ankle at **1.19x** continuous.
+  RMS, not peak, is what heats a motor.
+
+### ⚠️ And the profile's yield on that pair is exactly zero
+
+- Through the whole stance phase the gait holds `q1 + q2 + q3` at **-55.0000 deg**,
+  span **8.5e-14**. That is the paw's *absolute* orientation, and holding it fixed
+  is what keeps the foot flat while the body passes over it.
+- So the ankle's demand is a **constant**: 136.338 N at every sample, standard
+  deviation **4e-12 N**, peak/mean **1.0000**. A profile can only exploit a demand
+  that varies with angle. **There is no shape to remove.**
+- The pairs that *are* peaked have margin already -- the hind hip is the most
+  peaked at 1.99, and it runs at 0.53x its rating. ⚠️ And RMS is dominated by the
+  **mean**, which a profile does not change: flattening the most peaked pair in the
+  survey moves its RMS by under 2 %.
+
+### Consequences
+
+- ✅ **The profile is not designed, and the reason is recorded rather than
+  deferred.** This item has been open since ADR-0002 and is now closed by
+  measurement.
+- ⚠️ **The hind ankle's 1.19x is handed to `mechanical/`.** The fix is a constant:
+  **14.0 -> 16.6 mm**. It is left unspent here because the arms are shared between
+  legs and the hind leg's other pairs have 5x margin, so the right change is a
+  **per-leg** arm -- a decision that needs a sheave that fits, not a simulation.
+- ⚠️ **This survey is quasi-static**: gravity plus a vertical foot load, no
+  inertial or horizontal terms. It bounds the *shape* of the demand, which is what
+  the profile question needs. It is not a duty-cycle model, and NFR18 already holds
+  that continuous trotting is out of spec in still air.
+- ✅ ADR-0002's antagonistic pairs survive; only its AIC rationale is retired.
 
 ---
 
