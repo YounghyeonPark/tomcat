@@ -15,10 +15,10 @@ cat-like agility, energy-efficient movement, and passive shock absorption.
 
 ## Progress
 
-Sixty-one milestones in. The model now spans kinematics → real mass → 3D
+Sixty-two milestones in. The model now spans kinematics → real mass → 3D
 static stability → whole-body dynamics → a dynamic gait → closed-loop balance →
 an independent physics-engine cross-check → thermal duty → whole-body force
-allocation, with **488 passing + 5 suspended Python tests and 17 Rust** and every figure below
+allocation, with **489 passing + 5 suspended Python tests and 17 Rust** and every figure below
 generated from the live model (`python tools/make_progress_figures.py`), so a
 published number cannot drift from the code.
 
@@ -284,6 +284,7 @@ is **1.97**. That remedy *is* cheap: one step up in stock tube, under 4 g.
 | M59 | The **foot was not a foot** | 8.3 mm of silent contact error — and **five published results** moved |
 | M60 | The arm buys **cost, not sway** | triple the moment arm, identical motion — the gap is **control** |
 | M61 | **No frontier** | one gain pair stands — and it buys **4 %** of the sway |
+| M62 | Static stability is **already gone** | the achieved sway recovers **3.9 %** — a factor of twenty short |
 
 Full detail in the [roadmap](docs/ROADMAP.md) and the [ADR log](docs/DESIGN_DECISIONS.md).
 
@@ -820,6 +821,30 @@ Full detail in the [roadmap](docs/ROADMAP.md) and the [ADR log](docs/DESIGN_DECI
 > So the sway ADR-0009 bought three motors for delivers **4 %** of its design at
 > the only configuration that stands. **That is the number the ADR-0009 vs
 > ADR-0017 decision needs.** [ADR-0066](docs/DESIGN_DECISIONS.md).
+
+> ### ⚠️ M62: static stability is already gone
+>
+> Four milestones measured what the actuated spine delivers: **2.60 mm** of CoM
+> sway. This puts that number back into the calculation **ADR-0009 was decided
+> on** — its own `support_polygon`, same gait.
+>
+> | sway | worst margin | cycle outside the polygon |
+> |---|---|---|
+> | designed | **+6.33 mm** | **0.0 %** |
+> | none | —22.59 mm | **19.8 %** |
+> | **achieved** | **—21.47 mm** | **19.8 %** |
+>
+> ⚠️ **The achieved sway is indistinguishable from no sway at all** — same worst
+> phase, **3.9 %** of the margin recovered. And the gap is a **factor of twenty**:
+> reaching a merely *zero* margin needs 25.90 mm, the plant gives 1.30.
+>
+> ⚠️ **So this is not a decision left to make.** ADR-0009 listed *"accept dynamic
+> walking"* as option E and rejected it because the dynamics milestone did not
+> exist. It exists now, and the robot is in option E whether or not anyone chooses
+> it. What the three lateral motors still earn is **ADR-0007's righting reflex** —
+> the dual use ADR-0009 cited, now their whole justification, and never measured.
+> ✅ Standing is unaffected; this is a walking finding.
+> [ADR-0067](docs/DESIGN_DECISIONS.md).
 
 ## Why tendon-driven?
 

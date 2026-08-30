@@ -5469,3 +5469,95 @@ def test_ONLY_ONE_GAIN_PAIR_actually_STANDS():
         "even though the spine tracks its reference BETTER, which is the point"
     )
     assert none["tilt"] > 20.0, f"and it is not standing at all: {none['tilt']:.1f}"
+
+
+# ==========================================================================
+# M62 -- ADR-0009's own margin, re-run with the sway the plant delivers
+# ==========================================================================
+
+
+def test_the_ACHIEVED_SWAY_recovers_NONE_of_the_polygon_margin():
+    """⚠️ **The sway question, settled on ADR-0009's own arithmetic.**
+
+    [ADR-0009](../docs/DESIGN_DECISIONS.md) bought three lateral spine motors
+    because the walk is **not statically stable** without body sway, and computed
+    that the sway recovers the support-polygon margin. M58-M61 measured what the
+    actuated plant actually produces: **2.60 mm** peak-to-peak, ±1.30 mm, at the
+    only gain pair that stands.
+
+    So put that number into `GaitController.support_polygon`, which is the function
+    ADR-0009's case was made with, on the same gait:
+
+    | sway amplitude | worst margin | cycle spent OUTSIDE the polygon |
+    |---|---|---|
+    | designed (11°/segment) | **+6.33 mm** | **0.0 %** |
+    | none at all | —22.59 mm | **19.8 %** |
+    | **achieved, ±1.30 mm** | **—21.47 mm** | **19.8 %** |
+
+    ⚠️ **The achieved sway is indistinguishable from no sway at all.** Same
+    fraction of the cycle outside, same worst phase, and it recovers **3.9 %** of
+    the margin the motors were bought to recover.
+
+    ⚠️ **And the gap is not marginal.** The amplitude needed merely to reach a
+    **zero** worst margin is **25.90 mm**; the plant delivers **1.30**. That is
+    **5 %** -- a factor of twenty, not a near miss.
+
+    ✅ So static stability is not a decision left to make: **it is already gone.**
+    ADR-0009 listed *"accept dynamic walking"* as option E and rejected it because
+    the dynamics milestone did not exist. It exists now, and the shipped robot is
+    in option E whether or not anyone chooses it.
+
+    ⚠️ One reconciliation: ADR-0009 reported **+10.1 mm** for the designed sway;
+    this measures **+6.33**. That ADR's own follow-up records the margin peaking at
+    **12.5°/segment**, and the shipped default is **11.0°** -- so the two
+    figures agree, at different amplitudes.
+    """
+    from tomcat_kin import gait
+
+    p = gait.GaitParams()
+    c = gait.GaitController(p)
+
+    def sweep(shift):
+        m = np.array([x.margin for x in
+                      c.support_polygon_sweep(192, lateral_shift=shift)])
+        return 1e3 * float(m.min()), 100.0 * float(np.mean(m < 0)), int(np.argmin(m))
+
+    des_w, des_frac, des_i = sweep(None)
+    non_w, non_frac, non_i = sweep(0.0)
+    got_w, got_frac, got_i = sweep(0.00130)
+
+    # ✅ ADR-0009's premise reproduces: the designed sway does recover it
+    assert des_w > 0.0 and des_frac == 0.0, (
+        f"the designed sway must be statically stable: {des_w:.2f} mm, "
+        f"{des_frac:.1f} % outside"
+    )
+    assert non_w < -20.0 and non_frac > 15.0, (
+        f"and without sway it is not: {non_w:.2f} mm, {non_frac:.1f} % outside"
+    )
+
+    # ⚠️ the achieved sway is indistinguishable from none
+    assert got_w == pytest.approx(non_w, abs=2.0), (
+        f"achieved {got_w:.2f} mm vs none {non_w:.2f} mm"
+    )
+    assert got_frac == pytest.approx(non_frac, abs=0.6), (
+        f"same fraction of the cycle outside: {got_frac:.1f} vs {non_frac:.1f} %"
+    )
+    assert got_i == non_i, "and the worst phase does not even move"
+    recovered = (got_w - non_w) / (des_w - non_w)
+    assert recovered < 0.10, (
+        f"it recovers {100 * recovered:.1f} % of what the motors were bought for"
+    )
+
+    # ⚠️ break-even is twenty times what the plant delivers
+    lo, hi = 0.0, 0.040
+    for _ in range(40):
+        mid = 0.5 * (lo + hi)
+        if min(x.margin for x in
+               c.support_polygon_sweep(96, lateral_shift=mid)) < 0.0:
+            lo = mid
+        else:
+            hi = mid
+    assert 1e3 * hi == pytest.approx(25.9, abs=1.0), (
+        f"zero margin needs {1e3 * hi:.2f} mm of sway"
+    )
+    assert 1.30 / (1e3 * hi) < 0.10, "the plant delivers under a tenth of it"

@@ -363,6 +363,15 @@ context, and consequences. Status is one of: **Proposed**, **Accepted**,
   - Forward mass bias is retained as a **free secondary trim** — it reduces the
     lateral ROM the gait must command, buying margin.
   - NFR2c total actuated DOF **16 → 19**.
+> ⚠️ **THIS ADR'S PREMISE DOES NOT HOLD ON THE SHIPPED PLANT.
+> [ADR-0067](#adr-0067) (M62).** Re-run this ADR's own margin calculation with the
+> sway the actuated robot delivers (+-1.30 mm, [ADR-0066](#adr-0066)) and the worst
+> margin is **-21.47 mm** against **-22.59** with no sway at all: the three lateral
+> motors recover **3.9 %** of what they were bought for, and the robot spends the
+> same **19.8 %** of each cycle outside its support polygon either way. Reaching a
+> merely **zero** margin needs **25.90 mm** of sway. **Static stability is already
+> gone**; option E below is not a choice, it is the situation.
+
 > ⚠️ **THE SWAY DOES NOT COME OUT ON THE ACTUATED PLANT.
 > [ADR-0063](#adr-0063) (M58).** Everything below is analytic geometry and a
 > quasi-static margin. Run the law on M57's tendon-driven spine and the body
@@ -5158,6 +5167,56 @@ Across attitude gain x spine gain, **with the trunk tilt reported**:
 - ⚠️ **Confidence:** 0.9 s windows. A tilt of 6 deg inside 0.9 s is a fall in
   progress rather than a settled state, but the separation from the working point's
   2.03 deg is wide and the direction is unambiguous.
+
+## ADR-0067: Static stability is already gone -- the achieved sway recovers 3.9 % of the margin
+
+- **Status:** Accepted as a **measurement on ADR-0009's own arithmetic**. Nothing
+  ships. **Puts a premise banner on [ADR-0009](#adr-0009). ⚠️ Makes its option E
+  the situation rather than a choice.**
+- **Context:** ADR-0009 bought three lateral spine motors because the walk is not
+  statically stable without body sway. [ADR-0063](#adr-0063) through
+  [ADR-0066](#adr-0066) measured what the actuated plant delivers: **2.60 mm**
+  peak-to-peak at the only gain pair that stands. This puts that number back into
+  the calculation the ADR was decided on.
+
+### The margin, same gait, same function
+
+| sway amplitude | worst margin | cycle OUTSIDE the polygon |
+|---|---|---|
+| designed (11 deg/segment) | **+6.33 mm** | **0.0 %** |
+| none at all | -22.59 mm | **19.8 %** |
+| **achieved, +-1.30 mm** | **-21.47 mm** | **19.8 %** |
+
+- ⚠️ **The achieved sway is indistinguishable from no sway.** Same fraction of the
+  cycle outside, the same worst phase, and **3.9 %** of the margin recovered.
+- ⚠️ **The gap is a factor of twenty, not a near miss.** A merely **zero** worst
+  margin needs **25.90 mm** of sway; the plant delivers **1.30**.
+- One reconciliation: ADR-0009 reported **+10.1 mm** for the designed case and this
+  measures **+6.33**. Its own follow-up records the margin peaking at
+  **12.5 deg/segment** while the shipped default is **11.0**, so the two agree at
+  different amplitudes.
+
+### Consequences
+
+- ⚠️ **Static stability is not a decision left to make. It is already gone.**
+  ADR-0009 listed *"accept dynamic walking"* as option E and rejected it because
+  the dynamics milestone did not exist. It exists now
+  ([ADR-0052](#adr-0052), [ADR-0060](#adr-0060)), and the shipped robot is in
+  option E whether or not anyone chooses it.
+- ⚠️ **What the three lateral motors still earn is [ADR-0007](#adr-0007)'s
+  righting reflex**, the dual use ADR-0009 itself cited. That is now their whole
+  justification, and it has never been measured. Reclaiming them would return
+  ~396 g (9 % of the mass budget) and give up righting.
+- ⚠️ **The decision that remains is narrower than ADR-0063 framed it**: not
+  *"sway or abduction"*, but *"can this robot walk dynamically, and is the
+  righting reflex worth three motors"*. Neither is answered here.
+- ✅ **What is not affected:** standing. The quadruped stands with 2.03 deg of
+  tilt under a commanded sway and 0.006 deg without it. This is a **walking**
+  finding.
+- ⚠️ **Confidence:** the margin calculation is quasi-static and kinematic, which is
+  what ADR-0009 used; the 2.60 mm input is a dynamic measurement over a 0.9 s
+  window. Mixing them is deliberate -- it puts the measured capability into the
+  original argument -- but neither half is a duty-cycle model.
 
 ---
 

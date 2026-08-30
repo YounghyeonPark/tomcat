@@ -146,7 +146,9 @@ sequences the work that implements them.
 > wrong constraint ([ADR-0065](DESIGN_DECISIONS.md)).
 > **M61 done:** there is **no frontier** — one gain pair stands, and it buys
 > **4 %** of the sway ([ADR-0066](DESIGN_DECISIONS.md)).
-> 488 passed + 5 xfailed Python, 17 Rust.
+> **M62 done:** static stability is **already gone** — the achieved sway
+> recovers **3.9 %** of the margin ([ADR-0067](DESIGN_DECISIONS.md)).
+> 489 passed + 5 xfailed Python, 17 Rust.
 
 ---
 
@@ -3046,7 +3048,41 @@ the spine — one treating the bend as commanded rather than as disturbance, or
 regulating a whole-body attitude instead of the root's. A design task with a
 measurable target (beat 2.60 mm while standing). None is proposed yet.
 
-## Later milestones (candidate M62+, not committed)
+## Milestone M62 — Static stability is already gone (DONE)
+
+M58–M61 measured what the actuated spine delivers: **2.60 mm** of CoM sway at the
+only gain pair that stands. This puts that number back into the calculation
+ADR-0009 was decided on — its own `support_polygon`, on the same gait.
+
+| sway amplitude | worst margin | cycle OUTSIDE the polygon |
+|---|---|---|
+| designed (11°/segment) | **+6.33 mm** | **0.0 %** |
+| none at all | —22.59 mm | **19.8 %** |
+| **achieved, ±1.30 mm** | **—21.47 mm** | **19.8 %** |
+
+⚠️ **The achieved sway is indistinguishable from no sway at all** — same
+fraction of the cycle outside, the same worst phase, and **3.9 %** of the margin
+recovered. ⚠️ **And the gap is a factor of twenty**: a merely *zero* worst margin
+needs **25.90 mm** of sway; the plant delivers **1.30**.
+
+One reconciliation: ADR-0009 reported +10.1 mm for the designed case and this
+measures +6.33. Its own follow-up records the margin peaking at **12.5°/segment**
+while the shipped default is **11.0**, so the two agree at different amplitudes.
+
+### What follows
+
+⚠️ **Static stability is not a decision left to make. It is already gone.**
+ADR-0009 listed *"accept dynamic walking"* as option E and rejected it because the
+dynamics milestone did not exist. It exists now, and the shipped robot is in
+option E whether or not anyone chooses it.
+
+⚠️ **What the three lateral motors still earn is ADR-0007's righting reflex** —
+the dual use ADR-0009 itself cited, now their whole justification, and never
+measured. Reclaiming them returns ~396 g (9 % of the budget) and gives up righting.
+
+✅ **Standing is unaffected.** This is a walking finding.
+
+## Later milestones (candidate M63+, not committed)
 
 > This list is **curated, not append-only**. When a milestone closes an item it is
 > deleted here and the reasoning kept in the [ADR log](DESIGN_DECISIONS.md). Earlier
@@ -3070,13 +3106,14 @@ measurable target (beat 2.60 mm while standing). None is proposed yet.
   bend as feed-forward rather than as a disturbance to reject, or regulate a
   whole-body attitude instead of the root's. Target: beat **2.60 mm** while
   standing.
-- **DECIDE ADR-0009 vs ADR-0017.** ⚠️ ADR-0063: the sway is only realisable if
-  the paws can translate laterally, and ADR-0017 removed the joint that could do
-  it. Options to price: **accept paw scrub** (size it against ADR-0009's own
-  friction limit), **add abduction** (+4 motors against a budget ADR-0058 only just
-  closed), **lengthen the lateral moment arm** (mechanical, trades against
-  tension), or **drop static stability** for dynamic walking — ADR-0009's option
-  E, rejected then because the dynamics milestone did not exist. It exists now.
+- **CAN THIS ROBOT WALK DYNAMICALLY?** ⚠️ ADR-0067 makes this the question, not
+  a choice: static stability is already gone, so a walk has to be dynamically
+  stable or it does not happen. The tools exist (ADR-0052, ADR-0060) and have only
+  ever been used for **standing**.
+- **IS THE RIGHTING REFLEX WORTH THREE MOTORS?** ⚠️ ADR-0067: that is now the
+  lateral spine motors' whole justification, and [ADR-0007](DESIGN_DECISIONS.md)'s
+  righting has **never been measured**. Reclaiming them returns ~396 g, 9 % of the
+  mass budget.
 - **A WALKING spine is still untested.** ⚠️ M58 is sway *in place*, legs planted.
   Swing legs and contact transitions are not in it.
 - **`mechanical/` owes a PER-LEG ANKLE ARM.** ⚠️ ADR-0061: the hind ankle runs at
@@ -3265,6 +3302,7 @@ Kept as a short table so the deletions above are auditable rather than silent.
 | Make the foot a foot | M59 — [ADR-0064](DESIGN_DECISIONS.md): the contact sat 8.3 mm behind the site, and five published results moved |
 | Price the pad and the arm together | M60 — [ADR-0065](DESIGN_DECISIONS.md): the arm buys cost not sway; the remaining gap is control |
 | Retune the sway loop | M61 — [ADR-0066](DESIGN_DECISIONS.md): no frontier — one gain pair stands and it buys 4 % |
+| Re-run ADR-0009's own margin | M62 — [ADR-0067](DESIGN_DECISIONS.md): static stability is already gone; the sway recovers 3.9 % |
 
 ## Open reconciliation items (lead)
 
