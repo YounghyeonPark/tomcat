@@ -128,7 +128,10 @@ sequences the work that implements them.
 > **M54 done:** the shipped transmission is the **default**, the re-derivation is
 > done — and **eight tests had quietly stopped being able to fail**
 > ([ADR-0059](DESIGN_DECISIONS.md)).
-> 469 passed + 5 xfailed Python, 17 Rust.
+> **M55 done:** the cascade transfers **unchanged** — what the pulley cost was
+> **headroom**, and M47's ankle test had been measuring saturation
+> ([ADR-0060](DESIGN_DECISIONS.md)).
+> 473 passed + 5 xfailed Python, 17 Rust.
 
 ---
 
@@ -2640,7 +2643,71 @@ floor was a coordinate of the *redundant* plant, and ADR-0058 spent it.
   motor per cable, which does not ship. Kept because the findings they carry are the
   evidence ADR-0058 was decided on.
 
-## Later milestones (candidate M55+, not committed)
+## Milestone M55 — The cascade transfers unchanged, and two corrections (DONE)
+
+✅ **M47's `kp = 50, kd = 1.0` holds the stance pose to 0.00° on the pulley
+drivetrain**, at a peak commanded force of **3.2 N**, never asking past the motor.
+The inner loop needed no thought at all: `kp = I·wn^2` is a property of the
+**rotor**, and every motor still has one rotor.
+
+⚠️ **Correction 1: M54 predicted the opposite.** ADR-0059 said the gains would have
+to be *re-derived rather than re-pointed*. The inertia argument was right and the
+mode really did move — but M47 had put its outer loop far below **both** plants'
+modes, so it never got close enough to care. The re-derivation **confirms** the
+gains rather than replacing them.
+
+### ⚠️ What the pulley did cost: headroom, and nobody had measured it
+
+| | lowest mode | usable outer `kp` |
+|---|---|---|
+| legacy, one spool per cable | 54.9 Hz | holds to **600** |
+| **shipped, one spool per pair** | **27.4 Hz** | holds to **200** |
+
+The lowest drivetrain mode **halves**, and M47's chosen gain goes from 12× below
+the edge to **4×** below it. ✅ Still headroom, not a wall. ⚠️ But anything that
+wants a stiffer joint loop — landing, disturbance rejection — has a third of the
+room, and **ADR-0058 was decided on mass without this being measured**.
+
+### ✅ The allocator was the real change
+
+Same plant, same gains, same reference; only the allocator differs:
+
+| allocator | hold error | peak force |
+|---|---|---|
+| `pair_command`, signed | **0.00 / 0.00 / 0.00°** | 3.2 N |
+| `tendon_tension`, pull-only | **—70.8 / —47.2 / —127.1°** | 32.5 N |
+
+M54 measured the pull-only allocator dropping whole joints and called it a residual.
+Dynamically it is a **fall**. Same finding.
+
+### ⚠️ Correction 2: M47's ankle test was measuring saturation
+
+M47 reported *"the cascade tracks the hind ankle but the reversal still bounds it"*
+from a **step** command. Logging the force *before* the clamp, that step demands
+**3700–4300 N** against a 222.9 N motor and saturates **98–100 %** of every
+timestep — on both plants. It was measuring where a saturated bang-bang controller
+comes to rest. **Both of its numbers are withdrawn.**
+
+✅ **Ramp the reference instead** — which is what a gait commands:
+
+| commanded | final error | peak force | saturation |
+|---|---|---|---|
+| +20° | **0.00°** | 3.1 N | none |
+| +40° | **0.00°** | 3.1 N | none |
+| +52° | **0.00°** | 3.1 N | none |
+| +55° | —2.06° | 130 N | none |
+
++55 misses by **exactly** its overshoot of the 150° end stop (the stance ankle is
+at 97.06°, so headroom is **52.94°**). ✅ **The bound is the joint limit now,
+not the moment arm.** And the lag is first-order: the worst error during the ramp
+falls **0.81 → 0.41 → 0.20 → 0.10°** as the ramp is stretched
+0.5 → 4 s. ⚠️ The legacy plant cannot do it at all — the same ramp to +20°
+leaves it **36.3°** out.
+
+✅ **M42–M47 is now entirely re-derived.** Nothing in the control story still
+rests on a plant that is not being built.
+
+## Later milestones (candidate M56+, not committed)
 
 > This list is **curated, not append-only**. When a milestone closes an item it is
 > deleted here and the reasoning kept in the [ADR log](DESIGN_DECISIONS.md). Earlier
@@ -2649,10 +2716,6 @@ floor was a coordinate of the *redundant* plant, and ADR-0058 spent it.
 
 ### Next — fold it in, then re-publish
 
-- **M55 — RE-DERIVE THE CASCADE on the pulley drivetrain.** ⚠️ The plant exists
-  now (ADR-0059) but the gains do not: one spool per pair changes the reflected
-  inertia, so ADR-0052's bandwidth separation has to be **measured again**, not
-  re-pointed. This is the last block of M42–M47 still on a plant that does not ship.
 - **Design the variable-radius PROFILE.** ⚠️ ADR-0058 models a constant ratio, which
   schedules **zero** co-contraction. Recovering Kengoro's AIC peak-tension benefit
   means designing `r_a(theta)` and `r_b(theta)` — a mechanical task with a
@@ -2831,6 +2894,7 @@ Kept as a short table so the deletions above are auditable rather than silent.
 | Build the clamped transmission | M52 — [ADR-0057](DESIGN_DECISIONS.md): exact on both legs at every angle; and ADR-0002 vs ADR-0008 is a real conflict |
 | Decide ADR-0002 vs ADR-0008 | M53 — [ADR-0058](DESIGN_DECISIONS.md): ADR-0008 wins; 12 motors, 4.30 kg, and the tension saturation goes with it |
 | Re-derive onto the shipped plant | M54 — [ADR-0059](DESIGN_DECISIONS.md): it is the default now; four routing defects retire on one measurement, and G3 had no home |
+| Re-derive the cascade | M55 — [ADR-0060](DESIGN_DECISIONS.md): the gains transfer unchanged; the cost was headroom, and a step command is not a test |
 
 ## Open reconciliation items (lead)
 

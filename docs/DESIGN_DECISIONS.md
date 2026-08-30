@@ -4523,12 +4523,105 @@ That took **one missing link** and **three fixes**, and the fixes are the findin
   than re-pointed: one spool per pair changes the reflected inertia and therefore
   the bandwidth separation ADR-0052 derived. It is a measurement, and this project
   has learned to do a re-derivation once.
+
+  > ⚠️ **CORRECTED by [ADR-0060](#adr-0060) (M55): the conclusion above is wrong.**
+  > The inertia claim holds -- the lowest drivetrain mode does halve, 54.9 -> 27.4
+  > Hz -- but M47 put its outer loop far below **both** plants' modes, so the gains
+  > transfer **unchanged** and hold to 0.00 deg. What actually had to change was the
+  > **allocator**, which this ADR had already found and did not connect to the
+  > cascade. The re-derivation confirms the gains rather than replacing them.
 - **M52's six clamped tests still sit on the half-step** -- clamped capstans with a
   motor per cable, a configuration that does not ship. They are kept because the
   three findings they carry are the evidence ADR-0058 was decided on, and each is a
   statement about a plant with independent motors.
 - **The variable-radius PROFILE is still undesigned**, so the shipped robot still
   schedules zero co-contraction.
+
+## ADR-0060: The cascade transfers unchanged -- what the pulley cost was headroom, not gains
+
+- **Status:** Accepted. No gain changes ship. **Corrects [ADR-0059](#adr-0059)'s
+  prediction that the cascade gains would need re-deriving. Retires
+  [ADR-0049](#adr-0049)'s ankle reversal bound and replaces it with a joint limit.
+  ⚠️ Withdraws both numbers from M47's ankle tracking test, which was saturated.**
+- **Context:** ADR-0059 built the drivetrain behind the pulley and then declined to
+  move M46-M47's control results onto it, predicting the gains would have to be
+  re-derived because one spool per pair changes the reflected inertia. This ADR
+  does the measurement.
+
+### ✅ The gains transfer unchanged
+
+- M47's `kp = 50, kd = 1.0` holds the stance pose to **0.00 deg** on the pulley
+  drivetrain at a peak commanded force of **3.2 N**, with the motor never asked
+  past its rating.
+- The inner loop needed no thought: `kp = I*wn^2` is a property of the **rotor**,
+  and every motor still has exactly one rotor. `SERVO_KP` is 180 N*m/rad on both.
+- ⚠️ **So ADR-0059's prediction was wrong**, and it is worth saying why it was
+  plausible: the inertia argument was correct, and the mode really did move. It
+  just moved from far above the outer loop to less far above it.
+
+### ⚠️ What the pulley did cost: headroom
+
+- Linearising both plants about the stance pose:
+
+  | | lowest mode | usable outer `kp` |
+  |---|---|---|
+  | legacy, one spool per cable | 54.9 Hz | holds to **600** |
+  | **shipped, one spool per pair** | **27.4 Hz** | holds to **200** |
+
+- The lowest drivetrain mode **halves** and the outer loop's usable range falls with
+  it: M47's chosen gain sat 12x below the edge, and now sits **4x** below it.
+  ✅ Still headroom, not a wall. ⚠️ But anything wanting a stiffer joint loop --
+  landing, disturbance rejection -- has a third of the room it had, and **this had
+  not been measured** when ADR-0058 was decided on mass.
+
+### ✅ The allocator was the real change
+
+- Same plant, same gains, same reference; only the allocator differs:
+
+  | allocator | hold error | peak force |
+  |---|---|---|
+  | `pair_command`, signed | **0.00 / 0.00 / 0.00 deg** | 3.2 N |
+  | `tendon_tension`, pull-only | **-70.8 / -47.2 / -127.1 deg** | 32.5 N |
+
+- ADR-0059 measured the pull-only allocator dropping whole joints and called it a
+  residual. Dynamically it is a **fall**. The two findings are the same finding.
+
+### ⚠️ M47's ankle test was measuring saturation
+
+- M47 reported *"the cascade tracks the hind ankle but the reversal still bounds
+  it"* from a **step** command. Logging the force before the clamp, that step
+  demands **3700-4300 N** against a 222.9 N motor and saturates **98-100 %** of
+  every timestep, on both plants. It was measuring where a saturated bang-bang
+  controller comes to rest. **Both of its numbers are withdrawn.**
+- ✅ **Ramped instead** -- which is what a gait commands -- the shipped cascade
+  tracks the ankle exactly:
+
+  | commanded | final error | peak force | saturation |
+  |---|---|---|---|
+  | +20 deg | **0.00** | 3.1 N | none |
+  | +40 deg | **0.00** | 3.1 N | none |
+  | +52 deg | **0.00** | 3.1 N | none |
+  | +55 deg | -2.06 | 130 N | none |
+
+  +55 misses by **exactly** its overshoot of the 150 deg end stop: the stance ankle
+  sits at 97.06 deg, so the headroom is **52.94 deg**. ✅ **The bound is the joint
+  limit now, not the moment arm** -- ADR-0049's reversal is gone and what replaces
+  it is a number out of `params`.
+- ✅ The lag is first-order with no saturation: the worst error during the ramp
+  falls **0.81 -> 0.41 -> 0.20 -> 0.10 deg** as the ramp is stretched 0.5 -> 1 -> 2
+  -> 4 s. ⚠️ The legacy plant cannot do it at all -- the same 2 s ramp to +20 deg
+  leaves it **36.3 deg** out, saturated 44 % of the time.
+
+### Consequences
+
+- ✅ **M42-M47 is now entirely re-derived onto the shipped transmission.** Nothing
+  in the control story still rests on a plant that is not being built.
+- ⚠️ **A step command is not a test.** Two published numbers survived four
+  milestones because nothing logged the pre-clamp force. Any future tracking claim
+  has to report saturation alongside error.
+- ⚠️ Still open and untouched by this ADR: the **variable-radius profile**, the two
+  routing features `mechanical/` owes, and the null-space posture task -- which the
+  shipped transmission removed the symptom of, not the need for.
 
 ---
 

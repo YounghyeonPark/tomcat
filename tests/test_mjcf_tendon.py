@@ -3834,3 +3834,276 @@ def test_the_PULL_ONLY_ALLOCATOR_silently_DROPS_JOINTS_on_the_shipped_plant():
                        wbc.pair_command(G, tau, MT.TENSION_MAX)), (
         "no free coordinate means no choice to make"
     )
+
+
+# ==========================================================================
+# M55 -- the cascade, re-derived on the drivetrain M54 made buildable
+# ==========================================================================
+
+SHIP_PAIRS = ("hip", "knee", "ankle")
+
+
+def _ship_spooled(servo=True):
+    """The shipped drivetrain: clamped capstans, one spool per pair, rotor servo."""
+    q = np.asarray(LegModel(DEFAULT_HINDLEG).inverse((0.04, -0.17, 0.0)), float)
+    return mujoco.MjModel.from_xml_string(MT.single_leg_rig_spooled(
+        q_ref=q, series_k=SERIES_K, spool_servo=servo)), q
+
+
+def _ship_idx(m):
+    A = [_adr(m, mujoco.mjtObj.mjOBJ_ACTUATOR, "m_L_" + p) for p in SHIP_PAIRS]
+    JR = [m.jnt_qposadr[_adr(m, mujoco.mjtObj.mjOBJ_JOINT, "jr_L_" + p)]
+          for p in SHIP_PAIRS]
+    JS = [m.jnt_qposadr[_adr(m, mujoco.mjtObj.mjOBJ_JOINT, "js_L_" + p)]
+          for p in SHIP_PAIRS]
+    TP = [_adr(m, mujoco.mjtObj.mjOBJ_TENDON, "L_" + p) for p in SHIP_PAIRS]
+    qa = [m.jnt_qposadr[_adr(m, mujoco.mjtObj.mjOBJ_JOINT, n)] for n in JNT]
+    dof = [m.jnt_dofadr[_adr(m, mujoco.mjtObj.mjOBJ_JOINT, n)] for n in JNT]
+    return A, JR, JS, TP, qa, dof
+
+
+def _ship_run(m, q, kp=50.0, kd=1.0, dq3_deg=0.0, ramp_s=None, hold_s=0.5,
+              pull_only=False, refresh=REFRESH_MOVING):
+    """Drive the shipped cascade. `ramp_s=None` means a step, which is M47's test.
+
+    Returns `(final_error_deg, peak_raw_force, saturated_fraction, worst_error)`
+    or `None` if it diverged. `peak_raw` is the force BEFORE clipping, so a demand
+    past the motor is visible rather than hidden by the clamp.
+    """
+    A, JR, JS, TP, qa, dof = _ship_idx(m)
+    d = mujoco.MjData(m)
+    for i, a in enumerate(qa):
+        d.qpos[a] = q[i]
+    mujoco.mj_forward(m, d)
+
+    def jac():
+        J = np.zeros((3, 3))
+        base = [float(d.qpos[a]) for a in qa]
+        for k in range(3):
+            Ls = []
+            for sgn in (+1, -1):
+                dd = mujoco.MjData(m)
+                dd.qpos[:] = d.qpos
+                dd.qpos[qa[k]] = base[k] + sgn * 0.002
+                mujoco.mj_forward(m, dd)
+                Ls.append(np.array([dd.ten_length[t] for t in TP]))
+            J[:, k] = (Ls[0] - Ls[1]) / 0.004
+        return (-J).T
+
+    G = jac()
+    dt = m.opt.timestep
+    total = (ramp_s + hold_s) if ramp_s else 2.0
+    n = int(total / dt)
+    peak_raw, sat, worst = 0.0, 0, 0.0
+    for it in range(n):
+        if it and it % refresh == 0:
+            G = jac()
+        t = it * dt
+        f = min(1.0, t / ramp_s) if ramp_s else 1.0
+        qd = q.copy()
+        qd[2] = q[2] + math.radians(dq3_deg) * f
+        e = np.array([qd[i] - d.qpos[a] for i, a in enumerate(qa)])
+        ev = np.array([-d.qvel[a] for a in dof])
+        tau = wbc.actuator_torque(d, dof, kp * e + kd * ev)
+        if pull_only:
+            T = raw = wbc.tendon_tension(G, tau, 19.6, MT.TENSION_MAX)
+        else:
+            raw = wbc.pair_command(G, tau, np.inf)
+            T = np.clip(raw, -MT.TENSION_MAX, MT.TENSION_MAX)
+        if np.max(np.abs(raw)) > MT.TENSION_MAX - 1e-9:
+            sat += 1
+        peak_raw = max(peak_raw, float(np.max(np.abs(raw))))
+        if not ramp_s or t > ramp_s * 0.2:
+            worst = max(worst, float(np.max(np.abs(np.degrees(e)))))
+        cmd = wbc.rotor_command([d.qpos[j] for j in JR], [d.qpos[j] for j in JS],
+                                T, K_TORS, MT.SPOOL_R, servo_kp=SERVO_KP)
+        for i, a in enumerate(A):
+            d.ctrl[a] = float(cmd[i])
+        mujoco.mj_step(m, d)
+        if not np.all(np.isfinite(d.qpos)):
+            return None
+    qd = q.copy()
+    qd[2] = q[2] + math.radians(dq3_deg)
+    err = np.degrees(np.array([float(d.qpos[a]) for a in qa]) - qd)
+    return err, peak_raw, sat / n, worst
+
+
+def _lowest_mode_hz(m, q):
+    """The lowest oscillatory mode of the linearised drivetrain, in Hz."""
+    d = mujoco.MjData(m)
+    for i, n in enumerate(JNT):
+        d.qpos[m.jnt_qposadr[_adr(m, mujoco.mjtObj.mjOBJ_JOINT, n)]] = q[i]
+    mujoco.mj_forward(m, d)
+    A = np.zeros((2 * m.nv, 2 * m.nv))
+    B = np.zeros((2 * m.nv, m.nu))
+    mujoco.mjd_transitionFD(m, d, 1e-6, 1, A, B, None, None)
+    with np.errstate(divide="ignore", invalid="ignore"):
+        s = np.log(np.linalg.eigvals(A).astype(complex)) / m.opt.timestep
+    f = np.abs(s.imag) / (2.0 * math.pi)
+    return float(np.min(f[f > 1.0]))
+
+
+def test_the_CASCADE_TRANSFERS_to_the_pulley_drivetrain_UNCHANGED():
+    """✅ **M47's cascade holds on the shipped plant with its gains untouched.**
+
+    `kp = 50, kd = 1.0` -- derived in M47, not tuned -- holds the stance pose to
+    **0.00°** on the pulley drivetrain, at a peak commanded force of **3.2 N**.
+
+    ⚠️ **This corrects a prediction M54 published.** ADR-0059 said the gains would
+    have to be *re-derived rather than re-pointed*, because one spool per pair
+    changes the reflected inertia. The inertia claim was right -- see
+    `test_ONE_SPOOL_PER_PAIR_HALVES_the_lowest_drivetrain_MODE` -- but the
+    conclusion was wrong: M47 chose its outer loop far below both plants' modes, so
+    it was never close enough to the moved one to care. The re-derivation
+    **confirms** the gains rather than replacing them.
+
+    ✅ The inner loop needed no thought at all: `kp = I*wn^2` is a property of the
+    **rotor**, and every motor still has exactly one rotor.
+    """
+    m, q = _ship_spooled()
+    assert m.nu == 3 and m.neq == 3
+
+    out = _ship_run(m, q, kp=50.0, kd=1.0)
+    assert out is not None, "the cascade must not diverge on the shipped plant"
+    err, peak, sat, _ = out
+    assert np.max(np.abs(err)) < 0.01, f"holds to {err} deg"
+    assert sat == 0.0, "and it does it without ever asking past the motor"
+    assert peak < 10.0, f"peak commanded force {peak:.1f} N"
+
+    # the inner loop is rotor-local, so it cannot have moved
+    assert SERVO_KP == pytest.approx(MT.ROTOR_ARMATURE * MT.ROTOR_BANDWIDTH ** 2)
+    assert SERVO_KP == pytest.approx(180.0, rel=1e-6)
+
+
+def test_ONE_SPOOL_PER_PAIR_HALVES_the_lowest_drivetrain_MODE():
+    """⚠️ **What the pulley actually cost, and nobody had measured it.**
+
+    ADR-0058 was decided on mass and ADR-0059 built the drivetrain behind it. The
+    dynamics were never checked. Linearising both plants about the stance pose:
+
+    | | lowest mode | usable outer `kp` |
+    |---|---|---|
+    | legacy, one spool per cable | 54.9 Hz | holds to **600** |
+    | **shipped, one spool per pair** | **27.4 Hz** | holds to **200** |
+
+    The lowest drivetrain mode **halves**, and the outer loop's usable gain range
+    falls with it -- from 16× M47's chosen `kp` down to **6×**. That is real
+    headroom spent, and it is the price of the transmission that closed the mass
+    budget.
+
+    ✅ It is still headroom, not a wall: M47's `kp = 50` sits well inside, which is
+    why `test_the_CASCADE_TRANSFERS_to_the_pulley_drivetrain_UNCHANGED` passes.
+    ⚠️ But anything that wants a stiffer joint loop -- a landing, a disturbance
+    rejection task -- now has a third of the room it used to.
+    """
+    ship, q = _ship_spooled()
+    legacy = mujoco.MjModel.from_xml_string(
+        _legacy_spooled(q_ref=q, series_k=SERIES_K, ankle_pair=True,
+                        spool_servo=True))
+
+    f_ship = _lowest_mode_hz(ship, q)
+    f_legacy = _lowest_mode_hz(legacy, q)
+    assert f_legacy == pytest.approx(54.9, abs=1.5)
+    assert f_ship == pytest.approx(27.4, abs=1.5)
+    assert f_ship < 0.6 * f_legacy, (
+        f"the lowest mode must have roughly halved: {f_legacy:.1f} -> {f_ship:.1f}"
+    )
+
+    # and the outer loop's edge moved with it
+    ok = _ship_run(ship, q, kp=200.0, kd=2.83)
+    assert ok is not None and np.max(np.abs(ok[0])) < 0.1, "kp=200 still holds"
+    bad = _ship_run(ship, q, kp=300.0, kd=3.46)
+    assert bad is None or np.max(np.abs(bad[0])) > 0.5, (
+        "kp=300 must not hold -- that is the headroom the pulley spent"
+    )
+
+
+def test_the_ALLOCATOR_not_the_gains_was_what_had_to_CHANGE():
+    """⚠️ **M54's static retraction, shown dynamically: the leg collapses.**
+
+    M54 measured `wbc.tendon_tension` dropping whole joints on the shipped plant --
+    zero of the hind ankle's torque. Run the cascade with it and the consequence is
+    not a residual, it is a **fall**: same plant, same gains, same reference.
+
+    | allocator | hold error | peak force |
+    |---|---|---|
+    | `pair_command`, signed | **0.00 / 0.00 / 0.00°** | 3.2 N |
+    | `tendon_tension`, pull-only | **-70.8 / -47.2 / -127.1°** | 32.5 N |
+
+    ✅ So the answer to *"what had to be re-derived for the cascade?"* is: **not
+    the gains -- the allocator.** Pull-only is a property of a cable, and there is
+    no longer one motor per cable to be pulled.
+    """
+    m, q = _ship_spooled()
+
+    good = _ship_run(m, q, kp=50.0, kd=1.0, pull_only=False)
+    assert good is not None and np.max(np.abs(good[0])) < 0.01
+
+    bad = _ship_run(m, q, kp=50.0, kd=1.0, pull_only=True)
+    assert bad is not None, "it does not blow up -- it quietly falls"
+    assert np.max(np.abs(bad[0])) > 40.0, (
+        f"the pull-only allocator must visibly lose the leg: {bad[0]} deg"
+    )
+    assert abs(bad[0][2]) > 100.0, "and the ankle is where it goes first"
+
+
+def test_the_ankle_TRACKS_EXACTLY_and_the_bound_is_now_the_JOINT_LIMIT():
+    """✅ **M47's ankle finding, re-derived -- and its test was measuring the
+    wrong thing.**
+
+    M47 reported *"the cascade tracks the hind ankle but the reversal still bounds
+    it"*, from a **step** command. ⚠️ Re-run with the raw force logged, that step
+    demands **3700-4300 N** against a 222.9 N motor and saturates **98-100 %** of
+    every timestep -- on both plants. It was not measuring tracking; it was
+    measuring where a saturated bang-bang controller comes to rest. Both its
+    numbers are artefacts.
+
+    ✅ **Ramp the reference instead** -- which is what a gait does -- and the
+    shipped cascade tracks the ankle *exactly*:
+
+    | ° commanded | final error | peak force | saturation |
+    |---|---|---|---|
+    | +20 | **0.00°** | 3.1 N | none |
+    | +40 | **0.00°** | 3.1 N | none |
+    | +52 | **0.00°** | 3.1 N | none |
+    | +55 | -2.06° | 130 N | none |
+
+    +55 misses by **exactly** its overshoot of the 150° end stop (the stance ankle
+    sits at 97.06°, so the headroom is 52.94°). **The bound is the joint limit
+    now, not the moment arm** -- ADR-0049's reversal is gone, and what replaces it
+    is a number from `params`.
+
+    ✅ And the lag is first-order with no saturation anywhere: the worst error
+    during the ramp falls **0.81 → 0.41 → 0.20 → 0.10°** as the ramp
+    is stretched 0.5 → 1 → 2 → 4 s. Halve the speed, halve the error.
+
+    ⚠️ The legacy plant cannot do this at all: the same 2 s ramp to +20° leaves it
+    **36.3°** out, saturated 44 % of the time.
+    """
+    m, q = _ship_spooled()
+    q3_deg = math.degrees(q[2])
+    headroom = 150.0 - q3_deg
+    assert headroom == pytest.approx(52.94, abs=0.05)
+
+    for dq in (20.0, 40.0, 52.0):
+        err, peak, sat, _ = _ship_run(m, q, dq3_deg=dq, ramp_s=2.0)
+        assert np.max(np.abs(err)) < 0.01, f"+{dq} deg -> {err}"
+        assert sat == 0.0 and peak < 10.0, f"+{dq} deg asked {peak:.1f} N"
+
+    # past the end stop it misses by exactly the overshoot, not by more
+    err, _, _, _ = _ship_run(m, q, dq3_deg=55.0, ramp_s=2.0)
+    assert err[2] == pytest.approx(-(55.0 - headroom), abs=0.05), (
+        f"the bound is the 150 deg joint limit, not the routing: {err}"
+    )
+
+    # the lag is first-order: stretching the ramp divides the error
+    _, _, _, fast = _ship_run(m, q, dq3_deg=40.0, ramp_s=1.0)
+    _, _, _, slow = _ship_run(m, q, dq3_deg=40.0, ramp_s=4.0)
+    assert fast / slow == pytest.approx(4.0, rel=0.25), (
+        f"worst error must scale with ramp rate: {fast:.3f} vs {slow:.3f}"
+    )
+
+    # ⚠️ and M47's step was saturated, which is why its numbers meant nothing
+    _, step_peak, step_sat, _ = _ship_run(m, q, dq3_deg=20.0, ramp_s=None)
+    assert step_peak > 1000.0, f"the step demanded {step_peak:.0f} N"
+    assert step_sat > 0.9, f"saturated {100 * step_sat:.0f} % of the horizon"

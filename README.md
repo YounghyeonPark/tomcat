@@ -15,10 +15,10 @@ cat-like agility, energy-efficient movement, and passive shock absorption.
 
 ## Progress
 
-Fifty-four milestones in. The model now spans kinematics → real mass → 3D
+Fifty-five milestones in. The model now spans kinematics → real mass → 3D
 static stability → whole-body dynamics → a dynamic gait → closed-loop balance →
 an independent physics-engine cross-check → thermal duty → whole-body force
-allocation, with **469 passing + 5 suspended Python tests and 17 Rust** and every figure below
+allocation, with **473 passing + 5 suspended Python tests and 17 Rust** and every figure below
 generated from the live model (`python tools/make_progress_figures.py`), so a
 published number cannot drift from the code.
 
@@ -277,6 +277,7 @@ is **1.97**. That remedy *is* cheap: one step up in stock tube, under 4 g.
 | M52 | The **clamped transmission** | exact on both legs at every angle — and two accepted ADRs want **different robots** |
 | M53 | **ADR-0008 wins** | one motor per pair — 12 motors, 4.30 kg, and the standing tension **stops saturating** |
 | M54 | The **re-derivation** | the shipped plant is the default — and **eight tests had stopped being able to fail** |
+| M55 | The **cascade**, re-derived | the gains transfer unchanged — the cost was **headroom**, and a step command is not a test |
 
 Full detail in the [roadmap](docs/ROADMAP.md) and the [ADR log](docs/DESIGN_DECISIONS.md).
 
@@ -645,6 +646,30 @@ Full detail in the [roadmap](docs/ROADMAP.md) and the [ADR log](docs/DESIGN_DECI
 > shipped plant (100 % of the hind ankle torque, 85 % of the fore knee), because
 > pull-only is not physical once a pair shares one bidirectional motor.
 > [ADR-0059](docs/DESIGN_DECISIONS.md).
+
+> ### ✅ M55: the cascade transfers unchanged, and two corrections
+>
+> ✅ **M47's gains hold the pose to 0.00° on the pulley drivetrain** at a peak
+> of 3.2 N. ⚠️ **M54 predicted the opposite** — that one spool per pair would
+> force a re-derivation. The inertia argument was right and the lowest drivetrain
+> mode really did halve, **54.9 → 27.4 Hz**; the conclusion was wrong, because
+> M47 had put its outer loop far below both plants' modes.
+>
+> ⚠️ **What the pulley actually cost is headroom**: the usable outer gain falls
+> from 600 to **200**, so M47's choice sits 4× below the edge where it used to sit
+> 12×. Still room, but a third of it — and ADR-0058 was decided on mass with
+> this unmeasured.
+>
+> ✅ **The allocator was the real change.** Same plant, same gains: signed holds
+> to 0.00°, pull-only **loses the leg** (—127° at the ankle). M54's static
+> "drops whole joints" and this fall are one finding.
+>
+> ⚠️ **And M47's ankle test had been measuring saturation.** Its step command
+> demands **3700–4300 N** against a 222.9 N motor, saturating 98–100 % of every
+> timestep on both plants; both its numbers are withdrawn. ✅ Ramped instead, the
+> shipped cascade tracks the ankle to **0.00° at 3.1 N out to +52°**, and what
+> bounds it now is the **150° joint limit**, not the moment arm.
+> [ADR-0060](docs/DESIGN_DECISIONS.md).
 
 ## Why tendon-driven?
 
