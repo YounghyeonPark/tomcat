@@ -6430,3 +6430,191 @@ def test_G3_TAKES_THE_SHOCK_out_of_the_CABLE_not_the_GROUND():
         assert rigid[h]["over"] < 0.5 and soft[h]["over"] < 0.5, (
             "ADR-0072's 27.3 deg overshoot was an UNPOWERED fall"
         )
+
+
+# ==========================================================================
+# M69 -- the whole-body margin, re-measured with the drivetrain fitted
+# ==========================================================================
+
+
+def _lowest_mode_whole(m):
+    """Lowest oscillatory mode of the linearised whole body, in Hz."""
+    d = mujoco.MjData(m)
+    q = _quad_poses()
+    for nm in QLEGS:
+        for k, a in enumerate(_qadr(m, nm)):
+            d.qpos[a] = q[nm][k]
+    mujoco.mj_forward(m, d)
+    A = np.zeros((2 * m.nv, 2 * m.nv))
+    B = np.zeros((2 * m.nv, m.nu))
+    mujoco.mjd_transitionFD(m, d, 1e-6, 1, A, B, None, None)
+    with np.errstate(divide="ignore", invalid="ignore"):
+        s = np.log(np.linalg.eigvals(A).astype(complex)) / m.opt.timestep
+    f = np.abs(s.imag) / (2.0 * math.pi)
+    f = f[f > 1.0]
+    return float(np.min(f))
+
+
+def _stand_at_gain(spooled, *, kp, seconds=1.2, mu=0.8, damp=6.0,
+                   attitude=(40.0, 4.0)):
+    """M53's standing gate with a joint-space PD added, on either plant."""
+    q = _quad_poses()
+    if spooled:
+        m = mujoco.MjModel.from_xml_string(MT.quadruped_rig_spooled(
+            q_ref={nm: list(v) for nm, v in q.items()}, series_k=SERIES_K,
+            hip_height=0.176, spool_servo=True))
+    else:
+        m = mujoco.MjModel.from_xml_string(MT.quadruped_rig(hip_height=0.176))
+    kd = 2.0 * math.sqrt(kp) * 0.1 if kp else 0.0
+    d = mujoco.MjData(m)
+    for nm in QLEGS:
+        for k, a in enumerate(_qadr(m, nm)):
+            d.qpos[a] = q[nm][k]
+    mujoco.mj_forward(m, d)
+
+    sid = {nm: mujoco.mj_name2id(m, mujoco.mjtObj.mjOBJ_SITE, f"{nm}_foot")
+           for nm in QLEGS}
+    qa = {nm: _qadr(m, nm) for nm in QLEGS}
+    dof = {nm: _dofs(m, nm) for nm in QLEGS}
+    A = {nm: [_adr(m, mujoco.mjtObj.mjOBJ_ACTUATOR, f"m_{nm}_{p}")
+              for p in PULLEY_PAIRS] for nm in QLEGS}
+    tid = {nm: [_adr(m, mujoco.mjtObj.mjOBJ_TENDON, f"{nm}_{p}")
+                for p in PULLEY_PAIRS] for nm in QLEGS}
+    if spooled:
+        JR = {nm: [m.jnt_qposadr[_adr(m, mujoco.mjtObj.mjOBJ_JOINT,
+                                      f"jr_{nm}_{p}")]
+                   for p in PULLEY_PAIRS] for nm in QLEGS}
+        JS = {nm: [m.jnt_qposadr[_adr(m, mujoco.mjtObj.mjOBJ_JOINT,
+                                      f"js_{nm}_{p}")]
+                   for p in PULLEY_PAIRS] for nm in QLEGS}
+
+    def legG(nm):
+        J = np.zeros((3, 3))
+        base = [float(d.qpos[a]) for a in qa[nm]]
+        for k in range(3):
+            Ls = []
+            for s in (+1, -1):
+                dd = mujoco.MjData(m)
+                dd.qpos[:] = d.qpos
+                dd.qpos[qa[nm][k]] = base[k] + s * 0.002
+                mujoco.mj_forward(m, dd)
+                Ls.append(np.array([dd.ten_length[t] for t in tid[nm]]))
+            J[:, k] = (Ls[0] - Ls[1]) / 0.004
+        return (-J).T
+
+    G = {nm: legG(nm) for nm in QLEGS}
+    mass = float(sum(m.body_mass))
+    h0 = float(d.subtree_com[0][2])
+    om = float(np.sqrt(9.81 / h0))
+    z0 = float(d.qpos[2])
+    peak = 0.0
+    for it in range(int(seconds / m.opt.timestep)):
+        if it and it % REFRESH_STATIC == 0:
+            G = {nm: legG(nm) for nm in QLEGS}
+        mujoco.mj_subtreeVel(m, d)
+        com = np.array(d.subtree_com[0])
+        vel = np.array(d.subtree_linvel[0])
+        feet = np.array([d.site_xpos[sid[nm]] for nm in QLEGS])
+        w = wbc.desired_wrench(mass, com, vel,
+                               wbc.realisable_cop(feet, com[:2]), om,
+                               damp=damp, height=h0)
+        sg = 1.0 if float(d.qpos[3]) >= 0.0 else -1.0
+        w[3:6] = (-attitude[0] * 2.0 * sg
+                  * np.array([float(v) for v in d.qpos[4:7]])
+                  - attitude[1] * np.array(d.qvel[3:6]))
+        f = wbc.allocate(feet, com, w, mu)
+        forces = {nm: f[i] for i, nm in enumerate(QLEGS)}
+        stq = wbc.stance_torque(mujoco, m, d, sid, forces, dof)
+        for nm in QLEGS:
+            tau = wbc.actuator_torque(d, dof[nm], stq[nm])
+            e = np.array([q[nm][i] - float(d.qpos[a])
+                          for i, a in enumerate(qa[nm])])
+            ev = -np.array([float(d.qvel[a]) for a in dof[nm]])
+            T = wbc.pair_command(G[nm], tau + kp * e + kd * ev, MT.TENSION_MAX)
+            peak = max(peak, float(np.max(np.abs(T))))
+            if spooled:
+                cmd = wbc.rotor_command([d.qpos[j] for j in JR[nm]],
+                                        [d.qpos[j] for j in JS[nm]], T,
+                                        K_TORS, MT.SPOOL_R, servo_kp=SERVO_KP)
+                for i, a in enumerate(A[nm]):
+                    d.ctrl[a] = float(cmd[i])
+            else:
+                for i, a in enumerate(A[nm]):
+                    d.ctrl[a] = float(T[i])
+        mujoco.mj_step(m, d)
+        assert np.all(np.isfinite(d.qpos))
+    quat = np.array([float(v) for v in d.qpos[3:7]])
+    return dict(sag=1e3 * (z0 - float(d.qpos[2])), peak=peak,
+                tilt=2.0 * math.degrees(math.acos(min(1.0, abs(quat[0])))))
+
+
+def test_the_DRIVETRAIN_LOWERS_THE_MODE_and_IMPROVES_THE_MARGIN():
+    """✅ **[ADR-0073](../docs/DESIGN_DECISIONS.md) warned the margin would cost.
+    Measured, it improves.**
+
+    ADR-0060 found a drivetrain halving the lowest mode on one leg (54.9 →
+    27.4 Hz) and taking the usable outer gain from 600 to 200. ADR-0073 flagged
+    that the whole body now has one and nobody had re-measured. So:
+
+    ⚠️ **The mode does drop.** The plain quadruped goes **12.6 → 4.6 Hz**, a
+    2.7× reduction, the same direction ADR-0060 measured.
+
+    ✅ **But the practical margin goes the other way.** Standing with a
+    joint-space PD added on top of the force allocation:
+
+    | plant | `kp` | tilt | peak cable |
+    |---|---|---|---|
+    | rigid | 0 | 0.006° | 68.2 N |
+    | rigid | 50 | 0.76° | **222.9 N, saturated** |
+    | rigid | 200 | 0.63° | **222.9 N, saturated** |
+    | **drivetrain** | 50 | **0.39°** | **74.4 N** |
+    | **drivetrain** | 200 | 0.44° | **122.0 N** |
+    | drivetrain | 600 | 8.58° | 222.9 N |
+
+    ⚠️ **On rigid tendons any joint PD at all saturates the motor** -- at `kp = 50`
+    already -- and the tilt gets *worse* than the pure force allocation. ✅ With
+    the drivetrain the same gains stay inside the rating and the tilt is **half**.
+    The series spring absorbs a stiff command instead of transmitting it as a force
+    spike, which is what a series-elastic element is for.
+
+    ✅ The `kp = 0` baseline is undisturbed: 68.2 N rigid, 71.7 N spooled, tilt
+    0.006° on both. Adding the drivetrain does not move M53's result.
+
+    ⚠️ **One comparison that is NOT apples to apples**: the spine quadruped's
+    lowest mode is **1.5 Hz rigid** against 3.5 spooled -- lower *without* the
+    drivetrain. That is the spine's own mode, not a drivetrain mode, so "lowest
+    mode" does not compare those two plants.
+    """
+    rigid = mujoco.MjModel.from_xml_string(MT.quadruped_rig(hip_height=0.176))
+    q = _quad_poses()
+    spooled = mujoco.MjModel.from_xml_string(MT.quadruped_rig_spooled(
+        q_ref={nm: list(v) for nm, v in q.items()}, series_k=SERIES_K,
+        hip_height=0.176, spool_servo=True))
+
+    # ⚠️ the mode drops, as ADR-0060 said it would
+    f_rigid = _lowest_mode_whole(rigid)
+    f_spool = _lowest_mode_whole(spooled)
+    assert f_rigid == pytest.approx(12.6, abs=1.5)
+    assert f_spool == pytest.approx(4.6, abs=1.0)
+    assert f_spool < 0.5 * f_rigid, f"{f_rigid:.1f} -> {f_spool:.1f} Hz"
+
+    # ✅ the kp = 0 baseline is undisturbed
+    b_r = _stand_at_gain(False, kp=0.0)
+    b_s = _stand_at_gain(True, kp=0.0)
+    assert b_r["tilt"] < 0.05 and b_s["tilt"] < 0.05
+    assert b_s["peak"] == pytest.approx(b_r["peak"], rel=0.15)
+
+    # ⚠️ rigid tendons saturate as soon as a joint PD is added
+    r50 = _stand_at_gain(False, kp=50.0)
+    assert r50["peak"] == pytest.approx(MT.TENSION_MAX, abs=1.0), (
+        f"rigid at kp=50 saturates: {r50['peak']:.1f} N"
+    )
+
+    # ✅ the drivetrain absorbs the same command inside the rating
+    s50 = _stand_at_gain(True, kp=50.0)
+    assert s50["peak"] < 0.5 * MT.TENSION_MAX, (
+        f"with G3 the same gain costs {s50['peak']:.1f} N"
+    )
+    assert s50["tilt"] < r50["tilt"], (
+        f"and holds better: {s50['tilt']:.3f} vs {r50['tilt']:.3f} deg"
+    )

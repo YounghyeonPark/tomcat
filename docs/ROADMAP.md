@@ -160,7 +160,10 @@ sequences the work that implements them.
 > model has no G3 ([ADR-0072](DESIGN_DECISIONS.md)).
 > **M68 done:** the whole body gets its **drivetrain** — G3 takes the shock out
 > of the **cable**, not the ground ([ADR-0073](DESIGN_DECISIONS.md)).
-> 496 passed + 5 xfailed Python, 17 Rust.
+> **M69 done:** the drivetrain lowers the mode and **improves** the margin — a
+> joint-space posture term is now affordable
+> ([ADR-0074](DESIGN_DECISIONS.md)).
+> 497 passed + 5 xfailed Python, 17 Rust.
 
 ---
 
@@ -3387,7 +3390,56 @@ That was an **unpowered** drop. With the motors holding, the overshoot is
 lost power — it is not withdrawn, because an unpowered fall is a real case —
 but it is not a statement about missing compliance.
 
-## Later milestones (candidate M69+, not committed)
+## Milestone M69 — The mode drops, the margin improves (DONE)
+
+M68 fitted the whole body with a drivetrain and flagged its own open item: M55
+found one **halving the lowest mode** on a leg (54.9 → 27.4 Hz) and taking the
+usable outer gain from 600 to 200, and nobody had re-measured on the whole body.
+
+### ⚠️ The mode drops, as expected
+
+| plant | nv | lowest mode |
+|---|---|---|
+| quadruped, rigid | 18 | **12.6 Hz** |
+| quadruped, with drivetrain | 42 | **4.6 Hz** |
+
+A 2.7× reduction — the same direction M55 measured.
+
+⚠️ **One comparison that is not apples to apples**: the *spine* quadruped's lowest
+mode is **1.5 Hz rigid** against 3.5 spooled, lower **without** the drivetrain.
+That is the spine's own mode, not a drivetrain mode, so it is not used here.
+
+### ✅ But the practical margin goes the other way
+
+Standing with a joint-space PD on top of the force allocation:
+
+| plant | `kp` | tilt | peak cable |
+|---|---|---|---|
+| rigid | 0 | 0.006° | 68.2 N |
+| rigid | 50 | 0.76° | **222.9 N, saturated** |
+| rigid | 200 | 0.63° | **222.9 N, saturated** |
+| **drivetrain** | 50 | **0.39°** | **74.4 N** |
+| **drivetrain** | 200 | 0.44° | **122.0 N** |
+| drivetrain | 600 | 8.58° | 222.9 N |
+
+⚠️ **On rigid tendons any joint PD at all saturates the motor** — at `kp = 50`
+already — and the tilt gets *worse* than the pure force allocation (0.76°
+against 0.006). ✅ **With the drivetrain the same gains stay inside the rating**
+and the trunk is held **twice as level**. The series spring absorbs a stiff command
+instead of transmitting it as a force spike, which is what a series-elastic element
+is for.
+
+✅ **The `kp = 0` baseline is undisturbed** (68.2 N rigid, 71.7 spooled, tilt
+0.006° both), so fitting the drivetrain does not move M53's standing result.
+
+✅ **And something long-deferred just became affordable: a joint-space posture
+term.** Every whole-body controller here used pure force allocation because a PD
+saturated the motors. That constraint was the **missing compliance, not the gain**.
+
+⚠️ M55 measured a **mode** on a leg and inferred a **margin**. They are not the
+same quantity, and on the whole body they part company.
+
+## Later milestones (candidate M70+, not committed)
 
 > This list is **curated, not append-only**. When a milestone closes an item it is
 > deleted here and the reasoning kept in the [ADR log](DESIGN_DECISIONS.md). Earlier
@@ -3420,9 +3472,10 @@ but it is not a statement about missing compliance.
   **9–13× body weight**. Structure, bearings and girdles get no help, and
   nobody has checked them. ⚠️ Untested too: heights above 0.30 m, and landing on a
   corner or a single leg.
-- **RE-CHECK THE CONTROL MARGIN WITH SPOOLS FITTED.** ⚠️ ADR-0060 measured a
-  drivetrain halving the lowest mode on one leg (54.9 → 27.4 Hz). The whole
-  body now has one, and its margin has not been re-measured.
+- **THE NULL-SPACE POSTURE TASK, at last affordable.** ✅ ADR-0074: a
+  joint-space PD costs **74.4 N** with the drivetrain where it saturated the motor
+  without it. The task ADR-0052 named and ADR-0058 said was only symptom-free, not
+  unnecessary, now has room to exist.
 - **RE-CHECK THE WHOLE-BODY RESULTS WITH COMPLIANCE.** ⚠️ Standing, sway and
   righting were all measured on rigid tendons. ADR-0072 argued compliance should
   not dominate there; that argument is now **testable rather than assumed**.
@@ -3621,6 +3674,7 @@ Kept as a short table so the deletions above are auditable rather than silent.
 | Withdraw G6 | M66 — [ADR-0071](DESIGN_DECISIONS.md): the owner's decision on 22.5 m; NFR2c met at 18 DOF, and G5 keeps the lateral motors |
 | Ask what a fall costs | M67 — [ADR-0072](DESIGN_DECISIONS.md): it cannot be answered — the whole body has no G3, and the spine's stops go first |
 | Build the whole-body drivetrain | M68 — [ADR-0073](DESIGN_DECISIONS.md): G3 takes the cable from 223 N saturated to 84–127, and does nothing for the ground |
+| Re-measure the control margin | M69 — [ADR-0074](DESIGN_DECISIONS.md): the mode halves and the margin **improves**; a posture term is affordable |
 
 ## Open reconciliation items (lead)
 

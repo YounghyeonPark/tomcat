@@ -5676,9 +5676,78 @@ not withdraw it -- an unpowered fall is a real case.
 - ⚠️ **Untested**: heights above 0.30 m, landing on a corner or a single leg, and
   what the 9-13x contact impulse does to the structure. The cable is safe; nothing
   else has been checked.
-- ⚠️ **[ADR-0060](#adr-0060)'s headroom applies here too**: a drivetrain halves the
-  lowest mode. The whole-body control margin has not been re-measured with spools
-  fitted.
+- ⚠️ ~~**[ADR-0060](#adr-0060)'s headroom applies here too**: a drivetrain halves
+  the lowest mode. The whole-body control margin has not been re-measured with
+  spools fitted.~~
+
+  > ✅ **MEASURED by [ADR-0074](#adr-0074) (M69), and it goes the other way.**
+  > The mode does drop -- 12.6 -> 4.6 Hz on the plain quadruped -- but the
+  > **practical margin improves**: on rigid tendons any joint PD saturates the
+  > motor at `kp = 50`, while with the drivetrain the same gain costs **74.4 N**
+  > and holds the trunk twice as level.
+
+## ADR-0074: The whole-body drivetrain lowers the mode and improves the margin
+
+- **Status:** Accepted as a **measurement**. Nothing ships. **Closes the margin
+  item [ADR-0073](#adr-0073) left open, in the opposite direction to the one it
+  expected.**
+- **Context:** [ADR-0060](#adr-0060) found a drivetrain halving the lowest mode on
+  one leg (54.9 -> 27.4 Hz) and taking the usable outer gain from 600 to 200.
+  ADR-0073 fitted a drivetrain to the whole body and flagged that nobody had
+  re-measured.
+
+### ⚠️ The mode drops, as expected
+
+| plant | nv | lowest mode |
+|---|---|---|
+| quadruped, rigid | 18 | **12.6 Hz** |
+| quadruped, with drivetrain | 42 | **4.6 Hz** |
+
+A 2.7x reduction, the same direction ADR-0060 measured on a leg.
+
+⚠️ **One comparison that is not apples to apples**: the *spine* quadruped's lowest
+mode is **1.5 Hz rigid** against 3.5 spooled -- lower **without** the drivetrain.
+That is the spine's own mode, not a drivetrain mode, so "lowest mode" does not
+compare those two plants and is not used here.
+
+### ✅ The practical margin goes the other way
+
+Standing with a joint-space PD added on top of the force allocation:
+
+| plant | `kp` | tilt | peak cable |
+|---|---|---|---|
+| rigid | 0 | 0.006 deg | 68.2 N |
+| rigid | 50 | 0.76 deg | **222.9 N, saturated** |
+| rigid | 200 | 0.63 deg | **222.9 N, saturated** |
+| rigid | 600 | 0.87 deg | **222.9 N, saturated** |
+| **drivetrain** | 50 | **0.39 deg** | **74.4 N** |
+| **drivetrain** | 200 | 0.44 deg | **122.0 N** |
+| drivetrain | 600 | 8.58 deg | 222.9 N |
+
+- ⚠️ **On rigid tendons any joint PD at all saturates the motor**, at `kp = 50`
+  already, and the tilt gets *worse* than the pure force allocation (0.76 deg
+  against 0.006).
+- ✅ **With the drivetrain the same gains stay inside the rating** -- 74.4 N at
+  `kp = 50`, 122.0 at 200 -- and the trunk is held **twice as level**. The series
+  spring absorbs a stiff command instead of transmitting it as a force spike,
+  which is what a series-elastic element is for.
+- ✅ **The `kp = 0` baseline is undisturbed**: 68.2 N rigid, 71.7 N spooled, tilt
+  0.006 deg on both. Fitting the drivetrain does not move [ADR-0058](#adr-0058)'s
+  standing result.
+- ⚠️ There is still an edge: at `kp = 600` the spooled plant saturates and the
+  tilt reaches **8.58 deg**.
+
+### Consequences
+
+- ✅ **ADR-0073's warning is withdrawn.** The mode halves and the margin
+  improves; the two are not the same quantity, and on a leg ADR-0060 measured the
+  first while assuming the second.
+- ✅ **A joint-space posture term is now affordable.** Every previous whole-body
+  controller used pure force allocation because a PD saturated the motors. That
+  constraint was the missing compliance, not the gain.
+- ⚠️ **This does not re-check the results themselves.** Standing, sway and
+  righting were measured on rigid tendons; this shows the drivetrain does not
+  disturb the standing baseline, which is one of the three.
 
 ---
 

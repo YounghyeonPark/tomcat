@@ -15,7 +15,7 @@ cat-like agility, energy-efficient movement, and passive shock absorption.
 
 ## Progress
 
-Sixty-eight milestones in. The model now spans kinematics → real mass → 3D
+Sixty-nine milestones in. The model now spans kinematics → real mass → 3D
 static stability → whole-body dynamics → a dynamic gait → closed-loop balance →
 an independent physics-engine cross-check → thermal duty → whole-body force
 allocation, with **493 passing + 5 suspended Python tests and 17 Rust** and every figure below
@@ -291,6 +291,7 @@ is **1.97**. That remedy *is* cheap: one step up in stock tube, under 4 g.
 | M66 | **G6 withdrawn** | 22.5 m is not a realistic fall — NFR2c now **met** at 18 DOF |
 | M67 | What a **fall** costs | it cannot be answered — the whole body has **no G3**, and the spine's stops go first |
 | M68 | The whole-body **drivetrain** | G3 takes the **cable** from 223 N saturated to 84 — and does nothing for the ground |
+| M69 | The margin, re-measured | the mode halves and the margin **improves** — a posture term is affordable |
 
 Full detail in the [roadmap](docs/ROADMAP.md) and the [ADR log](docs/DESIGN_DECISIONS.md).
 
@@ -1004,6 +1005,29 @@ Full detail in the [roadmap](docs/ROADMAP.md) and the [ADR log](docs/DESIGN_DECI
 > ⚠️ It also qualifies M67: that milestone's 27.3° joint overshoot was an
 > **unpowered** fall. With the motors holding it is **0.0°** either way.
 > [ADR-0073](docs/DESIGN_DECISIONS.md).
+
+> ### ✅ M69: the mode drops, the margin improves
+>
+> M68 flagged its own open item: M55 found a drivetrain **halving the lowest mode**
+> on a leg and taking the usable gain from 600 to 200, and nobody had re-measured
+> on the whole body.
+>
+> ⚠️ **The mode does drop** — 12.6 → **4.6 Hz** on the plain quadruped, a
+> 2.7× reduction, the same direction M55 saw. ✅ **But the practical margin goes
+> the other way.** On rigid tendons *any* joint PD saturates the motor at
+> `kp = 50`, and the tilt gets **worse** than pure force allocation (0.76°
+> against 0.006). With the drivetrain the same gain costs **74.4 N** and holds the
+> trunk **twice as level**.
+>
+> The series spring absorbs a stiff command instead of transmitting it as a force
+> spike — which is what a series-elastic element is for. ⚠️ M55 measured a
+> **mode** and inferred a **margin**; they are not the same quantity, and on the
+> whole body they part company.
+>
+> ✅ **Something long-deferred just became affordable: a joint-space posture
+> term.** Every whole-body controller here used pure force allocation because a PD
+> saturated the motors, and that constraint was the **missing compliance, not the
+> gain**. [ADR-0074](docs/DESIGN_DECISIONS.md).
 
 ## Why tendon-driven?
 
