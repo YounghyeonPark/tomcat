@@ -968,7 +968,10 @@ def quadruped_rig(hip_height: float = 0.175, elastic: dict | None = None,
                   ankle_spring: float | None = None,
                   clamped: bool = True,
                   pulley: bool = True,
-                  spine: bool = False) -> str:
+                  spine: bool = False,
+                  spools: float | None = None,
+                  spool_a0: dict | None = None,
+                  spool_servo: bool = False) -> str:
     """Four tendon-driven legs on a floating trunk — the whole-body stand gate.
 
     Twelve leg DOF, **twenty tendons, twenty actuators**, all pull-only. The spine
@@ -988,8 +991,9 @@ def quadruped_rig(hip_height: float = 0.175, elastic: dict | None = None,
             ("LR", DEFAULT_HINDLEG, -GIRDLE_X, +TRACK_HALF),
             ("RR", DEFAULT_HINDLEG, -GIRDLE_X, -TRACK_HALF)]
 
-    bodies, tendons, acts, spools = [], [], [], []
+    bodies, tendons, acts, spool_sites = [], [], [], []
     fore_bodies, hind_bodies, fore_spools, hind_spools = [], [], [], []
+    drive_w, drive_e, drive_a = [], [], []
     for nm, lp, gx, ty in legs:
         # ⚠️ On a spine chain the hip sits at its GIRDLE's origin: the chain
         # already carries the fore-aft offset, so keeping GIRDLE_X here as well
@@ -1023,19 +1027,35 @@ def quadruped_rig(hip_height: float = 0.175, elastic: dict | None = None,
             f'      <site name="{nm}_spool_ankle"   pos="{mx - 0.058:.4f} '
             f'{sy + 0.030:.4f}  0.034" size="0.002"/>',
         ]
-        spools += here[-6:]
+        spool_sites += here[-6:]
+
+        # ✅ **M68: the drivetrain, per leg.** Until now `quadruped_rig` had no
+        # `spools` parameter at all, so **G3 -- the compliance ADR-0026 requires
+        # and ADR-0051 put in the drivetrain -- was absent from every whole-body
+        # model** (ADR-0072). It existed only on the single-leg rig, while a
+        # landing loads exactly the element that was missing.
+        if spools is not None:
+            sb, sw, se, sa = drivetrain_xml(nm, ankle_pair, spools,
+                                            gx=mx, sy=sy, a0=spool_a0,
+                                            servo=spool_servo, pulley=pulley)
+            spool_sites.append(sb)
+            (fore_spools if gx > 0 else hind_spools).append(sb)
+            drive_w.append(sw)
+            drive_e.append(se)
+            drive_a.append(sa)
 
     nl = chr(10)
     if spine:
         return _spine_quadruped(hip_height, trunk_mass, nl.join(tendons),
                                 nl.join(acts), fore_bodies, hind_bodies,
-                                fore_spools, hind_spools)
+                                fore_spools, hind_spools,
+                                drive_w, drive_e, drive_a)
     return f"""<mujoco model="tomcat_quadruped_tendon">
   <compiler angle="radian" autolimits="true"/>
   <option timestep="1e-4" gravity="0 0 {-GRAVITY}" integrator="implicitfast"/>
   <default>
     <geom rgba="0.84 0.68 0.53 1"/>
-  </default>
+{_joint_default(spools)}  </default>
   <worldbody>
     <geom name="floor" type="plane" size="3 3 0.1" rgba="0.9 0.9 0.9 1"
           friction="0.8 0.005 0.0001"/>
@@ -1043,24 +1063,25 @@ def quadruped_rig(hip_height: float = 0.175, elastic: dict | None = None,
       <freejoint name="root"/>
       <geom name="trunk_g" type="box" size="0.130 0.035 0.030"
             mass="{trunk_mass:.5f}"/>
-{nl.join(spools)}
+{nl.join(spool_sites)}
 {nl.join(bodies)}
     </body>
   </worldbody>
 
   <tendon>
-{nl.join(tendons)}
+{nl.join(tendons)}{(nl + nl.join(drive_w)) if drive_w else ""}
   </tendon>
-
+{_equality_block(drive_e)}
   <actuator>
-{nl.join(acts)}
+{nl.join(drive_a) if drive_a else nl.join(acts)}
   </actuator>
 </mujoco>
 """
 
 
 def _spine_quadruped(hip_height, trunk_mass, tendons, acts,
-                     fore_bodies, hind_bodies, fore_spools, hind_spools) -> str:
+                     fore_bodies, hind_bodies, fore_spools, hind_spools,
+                     drive_w=(), drive_e=(), drive_a=()) -> str:
     """The quadruped with ADR-0006's ARTICULATED spine instead of a rigid box.
 
     ✅ **What M43 deliberately left out, and why it is safe to add now.** The
@@ -1094,7 +1115,7 @@ def _spine_quadruped(hip_height, trunk_mass, tendons, acts,
   <option timestep="1e-4" gravity="0 0 {-GRAVITY}" integrator="implicitfast"/>
   <default>
     <geom rgba="0.84 0.68 0.53 1"/>
-  </default>
+{_joint_default(1.0 if drive_e else None)}  </default>
   <worldbody>
     <geom name="floor" type="plane" size="3 3 0.1" rgba="0.9 0.9 0.9 1"
           friction="0.8 0.005 0.0001"/>
@@ -1110,15 +1131,72 @@ def _spine_quadruped(hip_height, trunk_mass, tendons, acts,
 
   <tendon>
 {tendons}
-{spine_tendons(sp)}
+{spine_tendons(sp)}{(nl + nl.join(drive_w)) if drive_w else ""}
   </tendon>
-
+{_equality_block(list(drive_e))}
   <actuator>
-{acts}
+{nl.join(drive_a) if drive_a else acts}
 {spine_actuators(sp)}
   </actuator>
 </mujoco>
 """
+
+
+def _equality_block(rows) -> str:
+    """The winding equalities, or nothing when there is no drivetrain."""
+    if not rows:
+        return ""
+    return "\n  <equality>\n" + "\n".join(rows) + "\n  </equality>\n"
+
+
+def _joint_default(spools) -> str:
+    """⚠️ M46's finding, on the whole body: a winding equality **overpowers a
+    default-stiffness joint limit**. On the single leg that put `q3` at 215 deg
+    against a 150 deg limit, in the wrong direction. The limits have to be solved
+    as stiffly as the equality that fights them.
+    """
+    if spools is None:
+        return ""
+    return ('    <joint solreflimit="' + EQ_SOLREF
+            + '" solimplimit="' + EQ_SOLIMP + '"/>\n')
+
+
+def quadruped_rig_spooled(q_ref: dict, series_k: float = 1.5e5, **kw) -> str:
+    """`quadruped_rig` with a real DRIVETRAIN behind every cable, in two passes.
+
+    ⚠️ **M46's trap, on the whole body.** MuJoCo references a tendon equality at
+    `qpos0`, so without an offset every cable starts violated -- measured
+    **72.2 mm** at the stance pose, against the 24-52 mm the single leg showed --
+    and the solver snaps the robot to a configuration it then holds perfectly.
+    Pass 1 reads each cable's length at `qpos0` and at `q_ref`; pass 2 puts the
+    difference into the winding equality's `polycoef` offset.
+
+    ✅ This is what gives the whole body **G3**: the compliance ADR-0026 requires
+    and ADR-0051 placed in the drivetrain, absent from every whole-body model
+    until M68 (ADR-0072).
+
+    `q_ref` maps leg name -> its three joint angles.
+    """
+    import mujoco
+
+    slack = quadruped_rig(spools=None, **kw)
+    m = mujoco.MjModel.from_xml_string(slack)
+    names = [mujoco.mj_id2name(m, mujoco.mjtObj.mjOBJ_TENDON, i)
+             for i in range(m.ntendon)]
+
+    d0 = mujoco.MjData(m)
+    mujoco.mj_forward(m, d0)
+    at_zero = {n: float(d0.ten_length[i]) for i, n in enumerate(names)}
+
+    d = mujoco.MjData(m)
+    for nm, q in q_ref.items():
+        for i in range(3):
+            j = mujoco.mj_name2id(m, mujoco.mjtObj.mjOBJ_JOINT,
+                                  f"{nm}_q{i + 1}")
+            d.qpos[m.jnt_qposadr[j]] = float(q[i])
+    mujoco.mj_forward(m, d)
+    a0 = {n: float(d.ten_length[i]) - at_zero[n] for i, n in enumerate(names)}
+    return quadruped_rig(spools=series_k, spool_a0=a0, **kw)
 
 
 def quadruped_rig_elastic(q_ref: dict | None = None,

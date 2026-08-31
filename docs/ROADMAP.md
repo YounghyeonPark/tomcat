@@ -158,7 +158,9 @@ sequences the work that implements them.
 > NFR2c is met at 18 DOF ([ADR-0071](DESIGN_DECISIONS.md)).
 > **M67 done:** the impact question **cannot be answered** — the whole-body
 > model has no G3 ([ADR-0072](DESIGN_DECISIONS.md)).
-> 494 passed + 5 xfailed Python, 17 Rust.
+> **M68 done:** the whole body gets its **drivetrain** — G3 takes the shock out
+> of the **cable**, not the ground ([ADR-0073](DESIGN_DECISIONS.md)).
+> 496 passed + 5 xfailed Python, 17 Rust.
 
 ---
 
@@ -3334,7 +3336,58 @@ joint or its tendon, not a soft limit.
 must **not** be compared with the 638 N cable rating: contact force and cable
 tension are different quantities and only the first was measured.
 
-## Later milestones (candidate M68+, not committed)
+## Milestone M68 — The whole body gets its drivetrain (DONE)
+
+M67 found G3 — the compliance ADR-0026 requires and ADR-0051 put in the
+drivetrain — absent from every whole-body model, so a landing could not be
+priced. This builds it.
+
+### ✅ Twelve spools, twelve equalities, twelve springs
+
+Three pairs on each of four legs, each with a rotor, a spool, a winding equality
+and a **G3 torsional spring at 11.484 N·m/rad**. Works on the spine quadruped too.
+
+⚠️ **Both of M46's traps reproduced on the whole body, in order.** The winding
+equality is referenced at `qpos0`, so without a two-pass offset every cable starts
+violated — **72.2 mm** at the stance pose, against the 24–52 mm the single leg
+showed. `quadruped_rig_spooled` does the two passes and the residual is
+**2.2e—9 m**. And the equality **overpowers a default-stiffness joint limit**, so
+the limits are solved as stiffly as the equality. ✅ Both were already written
+down from the single leg, which is why they were **expected rather than
+discovered** — that is what the record is for.
+
+### ✅ G3 does its job, and the job is narrower than the name suggests
+
+Dropped on its side with the **motors holding** the stance pose — the only
+condition under which G3 loads at all, because at `ctrl = 0` the rotor spins free
+and the cable pays out:
+
+| drop | rigid tendons: cable | with G3: cable | contact, either |
+|---|---|---|---|
+| 0.05 m | **223 N, saturated** | **84 N** | ~385 N |
+| 0.10 m | **223 N, saturated** | 95 N | ~430 N |
+| 0.30 m | **223 N, saturated** | 127 N | ~575 N |
+
+⚠️ **On rigid tendons the motor saturates on every impact tested**, including a
+50 mm drop — 223 N is `TENSION_MAX`, so that column is a **floor** on the real
+demand. ✅ **With the drivetrain the peak falls to 84–127 N**, inside the peak
+rating throughout and near the continuous rating at 50 mm. **ADR-0026's compliance
+requirement, demonstrated on a whole body for the first time.**
+
+⚠️ **But the contact force is unchanged** (381 vs 388 N at 50 mm). **G3 protects
+the drivetrain, not the ground reaction**: the floor still takes 9× body weight at
+50 mm and 13× at 0.30 m, and anything that has to survive the *impulse* —
+structure, bearings, girdles — gets no help from it.
+
+### ⚠️ And it qualifies M67
+
+M67 found a 0.30 m fall driving `spine_y2` **27.3° past its ±15° limit**.
+That was an **unpowered** drop. With the motors holding, the overshoot is
+**0.0° with or without the drivetrain**. The finding stands for a robot that has
+lost power — it is not withdrawn, because an unpowered fall is a real case —
+but it is not a statement about missing compliance.
+
+## Later milestones (candidate M69+, not committed)
 
 > This list is **curated, not append-only**. When a milestone closes an item it is
 > deleted here and the reasoning kept in the [ADR log](DESIGN_DECISIONS.md). Earlier
@@ -3362,14 +3415,17 @@ tension are different quantities and only the first was measured.
   a choice: static stability is already gone, so a walk has to be dynamically
   stable or it does not happen. The tools exist (ADR-0052, ADR-0060) and have only
   ever been used for **standing**.
-- **GIVE THE WHOLE BODY ITS DRIVETRAIN.** ⚠️ ADR-0072: `quadruped_rig` has no
-  `spools` parameter, so G3 — the compliance ADR-0026 requires and ADR-0051
-  placed — is absent from every whole-body model. The impact assessment is
-  blocked on that capability. Same shape as ADR-0059's "the drivetrain had no home
-  behind the pulley", and the fix there was one spool per pair.
-- **THEN price the landing.** ⚠️ Without compliance a 0.30 m side drop already
-  drives `spine_y2` **27.3° past its ±15° limit** and puts 13.5× body
-  weight through the contact.
+- **WHAT THE IMPULSE DOES TO THE STRUCTURE.** ⚠️ ADR-0073: G3 protects the
+  cable (223 → 84–127 N) and **not** the ground reaction, which stays at
+  **9–13× body weight**. Structure, bearings and girdles get no help, and
+  nobody has checked them. ⚠️ Untested too: heights above 0.30 m, and landing on a
+  corner or a single leg.
+- **RE-CHECK THE CONTROL MARGIN WITH SPOOLS FITTED.** ⚠️ ADR-0060 measured a
+  drivetrain halving the lowest mode on one leg (54.9 → 27.4 Hz). The whole
+  body now has one, and its margin has not been re-measured.
+- **RE-CHECK THE WHOLE-BODY RESULTS WITH COMPLIANCE.** ⚠️ Standing, sway and
+  righting were all measured on rigid tendons. ADR-0072 argued compliance should
+  not dominate there; that argument is now **testable rather than assumed**.
 - **A WALKING spine is still untested.** ⚠️ M58 is sway *in place*, legs planted.
   Swing legs and contact transitions are not in it.
 - **`mechanical/` owes a PER-LEG ANKLE ARM.** ⚠️ ADR-0061: the hind ankle runs at
@@ -3564,6 +3620,7 @@ Kept as a short table so the deletions above are auditable rather than silent.
 | Close the loop, price the axial DOF | M65 — [ADR-0070](DESIGN_DECISIONS.md): it rights, from 22.5 m; the axial DOF makes it worse |
 | Withdraw G6 | M66 — [ADR-0071](DESIGN_DECISIONS.md): the owner's decision on 22.5 m; NFR2c met at 18 DOF, and G5 keeps the lateral motors |
 | Ask what a fall costs | M67 — [ADR-0072](DESIGN_DECISIONS.md): it cannot be answered — the whole body has no G3, and the spine's stops go first |
+| Build the whole-body drivetrain | M68 — [ADR-0073](DESIGN_DECISIONS.md): G3 takes the cable from 223 N saturated to 84–127, and does nothing for the ground |
 
 ## Open reconciliation items (lead)
 

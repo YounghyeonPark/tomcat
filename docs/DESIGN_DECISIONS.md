@@ -5593,6 +5593,8 @@ modelled, so the load path a falling robot actually sees does not exist here.
 
 ### Consequences
 
+- ✅ **UNBLOCKED by [ADR-0073](#adr-0073) (M68)**: `quadruped_rig(spools=)`
+  exists, G3 is on the whole body, and the landing is priced there.
 - ⚠️ **The impact assessment is blocked on a capability, not on effort**: the
   whole body needs its drivetrain before a landing can be priced. That is the same
   shape as [ADR-0059](#adr-0059)'s finding that the drivetrain had no home behind
@@ -5600,8 +5602,83 @@ modelled, so the load path a falling robot actually sees does not exist here.
 - ⚠️ **The spine's lateral joint stops are the first thing to check in hardware**,
   whatever the model gains later. +-15 deg is the narrowest axis on the robot and a
   0.30 m fall triples it.
+
+  > ⚠️ **QUALIFIED by [ADR-0073](#adr-0073) (M68): that was an UNPOWERED fall.**
+  > With the motors holding the stance pose the joint overshoot is **0.0 deg**,
+  > with or without the drivetrain. The finding stands for a robot that has lost
+  > power; it is not a statement about missing compliance.
 - ✅ **What is not in doubt**: a fall costs **9x body weight at 50 mm** and
   **21x at a metre**, before any compliance is credited.
+
+## ADR-0073: The whole body gets its drivetrain -- G3 takes the shock out of the cable, not the ground
+
+- **Status:** Accepted. `quadruped_rig(spools=)` and `quadruped_rig_spooled` ship.
+  **Unblocks the impact assessment [ADR-0072](#adr-0072) named. ✅ First
+  demonstration of [ADR-0026](#adr-0026)'s compliance requirement on a whole body.
+  ⚠️ Qualifies ADR-0072's joint-stop finding.**
+- **Context:** ADR-0072 found G3 -- the compliance ADR-0026 requires and
+  [ADR-0051](#adr-0051) put in the drivetrain -- absent from every whole-body
+  model, so a landing could not be priced.
+
+### ✅ Built: twelve spools, twelve equalities, twelve springs
+
+Three pairs on each of four legs, each with a rotor, a spool, a winding equality
+and a G3 torsional spring at **11.484 N*m/rad**. It works on the spine quadruped
+too.
+
+⚠️ **Both of [ADR-0052](#adr-0052)'s traps reproduced on the whole body, in
+order.** The winding equality is referenced at `qpos0`, so without a two-pass
+offset every cable starts violated -- **72.2 mm** at the stance pose, against the
+24-52 mm the single leg showed. `quadruped_rig_spooled` does the two passes and
+the residual is **2.2e-9 m**. And the equality **overpowers a default-stiffness
+joint limit**, so the limits are solved as stiffly as the equality. Both were
+already written down from the single leg, which is why they were expected rather
+than discovered.
+
+### ✅ G3 does its job, and the job is narrower than it sounds
+
+Dropped on its side with the **motors holding** the stance pose -- the only
+condition under which G3 loads at all, because at `ctrl = 0` the rotor spins free
+and the cable pays out:
+
+| drop | rigid tendons: cable | with G3: cable | contact, either |
+|---|---|---|---|
+| 0.05 m | **223 N, saturated** | **84 N** | ~385 N |
+| 0.10 m | **223 N, saturated** | 95 N | ~430 N |
+| 0.30 m | **223 N, saturated** | 127 N | ~575 N |
+
+- ⚠️ **On rigid tendons the motor saturates on every impact tested**, including a
+  50 mm drop. 223 N is `TENSION_MAX`, so that column is a **floor** on the real
+  demand, not a measurement of it.
+- ✅ **With the drivetrain the peak falls to 84-127 N** -- inside the 222.9 N
+  peak rating throughout, and near the 81.1 N continuous rating at 50 mm.
+- ⚠️ **The contact force is unchanged** (381 vs 388 N at 50 mm). **G3 protects the
+  drivetrain, not the ground reaction**: the floor still takes 9x body weight at
+  50 mm and 13x at 0.30 m. Anything that has to survive the *impulse* -- structure,
+  bearings, the girdles -- gets no help from it.
+
+### ⚠️ And it qualifies ADR-0072
+
+That ADR found a 0.30 m fall driving `spine_y2` **27.3 deg past its +-15 deg
+limit**. That was an **unpowered** drop. With the motors holding, the overshoot is
+**0.0 deg with or without the drivetrain**. The finding stands for a robot that
+has lost power; it is not a statement about missing compliance, and this ADR does
+not withdraw it -- an unpowered fall is a real case.
+
+### Consequences
+
+- ✅ **A landing can now be priced**, and the first figure is that a powered
+  robot's cables stay inside their rating from 50 mm to 0.30 m.
+- ⚠️ **Every whole-body result before M68 was measured on rigid tendons** and can
+  now be re-checked with compliance. ADR-0072 argued those are quasi-static or
+  free-fall problems where compliance should not dominate; that argument is now
+  testable rather than assumed.
+- ⚠️ **Untested**: heights above 0.30 m, landing on a corner or a single leg, and
+  what the 9-13x contact impulse does to the structure. The cable is safe; nothing
+  else has been checked.
+- ⚠️ **[ADR-0060](#adr-0060)'s headroom applies here too**: a drivetrain halves the
+  lowest mode. The whole-body control margin has not been re-measured with spools
+  fitted.
 
 ---
 

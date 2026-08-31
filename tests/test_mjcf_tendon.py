@@ -6219,3 +6219,214 @@ def test_the_WHOLE_BODY_MODEL_HAS_NO_G3_so_a_FALL_CANNOT_BE_PRICED():
         f"even a 50 mm drop is {light['contact'] / W:.1f}x body weight"
     )
     assert r["contact"] > light["contact"], "and it grows with height"
+
+
+# ==========================================================================
+# M68 -- the whole body gets its drivetrain, and G3 finally does something
+# ==========================================================================
+
+
+def _quad_spooled(spine=False, servo=True):
+    """The quadruped with a real drivetrain behind every cable."""
+    q = _quad_poses()
+    xml = MT.quadruped_rig_spooled(
+        q_ref={nm: list(v) for nm, v in q.items()}, series_k=SERIES_K,
+        hip_height=0.176, spine=spine, spool_servo=servo)
+    return mujoco.MjModel.from_xml_string(xml), q
+
+
+def _held_drop(height_m, spooled, *, seconds=0.5, kp=50.0, kd=1.0):
+    """Drop on the side with the MOTORS HOLDING the stance pose.
+
+    ⚠️ That qualifier is the whole experiment. At `ctrl = 0` the rotor spins
+    free, the cable pays out, and **G3 never loads** -- so an unpowered drop
+    cannot say anything about compliance. A real robot falls with its motors
+    energised.
+    """
+    if spooled:
+        m, q = _quad_spooled()
+    else:
+        m = mujoco.MjModel.from_xml_string(MT.quadruped_rig(hip_height=0.176))
+        q = _quad_poses()
+    d = mujoco.MjData(m)
+    for nm in QLEGS:
+        for k, a in enumerate(_qadr(m, nm)):
+            d.qpos[a] = q[nm][k]
+    d.qpos[2] += height_m
+    d.qpos[3:7] = [math.cos(math.pi / 4), math.sin(math.pi / 4), 0.0, 0.0]
+    mujoco.mj_forward(m, d)
+
+    qa = {nm: _qadr(m, nm) for nm in QLEGS}
+    dof = {nm: _dofs(m, nm) for nm in QLEGS}
+    tid = {nm: [_adr(m, mujoco.mjtObj.mjOBJ_TENDON, f"{nm}_{p}")
+                for p in PULLEY_PAIRS] for nm in QLEGS}
+    A = {nm: [_adr(m, mujoco.mjtObj.mjOBJ_ACTUATOR, f"m_{nm}_{p}")
+              for p in PULLEY_PAIRS] for nm in QLEGS}
+    if spooled:
+        JR = {nm: [m.jnt_qposadr[_adr(m, mujoco.mjtObj.mjOBJ_JOINT,
+                                      f"jr_{nm}_{p}")]
+                   for p in PULLEY_PAIRS] for nm in QLEGS}
+        JS = {nm: [m.jnt_qposadr[_adr(m, mujoco.mjtObj.mjOBJ_JOINT,
+                                      f"js_{nm}_{p}")]
+                   for p in PULLEY_PAIRS] for nm in QLEGS}
+
+    def leg_G(nm):
+        J = np.zeros((3, 3))
+        base = [float(d.qpos[a]) for a in qa[nm]]
+        for k in range(3):
+            Ls = []
+            for s in (+1, -1):
+                dd = mujoco.MjData(m)
+                dd.qpos[:] = d.qpos
+                dd.qpos[qa[nm][k]] = base[k] + s * 0.002
+                mujoco.mj_forward(m, dd)
+                Ls.append(np.array([dd.ten_length[t] for t in tid[nm]]))
+            J[:, k] = (Ls[0] - Ls[1]) / 0.004
+        return (-J).T
+
+    G = {nm: leg_G(nm) for nm in QLEGS}
+    limited = {}
+    for i in range(m.njnt):
+        n = mujoco.mj_id2name(m, mujoco.mjtObj.mjOBJ_JOINT, i)
+        if n and m.jnt_limited[i] and not n.startswith(("jr_", "js_")):
+            limited[n] = (m.jnt_qposadr[i], np.degrees(m.jnt_range[i]))
+
+    peak_con, peak_cab, over = 0.0, 0.0, 0.0
+    f6 = np.zeros(6)
+    for it in range(int(seconds / m.opt.timestep)):
+        if it and it % REFRESH_STATIC == 0:
+            G = {nm: leg_G(nm) for nm in QLEGS}
+        for nm in QLEGS:
+            e = np.array([q[nm][i] - float(d.qpos[a])
+                          for i, a in enumerate(qa[nm])])
+            ev = -np.array([float(d.qvel[a]) for a in dof[nm]])
+            tau = wbc.actuator_torque(d, dof[nm], kp * e + kd * ev)
+            T = wbc.pair_command(G[nm], tau, MT.TENSION_MAX)
+            peak_cab = max(peak_cab, float(np.max(np.abs(T))))
+            if spooled:
+                cmd = wbc.rotor_command([d.qpos[j] for j in JR[nm]],
+                                        [d.qpos[j] for j in JS[nm]], T,
+                                        K_TORS, MT.SPOOL_R, servo_kp=SERVO_KP)
+                for i, a in enumerate(A[nm]):
+                    d.ctrl[a] = float(cmd[i])
+            else:
+                for i, a in enumerate(A[nm]):
+                    d.ctrl[a] = float(T[i])
+        mujoco.mj_step(m, d)
+        assert np.all(np.isfinite(d.qpos))
+        for i in range(d.ncon):
+            mujoco.mj_contactForce(m, d, i, f6)
+            peak_con = max(peak_con, float(np.linalg.norm(f6[:3])))
+        for n, (adr, (lo, hi)) in limited.items():
+            v = math.degrees(float(d.qpos[adr]))
+            over = max(over, lo - v, v - hi, 0.0)
+    return dict(contact=peak_con, cable=peak_cab, over=over)
+
+
+def test_the_WHOLE_BODY_gets_its_DRIVETRAIN_and_the_a0_TRAP_repeats():
+    """✅ **M68: `quadruped_rig(spools=)` exists, so G3 is on the whole body.**
+
+    [ADR-0072](../docs/DESIGN_DECISIONS.md) found the compliance ADR-0026 requires
+    absent from every whole-body model. It is there now: **12 spools** (three pairs
+    on each of four legs), **12 winding equalities**, and **12 G3 springs at
+    11.484 N·m/rad**.
+
+    ⚠️ **Both of M46's traps reproduced on the whole body, in order.**
+    The winding equality is referenced at `qpos0`, so without a two-pass offset
+    every cable starts violated -- measured **72.2 mm** at the stance pose against
+    the 24–52 mm the single leg showed. `quadruped_rig_spooled` does the two
+    passes and the residual is **2.2e-9 m**. And the equality **overpowers a
+    default-stiffness joint limit**, so the limits are solved as stiffly as the
+    equality that fights them.
+    """
+    plain = mujoco.MjModel.from_xml_string(MT.quadruped_rig(hip_height=0.176))
+    spooled, q = _quad_spooled()
+
+    assert plain.neq == 0 and not [i for i in range(plain.njnt)
+                                   if plain.jnt_stiffness[i] > 0]
+    assert spooled.neq == 12, f"one winding equality per pair: {spooled.neq}"
+    springs = [float(spooled.jnt_stiffness[i]) for i in range(spooled.njnt)
+               if spooled.jnt_stiffness[i] > 0.0]
+    assert len(springs) == 12, f"twelve G3 elements, got {len(springs)}"
+    assert springs[0] == pytest.approx(SERIES_K * MT.SPOOL_R ** 2, rel=1e-9)
+
+    # ⚠️ M46's trap: without the two-pass a0 the pose starts violated
+    naive = mujoco.MjModel.from_xml_string(
+        MT.quadruped_rig(hip_height=0.176, spools=SERIES_K))
+    dn = mujoco.MjData(naive)
+    for nm in QLEGS:
+        for k, a in enumerate(_qadr(naive, nm)):
+            dn.qpos[a] = q[nm][k]
+    mujoco.mj_forward(naive, dn)
+    assert float(np.max(np.abs(dn.efc_pos[:dn.nefc]))) > 0.05, (
+        "the naive build must start violated -- that is the trap"
+    )
+
+    # ✅ and with it, the equality lands on the reference pose
+    d = mujoco.MjData(spooled)
+    for nm in QLEGS:
+        for k, a in enumerate(_qadr(spooled, nm)):
+            d.qpos[a] = q[nm][k]
+    mujoco.mj_forward(spooled, d)
+    assert float(np.max(np.abs(d.efc_pos[:d.nefc]))) < 1e-6
+
+
+def test_G3_TAKES_THE_SHOCK_out_of_the_CABLE_not_the_GROUND():
+    """✅ **ADR-0026's compliance requirement, demonstrated on a whole body for
+    the first time.**
+
+    Dropped on its side with the **motors holding** the stance pose -- which is the
+    only condition under which G3 loads at all, because at `ctrl = 0` the rotor
+    spins free and the cable pays out:
+
+    | drop | rigid tendons: cable | with G3: cable | contact, either |
+    |---|---|---|---|
+    | 0.05 m | **223 N, saturated** | **84 N** | ~385 N |
+    | 0.10 m | **223 N, saturated** | 95 N | ~430 N |
+    | 0.30 m | **223 N, saturated** | 127 N | ~575 N |
+
+    ⚠️ **On rigid tendons the motor saturates on every impact tested**, including a
+    50 mm drop: 223 N is `TENSION_MAX`, so the figure is a **floor** on the real
+    demand rather than a measurement of it.
+
+    ✅ **With the drivetrain the peak falls to 84–127 N** -- inside the 222.9 N
+    peak rating throughout, and near the 81.1 N continuous rating at 50 mm. That is
+    what a series-elastic element is for, and it had never been shown on anything
+    but a single leg.
+
+    ⚠️ **But the contact force is unchanged** (381 vs 388 N at 50 mm). G3 protects
+    the **drivetrain**, not the ground reaction: the floor still sees 9× body
+    weight at 50 mm and 13× at 0.30 m.
+
+    ⚠️ **And it corrects ADR-0072's framing.** That ADR found a 0.30 m fall driving
+    `spine_y2` 27.3° past its limit -- but that was an **unpowered** drop. With
+    the motors holding, the joint overshoot is **0.0° either way**. The joint-stop
+    finding is about a robot that has lost power, not about missing compliance.
+    """
+    rigid = {h: _held_drop(h, False) for h in (0.05, 0.30)}
+    soft = {h: _held_drop(h, True) for h in (0.05, 0.30)}
+
+    # ⚠️ rigid tendons saturate the motor even on a 50 mm drop
+    assert rigid[0.05]["cable"] == pytest.approx(MT.TENSION_MAX, abs=1.0)
+    assert rigid[0.30]["cable"] == pytest.approx(MT.TENSION_MAX, abs=1.0)
+
+    # ✅ G3 pulls the peak well inside the rating
+    assert soft[0.05]["cable"] < 0.5 * MT.TENSION_MAX, (
+        f"G3 must take the shock: {soft[0.05]['cable']:.0f} N"
+    )
+    assert soft[0.30]["cable"] < 0.7 * MT.TENSION_MAX
+    assert soft[0.30]["cable"] > soft[0.05]["cable"], "and it still scales"
+
+    # ⚠️ but the ground sees the same impulse
+    for h in (0.05, 0.30):
+        assert soft[h]["contact"] == pytest.approx(rigid[h]["contact"],
+                                                   rel=0.10), (
+            f"G3 does not soften the contact: {soft[h]['contact']:.0f} vs "
+            f"{rigid[h]['contact']:.0f} N"
+        )
+
+    # ⚠️ and with the motors holding, no joint leaves its range either way
+    for h in (0.05, 0.30):
+        assert rigid[h]["over"] < 0.5 and soft[h]["over"] < 0.5, (
+            "ADR-0072's 27.3 deg overshoot was an UNPOWERED fall"
+        )

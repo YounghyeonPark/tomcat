@@ -15,7 +15,7 @@ cat-like agility, energy-efficient movement, and passive shock absorption.
 
 ## Progress
 
-Sixty-seven milestones in. The model now spans kinematics → real mass → 3D
+Sixty-eight milestones in. The model now spans kinematics → real mass → 3D
 static stability → whole-body dynamics → a dynamic gait → closed-loop balance →
 an independent physics-engine cross-check → thermal duty → whole-body force
 allocation, with **493 passing + 5 suspended Python tests and 17 Rust** and every figure below
@@ -290,6 +290,7 @@ is **1.97**. That remedy *is* cheap: one step up in stock tube, under 4 g.
 | M65 | It **rights itself** | in 2.14 s — a fall from **22.5 m** — and the axial DOF makes it worse |
 | M66 | **G6 withdrawn** | 22.5 m is not a realistic fall — NFR2c now **met** at 18 DOF |
 | M67 | What a **fall** costs | it cannot be answered — the whole body has **no G3**, and the spine's stops go first |
+| M68 | The whole-body **drivetrain** | G3 takes the **cable** from 223 N saturated to 84 — and does nothing for the ground |
 
 Full detail in the [roadmap](docs/ROADMAP.md) and the [ADR log](docs/DESIGN_DECISIONS.md).
 
@@ -978,6 +979,31 @@ Full detail in the [roadmap](docs/ROADMAP.md) and the [ADR log](docs/DESIGN_DECI
 > drop, **21×** at a metre, and the first thing a 0.30 m side drop does is drive
 > `spine_y2` **27.3° past its ±15° limit** — nearly three times its range.
 > [ADR-0072](docs/DESIGN_DECISIONS.md).
+
+> ### ✅ M68: the whole body gets its drivetrain
+>
+> M67 found G3 absent from every whole-body model, so a landing could not be
+> priced. Built: **twelve spools, twelve winding equalities, twelve springs** at
+> 11.484 N·m/rad. ⚠️ Both of M46's traps reproduced in order — the equality
+> referenced at `qpos0` starts every cable **72.2 mm** violated until a two-pass
+> offset fixes it (residual 2.2e—9 m), and it overpowers a default joint limit.
+> ✅ Both were already written down from the single leg, so they were expected
+> rather than discovered.
+>
+> ✅ **G3 does its job.** Dropped on its side with the motors holding — the only
+> condition where it loads at all — the peak cable tension falls from **223 N,
+> saturated** to **84–127 N**. That is ADR-0026's compliance requirement, shown on
+> a whole body for the first time. ⚠️ On rigid tendons the motor saturates on
+> *every* impact tested, including a 50 mm drop.
+>
+> ⚠️ **But the job is narrower than the name suggests**: the contact force is
+> unchanged, 381 vs 388 N. **G3 protects the drivetrain, not the ground reaction** —
+> the floor still takes 9× body weight at 50 mm, and structure, bearings and
+> girdles get no help from it.
+>
+> ⚠️ It also qualifies M67: that milestone's 27.3° joint overshoot was an
+> **unpowered** fall. With the motors holding it is **0.0°** either way.
+> [ADR-0073](docs/DESIGN_DECISIONS.md).
 
 ## Why tendon-driven?
 
