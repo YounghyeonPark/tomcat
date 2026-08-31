@@ -156,7 +156,9 @@ sequences the work that implements them.
 > makes it worse ([ADR-0070](DESIGN_DECISIONS.md)).
 > **M66 done:** **G6 is withdrawn** — mid-air righting leaves the project, and
 > NFR2c is met at 18 DOF ([ADR-0071](DESIGN_DECISIONS.md)).
-> 493 passed + 5 xfailed Python, 17 Rust.
+> **M67 done:** the impact question **cannot be answered** — the whole-body
+> model has no G3 ([ADR-0072](DESIGN_DECISIONS.md)).
+> 494 passed + 5 xfailed Python, 17 Rust.
 
 ---
 
@@ -3290,7 +3292,49 @@ this robot, and if a future capability wants it, it re-opens as a new requiremen
 table, a stumble. If that matters, it is a **structural** problem (impact
 tolerance) rather than a control one.
 
-## Later milestones (candidate M67+, not committed)
+## Milestone M67 — What a fall costs, and why the model cannot say (DONE)
+
+M66 withdrew G6. That does not remove the risk of falling; it moves it from
+**control** to **structure**. So: what does a fall cost? The model cannot say, and
+the reasons are two absences.
+
+### ⚠️ G3 is not in the whole body
+
+ADR-0026 requires passive compliance and ADR-0051 put it in the **drivetrain**,
+sized at 175 kN/m. `single_leg_rig(spools=...)` has it — three torsional springs
+at **11.484 N·m/rad**. ⚠️ **`quadruped_rig` has no `spools` parameter at all**,
+so the quadruped and the spine quadruped have **none**.
+
+⚠️ **Every whole-body result in this project was measured on rigid tendons** —
+M53's standing, M58–M62's sway, M63–M65's righting. Those are quasi-static or
+free-fall problems where compliance is unlikely to dominate, so this is a **scope
+note, not a retraction**. Impact is the case where it would dominate.
+
+### ⚠️ And in an uncontrolled fall the cables carry nothing
+
+The shipped tendons are pure actuators: at `ctrl = 0` they apply **0.0000 N**, so
+the joints are free and the fall loads the **joint stops and the structure**. A
+real robot's motors hold position and its G3 spring takes the shock. Neither is
+modelled, so the load path a falling robot actually sees does not exist here.
+
+### What the model can still say
+
+| drop, onto the side | peak contact | × body weight |
+|---|---|---|
+| 0.05 m | 381 N | **9.0** |
+| 0.30 m | 571 N | 13.5 |
+| 1.00 m | 888 N | **21.0** |
+
+⚠️ **The first thing a fall does is blow through the spine's joint stops**: a
+0.30 m side drop drives `spine_y2` **27.3° past a ±15° limit** — nearly
+three times its range — with `spine_y1` 10.2° over. In hardware that is the
+joint or its tendon, not a soft limit.
+
+⚠️ These contact figures are an **upper bound** (no compliance anywhere), and they
+must **not** be compared with the 638 N cable rating: contact force and cable
+tension are different quantities and only the first was measured.
+
+## Later milestones (candidate M68+, not committed)
 
 > This list is **curated, not append-only**. When a milestone closes an item it is
 > deleted here and the reasoning kept in the [ADR log](DESIGN_DECISIONS.md). Earlier
@@ -3318,10 +3362,14 @@ tolerance) rather than a control one.
   a choice: static stability is already gone, so a walk has to be dynamically
   stable or it does not happen. The tools exist (ADR-0052, ADR-0060) and have only
   ever been used for **standing**.
-- **IMPACT TOLERANCE is now the fall story.** ⚠️ ADR-0071: with G6 withdrawn the
-  robot lands on whatever face it was falling on. Whether that matters is a
-  **structural** question (ADR-0026's compliance, the 638 N cable rating) and it
-  has not been asked.
+- **GIVE THE WHOLE BODY ITS DRIVETRAIN.** ⚠️ ADR-0072: `quadruped_rig` has no
+  `spools` parameter, so G3 — the compliance ADR-0026 requires and ADR-0051
+  placed — is absent from every whole-body model. The impact assessment is
+  blocked on that capability. Same shape as ADR-0059's "the drivetrain had no home
+  behind the pulley", and the fix there was one spool per pair.
+- **THEN price the landing.** ⚠️ Without compliance a 0.30 m side drop already
+  drives `spine_y2` **27.3° past its ±15° limit** and puts 13.5× body
+  weight through the contact.
 - **A WALKING spine is still untested.** ⚠️ M58 is sway *in place*, legs planted.
   Swing legs and contact transitions are not in it.
 - **`mechanical/` owes a PER-LEG ANKLE ARM.** ⚠️ ADR-0061: the hind ankle runs at
@@ -3515,6 +3563,7 @@ Kept as a short table so the deletions above are auditable rather than silent.
 | Try a designed righting law | M64 — [ADR-0069](DESIGN_DECISIONS.md): +49 %, not 5×; the cat's own pattern is the optimum |
 | Close the loop, price the axial DOF | M65 — [ADR-0070](DESIGN_DECISIONS.md): it rights, from 22.5 m; the axial DOF makes it worse |
 | Withdraw G6 | M66 — [ADR-0071](DESIGN_DECISIONS.md): the owner's decision on 22.5 m; NFR2c met at 18 DOF, and G5 keeps the lateral motors |
+| Ask what a fall costs | M67 — [ADR-0072](DESIGN_DECISIONS.md): it cannot be answered — the whole body has no G3, and the spine's stops go first |
 
 ## Open reconciliation items (lead)
 

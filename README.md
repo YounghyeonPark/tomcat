@@ -15,7 +15,7 @@ cat-like agility, energy-efficient movement, and passive shock absorption.
 
 ## Progress
 
-Sixty-six milestones in. The model now spans kinematics → real mass → 3D
+Sixty-seven milestones in. The model now spans kinematics → real mass → 3D
 static stability → whole-body dynamics → a dynamic gait → closed-loop balance →
 an independent physics-engine cross-check → thermal duty → whole-body force
 allocation, with **493 passing + 5 suspended Python tests and 17 Rust** and every figure below
@@ -289,6 +289,7 @@ is **1.97**. That remedy *is* cheap: one step up in stock tube, under 4 g.
 | M64 | The **designed manoeuvre** | **+49 %**, not 5× — and the cat's own pattern is the optimum |
 | M65 | It **rights itself** | in 2.14 s — a fall from **22.5 m** — and the axial DOF makes it worse |
 | M66 | **G6 withdrawn** | 22.5 m is not a realistic fall — NFR2c now **met** at 18 DOF |
+| M67 | What a **fall** costs | it cannot be answered — the whole body has **no G3**, and the spine's stops go first |
 
 Full detail in the [roadmap](docs/ROADMAP.md) and the [ADR log](docs/DESIGN_DECISIONS.md).
 
@@ -954,6 +955,29 @@ Full detail in the [roadmap](docs/ROADMAP.md) and the [ADR log](docs/DESIGN_DECI
 > ⚠️ And the robot now cannot right itself in any realistic fall, so landing is a
 > **structural** question rather than a control one.
 > [ADR-0071](docs/DESIGN_DECISIONS.md).
+
+> ### ⚠️ M67: what a fall costs, and why the model cannot say
+>
+> Withdrawing G6 did not remove the risk of falling — it moved it from **control**
+> to **structure**. So what does a fall cost? The model cannot say, and the reasons
+> are two absences.
+>
+> ⚠️ **G3 is not in the whole body.** ADR-0026 requires passive compliance and
+> ADR-0051 put it in the drivetrain at 175 kN/m; the spooled single leg has it,
+> three springs at 11.484 N·m/rad, and **`quadruped_rig` has no `spools`
+> parameter at all**. Every whole-body result here — standing, sway, righting —
+> was measured on rigid tendons. Those are quasi-static or free-fall problems, so
+> this is a **scope note rather than a retraction**; impact is the case where
+> compliance would dominate.
+>
+> ⚠️ **And in an uncontrolled fall the cables carry nothing** — 0.0000 N at
+> `ctrl = 0`. A real robot's motors hold position and its spring takes the shock;
+> neither is modelled.
+>
+> ✅ **What it can still say is not comfortable**: **9× body weight** at a 50 mm
+> drop, **21×** at a metre, and the first thing a 0.30 m side drop does is drive
+> `spine_y2` **27.3° past its ±15° limit** — nearly three times its range.
+> [ADR-0072](docs/DESIGN_DECISIONS.md).
 
 ## Why tendon-driven?
 

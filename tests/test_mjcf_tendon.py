@@ -6098,3 +6098,124 @@ def test_the_AXIAL_DOF_ADR0007_SPECIFIED_does_not_earn_its_MOTORS():
     assert bad_t is None and bad_closest > 60.0, (
         f"most axial phases fail outright: closest {bad_closest:.1f} deg"
     )
+
+
+# ==========================================================================
+# M67 -- what a fall costs, and why the model cannot say
+# ==========================================================================
+
+
+def _drop(height_m, *, seconds=0.6, spine=True):
+    """Drop the robot on its side from `height_m` with no control at all.
+
+    That is the case [ADR-0071](../docs/DESIGN_DECISIONS.md) creates: with G6
+    withdrawn nothing rights the body, so it lands on whichever face it was
+    falling on.
+    """
+    m = mujoco.MjModel.from_xml_string(
+        MT.quadruped_rig(hip_height=0.176, spine=spine))
+    d = mujoco.MjData(m)
+    q = _quad_poses()
+    for nm in QLEGS:
+        for k, a in enumerate(_qadr(m, nm)):
+            d.qpos[a] = q[nm][k]
+    d.qpos[2] += height_m
+    d.qpos[3:7] = [math.cos(math.pi / 4), math.sin(math.pi / 4), 0.0, 0.0]
+    mujoco.mj_forward(m, d)
+
+    limited = {}
+    for i in range(m.njnt):
+        n = mujoco.mj_id2name(m, mujoco.mjtObj.mjOBJ_JOINT, i)
+        if n and m.jnt_limited[i]:
+            limited[n] = (m.jnt_qposadr[i], np.degrees(m.jnt_range[i]))
+
+    peak_con, peak_act, over = 0.0, 0.0, {}
+    f6 = np.zeros(6)
+    for _ in range(int(seconds / m.opt.timestep)):
+        mujoco.mj_step(m, d)
+        assert np.all(np.isfinite(d.qpos))
+        peak_act = max(peak_act, float(np.max(np.abs(d.actuator_force))))
+        for i in range(d.ncon):
+            mujoco.mj_contactForce(m, d, i, f6)
+            peak_con = max(peak_con, float(np.linalg.norm(f6[:3])))
+        for n, (adr, (lo, hi)) in limited.items():
+            v = math.degrees(float(d.qpos[adr]))
+            x = max(lo - v, v - hi, 0.0)
+            if x > over.get(n, 0.0):
+                over[n] = x
+    return dict(contact=peak_con, actuator=peak_act,
+                over={k: v for k, v in over.items() if v > 0.01})
+
+
+def test_the_WHOLE_BODY_MODEL_HAS_NO_G3_so_a_FALL_CANNOT_BE_PRICED():
+    """⚠️ **The shock absorber the requirement names is not in the model that
+    would be dropped.**
+
+    [ADR-0071](../docs/DESIGN_DECISIONS.md) withdrew G6, which does not remove the
+    risk of falling -- it moves it from **control** to **structure**. So: what does
+    a fall cost? The model cannot say, for two reasons, and both are absences.
+
+    ⚠️ **G3 is not in the whole body.** ADR-0026 requires passive compliance and
+    [ADR-0051](../docs/DESIGN_DECISIONS.md) put it in the **drivetrain**, sized at
+    175 kN/m. `single_leg_rig(spools=...)` has it -- three torsional springs at
+    11.484 N@MID@m/rad. `quadruped_rig` has **no `spools` parameter at all**, so the
+    quadruped and the spine quadruped have **none**. Every whole-body result in
+    this project -- standing, sway, righting -- was measured on rigid tendons.
+
+    ⚠️ **And in an uncontrolled fall the cables carry nothing.** The shipped
+    tendons are pure actuators: at `ctrl = 0` they apply **0.0000 N**. A real
+    robot's motors hold position and its G3 spring takes the shock; neither is
+    modelled, so the load path a falling robot actually sees does not exist here.
+
+    ✅ **What the model can still say**, and it is not comfortable:
+
+    | drop | peak contact | × body weight |
+    |---|---|---|
+    | 0.05 m | 381 N | **9.0** |
+    | 0.30 m | 571 N | 13.5 |
+    | 1.00 m | 888 N | **21.0** |
+
+    ⚠️ **And the first thing a fall does is blow through the spine's joint
+    stops**: a 0.30 m side drop drives `spine_y2` **27.3° past a ±15° limit**
+    -- nearly three times its range -- with `spine_y1` 10.2° over. In hardware
+    that is the joint or its tendon, not a soft limit.
+
+    ⚠️ Asserts the gap: fails when the whole body gets its drivetrain.
+    """
+    quad = mujoco.MjModel.from_xml_string(MT.quadruped_rig(hip_height=0.176))
+    spine = mujoco.MjModel.from_xml_string(
+        MT.quadruped_rig(hip_height=0.176, spine=True))
+    leg = mujoco.MjModel.from_xml_string(_legacy_spooled(
+        q_ref=list(LegModel(DEFAULT_HINDLEG).inverse((0.04, -0.17, 0.0))),
+        series_k=SERIES_K, ankle_pair=True))
+
+    def springs(m):
+        return [float(m.jnt_stiffness[i]) for i in range(m.njnt)
+                if m.jnt_stiffness[i] > 0.0]
+
+    # ✅ the leg rig has G3 ...
+    assert len(springs(leg)) >= 3, "the spooled leg carries the series springs"
+    # ⚠️ ... and the whole body does not
+    assert springs(quad) == [], "the quadruped has no series compliance"
+    assert springs(spine) == [], "nor does the spine quadruped"
+    assert quad.neq == 0 and spine.neq == 0, "and no winding constraints either"
+
+    # ⚠️ so in a fall the cables carry nothing at all
+    r = _drop(0.30)
+    assert r["actuator"] == pytest.approx(0.0, abs=1e-9), (
+        f"tendons apply {r['actuator']:.4f} N at ctrl = 0"
+    )
+
+    # ⚠️ what does happen is the spine's stops being driven through
+    assert "spine_y2" in r["over"], f"joints past their limits: {r['over']}"
+    assert r["over"]["spine_y2"] > 15.0, (
+        f"spine_y2 goes {r['over']['spine_y2']:.1f} deg past a +-15 deg limit"
+    )
+
+    # ✅ and the contact numbers, which are an upper bound without G3
+    light = _drop(0.05)
+    W = 4.3081 * 9.81
+    assert light["contact"] / W > 5.0, (
+        f"even a 50 mm drop is {light['contact'] / W:.1f}x body weight"
+    )
+    assert r["contact"] > light["contact"], "and it grows with height"

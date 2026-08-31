@@ -5544,6 +5544,65 @@ left the project with G6.
   optimum manoeuvre family and the closed-loop law. The one route never tried is a
   manoeuvre found by **optimisation** rather than by sweeping a sinusoid family.
 
+## ADR-0072: The impact question cannot be answered -- the whole-body model has no G3
+
+- **Status:** Accepted as a **gap finding**. Nothing ships. **⚠️ Blocks the impact
+  assessment [ADR-0071](#adr-0071) created. Puts a scope banner on
+  [ADR-0026](#adr-0026) and [ADR-0051](#adr-0051).**
+- **Context:** ADR-0071 withdrew G6. That does not remove the risk of falling; it
+  moves it from **control** to **structure**. The obvious next question is what a
+  fall costs. The model cannot say, and the reasons are two absences.
+
+### ⚠️ G3 is not in the whole body
+
+- [ADR-0026](#adr-0026) requires passive compliance; [ADR-0051](#adr-0051) put it
+  in the **drivetrain**, and M45/M50 sized it at **175 kN/m**.
+- `single_leg_rig(spools=...)` has it: three torsional springs at
+  **11.484 N*m/rad**. ⚠️ **`quadruped_rig` has no `spools` parameter at all**, so
+  the quadruped and the spine quadruped have **none**, and no winding constraints
+  either.
+- ⚠️ **Every whole-body result in this project was measured on rigid tendons** --
+  ADR-0058's standing, ADR-0063 to ADR-0067's sway, ADR-0068 to ADR-0070's
+  righting. Those are quasi-static or free-fall problems where compliance is
+  unlikely to dominate, so this is a **scope note, not a retraction**. Impact is
+  the case where it would dominate.
+
+### ⚠️ And in an uncontrolled fall the cables carry nothing
+
+The shipped tendons are pure actuators. At `ctrl = 0` they apply **0.0000 N**, so
+the joints are free and the fall loads the **joint stops and the structure**. A
+real robot's motors hold position and its G3 spring takes the shock. Neither is
+modelled, so the load path a falling robot actually sees does not exist here.
+
+### What the model can still say
+
+| drop, onto the side | peak contact | x body weight |
+|---|---|---|
+| 0.05 m | 381 N | **9.0** |
+| 0.10 m | 426 N | 10.1 |
+| 0.30 m | 571 N | 13.5 |
+| 1.00 m | 888 N | **21.0** |
+
+- These are an **upper bound**: no compliance anywhere in the path.
+- ⚠️ **The first thing a fall does is blow through the spine's joint stops.** A
+  0.30 m side drop drives `spine_y2` **27.3 deg past a +-15 deg limit** -- nearly
+  three times its range -- with `spine_y1` 10.2 deg over. In hardware that is the
+  joint or its tendon, not a soft limit.
+- ⚠️ **Do not compare these with the 638 N cable rating.** Contact force and cable
+  tension are different quantities, and this ADR measured only the first.
+
+### Consequences
+
+- ⚠️ **The impact assessment is blocked on a capability, not on effort**: the
+  whole body needs its drivetrain before a landing can be priced. That is the same
+  shape as [ADR-0059](#adr-0059)'s finding that the drivetrain had no home behind
+  the pulley -- and the fix there was one spool per pair.
+- ⚠️ **The spine's lateral joint stops are the first thing to check in hardware**,
+  whatever the model gains later. +-15 deg is the narrowest axis on the robot and a
+  0.30 m fall triples it.
+- ✅ **What is not in doubt**: a fall costs **9x body weight at 50 mm** and
+  **21x at a metre**, before any compliance is credited.
+
 ---
 
 ### How to add an ADR
