@@ -15,7 +15,7 @@ cat-like agility, energy-efficient movement, and passive shock absorption.
 
 ## Progress
 
-Sixty-five milestones in. The model now spans kinematics → real mass → 3D
+Sixty-six milestones in. The model now spans kinematics → real mass → 3D
 static stability → whole-body dynamics → a dynamic gait → closed-loop balance →
 an independent physics-engine cross-check → thermal duty → whole-body force
 allocation, with **493 passing + 5 suspended Python tests and 17 Rust** and every figure below
@@ -288,6 +288,7 @@ is **1.97**. That remedy *is* cheap: one step up in stock tube, under 4 g.
 | M63 | **Righting**, measured | a factor of **five** short — and the DOF it was specified on **does not exist** |
 | M64 | The **designed manoeuvre** | **+49 %**, not 5× — and the cat's own pattern is the optimum |
 | M65 | It **rights itself** | in 2.14 s — a fall from **22.5 m** — and the axial DOF makes it worse |
+| M66 | **G6 withdrawn** | 22.5 m is not a realistic fall — NFR2c now **met** at 18 DOF |
 
 Full detail in the [roadmap](docs/ROADMAP.md) and the [ADR log](docs/DESIGN_DECISIONS.md).
 
@@ -919,6 +920,40 @@ Full detail in the [roadmap](docs/ROADMAP.md) and the [ADR log](docs/DESIGN_DECI
 > So G6 is not met and every measured route is closed. The three lateral spine
 > motors still have no measured justification, and three more axial ones would not
 > supply one. [ADR-0070](docs/DESIGN_DECISIONS.md).
+
+> ### ⚠️ M66: G6 is withdrawn
+>
+> A **project-owner decision**, taken on M62–M65's measurements. The question put
+> was whether **22.5 m** is a realistic fall. It is not.
+>
+> Every route had been measured and closed: trajectory design bought 1.5×, the
+> axial DOF the goal itself names is **negative**, feedback buys direction but not
+> speed, and opening the ROM past its own limit buys 1.6×. ✅ The mechanism is not
+> in doubt — the robot **does** right — it is the *rate* that a spine of this ROM
+> on motors of this rating cannot supply.
+>
+> **FR11 goes with it**, and so does **the tail motor** — ADR-0007 gave the tail
+> exactly one purpose, a coarse righting assist, and it was never built. ✅ So
+> **NFR2c falls from 19 actuated DOF to 18, and 18 is what M57 built**: the
+> requirement is now *met* rather than owed.
+>
+> ⚠️ **A correction goes with the decision.** M63 said nothing earned the three
+> lateral spine motors; that was wrong. It read only ADR-0009's justifications —
+> sway and righting — and both did fall, but **G5** asks for a spine that can
+> *"arch, bend laterally, and twist"*. Lateral bend is a **capability the goal
+> names**, and the spine delivers it. What G6's withdrawal frees is the tail.
+>
+> ✅ **G5's twist clause went with it.** Asked what the *twist* was for, the
+> documents had no answer — axial roll is in ADR-0006's target and deferred
+> there, and ADR-0007 made it the righting authority, which was the **only use
+> ever written down**. The owner withdrew the clause, so **the spine is complete
+> at 6 DOF and G5 is met**. ⚠️ The cost, plainly: a real cat's *most compliant*
+> spinal axis is not in this robot, and if a future capability wants it, it
+> re-opens as a new requirement **with a use attached**.
+>
+> ⚠️ And the robot now cannot right itself in any realistic fall, so landing is a
+> **structural** question rather than a control one.
+> [ADR-0071](docs/DESIGN_DECISIONS.md).
 
 ## Why tendon-driven?
 

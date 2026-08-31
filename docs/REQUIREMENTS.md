@@ -43,11 +43,21 @@ curve.
   / 136-107. Each routing repair re-cut the cable runs and moved them. The
   **conclusion and the ~175 kN/m target survived all three**.
 - G4. Energy-efficient movement compared with a direct-drive baseline.
-- G5. An articulated, tendon-driven spine so the body can arch, bend laterally,
-  and twist like a real cat (P2).
-- G6. Mid-air righting: reorient during a fall to land feet-first, via spine
-  axial-twist + legs, with a coarse single-tendon tail assist
-  (see [ADR-0007](DESIGN_DECISIONS.md)).
+- G5. An articulated, tendon-driven spine so the body can arch and bend
+  laterally like a real cat (P2). ✅ **MET** — 3 sagittal + 3 lateral joints,
+  built and measured ([ADR-0062](DESIGN_DECISIONS.md)).
+  ⚠️ **The "and twist" clause was withdrawn by the project owner (M66,
+  [ADR-0071](DESIGN_DECISIONS.md)).** Axial roll was specified by ADR-0006 and
+  deferred; the only use ever recorded for it was G6's righting, which went with
+  G6. Nothing else in the project asked for it, so the spine is complete at
+  **6 DOF**.
+- ~~G6. Mid-air righting: reorient during a fall to land feet-first, via spine
+  axial-twist + legs, with a coarse single-tendon tail assist.~~
+  ⚠️ **WITHDRAWN by the project owner (M66, [ADR-0071](DESIGN_DECISIONS.md)).**
+  Measured, the robot rights from fully inverted in **2.14 s** — a fall from
+  **22.5 m**, against the 0.247 s a 0.3 m drop allows. Every route to closing that
+  was measured and closed: trajectory design bought 1.5×, the axial DOF the goal
+  names is **negative**, and feedback buys direction but not speed.
 
 ## 2. Functional requirements
 
@@ -61,7 +71,7 @@ curve.
 | FR9  | Actuate the spine to bend (dorsoventral + lateral) via tendons.             | Must     |
 | FR9b | Command lateral spine sway toward the support side, in phase with the gait. | Must     |
 | FR10 | Coordinate spine curvature with leg motion (whole-body posture).            | Should   |
-| FR11 | Detect a fall and reorient (tail + spine twist) to land feet-first.        | Should   |
+| ~~FR11~~ | ~~Detect a fall and reorient (tail + spine twist) to land feet-first.~~ ⚠️ **WITHDRAWN with G6** ([ADR-0071](DESIGN_DECISIONS.md)). | ~~Should~~ |
 | FR5  | Detect and recover from a foot slip / unexpected ground contact.            | Should   |
 | FR12 | Sense **per-foot contact and normal force** (≥1 kHz) for closed-loop balance. | Must     |
 | FR6  | Report telemetry (per-motor current, tension, angle) over a host link.      | Should   |
@@ -75,7 +85,7 @@ curve.
 | NFR1  | Degrees of freedom per leg                       | 3 (hip, knee, ankle)|
 | NFR2  | Spine segments (serial, tendon-driven)           | **3** (ADR-0006)     |
 | NFR2b | DOF per spine segment                            | **2** — dorsoventral + lateral (ADR-0006/0009) |
-| NFR2c | Total actuated DOF (12 legs + 6 spine + 1 tail)  | **19** (= 19 motors, ADR-0008 + **ADR-0009** lateral). ⚠️ **18 of 19 BUILT** (M57, [ADR-0062](DESIGN_DECISIONS.md)): 12 leg + 6 spine, and the 18-DOF body stands. The **tail is owed** — it has a motor in the mass budget and no parameters, joint or body anywhere. ⚠️ The earlier "confirmed against the routed drive (M37)" was a check of the *motor count*, not of actuated DOF: until M57 no MuJoCo model had more than **15**, and none had a **sagittal** spine joint at all. |
+| NFR2c | Total actuated DOF (12 legs + 6 spine)  | **18** — ⚠️ **was 19 with a tail motor, reduced by [ADR-0071](DESIGN_DECISIONS.md) (M66)**: the tail's only cited purpose was G6's righting assist, and G6 is withdrawn. ✅ **18 of 18 BUILT** (M57, [ADR-0062](DESIGN_DECISIONS.md)): 12 leg + 6 spine, and the 18-DOF body stands. The **tail is owed** — it has a motor in the mass budget and no parameters, joint or body anywhere. ⚠️ The earlier "confirmed against the routed drive (M37)" was a check of the *motor count*, not of actuated DOF: until M57 no MuJoCo model had more than **15**, and none had a **sagittal** spine joint at all. |
 | NFR2d | Tail actuation (coarse assist, no accuracy)      | 1 tendon + passive return |
 | NFR2e | Spine LATERAL bend ROM (per segment)             | **±15°** (ADR-0009; gait commands 11°, so ~4° spare) |
 | NFR2f | Spine lateral **slew rate** (per segment)         | **≥ 119 °/s** — sized to a FAST reference manoeuvre (righting / future dynamic gait), **not** the 5 s crawl, which needs only ~29 °/s (ADR-0010) |

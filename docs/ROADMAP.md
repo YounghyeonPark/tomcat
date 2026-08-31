@@ -154,6 +154,8 @@ sequences the work that implements them.
 > of five ([ADR-0069](DESIGN_DECISIONS.md)).
 > **M65 done:** the robot **rights itself** — from 22.5 m — and the axial DOF
 > makes it worse ([ADR-0070](DESIGN_DECISIONS.md)).
+> **M66 done:** **G6 is withdrawn** — mid-air righting leaves the project, and
+> NFR2c is met at 18 DOF ([ADR-0071](DESIGN_DECISIONS.md)).
 > 493 passed + 5 xfailed Python, 17 Rust.
 
 ---
@@ -3237,7 +3239,58 @@ guessed**, the best is worse than the baseline, and 15 of 16 fail.
 lateral spine motors still have no measured justification — nor would three more
 axial ones supply it.
 
-## Later milestones (candidate M66+, not committed)
+## Milestone M66 — G6 is withdrawn (DONE)
+
+A **project-owner decision**, taken on the measurements of M62–M65 and recorded
+in [ADR-0071](DESIGN_DECISIONS.md). The question put was whether 22.5 m is a
+realistic fall. It is not.
+
+| | |
+|---|---|
+| time to right from fully inverted | **2.14 s** |
+| the fall that allows | **22.5 m** |
+| a cat | ~0.3 s from ~0.3 m |
+| a 5 m drop allows | 1.010 s — still **2.1×** short |
+
+Every route had been measured and closed: trajectory design bought **1.5×**
+(M64), the axial DOF the goal itself names is **negative** (M65, 3.30 s against
+2.14), feedback buys direction but not speed, and opening the ROM past its own
+limit buys 1.6× (M63). ✅ The mechanism is not in doubt — the robot **does**
+right — it is the *rate* a spine of this ROM on motors of this rating cannot
+supply.
+
+### What goes with it
+
+- **FR11** (*"detect a fall and reorient to land feet-first"*) is withdrawn with
+  the goal it serves.
+- **The tail motor.** ADR-0007 gave the tail exactly one purpose, a coarse
+  inertial assist for righting, and it was never built. ✅ **NFR2c goes from 19
+  actuated DOF to 18 — and 18 is what M57 built**, so the requirement is now met
+  rather than owed.
+- **ADR-0007** is superseded, kept for the record.
+
+### ⚠️ What does NOT go with it, and a correction
+
+**The three lateral spine motors stay.** M63 said nothing earned them; **that was
+wrong**. It read only ADR-0009's justifications — sway and righting — and both
+did fall. But **G5** asks for a spine *"so the body can arch, bend laterally, and
+twist like a real cat"*: lateral bend is a **capability the goal names**, not a
+stability outcome, and the spine delivers it (±11°/segment, measured).
+
+✅ **And G5's twist clause went with it.** Asked what the *twist* was for, the
+documents had no answer: axial roll is in ADR-0006's target and deferred there,
+`params.py` records it as a real cat's **most compliant** axis, and ADR-0007 made
+it the righting authority — **the only use ever written down**, and it left with
+G6. The owner withdrew the clause. ✅ **The spine is complete at 6 DOF and G5 is
+met.** ⚠️ The cost, plainly: a real cat's most compliant spinal axis is not in
+this robot, and if a future capability wants it, it re-opens as a new requirement
+**with a use attached** — which is what was missing this time.
+
+⚠️ **And the robot now cannot right itself in any realistic fall** — a bench, a
+table, a stumble. If that matters, it is a **structural** problem (impact
+tolerance) rather than a control one.
+
+## Later milestones (candidate M67+, not committed)
 
 > This list is **curated, not append-only**. When a milestone closes an item it is
 > deleted here and the reasoning kept in the [ADR log](DESIGN_DECISIONS.md). Earlier
@@ -3265,13 +3318,10 @@ axial ones supply it.
   a choice: static stability is already gone, so a walk has to be dynamically
   stable or it does not happen. The tools exist (ADR-0052, ADR-0060) and have only
   ever been used for **standing**.
-- **DECIDE G6 — every measured route is now closed.** ⚠️ ADR-0070: the robot
-  rights in **2.14 s**, a fall from **22.5 m**; trajectory design bought 1.5×
-  (ADR-0069), the axial DOF is **negative** (3.30 s), and feedback buys direction
-  but not speed. ⚠️ What remains untested is the cat's actual two-phase
-  bend/twist sequence and a manoeuvre found by **optimisation** rather than by
-  sweeping a sinusoid family. ⚠️ Until something lands, nothing earns the three
-  lateral spine motors (~396 g, 9 % of the budget).
+- **IMPACT TOLERANCE is now the fall story.** ⚠️ ADR-0071: with G6 withdrawn the
+  robot lands on whatever face it was falling on. Whether that matters is a
+  **structural** question (ADR-0026's compliance, the 638 N cable rating) and it
+  has not been asked.
 - **A WALKING spine is still untested.** ⚠️ M58 is sway *in place*, legs planted.
   Swing legs and contact transitions are not in it.
 - **`mechanical/` owes a PER-LEG ANKLE ARM.** ⚠️ ADR-0061: the hind ankle runs at
@@ -3464,6 +3514,7 @@ Kept as a short table so the deletions above are auditable rather than silent.
 | Measure the righting reflex | M63 — [ADR-0068](DESIGN_DECISIONS.md): a factor of five short, and the DOF it was specified on does not exist |
 | Try a designed righting law | M64 — [ADR-0069](DESIGN_DECISIONS.md): +49 %, not 5×; the cat's own pattern is the optimum |
 | Close the loop, price the axial DOF | M65 — [ADR-0070](DESIGN_DECISIONS.md): it rights, from 22.5 m; the axial DOF makes it worse |
+| Withdraw G6 | M66 — [ADR-0071](DESIGN_DECISIONS.md): the owner's decision on 22.5 m; NFR2c met at 18 DOF, and G5 keeps the lateral motors |
 
 ## Open reconciliation items (lead)
 

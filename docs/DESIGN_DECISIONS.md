@@ -214,6 +214,10 @@ context, and consequences. Status is one of: **Proposed**, **Accepted**,
 
 ## ADR-0007: Mid-air righting — spine + legs primary, coarse tail assist
 
+> ⚠️ **SUPERSEDED: G6 IS WITHDRAWN. [ADR-0071](#adr-0071) (M66).** This ADR
+> exists to serve a goal the project no longer has. It is kept for the record and
+> for the measurements ADR-0068 to ADR-0070 hung on it.
+
 > ⚠️ **THE MECHANISM THIS ADR NAMES DOES NOT EXIST, AND THE SUBSTITUTE IS A
 > FACTOR OF FIVE SHORT. [ADR-0068](#adr-0068) (M63).** This ADR puts righting
 > authority in the **spine axial-twist DOF**. [ADR-0006](#adr-0006) targeted three
@@ -5306,8 +5310,15 @@ burden is on a manoeuvre that closes it.
   demonstrated. Reclaiming them returns **~396 g, 9 %** of the mass budget.
   **This ADR does not recommend that** -- it records that nothing currently earns
   them.
+
+  > ⚠️ **CORRECTED by [ADR-0071](#adr-0071) (M66): G5 earns them, independently.**
+  > This ADR read only ADR-0009's justifications -- sway and righting -- and both
+  > did fall. But **G5** asks for a spine *"so the body can arch, bend laterally,
+  > and twist like a real cat"*: lateral bend is a **capability the goal names**,
+  > not a stability outcome, and the spine delivers it. What G6's withdrawal
+  > actually frees is the **tail** motor.
 - ⚠️ **G6 (land feet-first) is not met and has no route to being met** that has
-  been measured. Either an optimised manoeuvre closes a 5x gap, or the axial DOF
+  been measured. ✅ **[ADR-0071](#adr-0071) (M66) withdrew the goal.** Either an optimised manoeuvre closes a 5x gap, or the axial DOF
   ADR-0007 specified gets built and budgeted -- three more motors on a budget
   ADR-0058 only just closed.
 - ✅ The tail, per ADR-0007, is *"a coarse inertial assist, not controlled
@@ -5430,6 +5441,7 @@ cycle directions:
 
 - ⚠️ **G6 is not met and the remaining route does not work.** The robot rights
   from **22.5 m**; nothing in the project suggests a fall that long is in scope.
+  ✅ **[ADR-0071](#adr-0071) (M66) withdrew the goal on exactly this figure.**
 - ⚠️ **The three lateral spine motors still have no measured justification**
   ([ADR-0067](#adr-0067), [ADR-0068](#adr-0068)), and **three more axial motors
   would not supply one**. Reclaiming the lateral three returns ~396 g, 9 % of the
@@ -5439,6 +5451,98 @@ cycle directions:
   termination but not magnitude. A future proposal has all four to beat.
 - ⚠️ **Untested**: the cat's actual two-phase sequence with the axial DOF, and any
   manoeuvre found by optimisation rather than by sweeping a sinusoid family.
+
+## ADR-0071: G6 is withdrawn -- mid-air righting leaves the project
+
+- **Status:** Accepted. **A project-owner decision, taken on measurement.**
+  **Withdraws G6, FR11 and G5's twist clause. Supersedes [ADR-0007](#adr-0007).
+  Takes NFR2c from 19 actuated DOF to 18, which is what is built, and makes G5
+  MET. ⚠️ Corrects [ADR-0068](#adr-0068)'s claim that nothing earns the lateral
+  spine motors.**
+- **Context:** [ADR-0067](#adr-0067) through [ADR-0070](#adr-0070) measured what
+  the robot can actually do in the air. The decision was put to the project owner
+  with those numbers and the answer was that 22.5 m is not realistic.
+
+### What was measured
+
+| | |
+|---|---|
+| time to right from fully inverted | **2.14 s** |
+| the fall that allows | **22.5 m** |
+| a cat | ~0.3 s from ~0.3 m |
+| a 5 m drop allows | 1.010 s — still **2.1×** short |
+
+Every route was measured and closed:
+
+- **Trajectory design** ([ADR-0069](#adr-0069)): +49 %, and the cat's own
+  fore/hind anti-phase pattern is the optimum. Not 5×.
+- **The axial DOF the goal itself names** ([ADR-0070](#adr-0070)): **negative** --
+  one of sixteen drive configurations rights at all, taking 3.30 s against 2.14.
+- **Feedback** ([ADR-0070](#adr-0070)): buys direction and termination, not speed.
+  84 deg/s against the open loop's 78.4.
+- **Range of motion** ([ADR-0068](#adr-0068)): opening the lateral amplitude past
+  its own limit buys 1.6×.
+
+✅ The physics is not in doubt and neither is the mechanism: a precessing bend
+rights a zero-momentum body with no axial joint, and the robot **does** right. It
+is the *rate* that a spine of this ROM, on motors of this rating, cannot supply.
+
+### What goes with G6
+
+- **FR11** (*"detect a fall and reorient to land feet-first"*) is withdrawn with
+  the goal it serves.
+- **The tail motor.** [ADR-0007](#adr-0007) gave the tail exactly one purpose --
+  *"a coarse inertial assist"* for righting -- and it was never built
+  ([ADR-0062](#adr-0062): no parameters, no joint, no body). ✅ **NFR2c goes from
+  19 actuated DOF to 18, and 18 is what M57 built**, so the requirement is now met
+  rather than owed.
+- **ADR-0007** is superseded. It is kept because ADR-0068 to ADR-0070 hang their
+  measurements on it.
+
+### ⚠️ What does NOT go with G6
+
+- **The three lateral spine motors stay.** ADR-0068 said nothing earned them; that
+  was wrong. It read only ADR-0009's justifications -- static-stability sway and
+  righting -- and both did fall. But **G5** asks for a spine *"so the body can
+  arch, bend laterally, and twist like a real cat"*. Lateral bend is a
+  **capability the goal names**, not a stability outcome, and the spine delivers
+  it (+-11 deg/segment, measured).
+- ~~⚠️ **G5 is itself only partly met**: it also asks the body to *twist*, and
+  the axial DOF is still unbuilt.~~ ✅ **Closed in the same session: the owner
+  withdrew G5's twist clause too. See "The twist clause" below.**
+
+### The twist clause, withdrawn with it
+
+Asked what the *twist* in G5 was for, the documents had no answer. Axial roll is
+specified in [ADR-0006](#adr-0006)'s three-DOF-per-segment target and deferred
+there (*"lateral/axial parameterized for later"*); `params.py` records it as the
+**most compliant** axis in a real cat; and [ADR-0007](#adr-0007) made it the
+primary righting authority. **That was the only use ever written down**, and it
+left the project with G6.
+
+- ✅ **The project owner withdrew the clause.** G5 now reads *"arch and bend
+  laterally"*, and both are built and measured -- ±25 deg sagittal, ±15
+  lateral, three segments ([ADR-0062](#adr-0062)).
+- ✅ **So the spine is complete at 6 DOF**, and **G5 is met**. Axial roll is not
+  deferred any more; it is out of scope.
+- ⚠️ **What this costs, stated plainly**: a real cat's most compliant spinal axis
+  is not in this robot. If a future capability wants it -- turning in place,
+  squeezing through a gap, setting a landing attitude -- it re-opens as a new
+  requirement with a use attached, which is what was missing this time. The
+  measurement [ADR-0070](#adr-0070) made says only that axial twist is *harmful to
+  righting*; it says nothing about any other use.
+
+### Consequences
+
+- ⚠️ **The robot cannot right itself in any realistic fall.** Anything that could
+  drop it -- a bench, a table, a stumble on stairs -- lands it on whatever face it
+  was falling on. If that matters mechanically, it is now a **structural** problem
+  (impact tolerance, ADR-0026's compliance) rather than a control one.
+- ✅ **NFR2c is met**: 18 actuated DOF, 18 built.
+- ⚠️ **Reopening G6 has a defined entry price**: beat **84 deg/s** while standing
+  up the measurements in ADR-0068 to ADR-0070, which name the mechanism, the
+  optimum manoeuvre family and the closed-loop law. The one route never tried is a
+  manoeuvre found by **optimisation** rather than by sweeping a sinusoid family.
 
 ---
 
