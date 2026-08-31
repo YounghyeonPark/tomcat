@@ -152,7 +152,9 @@ sequences the work that implements them.
 > specified on **does not exist** ([ADR-0068](DESIGN_DECISIONS.md)).
 > **M64 done:** the designed righting manoeuvre gives **+49 %**, not the factor
 > of five ([ADR-0069](DESIGN_DECISIONS.md)).
-> 491 passed + 5 xfailed Python, 17 Rust.
+> **M65 done:** the robot **rights itself** — from 22.5 m — and the axial DOF
+> makes it worse ([ADR-0070](DESIGN_DECISIONS.md)).
+> 493 passed + 5 xfailed Python, 17 Rust.
 
 ---
 
@@ -3189,7 +3191,53 @@ exist.
 the optimum, and the rate is **78.4°/s**. A future axial-DOF proposal has a
 number to beat and a manoeuvre to start from.
 
-## Later milestones (candidate M65+, not committed)
+## Milestone M65 — The loop closed, and the axial DOF priced (DONE)
+
+M63 and M64 measured rotation *rates* from open-loop shape cycles, where the
+direction proved unpredictable across parameters. Two questions were left: does
+closing the loop help, and would ADR-0007's specified axial DOF be worth three
+motors?
+
+### ✅ Closing the loop: the robot rights
+
+Read the roll error, run the shape cycle in whichever direction reduces it, stop
+inside a 10° deadband. The sign becomes a control decision instead of an
+accident.
+
+✅ **From fully inverted the robot reaches upright in 2.14 s** and settles at
+5.4°. **This is the first time it has righted rather than merely rotated.**
+
+⚠️ **2.14 s is a fall from 22.5 m.** A cat rights in ~0.3 s from ~0.3 m; the
+windows here are 0.247 s from 0.3 m, 0.639 s from 2.0 m, 1.010 s from 5.0 m — so
+even from five metres it is **2.1×** short.
+
+✅ **Feedback buys direction, not speed**, as expected: the effective rate is
+180/2.14 = **84°/s** against M64's open-loop **78.4**. The magnitude comes from
+the area a shape cycle encloses, the ROM bounds that, and no control law enlarges
+it.
+
+### ⚠️ The axial DOF, priced before buying
+
+M63 found ADR-0007's specified mechanism — spine **axial twist** — in no budget
+and no model. Added to the model and swept over eight drive phases and both cycle
+directions:
+
+| spine | rights? | time |
+|---|---|---|
+| **shipped (pitch + yaw)** | ✅ | **2.14 s** |
+| + axial, best of 16 | ✅ | **3.30 s** |
+| + axial, the other 15 | ⚠️ no | — |
+
+⚠️ **One of sixteen configurations rights at all, and it is slower than having no
+axial DOF.** *As driven* — a sinusoid at a fixed phase offset locked to the bend
+cycle, not the cat's two-phase sequence — but the phase was **swept rather than
+guessed**, the best is worse than the baseline, and 15 of 16 fail.
+
+⚠️ So **G6 is not met and the remaining route does not work**, and the three
+lateral spine motors still have no measured justification — nor would three more
+axial ones supply it.
+
+## Later milestones (candidate M66+, not committed)
 
 > This list is **curated, not append-only**. When a milestone closes an item it is
 > deleted here and the reasoning kept in the [ADR log](DESIGN_DECISIONS.md). Earlier
@@ -3217,12 +3265,13 @@ number to beat and a manoeuvre to start from.
   a choice: static stability is already gone, so a walk has to be dynamically
   stable or it does not happen. The tools exist (ADR-0052, ADR-0060) and have only
   ever been used for **standing**.
-- **DECIDE G6.** ⚠️ ADR-0069 closed the manoeuvre route: a designed law gives
-  **78.4°/s**, still 3.6× short from 2 m. Two routes remain, and both are
-  decisions rather than measurements: build the **axial DOF** ADR-0007 actually
-  specified (+3 motors on a budget ADR-0058 only just closed, and **its authority
-  is itself unmeasured**), or **drop G6**. ⚠️ Until one lands, nothing earns the
-  three lateral spine motors.
+- **DECIDE G6 — every measured route is now closed.** ⚠️ ADR-0070: the robot
+  rights in **2.14 s**, a fall from **22.5 m**; trajectory design bought 1.5×
+  (ADR-0069), the axial DOF is **negative** (3.30 s), and feedback buys direction
+  but not speed. ⚠️ What remains untested is the cat's actual two-phase
+  bend/twist sequence and a manoeuvre found by **optimisation** rather than by
+  sweeping a sinusoid family. ⚠️ Until something lands, nothing earns the three
+  lateral spine motors (~396 g, 9 % of the budget).
 - **A WALKING spine is still untested.** ⚠️ M58 is sway *in place*, legs planted.
   Swing legs and contact transitions are not in it.
 - **`mechanical/` owes a PER-LEG ANKLE ARM.** ⚠️ ADR-0061: the hind ankle runs at
@@ -3414,6 +3463,7 @@ Kept as a short table so the deletions above are auditable rather than silent.
 | Re-run ADR-0009's own margin | M62 — [ADR-0067](DESIGN_DECISIONS.md): static stability is already gone; the sway recovers 3.9 % |
 | Measure the righting reflex | M63 — [ADR-0068](DESIGN_DECISIONS.md): a factor of five short, and the DOF it was specified on does not exist |
 | Try a designed righting law | M64 — [ADR-0069](DESIGN_DECISIONS.md): +49 %, not 5×; the cat's own pattern is the optimum |
+| Close the loop, price the axial DOF | M65 — [ADR-0070](DESIGN_DECISIONS.md): it rights, from 22.5 m; the axial DOF makes it worse |
 
 ## Open reconciliation items (lead)
 

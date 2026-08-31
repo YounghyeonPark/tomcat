@@ -5365,6 +5365,12 @@ ROM that does not exist.
 - ⚠️ **Option 1 is closed.** A designed manoeuvre does not reach G6. What remains
   is the **axial DOF ADR-0007 actually specified** (+3 motors on a budget
   [ADR-0058](#adr-0058) only just closed) or **dropping G6**.
+
+  > ⚠️ **[ADR-0070](#adr-0070) (M65) priced the axial DOF and it makes righting
+  > WORSE.** Closed loop, one of sixteen drive configurations rights at all, and
+  > it takes **3.30 s** against the shipped spine's **2.14 s**. ✅ The same ADR
+  > closed the loop and the robot **does** right -- in 2.14 s, which is a fall
+  > from **22.5 m**.
 - ✅ **One thing is now known that was not**: the mechanism is real, the cat's own
   pattern is the optimum, and the rate is **78.4 deg/s**. A future axial-DOF
   proposal has a number to beat and a manoeuvre to start from.
@@ -5373,6 +5379,66 @@ ROM that does not exist.
   tuck amplitude, tuck phase, tuck frequency, fore/hind pattern), not optimised
   globally. A better trajectory may exist; a 5x better one is not consistent with
   the ROM bound above.
+
+## ADR-0070: The robot rights itself, from 22.5 m -- and the axial DOF makes it worse
+
+- **Status:** Accepted as a **measurement**. Nothing ships. **Closes the axial-DOF
+  option [ADR-0069](#adr-0069) left open. ✅ First demonstration that the robot
+  rights at all.**
+- **Context:** ADR-0068 and ADR-0069 measured rotation *rates* from open-loop shape
+  cycles, where the direction proved unpredictable across parameters. Two questions
+  were left: does closing the loop help, and would ADR-0007's specified axial DOF
+  be worth three motors?
+
+### ✅ Closing the loop: the robot rights
+
+Read the roll error, run the shape cycle in whichever direction reduces it, stop
+inside a 10 deg deadband. The sign becomes a control decision instead of an
+accident, and only the magnitude is left to measure.
+
+- ✅ **From fully inverted the robot reaches upright in 2.14 s** and settles at
+  5.4 deg. This is the first time it has righted rather than merely rotated.
+- ⚠️ **2.14 s is a fall from 22.5 m.** A cat rights in ~0.3 s from ~0.3 m. The
+  windows here are 0.247 s from 0.3 m, 0.639 s from 2.0 m, 1.010 s from 5.0 m --
+  so even from five metres it is **2.1x** short.
+- ✅ **Feedback buys direction, not speed**, as expected: the effective rate is
+  180/2.14 = **84 deg/s** against ADR-0069's open-loop **78.4**. The magnitude
+  comes from the area a shape cycle encloses and the ROM bounds that; no control
+  law enlarges it.
+- ⚠️ The wrong cycle direction simply fails: it ends where it started.
+
+### ⚠️ The axial DOF, priced before buying
+
+ADR-0068 found ADR-0007's specified mechanism -- spine **axial twist** -- in no
+budget and no model. Added to the model and swept over eight drive phases and both
+cycle directions:
+
+| spine | rights? | time |
+|---|---|---|
+| **shipped (pitch + yaw)** | ✅ | **2.14 s** |
+| + axial, best of 16 | ✅ | **3.30 s** |
+| + axial, the other 15 | ⚠️ no | -- |
+
+- ⚠️ **One of sixteen configurations rights at all, and it is slower than having
+  no axial DOF.**
+- **As driven**, and the qualifier is real: the drive is a sinusoid at a fixed
+  phase offset locked to the bend cycle, not the cat's two-phase
+  bend/twist/unbend/untwist sequence. But the phase was **swept rather than
+  guessed**, the best result is worse than the baseline, and 15 of 16 fail.
+
+### Consequences
+
+- ⚠️ **G6 is not met and the remaining route does not work.** The robot rights
+  from **22.5 m**; nothing in the project suggests a fall that long is in scope.
+- ⚠️ **The three lateral spine motors still have no measured justification**
+  ([ADR-0067](#adr-0067), [ADR-0068](#adr-0068)), and **three more axial motors
+  would not supply one**. Reclaiming the lateral three returns ~396 g, 9 % of the
+  mass budget. As before, this ADR records rather than recommends.
+- ✅ **What is now demonstrated**: the mechanism, the closed-loop law, the
+  effective rate (**84 deg/s**), and the fact that feedback changes direction and
+  termination but not magnitude. A future proposal has all four to beat.
+- ⚠️ **Untested**: the cat's actual two-phase sequence with the axial DOF, and any
+  manoeuvre found by optimisation rather than by sweeping a sinusoid family.
 
 ---
 

@@ -15,10 +15,10 @@ cat-like agility, energy-efficient movement, and passive shock absorption.
 
 ## Progress
 
-Sixty-four milestones in. The model now spans kinematics → real mass → 3D
+Sixty-five milestones in. The model now spans kinematics → real mass → 3D
 static stability → whole-body dynamics → a dynamic gait → closed-loop balance →
 an independent physics-engine cross-check → thermal duty → whole-body force
-allocation, with **491 passing + 5 suspended Python tests and 17 Rust** and every figure below
+allocation, with **493 passing + 5 suspended Python tests and 17 Rust** and every figure below
 generated from the live model (`python tools/make_progress_figures.py`), so a
 published number cannot drift from the code.
 
@@ -287,6 +287,7 @@ is **1.97**. That remedy *is* cheap: one step up in stock tube, under 4 g.
 | M62 | Static stability is **already gone** | the achieved sway recovers **3.9 %** — a factor of twenty short |
 | M63 | **Righting**, measured | a factor of **five** short — and the DOF it was specified on **does not exist** |
 | M64 | The **designed manoeuvre** | **+49 %**, not 5× — and the cat's own pattern is the optimum |
+| M65 | It **rights itself** | in 2.14 s — a fall from **22.5 m** — and the axial DOF makes it worse |
 
 Full detail in the [roadmap](docs/ROADMAP.md) and the [ADR log](docs/DESIGN_DECISIONS.md).
 
@@ -895,6 +896,29 @@ Full detail in the [roadmap](docs/ROADMAP.md) and the [ADR log](docs/DESIGN_DECI
 > area. Opening the lateral amplitude bought 1.6×; trajectory design bought
 > 1.49×. Together about 2.4 — not 5, and only with a ROM that does not exist.
 > [ADR-0069](docs/DESIGN_DECISIONS.md).
+
+> ### ✅ M65: it rights itself, from 22.5 m
+>
+> M63–M64 measured rotation *rates* from open-loop cycles whose **direction** was
+> unpredictable. Close the loop — read the roll error, run the cycle whichever
+> way reduces it, stop in a 10° deadband — and the sign becomes a control
+> decision.
+>
+> ✅ **From fully inverted the robot reaches upright in 2.14 s**, settling at
+> 5.4°. **The first time it has righted rather than merely rotated.**
+> ⚠️ But 2.14 s is a fall from **22.5 m**; even from five metres it is 2.1×
+> short. ✅ And feedback buys direction, not speed: 84°/s against M64's
+> open-loop 78.4, because the magnitude comes from the area a shape cycle encloses
+> and the ROM bounds that.
+>
+> ⚠️ **The axial DOF ADR-0007 specified was priced before buying, and it makes
+> righting worse**: swept over eight drive phases and both directions, **one of
+> sixteen** configurations rights at all, taking **3.30 s** against the shipped
+> spine's 2.14.
+>
+> So G6 is not met and every measured route is closed. The three lateral spine
+> motors still have no measured justification, and three more axial ones would not
+> supply one. [ADR-0070](docs/DESIGN_DECISIONS.md).
 
 ## Why tendon-driven?
 

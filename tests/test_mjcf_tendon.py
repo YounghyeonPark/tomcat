@@ -5862,3 +5862,239 @@ def test_the_DESIGNED_MANOEUVRE_helps_by_HALF_not_by_FIVE():
         f"180 deg takes {seconds:.2f} s, a fall from "
         f"{0.5 * 9.81 * seconds ** 2:.1f} m"
     )
+
+
+# ==========================================================================
+# M65 -- close the loop, and price the axial DOF before buying motors for it
+# ==========================================================================
+
+AXIAL = ("spine_r1", "spine_r2", "spine_r3")
+
+
+def _with_axial(axial_deg=None, arm_mm=20.0):
+    """Free fall, optionally with the axial DOF ADR-0007 specified and nobody built.
+
+    Added by post-processing the XML, so nothing that ships is touched. This is a
+    *pricing* study: what would three more motors buy?
+    """
+    xml = MT.quadruped_rig(hip_height=0.176, spine=True)
+    xml = xml.replace('gravity="0 0 -9.81"', 'gravity="0 0 0"')
+    xml = re.sub(r'\s*<geom name="floor"[^/]*/>', "", xml)
+    if axial_deg is not None:
+        r = math.radians(axial_deg)
+        for i in (1, 2, 3):
+            k = xml.index('<joint name="spine_y%d" type="hinge" axis="0 0 1" ' % i)
+            end = xml.index("/>", k) + 2
+            xml = (xml[:end]
+                   + ('\n          <joint name="spine_r%d" type="hinge" '
+                      'axis="1 0 0" range="%.5f %.5f"/>' % (i, -r, r))
+                   + xml[end:])
+            xml = xml.replace(
+                "  </tendon>",
+                '    <fixed name="spine_r%d">\n      <joint joint="spine_r%d" '
+                'coef="%.6f"/>\n    </fixed>\n  </tendon>'
+                % (i, i, arm_mm * 1e-3), 1)
+            xml = xml.replace(
+                "  </actuator>",
+                '    <motor name="m_spine_r%d" tendon="spine_r%d" gear="-1" '
+                'ctrlrange="-%.0f %.0f" ctrllimited="true" forcerange="-%.0f '
+                '%.0f" forcelimited="true"/>\n  </actuator>'
+                % (i, i, MT.TENSION_MAX, MT.TENSION_MAX, MT.TENSION_MAX,
+                   MT.TENSION_MAX), 1)
+    return mujoco.MjModel.from_xml_string(xml), _quad_poses()
+
+
+def _righting_run(axial_deg=None, *, s0=-1.0, period=0.30, seconds=4.0,
+                  tuck_deg=30.0, ax_amp=25.0, ax_phase_deg=45.0,
+                  deadband=10.0, kp=300.0, kd=12.0, leg_kp=8.0, leg_kd=0.5):
+    """Start inverted; run the shape cycle in whichever direction rights the body.
+
+    Open loop the manoeuvre's rotation **sign** is unpredictable across
+    parameters. Closing the loop makes the sign a control decision, so what is
+    left to measure is how long it takes. Returns `(seconds_to_right, closest)`.
+    """
+    m, q = _with_axial(axial_deg)
+    d = mujoco.MjData(m)
+    for nm in QLEGS:
+        for k, a in enumerate(_qadr(m, nm)):
+            d.qpos[a] = q[nm][k]
+    d.qpos[3:7] = [0.0, 1.0, 0.0, 0.0]          # upside down
+    mujoco.mj_forward(m, d)
+
+    names = list(SPINE_PAIRS) + (list(AXIAL) if axial_deg is not None else [])
+    sq = [m.jnt_qposadr[_adr(m, mujoco.mjtObj.mjOBJ_JOINT, n)] for n in names]
+    sv = [m.jnt_dofadr[_adr(m, mujoco.mjtObj.mjOBJ_JOINT, n)] for n in names]
+    sa = [_adr(m, mujoco.mjtObj.mjOBJ_ACTUATOR, "m_" + n) for n in names]
+    stn = [_adr(m, mujoco.mjtObj.mjOBJ_TENDON, n) for n in names]
+    gain = []
+    for a, t in zip(sq, stn):
+        Ls = []
+        for s in (+1, -1):
+            dd = mujoco.MjData(m)
+            dd.qpos[:] = d.qpos
+            dd.qpos[a] += s * 0.002
+            mujoco.mj_forward(m, dd)
+            Ls.append(float(dd.ten_length[t]))
+        gain.append(-(Ls[0] - Ls[1]) / 0.004)
+    gain = np.array(gain)
+
+    qa = {nm: _qadr(m, nm) for nm in QLEGS}
+    dof = {nm: _dofs(m, nm) for nm in QLEGS}
+    acts = {nm: [_adr(m, mujoco.mjtObj.mjOBJ_ACTUATOR, f"m_{nm}_{x}")
+                 for x in PULLEY_PAIRS] for nm in QLEGS}
+    tid = {nm: [_adr(m, mujoco.mjtObj.mjOBJ_TENDON, f"{nm}_{x}")
+                for x in PULLEY_PAIRS] for nm in QLEGS}
+    q0 = {nm: np.array([float(d.qpos[a]) for a in qa[nm]]) for nm in QLEGS}
+
+    def legG(nm):
+        J = np.zeros((3, 3))
+        base = [float(d.qpos[a]) for a in qa[nm]]
+        for k in range(3):
+            Ls = []
+            for s in (+1, -1):
+                dd = mujoco.MjData(m)
+                dd.qpos[:] = d.qpos
+                dd.qpos[qa[nm][k]] = base[k] + s * 0.002
+                mujoco.mj_forward(m, dd)
+                Ls.append(np.array([dd.ten_length[t] for t in tid[nm]]))
+            J[:, k] = (Ls[0] - Ls[1]) / 0.004
+        return (-J).T
+
+    def wrap(a):
+        return (a + 180.0) % 360.0 - 180.0
+
+    G = {nm: legG(nm) for nm in QLEGS}
+    ph, t_right, closest = 0.0, None, 180.0
+    for it in range(int(seconds / m.opt.timestep)):
+        if it and it % 200 == 0:
+            G = {nm: legG(nm) for nm in QLEGS}
+        w_, x_, y_, z_ = (float(v) for v in d.qpos[3:7])
+        roll = math.degrees(math.atan2(2 * (w_ * x_ + y_ * z_),
+                                       1 - 2 * (x_ * x_ + y_ * y_)))
+        err = wrap(0.0 - roll)
+        closest = min(closest, abs(err))
+        if t_right is None and abs(err) < deadband:
+            t_right = it * m.opt.timestep
+        drive = 0.0 if abs(err) < deadband else math.copysign(1.0, err) * s0
+        ph += 2.0 * math.pi / period * drive * m.opt.timestep
+
+        want = []
+        for _ in range(3):
+            want += [math.radians(25.0) * math.sin(ph) * abs(drive),
+                     math.radians(15.0) * math.cos(ph) * abs(drive)]
+        if axial_deg is not None:
+            want += [math.radians(ax_amp)
+                     * math.sin(ph + math.radians(ax_phase_deg))
+                     * abs(drive)] * 3
+        want = np.array(want)
+        have = np.array([float(d.qpos[x]) for x in sq])
+        bias = np.array([float(d.qfrc_bias[x] - d.qfrc_passive[x]) for x in sv])
+        raw = (bias + kp * (want - have)
+               - kd * np.array([float(d.qvel[x]) for x in sv])) / gain
+        for i, x in enumerate(sa):
+            d.ctrl[x] = float(np.clip(raw[i], -MT.TENSION_MAX, MT.TENSION_MAX))
+
+        s_t = math.sin(ph) * abs(drive)
+        for nm in QLEGS:
+            sign = 1.0 if nm[1] == "F" else -1.0
+            tgt = q0[nm].copy()
+            tgt[1] += math.radians(tuck_deg) * s_t * sign
+            have_l = np.array([float(d.qpos[a]) for a in qa[nm]])
+            bias_l = np.array([float(d.qfrc_bias[a] - d.qfrc_passive[a])
+                               for a in dof[nm]])
+            tau = (bias_l + leg_kp * (tgt - have_l)
+                   - leg_kd * np.array([float(d.qvel[a]) for a in dof[nm]]))
+            T = wbc.pair_command(G[nm], tau, MT.TENSION_MAX)
+            for i, x in enumerate(acts[nm]):
+                d.ctrl[x] = float(T[i])
+
+        mujoco.mj_step(m, d)
+        assert np.all(np.isfinite(d.qpos))
+    return t_right, closest
+
+
+def test_CLOSING_THE_LOOP_rights_the_robot_but_from_TWENTY_TWO_METRES():
+    """✅ **The robot rights itself. It needs a 22.5 m fall to finish.**
+
+    ADR-0068 and ADR-0069 measured rotation *rates* from open-loop shape cycles,
+    where the direction turned out to be unpredictable across parameters. Closing
+    the loop -- read the roll error, run the cycle in whichever direction reduces
+    it, stop inside a 10° deadband -- makes the sign a control decision and
+    leaves only the magnitude to measure.
+
+    ✅ **It works, and this is the first time the robot has actually righted**
+    rather than merely rotated: from fully inverted it reaches upright in
+    **2.14 s** and settles at 5.4°.
+
+    ⚠️ **2.14 s is a fall from 22.5 m.** A cat rights in ~0.3 s from ~0.3 m;
+    the fall windows here are 0.247 s from 0.3 m, 0.639 s from 2.0 m and 1.010 s
+    from 5.0 m. Even from five metres it is **2.1×** short.
+
+    ✅ **And closing the loop buys direction, not speed** -- exactly as expected.
+    The effective rate is 180/2.14 = **84°/s** against ADR-0069's open-loop
+    **78.4**. The magnitude comes from the area a shape cycle encloses, and the
+    ROM bounds that; feedback cannot enlarge it.
+    """
+    t, closest = _righting_run(None, s0=-1.0, seconds=4.0)
+    assert t is not None, f"it must right: closest approach {closest:.1f} deg"
+    assert t == pytest.approx(2.14, abs=0.5), f"righted in {t:.2f} s"
+
+    # ⚠️ that is a fall from far higher than anything G6 could mean
+    height = 0.5 * 9.81 * t ** 2
+    assert height > 15.0, f"180 deg needs a fall of {height:.1f} m"
+
+    # ✅ feedback buys direction, not rate
+    rate = 180.0 / t
+    assert rate == pytest.approx(84.0, abs=15.0), (
+        f"effective {rate:.0f} deg/s against ADR-0069's open-loop 78.4"
+    )
+
+    # ⚠️ and the wrong cycle direction simply does not right at all
+    t_bad, closest_bad = _righting_run(None, s0=+1.0, seconds=2.0)
+    assert t_bad is None and closest_bad > 90.0, (
+        f"the other direction must fail: closest {closest_bad:.1f} deg"
+    )
+
+
+def test_the_AXIAL_DOF_ADR0007_SPECIFIED_does_not_earn_its_MOTORS():
+    """⚠️ **Priced before buying: three more motors make righting worse.**
+
+    [ADR-0068](../docs/DESIGN_DECISIONS.md) found that ADR-0007's specified
+    mechanism -- spine **axial twist** -- is in no budget and no model. So add it
+    to the model and see what it would buy, before anyone buys it.
+
+    ⚠️ Closed loop, sweeping the axial drive phase over eight values and both
+    cycle directions, **one of sixteen configurations rights at all**, and it is
+    **slower** than having no axial DOF:
+
+    | spine | rights? | time |
+    |---|---|---|
+    | **shipped (pitch + yaw)** | ✅ | **2.14 s** |
+    | + axial, best of 16 | ✅ | **3.30 s** |
+    | + axial, the other 15 | ⚠️ no | -- |
+
+    ⚠️ **As driven**, and that qualifier is real: the drive is a sinusoid at a
+    fixed phase offset locked to the bend cycle, not the cat's two-phase
+    bend/twist/unbend/untwist sequence. But the phase was swept rather than
+    guessed, the best is worse than the baseline, and 15 of 16 fail outright.
+
+    ✅ So the recommendation ADR-0068 declined to make now has a number behind
+    it: **nothing measured earns the three lateral spine motors, and three more
+    axial motors would not change that.**
+    """
+    base_t, _ = _righting_run(None, s0=-1.0, seconds=4.0)
+    ax_t, ax_closest = _righting_run(25.0, s0=-1.0, ax_phase_deg=45.0,
+                                     seconds=4.0)
+    assert base_t is not None
+
+    # ⚠️ the best axial configuration found is slower than none at all
+    assert ax_t is None or ax_t > base_t, (
+        f"axial {ax_t} vs baseline {base_t:.2f} s"
+    )
+
+    # ⚠️ and at the phase M65 first tried, it does not right at all
+    bad_t, bad_closest = _righting_run(25.0, s0=-1.0, ax_phase_deg=315.0,
+                                       seconds=2.0)
+    assert bad_t is None and bad_closest > 60.0, (
+        f"most axial phases fail outright: closest {bad_closest:.1f} deg"
+    )
