@@ -160,10 +160,10 @@ sequences the work that implements them.
 > model has no G3 ([ADR-0072](DESIGN_DECISIONS.md)).
 > **M68 done:** the whole body gets its **drivetrain** — G3 takes the shock out
 > of the **cable**, not the ground ([ADR-0073](DESIGN_DECISIONS.md)).
-> **M69 done:** the drivetrain lowers the mode and **improves** the margin — a
-> joint-space posture term is now affordable
-> ([ADR-0074](DESIGN_DECISIONS.md)).
-> 497 passed + 5 xfailed Python, 17 Rust.
+> **M70 done:** the sway does not care about compliance; the righting does, and
+> takes **3.6× as long** once the spine has it
+> ([ADR-0075](DESIGN_DECISIONS.md)).
+> 500 passed + 5 xfailed Python, 17 Rust.
 
 ---
 
@@ -3439,7 +3439,49 @@ saturated the motors. That constraint was the **missing compliance, not the gain
 ⚠️ M55 measured a **mode** on a leg and inferred a **margin**. They are not the
 same quantity, and on the whole body they part company.
 
-## Later milestones (candidate M70+, not committed)
+## Milestone M70 — The compliance scope note, discharged (DONE)
+
+M69 showed the whole-body drivetrain does not disturb **standing**. That was one
+of the three results ADR-0072 flagged as measured on rigid tendons. This
+re-measures the other two.
+
+### ⚠️ The whole body's drivetrain is only half a drivetrain
+
+`quadruped_rig(spools=)` fits the **twelve leg pairs** and nothing else — 24
+spool joints, **none on the spine**, which is the actuator that performs both
+the sway and the righting. `_spine_spools` fits the other six by
+post-processing, the way `_with_axial` prices the axial DOF. ✅ It delivers
+**-0.1 %** of commanded tension at 19.6, 100.0 and 222.9 N, so the instrument was
+checked before the measurement was read.
+
+### ✅ The sway does not care
+
+| compliance | nv | CoM sway | tilt | spine demand |
+|---|---|---|---|---|
+| none (rigid) | 24 | **2.60 mm** | 2.033° | 76.8 N |
+| legs (shipped) | 48 | **2.81 mm** | 2.020° | 76.8 N |
+| legs + spine | 60 | **2.81 mm** | 2.013° | 76.8 N |
+
++8 %, in the helpful direction — ADR-0067 measured 2.60 against ADR-0009's
+designed 66.7 mm.
+
+### ⚠️ The righting does, once the spine has it
+
+| compliance | t to right | effective rate |
+|---|---|---|
+| none — [ADR-0070](DESIGN_DECISIONS.md) | **2.14 s** | 84°/s |
+| legs (shipped) | **2.17 s** | 83°/s |
+| legs + spine | **7.69 s** | **23°/s** |
+
+⚠️ **The discriminator is saturation.** The sway asks the spine for 76.8 N of
+its 222.9 N rating; the righting asks for **5002.9 N**, 22× the rating, so the
+spine runs against its stop for the whole cycle and the spring only changes how
+fast the stop is reached. ADR-0070 published 2.14 s without publishing that.
+
+⚠️ **A 4 s window called the compliant plant a failure.** It rights at 7.69 s.
+ADR-0064 made the same mistake on a different plant.
+
+## Later milestones (candidate M71+, not committed)
 
 > This list is **curated, not append-only**. When a milestone closes an item it is
 > deleted here and the reasoning kept in the [ADR log](DESIGN_DECISIONS.md). Earlier
@@ -3472,13 +3514,18 @@ same quantity, and on the whole body they part company.
   **9–13× body weight**. Structure, bearings and girdles get no help, and
   nobody has checked them. ⚠️ Untested too: heights above 0.30 m, and landing on a
   corner or a single leg.
+- **THE SPINE HAS NO `spools` SUPPORT IN THE BUILDER.** ⚠️ ADR-0075 measured
+  its drivetrain through a post-processed XML. If the spine is to carry G3 as a
+  design position rather than a study, `quadruped_rig` has to grow it — and
+  the standing and impact results were measured on the leg-only drivetrain too.
 - **THE NULL-SPACE POSTURE TASK, at last affordable.** ✅ ADR-0074: a
   joint-space PD costs **74.4 N** with the drivetrain where it saturated the motor
   without it. The task ADR-0052 named and ADR-0058 said was only symptom-free, not
   unnecessary, now has room to exist.
-- **RE-CHECK THE WHOLE-BODY RESULTS WITH COMPLIANCE.** ⚠️ Standing, sway and
-  righting were all measured on rigid tendons. ADR-0072 argued compliance should
-  not dominate there; that argument is now **testable rather than assumed**.
+- **WHAT SPINE COMPLIANCE THE RIGHTING WANTS.** ⚠️ ADR-0075: time to right is
+  **non-monotonic** in the spine spring — 7.69 s at the specified 150 kN/m,
+  **2.68 at 500**, 9.40 at 926, 10.82 at 3000, 3.48 at 10 000. Five points are not
+  a design curve, and ADR-0050's band was set for the leg and the impact case.
 - **A WALKING spine is still untested.** ⚠️ M58 is sway *in place*, legs planted.
   Swing legs and contact transitions are not in it.
 - **`mechanical/` owes a PER-LEG ANKLE ARM.** ⚠️ ADR-0061: the hind ankle runs at
@@ -3675,6 +3722,7 @@ Kept as a short table so the deletions above are auditable rather than silent.
 | Ask what a fall costs | M67 — [ADR-0072](DESIGN_DECISIONS.md): it cannot be answered — the whole body has no G3, and the spine's stops go first |
 | Build the whole-body drivetrain | M68 — [ADR-0073](DESIGN_DECISIONS.md): G3 takes the cable from 223 N saturated to 84–127, and does nothing for the ground |
 | Re-measure the control margin | M69 — [ADR-0074](DESIGN_DECISIONS.md): the mode halves and the margin **improves**; a posture term is affordable |
+| Re-check sway and righting with G3 | M70 — [ADR-0075](DESIGN_DECISIONS.md): the sway does not care, the righting takes **3.6× as long** through a compliant spine |
 
 ## Open reconciliation items (lead)
 

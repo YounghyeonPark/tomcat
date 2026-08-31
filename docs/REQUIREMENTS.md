@@ -55,7 +55,9 @@ curve.
   axial-twist + legs, with a coarse single-tendon tail assist.~~
   ⚠️ **WITHDRAWN by the project owner (M66, [ADR-0071](DESIGN_DECISIONS.md)).**
   Measured, the robot rights from fully inverted in **2.14 s** — a fall from
-  **22.5 m**, against the 0.247 s a 0.3 m drop allows. Every route to closing that
+  **22.5 m**, against the 0.247 s a 0.3 m drop allows. ⚠️ **And 2.14 s was
+  the optimistic plant**: give the spine the drivetrain G3 requires and it takes
+  **7.69 s**, a fall from **290 m** (M70, [ADR-0075](DESIGN_DECISIONS.md)). Every route to closing that
   was measured and closed: trajectory design bought 1.5×, the axial DOF the goal
   names is **negative**, and feedback buys direction but not speed.
 

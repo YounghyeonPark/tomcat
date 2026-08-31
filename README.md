@@ -15,7 +15,7 @@ cat-like agility, energy-efficient movement, and passive shock absorption.
 
 ## Progress
 
-Sixty-nine milestones in. The model now spans kinematics → real mass → 3D
+Seventy milestones in. The model now spans kinematics → real mass → 3D
 static stability → whole-body dynamics → a dynamic gait → closed-loop balance →
 an independent physics-engine cross-check → thermal duty → whole-body force
 allocation, with **493 passing + 5 suspended Python tests and 17 Rust** and every figure below
@@ -292,6 +292,7 @@ is **1.97**. That remedy *is* cheap: one step up in stock tube, under 4 g.
 | M67 | What a **fall** costs | it cannot be answered — the whole body has **no G3**, and the spine's stops go first |
 | M68 | The whole-body **drivetrain** | G3 takes the **cable** from 223 N saturated to 84 — and does nothing for the ground |
 | M69 | The margin, re-measured | the mode halves and the margin **improves** — a posture term is affordable |
+| M70 | Sway and righting, re-checked | the sway does not care about G3; the righting takes **3.6× as long** through a compliant spine |
 
 Full detail in the [roadmap](docs/ROADMAP.md) and the [ADR log](docs/DESIGN_DECISIONS.md).
 
@@ -1028,6 +1029,31 @@ Full detail in the [roadmap](docs/ROADMAP.md) and the [ADR log](docs/DESIGN_DECI
 > term.** Every whole-body controller here used pure force allocation because a PD
 > saturated the motors, and that constraint was the **missing compliance, not the
 > gain**. [ADR-0074](docs/DESIGN_DECISIONS.md).
+
+> ### ⚠️ M70: the sway does not care about compliance, the righting does
+>
+> ADR-0072 flagged that every whole-body result was measured on **rigid tendons**
+> and argued the quasi-static ones would not depend on it. M69 confirmed that for
+> standing. Here are the other two — and first, the drivetrain the whole body
+> has turns out to be **half a drivetrain**: `quadruped_rig(spools=)` fits the
+> twelve **leg** pairs and leaves the six **spine** pairs rigid, and the spine is
+> the actuator that does both jobs.
+>
+> ✅ **The sway does not care**: 2.60 mm rigid, **2.81** with the legs spooled,
+> **2.81** with the spine spooled too — +8 %, in the helpful direction.
+>
+> ⚠️ **The righting does.** 2.14 s rigid, 2.17 with the shipped drivetrain, and
+> **7.69 s** once the spine has one — **3.6× as long**, 84°/s down to 23.
+>
+> ⚠️ **The discriminator is saturation**, and it was there to read all along:
+> the sway asks the spine for **76.8 N** of its 222.9 N rating, the righting for
+> **5002.9 N** — 22× the rating. A task inside the rating cannot be changed
+> by the transmission's stiffness; one 22× outside it is changed by nothing
+> else. [ADR-0070](docs/DESIGN_DECISIONS.md) published 2.14 s without publishing
+> that the actuator was saturated for the whole manoeuvre.
+>
+> ⚠️ **And a 4 s window called the compliant plant a failure** — it rights at
+> 7.69 s. [ADR-0075](docs/DESIGN_DECISIONS.md).
 
 ## Why tendon-driven?
 
