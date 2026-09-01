@@ -15,7 +15,7 @@ cat-like agility, energy-efficient movement, and passive shock absorption.
 
 ## Progress
 
-Seventy-four milestones in. The model now spans kinematics → real mass → 3D
+Seventy-five milestones in. The model now spans kinematics → real mass → 3D
 static stability → whole-body dynamics → a dynamic gait → closed-loop balance →
 an independent physics-engine cross-check → thermal duty → whole-body force
 allocation, with **493 passing + 5 suspended Python tests and 17 Rust** and every figure below
@@ -297,6 +297,7 @@ is **1.97**. That remedy *is* cheap: one step up in stock tube, under 4 g.
 | M72 | The plant an agent would **train in** | MJX is viable; `nsensor` was **0**, there is no joint encoder, and the ankle load cell is worth **6°** |
 | M73 | The control **rate**, and NFR12 | the allocation is rate-insensitive, the **joint PD** is not — and NFR12's 7.5 ms **holds** |
 | M74 | **Throughput**, answered | **262,678 steps/s** on the 4090 already in the machine — training is affordable |
+| M75 | The **3.12 gate** | stable results bit-identical — the failure was an assertion read **after the robot fell** |
 
 Full detail in the [roadmap](docs/ROADMAP.md) and the [ADR log](docs/DESIGN_DECISIONS.md).
 
@@ -1129,6 +1130,20 @@ Full detail in the [roadmap](docs/ROADMAP.md) and the [ADR log](docs/DESIGN_DECI
 > ✅ Verified rather than assumed: at 8,192 worlds every `qpos` is finite,
 > worlds agree to 1.2e-6 rad, and world 0 matches C to 1.6e-6.
 > [ADR-0079](docs/DESIGN_DECISIONS.md).
+
+> ### ✅ M75: the 3.12 gate passes, and catches our own lesson
+>
+> Training needs MuJoCo >= 3.12; the suite pins 3.10. ✅ **Every stable result
+> is bit-identical** — the sway at the shipped gain matches to every digit.
+> The only divergence is between two robots that have **already fallen over**
+> (170.68° against 179.93° of tilt).
+>
+> ⚠️ **The one real failure was ours.** A test asserted that raising the spine
+> gain made *tracking* worse — a number read while the robot was **inverted**.
+> It held only because both versions fell the same way. That is ADR-0067's own
+> finding landing on the suite that recorded it: *a "better" number is often the
+> robot on its way to the floor.* Removed; tilt, force and slip already assert
+> the claim. [ADR-0080](docs/DESIGN_DECISIONS.md).
 
 > ### ⚠️ M71: the spine's drivetrain, and a margin that was never there
 >

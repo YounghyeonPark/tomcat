@@ -5030,10 +5030,15 @@ def test_RAISING_THE_SPINE_GAIN_makes_it_FALL_OVER():
     assert high["raw_peak"] > MT.TENSION_MAX, (
         f"more gain saturates: raw {high['raw_peak']:.0f} N"
     )
-    assert high["track"] > low["track"], (
-        f"⚠️ M59: more gain makes tracking WORSE, not better -- "
-        f"{high['track']:.1f}° against {low['track']:.1f}°"
-    )
+    # ⚠️ M75: this used to compare `track` -- the spine's own tracking
+    # error -- and assert the high gain tracked WORSE. That number is read while
+    # the robot is INVERTED (tilt 170-180°), where it means nothing, and the
+    # assertion only held because both plants happened to fall the same way.
+    # MuJoCo 3.12 falls differently (9.8° against 3.10's 27.2°) and it broke,
+    # while the standing run at kp=8 is bit-identical between the versions.
+    # That is [ADR-0067](../docs/DESIGN_DECISIONS.md)'s own lesson landing on
+    # this suite: a "better" number is often the robot on its way to the floor.
+    # What the milestone actually claims is asserted below, on tilt and force.
     assert high["raw_peak"] > 10.0 * MT.TENSION_MAX, (
         f"and the demand is far past any motor: {high['raw_peak']:.0f} N"
     )

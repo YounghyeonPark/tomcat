@@ -160,9 +160,9 @@ sequences the work that implements them.
 > model has no G3 ([ADR-0072](DESIGN_DECISIONS.md)).
 > **M68 done:** the whole body gets its **drivetrain** — G3 takes the shock out
 > of the **cable**, not the ground ([ADR-0073](DESIGN_DECISIONS.md)).
-> **M74 done:** **262,678 steps/s** on the RTX 4090 that was already in this
-> machine — training is affordable, and the drivetrain survives MJX-Warp
-> ([ADR-0079](DESIGN_DECISIONS.md)).
+> **M75 done:** the **3.12 gate passes** — what it caught was an assertion
+> this suite read *after the robot had fallen*
+> ([ADR-0080](DESIGN_DECISIONS.md)).
 > 508 passed + 5 xfailed Python, 17 Rust.
 
 ---
@@ -3641,7 +3641,33 @@ worlds agree to 1.2e-6 rad, and world 0 matches C to 1.6e-6.
 **1e8 steps in 6.3 minutes, 1e9 in 63.** Training is affordable on hardware
 already on the desk.
 
-## Later milestones (candidate M75+, not committed)
+## Milestone M75 — The 3.12 gate (DONE)
+
+Training needs MuJoCo >= 3.12; the suite pins 3.10. ADR-0077 called them
+bit-identical on a 400-step rollout and ADR-0079 recorded that the real gate had
+not been run.
+
+### ✅ The versions agree where it matters
+
+| | 3.10 | 3.12 |
+|---|---|---|
+| sway, `kp = 8` (shipped) | 12.94° / 2.033° / 76.8 N | **identical, every digit** |
+| sway, `kp = 100` (fallen) | 27.19 / 170.68° / 5574 N | 9.82 / 179.93° / 5876 N |
+
+The only divergence is between two robots already flat on their backs.
+
+### ⚠️ And it caught ADR-0067's lesson inside ADR-0067's own suite
+
+The failing assertion compared the spine's **tracking error** while the robot was
+**inverted** — meaningless post-fall, and it held only because both versions
+fell the same way. *A "better" number is often the robot on its way to the
+floor.* Removed; tilt, force and slip already assert the real claim.
+
+⚠️ **Two `xfail(strict=True)` flip to XPASS under 3.12** — M41's degenerate
+measurements, deliberately untouched: `strict=False` would silence a marker
+without the re-derivation it waits for.
+
+## Later milestones (candidate M76+, not committed)
 
 > This list is **curated, not append-only**. When a milestone closes an item it is
 > deleted here and the reasoning kept in the [ADR log](DESIGN_DECISIONS.md). Earlier
@@ -3899,6 +3925,7 @@ Kept as a short table so the deletions above are auditable rather than silent.
 | Make the plant sensable | M72 — [ADR-0077](DESIGN_DECISIONS.md): MJX is viable; `nsensor` was **0**; there is no joint encoder, and the ankle load cell is worth **6°** |
 | Test the control rate and NFR12 | M73 — [ADR-0078](DESIGN_DECISIONS.md): the allocation is rate-insensitive, the **joint PD** is not, and NFR12's 7.5 ms **holds** |
 | Answer the throughput question | M74 — [ADR-0079](DESIGN_DECISIONS.md): **262,678 steps/s** on the 4090 already in the machine; MJX-Warp keeps all 18 equalities |
+| Gate the 3.12 migration | M75 — [ADR-0080](DESIGN_DECISIONS.md): stable results **bit-identical**; the failure was an assertion read after the fall |
 
 ## Open reconciliation items (lead)
 
