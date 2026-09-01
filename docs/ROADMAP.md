@@ -160,10 +160,10 @@ sequences the work that implements them.
 > model has no G3 ([ADR-0072](DESIGN_DECISIONS.md)).
 > **M68 done:** the whole body gets its **drivetrain** — G3 takes the shock out
 > of the **cable**, not the ground ([ADR-0073](DESIGN_DECISIONS.md)).
-> **M76 done:** the training **environment** exists and is honest — and it
-> cannot tell the robot **where it is**
-> ([ADR-0081](DESIGN_DECISIONS.md)).
-> 510 passed + 5 xfailed Python, 17 Rust.
+> **M77 done:** the **standing task** — no constant action can do it, and a
+> tilt-only termination scored a collapsed robot **192**
+> ([ADR-0082](DESIGN_DECISIONS.md)).
+> 512 passed + 5 xfailed Python, 17 Rust.
 
 ---
 
@@ -3695,7 +3695,36 @@ which this project has never had — every whole-body result took the base pose
 from the simulator. ✅ It does not block learning: a policy consumes the
 observation directly.
 
-## Later milestones (candidate M77+, not committed)
+## Milestone M77 — The standing task (DONE)
+
+M76 built the interface but not the task. The plan was to validate the reward
+against a known-good open-loop action.
+
+### ⚠️ There is no known-good open-loop action
+
+| action | max tilt | trunk height |
+|---|---|---|
+| zero | 22.1° | 176 → **27.9 mm** |
+| uniform 25 N | 66.1° | 176 → 40.7 mm |
+| gravity-compensating hold | 38.7° | 176 → **27.8 mm** |
+
+Even the tension that exactly balances gravity at the stance pose collapses: a
+fixed tension is a fixed torque, and the torque the pose needs changes as it
+tips. ✅ **Feedback is the task.**
+
+### ⚠️ And tilt alone scored a collapsed robot 192
+
+A zero-action episode ran its full length while the trunk fell to **27.9 mm** —
+belly-flopped, level, never noticed. ✅ The fix stays observable: the robot
+cannot know its height above the **ground**, but it can know its height above
+its own **feet** (`env.stance_height`, from reconstructed joints).
+
+| action | terminates | tilt | stance height | caught by |
+|---|---|---|---|---|
+| zero | 0.12 s | 10.7° | **117 mm** | collapse |
+| uniform 25 N | 0.08 s | **47.9°** | 152 mm | tip |
+
+## Later milestones (candidate M78+, not committed)
 
 > This list is **curated, not append-only**. When a milestone closes an item it is
 > deleted here and the reasoning kept in the [ADR log](DESIGN_DECISIONS.md). Earlier
@@ -3959,6 +3988,7 @@ Kept as a short table so the deletions above are auditable rather than silent.
 | Answer the throughput question | M74 — [ADR-0079](DESIGN_DECISIONS.md): **262,678 steps/s** on the 4090 already in the machine; MJX-Warp keeps all 18 equalities |
 | Gate the 3.12 migration | M75 — [ADR-0080](DESIGN_DECISIONS.md): stable results **bit-identical**; the failure was an assertion read after the fall |
 | Build the training environment | M76 — [ADR-0081](DESIGN_DECISIONS.md): sensor-only observation at 133 Hz / 7.5 ms; **no sensor says where the robot is** |
+| Define the standing task | M77 — [ADR-0082](DESIGN_DECISIONS.md): no constant action stands; tilt alone scored a collapsed robot **192** |
 
 ## Open reconciliation items (lead)
 

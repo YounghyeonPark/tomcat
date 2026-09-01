@@ -15,7 +15,7 @@ cat-like agility, energy-efficient movement, and passive shock absorption.
 
 ## Progress
 
-Seventy-six milestones in. The model now spans kinematics → real mass → 3D
+Seventy-seven milestones in. The model now spans kinematics → real mass → 3D
 static stability → whole-body dynamics → a dynamic gait → closed-loop balance →
 an independent physics-engine cross-check → thermal duty → whole-body force
 allocation, with **493 passing + 5 suspended Python tests and 17 Rust** and every figure below
@@ -299,6 +299,7 @@ is **1.97**. That remedy *is* cheap: one step up in stock tube, under 4 g.
 | M74 | **Throughput**, answered | **262,678 steps/s** on the 4090 already in the machine — training is affordable |
 | M75 | The **3.12 gate** | stable results bit-identical — the failure was an assertion read **after the robot fell** |
 | M76 | The training **environment** | sensor-only observation — and **no sensor says where the robot is** |
+| M77 | The standing **task** | no constant action stands it — and tilt alone scored a collapsed robot **192** |
 
 Full detail in the [roadmap](docs/ROADMAP.md) and the [ADR log](docs/DESIGN_DECISIONS.md).
 
@@ -1166,6 +1167,24 @@ Full detail in the [roadmap](docs/ROADMAP.md) and the [ADR log](docs/DESIGN_DECI
 > ✅ It does not block learning — a policy consumes the observation
 > directly. It is the hand-written controller that needs the world frame.
 > [ADR-0081](docs/DESIGN_DECISIONS.md).
+
+> ### ⚠️ M77: no constant action stands, and tilt alone cannot judge it
+>
+> The plan was to validate the reward against a known-good open-loop action.
+> ⚠️ **There isn't one.** Even the tension that exactly balances gravity at the
+> stance pose collapses the trunk from 176 mm to **27.8 mm** — a fixed tension
+> is a fixed torque, and the torque the pose needs changes as it tips. ✅
+> Feedback *is* the task.
+>
+> ⚠️ **And the first termination scored a collapsed robot 192.** Terminating on
+> `tilt > 45°` let a zero-action episode run its full length while the robot
+> belly-flopped, level, to 27.9 mm.
+>
+> ✅ **The fix stays observable.** The robot cannot know its height above the
+> **ground** (M76) — but it can know its height above its own **feet**, from
+> the reconstructed joints. Both failure modes are now caught, each by the
+> criterion that sees it, and every reward term is computable on hardware.
+> [ADR-0082](docs/DESIGN_DECISIONS.md).
 
 > ### ⚠️ M71: the spine's drivetrain, and a margin that was never there
 >

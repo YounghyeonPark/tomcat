@@ -67,7 +67,9 @@ class TomcatEnv:
                  latency_s: float = NFR12_LATENCY_S,
                  encoder_bits: int = ENCODER_BITS,
                  spine: bool = True, series_k: float = SERIES_K,
-                 hip_height: float = 0.176):
+                 hip_height: float = 0.176, fall_deg: float = 45.0,
+                 collapse_m: float = 0.12,
+                 jitter_deg: float = 0.0, rng=None):
         import mujoco
 
         self.mj = mujoco
@@ -101,6 +103,11 @@ class TomcatEnv:
         self._js = [self.model.jnt_qposadr[self._id(mujoco.mjtObj.mjOBJ_JOINT,
                                                     "js_" + p)]
                     for p in self.pairs]
+        self.fall_deg = float(fall_deg)
+        self.collapse_m = float(collapse_m)
+        self.jitter_deg = float(jitter_deg)
+        self.rng = np.random.default_rng() if rng is None else rng
+        self.steps = 0
         self.pair_map = MT.pair_matrix(
             [float(a) for a in DEFAULT_TENDON.joint_moment_arm])
         self._lag = None
@@ -125,8 +132,11 @@ class TomcatEnv:
             for i, jn in enumerate((f"{nm}_q1", f"{nm}_q2", f"{nm}_q3")):
                 a = self.model.jnt_qposadr[
                     self._id(self.mj.mjtObj.mjOBJ_JOINT, jn)]
-                self.data.qpos[a] = self.q_ref[nm][i]
+                jit = math.radians(self.jitter_deg) * (
+                    self.rng.standard_normal() if self.jitter_deg else 0.0)
+                self.data.qpos[a] = self.q_ref[nm][i] + jit
         self.mj.mj_forward(self.model, self.data)
+        self.steps = 0
         self.a0 = {}
         for p in self.pairs:
             t = self._id(self.mj.mjtObj.mjOBJ_TENDON, p)
@@ -138,7 +148,14 @@ class TomcatEnv:
         return self.observe()
 
     def step(self, tension):
-        """Hold `tension` (N, one per pair) for one control period."""
+        """Hold `tension` (N, one per pair) for one control period.
+
+        Returns `(obs, reward, terminated, info)`. ⚠️ **No constant action
+        stands this robot** -- the gravity-compensating tension at the stance
+        pose reaches 38.7° of tilt and the trunk collapses to 28 mm. Standing
+        is an unstable equilibrium: a fixed tension is a fixed torque, and the
+        torque the pose needs changes as it tips. Feedback is the task.
+        """
         tension = np.clip(np.asarray(tension, float), -MT.TENSION_MAX,
                           MT.TENSION_MAX)
         for _ in range(self.decim):
@@ -156,7 +173,10 @@ class TomcatEnv:
             self.t += self.dt
         if not np.all(np.isfinite(self.data.qpos)):
             raise FloatingPointError("plant diverged")
-        return self.observe()
+        obs = self.observe()
+        self.steps += 1
+        return obs, self.reward(obs, tension), self.terminated(obs), {
+            "tilt_deg": self._tilt(obs), "t": self.t, "steps": self.steps}
 
     def observe(self) -> dict:
         """What the board reports, delayed and quantised. No joint angle."""
@@ -199,8 +219,60 @@ class TomcatEnv:
                                               MT.SPOOL_R)
         return out
 
+    # -- the task ---------------------------------------------------------
+    @staticmethod
+    def _tilt(obs) -> float:
+        """Trunk tilt from the IMU quaternion — a sensor, not privileged."""
+        w = float(obs["imu_quat"][0])
+        return 2.0 * math.degrees(math.acos(min(1.0, abs(w))))
+
     @property
     def tilt_deg(self) -> float:
-        """Trunk tilt from the IMU quaternion — a sensor, not privileged."""
-        w = float(self.observe()["imu_quat"][0])
-        return 2.0 * math.degrees(math.acos(min(1.0, abs(w))))
+        return self._tilt(self.observe())
+
+    def reward(self, obs, tension=None) -> float:
+        """Stand up, cheaply, on your feet.
+
+        Every term is built from the OBSERVATION, so the reward is computable on
+        hardware. That is not a nicety: a reward that needs `d.qpos` cannot be
+        used to fine-tune on the real robot, and it hides the same gap
+        [ADR-0081](../../../docs/DESIGN_DECISIONS.md) found in the controller.
+        """
+        upright = math.cos(math.radians(min(180.0, self._tilt(obs))))
+        feet = float(np.count_nonzero(np.asarray(obs["contact"]) > 1e-6)) / 4.0
+        spin = float(np.linalg.norm(obs["imu_gyro"]))
+        cost = 0.0 if tension is None else float(
+            np.mean(np.abs(tension)) / MT.TENSION_MAX)
+        tall = min(1.0, self.stance_height(obs) / 0.17)
+        return (1.0 * upright + 0.5 * feet + 1.0 * tall
+                - 0.05 * min(spin, 20.0) - 0.2 * cost)
+
+    def stance_height(self, obs) -> float:
+        """How far the hips sit above the feet, in metres, from OBSERVATION only.
+
+        ⚠️ **The robot cannot know its height above the ground**
+        ([ADR-0081](../../../docs/DESIGN_DECISIONS.md)) -- no sensor gives a
+        world position. It *can* know its height above its own feet: reconstruct
+        the joint angles from the rotor encoders and load cells, run the leg
+        forward kinematics, and read the paw drop. That is observable, and it is
+        what tells a collapsed robot from a standing one.
+
+        Returns the deepest leg's drop, so a robot folded onto its belly reports
+        a small number even when it is perfectly level.
+        """
+        from . import LegModel
+        lp = {"LF": DEFAULT_FORELEG, "RF": DEFAULT_FORELEG,
+              "LR": DEFAULT_HINDLEG, "RR": DEFAULT_HINDLEG}
+        est = self.joint_estimate(obs)
+        return max(float(-LegModel(lp[nm]).forward(est[nm])[1]) for nm in LEGS)
+
+    def terminated(self, obs) -> bool:
+        """⚠️ Tilt ALONE is not enough, and that is a measured mistake.
+
+        A first pass terminated on `tilt > 45` and let a zero-action episode run
+        its full length scoring 192 -- while the trunk collapsed from 176 mm to
+        **27.9 mm**. The robot had belly-flopped, level. Both terms are needed,
+        and both are computed from the observation.
+        """
+        return (self._tilt(obs) > self.fall_deg
+                or self.stance_height(obs) < self.collapse_m)

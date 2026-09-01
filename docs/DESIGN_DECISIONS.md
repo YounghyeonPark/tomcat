@@ -6464,6 +6464,74 @@ exactly the place it matters.
 - ⚠️ **No reward, no randomisation, no episode termination yet.** This is the
   interface, not the task.
 
+## ADR-0082: The standing task — no constant action can do it, and tilt alone cannot judge it
+
+- **Status:** Accepted — M77
+- **✅ Gives [ADR-0081](#adr-0081)'s environment a task. ⚠️ Records two
+  measured mistakes in defining it.**
+- **Context:** ADR-0081 built the interface but not the task: no reward, no
+  termination, no reset randomisation. The plan was to validate the reward with
+  a known-good open-loop action.
+
+### ⚠️ There is no known-good open-loop action
+
+Three constants, 1.5 s each, from the stance pose:
+
+| action | max tilt | trunk height |
+|---|---|---|
+| zero | 22.1 deg | 176 → **27.9 mm** |
+| uniform 25 N | 66.1 deg | 176 → 40.7 mm |
+| gravity-compensating hold | 38.7 deg | 176 → **27.8 mm** |
+
+Even the tension that exactly balances gravity **at the stance pose** collapses.
+A fixed tension is a fixed torque, and the torque the pose needs changes as it
+tips. ✅ **Standing is an unstable equilibrium and feedback is the task** —
+which is why [ADR-0078](#adr-0078)'s force allocation holds 0.01 deg only
+because it is closed loop.
+
+### ⚠️ And a tilt-only termination scored a collapsed robot 192
+
+The first version terminated on `tilt > 45 deg`. A zero-action episode ran its
+full 200 steps and returned **192.1** while the trunk fell from 176 mm to
+**27.9 mm**. The robot had belly-flopped, level, and the criterion never saw it.
+
+✅ **The fix stays observable.** ADR-0081 established the robot cannot know
+its height above the *ground*. It can know its height above its own *feet*:
+reconstruct the joints from the rotor encoders and load cells, run the leg
+forward kinematics, read the paw drop. `env.stance_height` is that, and it needs
+no world frame.
+
+| action | terminates | tilt | stance height | caught by |
+|---|---|---|---|---|
+| zero | 0.12 s | 10.7 deg | **117 mm** | collapse |
+| uniform 25 N | 0.08 s | **47.9 deg** | 152 mm | tip |
+
+### The task
+
+* **Action** — 18 cable tensions (N), held for one control period.
+* **Reward** — `upright + 0.5*feet_down + tall - 0.05*spin - 0.2*effort`,
+  every term from the observation.
+* **Termination** — tilt > 45 deg **or** stance height < 120 mm.
+* **Reset** — stance pose with optional per-joint jitter.
+
+✅ **Every term is computable on hardware.** A reward that needed `d.qpos`
+could not be used to fine-tune on the real robot, and it would hide the gap
+ADR-0081 found in exactly the place it matters.
+
+### Consequences
+
+- ✅ **The environment is trainable.** Observation, action, rate, delay,
+  quantisation, reward and termination are all the robot's.
+- ⚠️ **The reward is unvalidated as a reward.** Its *shape* is tested; whether
+  it produces good standing is not knowable without a policy. No open-loop
+  reference exists to check it against, which is this ADR's first finding.
+- ⚠️ **Dynamics randomisation is still absent** — only initial-pose jitter.
+  Mass, friction, `series_k`, latency and the capstan (ADR-0003's inert
+  `wrap_angle`) all want ranges before a policy is trusted off this plant.
+- ⚠️ **No baseline to beat.** The WBC cannot run through this interface without
+  the floating-base estimator ADR-0081 named, so a trained policy will have
+  nothing to be compared against.
+
 ---
 
 ### How to add an ADR

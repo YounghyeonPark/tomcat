@@ -7556,8 +7556,9 @@ def test_the_ENV_CANNOT_SEE_JOINT_ANGLE_OR_WORLD_POSITION():
     assert np.allclose(obs["rotor"] / lsb, np.round(obs["rotor"] / lsb))
 
     # ⚠️ the action is a TENSION, and the rotor servo is not decimated with it
-    obs2 = env.step(np.full(18, 20.0))
+    obs2, rew, done, info = env.step(np.full(18, 20.0))
     assert obs2["t"] == pytest.approx(env.decim * env.dt)
+    assert isinstance(rew, float) and isinstance(done, bool)
 
 
 def test_the_ENV_RECONSTRUCTS_JOINT_ANGLE_but_has_NO_FLOATING_BASE():
@@ -7596,7 +7597,7 @@ def test_the_ENV_RECONSTRUCTS_JOINT_ANGLE_but_has_NO_FLOATING_BASE():
     env = TomcatEnv()
     obs = env.reset()
     for _ in range(120):
-        obs = env.step(np.full(18, 25.0))
+        obs, _, _, _ = env.step(np.full(18, 25.0))
 
     qa = {nm: [env.model.jnt_qposadr[env._id(mujoco.mjtObj.mjOBJ_JOINT,
                                              f"{nm}_q{i}")] for i in (1, 2, 3)]
@@ -7614,3 +7615,93 @@ def test_the_ENV_RECONSTRUCTS_JOINT_ANGLE_but_has_NO_FLOATING_BASE():
     # ⚠️ the gap, asserted: no observable is a world position
     assert "com" not in obs and "base_pos" not in obs
     assert set(obs) & {"rotor", "imu_quat", "contact"}, "sensors only"
+
+
+# ==========================================================================
+# M77 -- the standing task, and why no constant action can do it
+# ==========================================================================
+
+
+def test_NO_CONSTANT_ACTION_STANDS_so_the_task_needs_FEEDBACK():
+    """⚠️ **Standing is an unstable equilibrium. Open loop cannot hold it.**
+
+    M77 set out to validate the reward with a known-good open-loop action, and
+    there is no such action. Three constants, 1.5 s each, from the stance pose:
+
+    | action | max tilt | trunk height |
+    |---|---|---|
+    | zero | 22.1° | 176 → **27.9 mm** |
+    | uniform 25 N | 66.1° | 176 → 40.7 mm |
+    | gravity-compensating hold | 38.7° | 176 → **27.8 mm** |
+
+    Even the tension that exactly balances gravity **at the stance pose** fails:
+    a fixed tension is a fixed torque, and the torque the pose needs changes as
+    it tips. ✅ That is what makes standing a real task rather than a trivial
+    one, and it is why [ADR-0078](../docs/DESIGN_DECISIONS.md)'s force
+    allocation stands only because it is closed loop.
+    """
+    from tomcat_kin.env import TomcatEnv
+
+    env = TomcatEnv(rng=np.random.default_rng(0))
+    for act in (np.zeros(18), np.full(18, 25.0)):
+        env.reset()
+        fell = False
+        for _ in range(300):
+            _, _, done, _ = env.step(act)
+            if done:
+                fell = True
+                break
+        assert fell, "no constant action holds the stance pose"
+
+
+def test_the_TASK_CATCHES_BOTH_FAILURES_and_TILT_ALONE_DOES_NOT():
+    """⚠️ **A tilt-only termination scores a collapsed robot 192.**
+
+    The first version of this task terminated on `tilt > 45°` alone. A
+    zero-action episode ran its full 200 steps and returned **192.1** while the
+    trunk collapsed from 176 mm to **27.9 mm** — the robot had belly-flopped,
+    level, and the criterion never noticed.
+
+    ✅ **The fix is observable**, which matters:
+    [ADR-0081](../docs/DESIGN_DECISIONS.md) established the robot cannot know its
+    height above the *ground*. It can know its height above its own *feet* --
+    reconstruct the joints from the rotor encoders and load cells, run the leg
+    forward kinematics, read the paw drop. `env.stance_height` is that, and it
+    needs no world frame.
+
+    | action | terminates at | tilt | stance height | caught by |
+    |---|---|---|---|---|
+    | zero | 0.12 s | 10.7° | **117 mm** | collapse |
+    | uniform 25 N | 0.08 s | **47.9°** | 152 mm | tip |
+
+    ✅ Both failure modes, each by the criterion that sees it, and every term
+    of the reward is computable on hardware. A reward that needed `d.qpos` could
+    not be used to fine-tune on the real robot.
+    """
+    from tomcat_kin.env import TomcatEnv
+
+    env = TomcatEnv(rng=np.random.default_rng(0))
+    obs = env.reset()
+    assert env.stance_height(obs) == pytest.approx(0.170, abs=0.003)
+    assert not env.terminated(obs)
+    assert env.reward(obs) == pytest.approx(2.0, abs=0.05)
+
+    # ⚠️ the collapse: caught on height, NOT on tilt
+    env.reset()
+    for _ in range(300):
+        obs, _, done, info = env.step(np.zeros(18))
+        if done:
+            break
+    assert done, "the zero-action episode must end"
+    assert info["tilt_deg"] < env.fall_deg, (
+        f"tilt alone would have missed it: {info['tilt_deg']:.1f} deg"
+    )
+    assert env.stance_height(obs) < env.collapse_m
+
+    # ✅ and the tip: caught on tilt
+    env.reset()
+    for _ in range(300):
+        obs, _, done, info = env.step(np.full(18, 25.0))
+        if done:
+            break
+    assert done and info["tilt_deg"] > env.fall_deg
