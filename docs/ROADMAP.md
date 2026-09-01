@@ -160,10 +160,10 @@ sequences the work that implements them.
 > model has no G3 ([ADR-0072](DESIGN_DECISIONS.md)).
 > **M68 done:** the whole body gets its **drivetrain** — G3 takes the shock out
 > of the **cable**, not the ground ([ADR-0073](DESIGN_DECISIONS.md)).
-> **M73 done:** the balance loop had always run at **10 kHz**; at a real rate it
-> is the **joint PD** that breaks, not the plant — and **NFR12 holds**
-> ([ADR-0078](DESIGN_DECISIONS.md)).
-> 507 passed + 5 xfailed Python, 17 Rust.
+> **M74 done:** **262,678 steps/s** on the RTX 4090 that was already in this
+> machine — training is affordable, and the drivetrain survives MJX-Warp
+> ([ADR-0079](DESIGN_DECISIONS.md)).
+> 508 passed + 5 xfailed Python, 17 Rust.
 
 ---
 
@@ -3604,7 +3604,44 @@ The first measured a 10 kHz loop with dead time. The second decimated
 `wbc.rotor_command` — the motor's **inner** loop — along with the balance
 loop. Both would have condemned a controller that is fine.
 
-## Later milestones (candidate M74+, not committed)
+## Milestone M74 — The throughput question, answered (DONE)
+
+ADR-0077 verified MJX-JAX keeps the drivetrain but could not measure throughput,
+and recorded that the answer *"needs Linux/WSL2 and a GPU"*.
+
+### ⚠️ That was wrong about the hardware
+
+JAX has no Windows CUDA wheel — but **Warp does**, and `warp.init()` reports
+an **RTX 4090 Laptop GPU, 16 GiB, sm_89, CUDA 12.9** in this machine. The claim
+was reasoned from JAX and generalised to the box without checking the box.
+
+### ✅ MJX-Warp keeps the drivetrain, tighter than MJX-JAX
+
+| check | MJX-JAX | **MJX-Warp** |
+|---|---|---|
+| equalities kept | 18/18 `mjEQ_TENDON` | **18/18** |
+| vs C MuJoCo | 0.029° | **0.0001°** (2e-6 rad) |
+
+### ✅ Throughput on the shipped 60-DOF plant
+
+| worlds | steps/s | × realtime | vs C | per world |
+|---|---|---|---|---|
+| 1 | 168 | 0.02 | 0.006× | 168 |
+| 512 | 70,452 | 7 | 2× | 138 |
+| 2,048 | 201,037 | 20 | 7× | 98 |
+| 8,192 | **262,678** | **26** | **9×** | 32 |
+
+⚠️ One world is **176× slower** than C — GPU physics is a batch
+instrument, not a faster serial one. ✅ Scaling saturates by **~2,048**
+(4× the worlds beyond it buys 1.3×), so that is the operating point.
+
+✅ **Verified rather than assumed**: at 8,192 worlds every `qpos` is finite,
+worlds agree to 1.2e-6 rad, and world 0 matches C to 1.6e-6.
+
+**1e8 steps in 6.3 minutes, 1e9 in 63.** Training is affordable on hardware
+already on the desk.
+
+## Later milestones (candidate M75+, not committed)
 
 > This list is **curated, not append-only**. When a milestone closes an item it is
 > deleted here and the reasoning kept in the [ADR log](DESIGN_DECISIONS.md). Earlier
@@ -3861,6 +3898,7 @@ Kept as a short table so the deletions above are auditable rather than silent.
 | Build the spine's drivetrain | M71 — [ADR-0076](DESIGN_DECISIONS.md): G3 on all 18 cables, and ADR-0073's cable margin turns out to be a **rigid-trunk** result |
 | Make the plant sensable | M72 — [ADR-0077](DESIGN_DECISIONS.md): MJX is viable; `nsensor` was **0**; there is no joint encoder, and the ankle load cell is worth **6°** |
 | Test the control rate and NFR12 | M73 — [ADR-0078](DESIGN_DECISIONS.md): the allocation is rate-insensitive, the **joint PD** is not, and NFR12's 7.5 ms **holds** |
+| Answer the throughput question | M74 — [ADR-0079](DESIGN_DECISIONS.md): **262,678 steps/s** on the 4090 already in the machine; MJX-Warp keeps all 18 equalities |
 
 ## Open reconciliation items (lead)
 

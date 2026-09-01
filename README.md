@@ -15,7 +15,7 @@ cat-like agility, energy-efficient movement, and passive shock absorption.
 
 ## Progress
 
-Seventy-three milestones in. The model now spans kinematics → real mass → 3D
+Seventy-four milestones in. The model now spans kinematics → real mass → 3D
 static stability → whole-body dynamics → a dynamic gait → closed-loop balance →
 an independent physics-engine cross-check → thermal duty → whole-body force
 allocation, with **493 passing + 5 suspended Python tests and 17 Rust** and every figure below
@@ -296,6 +296,7 @@ is **1.97**. That remedy *is* cheap: one step up in stock tube, under 4 g.
 | M71 | The spine's **drivetrain** | G3 on all 18 cables — and ADR-0073's cable margin turns out to be a **rigid-trunk** result |
 | M72 | The plant an agent would **train in** | MJX is viable; `nsensor` was **0**, there is no joint encoder, and the ankle load cell is worth **6°** |
 | M73 | The control **rate**, and NFR12 | the allocation is rate-insensitive, the **joint PD** is not — and NFR12's 7.5 ms **holds** |
+| M74 | **Throughput**, answered | **262,678 steps/s** on the 4090 already in the machine — training is affordable |
 
 Full detail in the [roadmap](docs/ROADMAP.md) and the [ADR log](docs/DESIGN_DECISIONS.md).
 
@@ -1105,6 +1106,29 @@ Full detail in the [roadmap](docs/ROADMAP.md) and the [ADR log](docs/DESIGN_DECI
 > with dead time, the other decimated the motor's **inner** servo along with the
 > balance loop. Both would have condemned a controller that is fine.
 > [ADR-0078](docs/DESIGN_DECISIONS.md).
+
+> ### ✅ M74: 262,678 steps/s, on the GPU that was already here
+>
+> M72 said the throughput question *"needs Linux/WSL2 and a GPU"*. ⚠️ **That was
+> wrong about the hardware.** JAX has no Windows CUDA wheel, but **Warp does**,
+> and this machine has an **RTX 4090 Laptop GPU** with CUDA 12.9.
+>
+> ✅ **MJX-Warp keeps all 18 winding constraints** and agrees with C MuJoCo to
+> **2e-6 rad** — 300× tighter than the JAX backend.
+>
+> | worlds | steps/s | × realtime | vs C |
+> |---|---|---|---|
+> | 1 | 168 | 0.02 | **0.006×** |
+> | 2,048 | 201,037 | 20 | 7× |
+> | 8,192 | **262,678** | **26** | **9×** |
+>
+> ⚠️ One world is **176× slower** than C — GPU physics is a batch
+> instrument, not a faster serial one. Scaling saturates by ~2,048, so that is
+> the operating point. **1e8 steps in 6.3 minutes.**
+>
+> ✅ Verified rather than assumed: at 8,192 worlds every `qpos` is finite,
+> worlds agree to 1.2e-6 rad, and world 0 matches C to 1.6e-6.
+> [ADR-0079](docs/DESIGN_DECISIONS.md).
 
 > ### ⚠️ M71: the spine's drivetrain, and a margin that was never there
 >

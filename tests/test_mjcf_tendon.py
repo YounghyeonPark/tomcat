@@ -7439,3 +7439,68 @@ def test_NFR12s_LATENCY_BUDGET_holds_on_the_plant_at_last():
     # ✅ peak cable is monotonic in latency -- tilt is not, so assert on cable
     mid = _stand_at_gain(True, kp=0.0, control_hz=1000.0, latency_s=15.0e-3)
     assert base["peak"] <= budget["peak"] <= mid["peak"] <= over["peak"]
+
+
+# ==========================================================================
+# M74 -- keep the plant inside the GPU backends' feature set
+# ==========================================================================
+
+
+def test_the_PLANT_STAYS_INSIDE_the_GPU_BACKENDS_FEATURE_SET():
+    """✅ **A guard, so the plant cannot drift out of MJX/Warp support.**
+
+    M72 verified MJX-JAX keeps all 18 winding constraints; M74 verified MJX-Warp
+    does too, on a 4090, agreeing with C MuJoCo to **2e-6 rad**. Neither check
+    can run in this environment — both need `mujoco-mjx` / `mujoco-warp` and
+    MuJoCo >= 3.12, and this project pins 3.10. So what the suite *can* hold is
+    the precondition: every feature the plant uses is on the parity list.
+
+    ⚠️ **The failure this guards is silent.** A model that uses an unsupported
+    equality type does not error on `put_model` — the constraint is simply
+    absent, and a policy trains against a robot with no G3.
+
+    Parity list (MJX-JAX, the narrower of the two backends):
+
+    | field | supported | this plant |
+    |---|---|---|
+    | equality | CONNECT, WELD, JOINT, TENDON | **TENDON** ×18 |
+    | transmission | JOINT, JOINTINPARENT, SITE, TENDON | **TENDON** |
+    | integrator | EULER, RK4, IMPLICITFAST | **IMPLICITFAST** |
+    | solver | CG, NEWTON | **NEWTON** |
+    | condim | 1, 3, 4, 6 | 3 |
+    """
+    q = _quad_poses()
+    plants = {
+        "spine, rigid": mujoco.MjModel.from_xml_string(
+            MT.quadruped_rig(hip_height=0.176, spine=True)),
+        "spine, all 18 spooled": mujoco.MjModel.from_xml_string(
+            MT.quadruped_rig_spooled(
+                q_ref={nm: list(v) for nm, v in q.items()}, series_k=SERIES_K,
+                hip_height=0.176, spine=True, spool_servo=True)),
+        "sensored": mujoco.MjModel.from_xml_string(
+            MT.quadruped_rig_spooled(
+                q_ref={nm: list(v) for nm, v in q.items()}, series_k=SERIES_K,
+                hip_height=0.176, spine=True, spool_servo=True, sensors=True)),
+    }
+    EQ = {int(mujoco.mjtEq.mjEQ_CONNECT), int(mujoco.mjtEq.mjEQ_WELD),
+          int(mujoco.mjtEq.mjEQ_JOINT), int(mujoco.mjtEq.mjEQ_TENDON)}
+    TRN = {int(mujoco.mjtTrn.mjTRN_JOINT), int(mujoco.mjtTrn.mjTRN_JOINTINPARENT),
+           int(mujoco.mjtTrn.mjTRN_SITE), int(mujoco.mjtTrn.mjTRN_TENDON)}
+    INT = {int(mujoco.mjtIntegrator.mjINT_EULER),
+           int(mujoco.mjtIntegrator.mjINT_RK4),
+           int(mujoco.mjtIntegrator.mjINT_IMPLICITFAST)}
+    SOL = {int(mujoco.mjtSolver.mjSOL_CG), int(mujoco.mjtSolver.mjSOL_NEWTON)}
+
+    for label, m in plants.items():
+        bad = set(int(t) for t in m.eq_type) - EQ
+        assert not bad, f"{label}: equality type {bad} is not on the parity list"
+        bad = set(int(t) for t in m.actuator_trntype) - TRN
+        assert not bad, f"{label}: transmission {bad} unsupported"
+        assert int(m.opt.integrator) in INT, f"{label}: integrator"
+        assert int(m.opt.solver) in SOL, f"{label}: solver"
+        assert set(int(c) for c in m.geom_condim) <= {1, 3, 4, 6}, f"{label}: condim"
+
+    # ✅ and the drivetrain is 18 TENDON equalities, which is the whole point
+    spooled = plants["spine, all 18 spooled"]
+    assert spooled.neq == 18
+    assert set(int(t) for t in spooled.eq_type) == {int(mujoco.mjtEq.mjEQ_TENDON)}

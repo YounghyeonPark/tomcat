@@ -6037,9 +6037,15 @@ Measured rather than assumed, in a throwaway venv so nothing shipped moved:
 
 ✅ **The failure worth guarding against did not happen**: MJX does not
 silently drop the winding constraints, which would have handed a policy a robot
-with no G3 to train against. ⚠️ Throughput is still unanswered — JAX has no
+with no G3 to train against. ~~⚠️ Throughput is still unanswered — JAX has no
 CUDA build on Windows (`CpuDevice`), so the speedup case needs Linux/WSL2 and a
-GPU. Per-env MJX on CPU is 1,374 steps/s against C's 25,320, which is expected
+GPU.~~
+
+> ✅ **WRONG ABOUT THE HARDWARE — [ADR-0079](#adr-0079) (M74).** JAX has no
+> Windows CUDA wheel, but **Warp does**, and this machine has an **RTX 4090**.
+> `mujoco-warp` reaches it, keeps all 18 equalities, agrees with C to **2e-6
+> rad**, and runs **262,678 steps/s** at 8,192 worlds. No new hardware was
+> needed. Per-env MJX on CPU is 1,374 steps/s against C's 25,320, which is expected
 and is not the point of MJX.
 
 ### ⚠️ A timestep trap, found on the way
@@ -6220,6 +6226,93 @@ result rather than withdrawing it.
 - ⚠️ **Latency is still absent from the plant itself** — this is a harness
   facility. An RL environment wants it as a wrapper, together with the sensor
   suite ADR-0077 added.
+
+## ADR-0079: The throughput question, answered on the machine that was already here
+
+- **Status:** Accepted — M74
+- **✅ Closes the throughput item [ADR-0077](#adr-0077) left open.
+  ⚠️ Corrects ADR-0077's claim that it needed different hardware.**
+- **Context:** ADR-0077 verified MJX-JAX preserves the drivetrain but could not
+  measure throughput, and recorded that the answer *"needs Linux/WSL2 and a
+  GPU"*. That was reasoned from JAX — which genuinely has no Windows CUDA
+  wheel, and reported `CpuDevice` — and then generalised to the machine
+  without checking the machine.
+
+### ⚠️ The correction: there was a GPU all along
+
+`warp.init()` on this Windows box reports **NVIDIA GeForce RTX 4090 Laptop GPU,
+16 GiB, sm_89, CUDA Toolkit 12.9**. NVIDIA's Warp ships CUDA support on Windows
+where JAX does not, so `mujoco-warp` reaches the GPU that `mujoco-mjx` could not.
+No new hardware was required for any of this.
+
+### ✅ MJX-Warp keeps the drivetrain, and is far tighter than MJX-JAX
+
+| check | MJX-JAX (ADR-0077) | **MJX-Warp** |
+|---|---|---|
+| `put_model` equalities | 18/18 `mjEQ_TENDON` | **18/18 `mjEQ_TENDON`** |
+| agreement with C MuJoCo | 0.029 deg / 400 steps | **0.0001 deg** (2e-6 rad) / 200 steps |
+| device | CPU only, on Windows | **RTX 4090** |
+
+✅ **300× tighter agreement**, and the failure this project keeps guarding
+against — constraints dropped silently, leaving a robot with no G3 — does
+not occur on either backend.
+
+### ✅ Throughput, on the shipped 60-DOF plant
+
+| worlds | steps/s total | × realtime | vs C MuJoCo | per world |
+|---|---|---|---|---|
+| 1 | 168 | 0.02 | 0.006× | 168 |
+| 64 | 10,231 | 1 | 0.3× | 160 |
+| 512 | 70,452 | 7 | 2× | 138 |
+| 2,048 | 201,037 | 20 | 7× | 98 |
+| 8,192 | **262,678** | **26** | **9×** | 32 |
+
+⚠️ **One world is 168 steps/s against C's 29,619** — 176× *slower*. That is
+not a defect and it is not the number to quote: a single 60-DOF world cannot fill
+a 4090 and kernel-launch overhead dominates. GPU physics is a batch instrument.
+
+✅ **Scaling saturates by ~2,048.** Going 2,048 → 8,192 costs 4× the
+worlds for 1.3× the throughput, and per-world efficiency falls 98 → 32.
+**2,048 is the efficient operating point**; 8,192 is the ceiling.
+
+✅ **The worlds are really simulating.** At 2,048 and 8,192 every `qpos` is
+finite, all worlds agree with each other to **1.2e-6 rad**, and world 0 agrees
+with C MuJoCo to **1.6e-6**. Checked because a fast wrong answer is the failure
+mode this project has hit twice (ADR-0072's `18× impact`, ADR-0076's mounting).
+
+### What that buys
+
+At 262,678 physics steps/s: **1e8 steps in 6.3 minutes, 1e9 in 63 minutes.**
+Against C MuJoCo's 29,619 the same work is 56 minutes and 9.4 hours. Training is
+affordable on hardware already on the desk.
+
+⚠️ **Measured with a CONSTANT control**, so nothing round-trips to the host. A
+policy in the loop adds observation and action traffic; keeping the policy on the
+GPU (Warp interops zero-copy with Torch) is what preserves this. The first
+attempt at this benchmark wrote control through `dw.ctrl.numpy()` — a **host
+copy** — so it never reached the device: the robot sagged under zero control
+and reported a 0.19 rad "divergence" that was entirely the harness.
+
+### Decision
+
+Use **MJX-Warp** as the training backend at **~2,048 worlds**. Keep C MuJoCo as
+the reference for the test suite. Do not migrate simulators.
+
+### Consequences
+
+- ✅ **The tooling question is closed.** Isaac/PhysX has tendons (fixed and
+  spatial) and is a real alternative, but nothing here needs it: the drivetrain
+  is preserved, the agreement is 2e-6 rad, and the throughput is sufficient.
+- ⚠️ **Training needs MuJoCo >= 3.12**, which the suite does not pin. ADR-0077
+  measured 3.10 → 3.12 as **bit-identical** on a 400-step rollout, but the
+  gate is running all 508 tests under 3.12, which has not been done.
+- ✅ **A parity guard is now a test.** The suite cannot run MJX or Warp, so it
+  asserts the precondition instead: every equality type, transmission,
+  integrator, solver and condim the plant uses is on the parity list. An
+  unsupported feature is added silently, and this catches it.
+- ⚠️ **Throughput is not the remaining blocker; the OBSERVATION SPACE is.**
+  ADR-0077's sensor suite and ADR-0078's rate and delay have to become an
+  environment wrapper before any of this capacity is usable.
 
 ---
 
