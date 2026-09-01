@@ -5934,34 +5934,6 @@ def _with_axial(axial_deg=None, arm_mm=20.0):
     return mujoco.MjModel.from_xml_string(xml), _quad_poses()
 
 
-def _spine_spools(xml, k_series=SERIES_K):
-    """Fit the six SPINE pairs with a drivetrain, by post-processing the XML.
-
-    ⚠️ `quadruped_rig(spools=)` fits the twelve **leg** pairs and nothing else, so
-    the spooled whole body leaves the actuator that does the sway and the righting
-    rigid. This is a pricing study, like `_with_axial`: nothing that ships is
-    touched. `a0` is zero because a `<fixed>` spine tendon's length is
-    `sum(coef * q)`, which is zero at `qpos0` and at the start pose alike.
-    """
-    bodies, winds, eqs, acts = [], [], [], []
-    for tn in SPINE_PAIRS:
-        b, w, e, a = MT.spool_xml(tn, "", (0.0, 0.0, 0.30), k_series, indent=4,
-                                  a0=0.0, servo=True)
-        bodies.append(b)
-        winds.append(w)
-        eqs.append(e)
-        acts.append(a)
-        old = re.search(r'\s*<motor name="m_%s".*?/>' % tn, xml)
-        assert old, tn
-        xml = xml[:old.start()] + xml[old.end():]
-    nl = chr(10)
-    xml = xml.replace("  </worldbody>", nl.join(bodies) + "\n  </worldbody>")
-    xml = xml.replace("  </tendon>", nl.join(winds) + "\n  </tendon>")
-    xml = xml.replace("  </actuator>", nl.join(acts) + "\n  </actuator>")
-    assert "</equality>" in xml, "spine spools need the leg spools' equality block"
-    return xml.replace("  </equality>", nl.join(eqs) + "\n  </equality>")
-
-
 def _righting_run(axial_deg=None, *, s0=-1.0, period=0.30, seconds=4.0,
                   tuck_deg=30.0, ax_amp=25.0, ax_phase_deg=45.0,
                   deadband=10.0, kp=300.0, kd=12.0, leg_kp=8.0, leg_kd=0.5,
@@ -5973,21 +5945,20 @@ def _righting_run(axial_deg=None, *, s0=-1.0, period=0.30, seconds=4.0,
     left to measure is how long it takes. Returns `(seconds_to_right, closest)`.
 
     `spooled` puts M68's drivetrain behind the twelve leg pairs; `spine_drive`
-    adds `_spine_spools` on top, so all eighteen cables have G3.
+    adds the other six, so all eighteen cables have G3.
     """
     if spooled:
         assert axial_deg is None, "the axial study is on the rigid plant"
         q = _quad_poses()
         xml = MT.quadruped_rig_spooled(
             q_ref={nm: list(v) for nm, v in q.items()}, series_k=SERIES_K,
-            hip_height=0.176, spine=True, spool_servo=True)
-        if spine_drive:
-            xml = _spine_spools(xml)
+            hip_height=0.176, spine=True, spool_servo=True,
+            spine_spools=spine_drive)
         xml = xml.replace('gravity="0 0 -9.81"', 'gravity="0 0 0"')
         xml = re.sub(r'\s*<geom name="floor"[^/]*/>', "", xml)
         m = mujoco.MjModel.from_xml_string(xml)
     else:
-        assert not spine_drive, "spine spools need the leg spools' equality block"
+        assert not spine_drive, "the rigid plant has no drivetrain to extend"
         m, q = _with_axial(axial_deg)
     d = mujoco.MjData(m)
     for nm in QLEGS:
@@ -6338,19 +6309,29 @@ def _quad_spooled(spine=False, servo=True):
     return mujoco.MjModel.from_xml_string(xml), q
 
 
-def _held_drop(height_m, spooled, *, seconds=0.5, kp=50.0, kd=1.0):
+def _held_drop(height_m, spooled, *, seconds=0.5, kp=50.0, kd=1.0,
+               spine=False, spine_drive=False, spine_kp=300.0, spine_kd=12.0):
     """Drop on the side with the MOTORS HOLDING the stance pose.
 
     ⚠️ That qualifier is the whole experiment. At `ctrl = 0` the rotor spins
     free, the cable pays out, and **G3 never loads** -- so an unpowered drop
     cannot say anything about compliance. A real robot falls with its motors
     energised.
+
+    ⚠️ **`spine` is M71's addition and it is not a detail.** ADR-0073 measured
+    this on a plant whose trunk was a rigid box, so the leg PD never had to chase
+    a hip that moved. Articulate the trunk and it does.
     """
+    q = _quad_poses()
     if spooled:
-        m, q = _quad_spooled()
+        m = mujoco.MjModel.from_xml_string(MT.quadruped_rig_spooled(
+            q_ref={nm: list(v) for nm, v in q.items()}, series_k=SERIES_K,
+            hip_height=0.176, spine=spine, spool_servo=True,
+            spine_spools=spine_drive))
     else:
-        m = mujoco.MjModel.from_xml_string(MT.quadruped_rig(hip_height=0.176))
-        q = _quad_poses()
+        assert not spine_drive, "the rigid plant has no drivetrain to extend"
+        m = mujoco.MjModel.from_xml_string(
+            MT.quadruped_rig(hip_height=0.176, spine=spine))
     d = mujoco.MjData(m)
     for nm in QLEGS:
         for k, a in enumerate(_qadr(m, nm)):
@@ -6372,6 +6353,30 @@ def _held_drop(height_m, spooled, *, seconds=0.5, kp=50.0, kd=1.0):
         JS = {nm: [m.jnt_qposadr[_adr(m, mujoco.mjtObj.mjOBJ_JOINT,
                                       f"js_{nm}_{p}")]
                    for p in PULLEY_PAIRS] for nm in QLEGS}
+    if spine:
+        sq = [m.jnt_qposadr[_adr(m, mujoco.mjtObj.mjOBJ_JOINT, n)]
+              for n in SPINE_PAIRS]
+        sv = [m.jnt_dofadr[_adr(m, mujoco.mjtObj.mjOBJ_JOINT, n)]
+              for n in SPINE_PAIRS]
+        sa = [_adr(m, mujoco.mjtObj.mjOBJ_ACTUATOR, "m_" + n)
+              for n in SPINE_PAIRS]
+        stn = [_adr(m, mujoco.mjtObj.mjOBJ_TENDON, n) for n in SPINE_PAIRS]
+        gain = []
+        for adr, t in zip(sq, stn):
+            Ls = []
+            for sg in (+1, -1):
+                dd = mujoco.MjData(m)
+                dd.qpos[:] = d.qpos
+                dd.qpos[adr] += sg * 0.002
+                mujoco.mj_forward(m, dd)
+                Ls.append(float(dd.ten_length[t]))
+            gain.append(-(Ls[0] - Ls[1]) / 0.004)
+        gain = np.array(gain)
+        if spine_drive:
+            SR = [m.jnt_qposadr[_adr(m, mujoco.mjtObj.mjOBJ_JOINT, "jr_" + n)]
+                  for n in SPINE_PAIRS]
+            SS = [m.jnt_qposadr[_adr(m, mujoco.mjtObj.mjOBJ_JOINT, "js_" + n)]
+                  for n in SPINE_PAIRS]
 
     def leg_G(nm):
         J = np.zeros((3, 3))
@@ -6394,7 +6399,7 @@ def _held_drop(height_m, spooled, *, seconds=0.5, kp=50.0, kd=1.0):
         if n and m.jnt_limited[i] and not n.startswith(("jr_", "js_")):
             limited[n] = (m.jnt_qposadr[i], np.degrees(m.jnt_range[i]))
 
-    peak_con, peak_cab, over = 0.0, 0.0, 0.0
+    peak_con, peak_cab, over, peak_spine = 0.0, 0.0, 0.0, 0.0
     f6 = np.zeros(6)
     for it in range(int(seconds / m.opt.timestep)):
         if it and it % REFRESH_STATIC == 0:
@@ -6415,6 +6420,20 @@ def _held_drop(height_m, spooled, *, seconds=0.5, kp=50.0, kd=1.0):
             else:
                 for i, a in enumerate(A[nm]):
                     d.ctrl[a] = float(T[i])
+        if spine:
+            have = np.array([float(d.qpos[x]) for x in sq])
+            bias = np.array([float(d.qfrc_bias[x] - d.qfrc_passive[x])
+                             for x in sv])
+            raw = (bias - spine_kp * have
+                   - spine_kd * np.array([float(d.qvel[x]) for x in sv])) / gain
+            peak_spine = max(peak_spine, float(np.max(np.abs(raw))))
+            Ts = np.clip(raw, -MT.TENSION_MAX, MT.TENSION_MAX)
+            if spine_drive:
+                Ts = wbc.rotor_command([d.qpos[j] for j in SR],
+                                       [d.qpos[j] for j in SS], Ts, K_TORS,
+                                       MT.SPOOL_R, servo_kp=SERVO_KP)
+            for i, x in enumerate(sa):
+                d.ctrl[x] = float(Ts[i])
         mujoco.mj_step(m, d)
         assert np.all(np.isfinite(d.qpos))
         for i in range(d.ncon):
@@ -6423,7 +6442,7 @@ def _held_drop(height_m, spooled, *, seconds=0.5, kp=50.0, kd=1.0):
         for n, (adr, (lo, hi)) in limited.items():
             v = math.degrees(float(d.qpos[adr]))
             over = max(over, lo - v, v - hi, 0.0)
-    return dict(contact=peak_con, cable=peak_cab, over=over)
+    return dict(contact=peak_con, cable=peak_cab, over=over, spine=peak_spine)
 
 
 def test_the_WHOLE_BODY_gets_its_DRIVETRAIN_and_the_a0_TRAP_repeats():
@@ -6731,16 +6750,16 @@ def test_the_DRIVETRAIN_LOWERS_THE_MODE_and_IMPROVES_THE_MARGIN():
 def _compliant_spine_quad(spine_drive=False):
     """The spine quadruped with M68's drivetrain behind its cables.
 
-    ⚠️ `quadruped_rig(spools=)` fits the twelve **leg** pairs and nothing else,
-    so the spooled whole body still drives its spine through a rigid cable.
-    `spine_drive` adds the other six with `_spine_spools`.
+    ⚠️ Until M71 `quadruped_rig(spools=)` fitted the twelve **leg** pairs and
+    nothing else, so the spooled whole body drove its spine through a rigid
+    cable. `spine_spools=False` still builds that plant, because ADR-0075's
+    comparison is between the two.
     """
     q = _quad_poses()
     xml = MT.quadruped_rig_spooled(q_ref={nm: list(v) for nm, v in q.items()},
                                    series_k=SERIES_K, hip_height=0.176,
-                                   spine=True, spool_servo=True)
-    if spine_drive:
-        xml = _spine_spools(xml)
+                                   spine=True, spool_servo=True,
+                                   spine_spools=spine_drive)
     return mujoco.MjModel.from_xml_string(xml), q
 
 
@@ -6764,12 +6783,11 @@ def test_the_SPINE_DRIVETRAIN_DELIVERS_ITS_TENSION_before_anything_is_read_into_
     pose alike, so [ADR-0051](../docs/DESIGN_DECISIONS.md)'s reference trap
     cannot bite.
     """
-    m, q = _compliant_spine_quad(spine_drive=True)
+    q = _quad_poses()
     # freeze the body so this measures the drivetrain and not the robot
     xml = MT.quadruped_rig_spooled(q_ref={nm: list(v) for nm, v in q.items()},
                                    series_k=SERIES_K, hip_height=0.176,
                                    spine=True, spool_servo=True)
-    xml = _spine_spools(xml)
     xml = xml.replace('gravity="0 0 -9.81"', 'gravity="0 0 0"')
     xml = re.sub(r'\s*<geom name="floor"[^/]*/>', "", xml)
     xml = re.sub(r'\s*<freejoint[^/]*/>', "", xml)
@@ -6869,12 +6887,12 @@ def test_COMPLIANCE_costs_the_RIGHTING_a_FACTOR_OF_THREE_when_the_SPINE_has_it()
     |---|---|---|---|
     | none — [ADR-0070](../docs/DESIGN_DECISIONS.md) | **2.14 s** | 5.4° | 84°/s |
     | legs (the shipped drivetrain) | **2.17 s** | 1.5° | 83°/s |
-    | legs + spine | **7.69 s** | 4.3° | **23°/s** |
+    | legs + spine | **10.10 s** | 2.7° | **17.8°/s** |
 
     ✅ **The shipped drivetrain costs 1.4 %.** M68 fitted the legs, and on the
     legs the free-fall argument holds as well as it does for the sway.
 
-    ⚠️ **Put the same drivetrain behind the spine and righting takes 3.6× as
+    ⚠️ **Put the same drivetrain behind the spine and righting takes 4.7× as
     long.** The spine is the actuator that *does* the manoeuvre; the legs only
     modulate inertia. ADR-0072's `compliance is unlikely to dominate` was a
     statement about the whole body, and on the half of it that matters it is
@@ -6888,16 +6906,23 @@ def test_COMPLIANCE_costs_the_RIGHTING_a_FACTOR_OF_THREE_when_the_SPINE_has_it()
     reported 2.14 s without reporting that the actuator was saturated throughout.
 
     ⚠️ **A 4 s window would have called the compliant plant a failure.** It
-    rights at 7.69 s; M70's first pass ran 4 s and 6 s windows and read `none`.
+    rights at 10.10 s; M70's first pass ran 4 s and 6 s windows and read `none`.
     The same mistake as [ADR-0064](../docs/DESIGN_DECISIONS.md)'s, one plant
     later.
 
-    ⚠️ **What fixes it is NOT established.** Time to right is **non-monotonic**
-    in the spine spring -- 7.69 s at the specified 150 kN/m, **2.68 at 500**, 9.40
-    at 926, 10.82 at 3000, 3.48 at 10 000 -- so `use a stiffer spring` is not a
-    supported recommendation. That sweep is five 15 s runs on a 60-DOF plant and
-    is priced in ADR-0075 rather than asserted here; what this test pins is the
-    three plants the project actually has.
+    ⚠️ **And the FIRST number this test asserted was 7.69 s, on a plant whose
+    spine spools were mounted in `<worldbody>`.** M71 moved them to the rear
+    girdle, where a motor sits, and the answer moved to 10.10 -- a modelling
+    detail that should be immaterial, worth **2.4 s**. Nothing about this
+    manoeuvre is robust; see the spring sweep below, and `kp = 100` on the rigid
+    plant taking 10.88 s where `kp = 300` takes 2.14.
+
+    ✅ **A stiffer spine spring recovers most of it, and stops helping above
+    ~500 kN/m**: 10.10 s at the specified 150, **3.85 at 500**, 4.11 at 926,
+    3.81 at 3000. ~~M70 reported this sweep as non-monotonic~~ -- that was the
+    world-mounted plant; see [ADR-0076](../docs/DESIGN_DECISIONS.md). The sweep
+    is four 20 s runs on a 60-DOF plant and is priced in the ADR rather than
+    asserted here; what this test pins is the three plants the project has.
     """
     rigid_t, rigid_c, rigid_peak = _righting_run(None, s0=-1.0, seconds=4.0)
     legs_t, legs_c, _ = _righting_run(None, s0=-1.0, seconds=4.0, spooled=True)
@@ -6913,14 +6938,177 @@ def test_COMPLIANCE_costs_the_RIGHTING_a_FACTOR_OF_THREE_when_the_SPINE_has_it()
     assert rigid_peak == pytest.approx(5002.9, rel=0.02)
     assert rigid_peak > 20.0 * MT.TENSION_MAX
 
-    # ⚠️ and with the spine spooled the same manoeuvre takes 3.6x as long
-    both_t, both_c, _ = _righting_run(None, s0=-1.0, seconds=8.5, spooled=True,
+    # ⚠️ and with the spine spooled the same manoeuvre takes 4.7x as long
+    both_t, both_c, _ = _righting_run(None, s0=-1.0, seconds=11.0, spooled=True,
                                       spine_drive=True)
-    assert both_t is not None and both_t == pytest.approx(7.69, abs=0.30), (
+    assert both_t is not None and both_t == pytest.approx(10.10, abs=0.35), (
         f"legs+spine rights in {both_t} s"
     )
-    assert both_t > 3.0 * rigid_t, (
+    assert both_t > 4.0 * rigid_t, (
         f"{both_t:.2f} s against {rigid_t:.2f} rigid"
     )
     # ⚠️ and a 4 s window -- M65's -- would have reported no righting at all
     assert both_t > 4.0
+
+
+# ==========================================================================
+# M71 -- the spine drivetrain, in the builder, and what it does to a landing
+# ==========================================================================
+
+
+def test_the_SPINE_GETS_ITS_DRIVETRAIN_IN_THE_BUILDER_not_a_post_process():
+    """✅ **`quadruped_rig(spine_spools=)`: G3 on all eighteen cables.**
+
+    ADR-0075 measured the spine drivetrain through a post-processed XML and
+    named the gap it left: if the spine is to carry G3 as a design position
+    rather than a study, the builder has to grow it. It has.
+
+    | plant | nv | actuators | winding equalities | G3 springs |
+    |---|---|---|---|---|
+    | spine, rigid | 24 | 18 | 0 | 0 |
+    | spine, legs spooled | 48 | 18 | 12 | 12 |
+    | spine, all 18 spooled | 60 | 18 | **18** | **18** |
+
+    ⚠️ **`spine_spools=False` still builds the middle row on purpose.**
+    ADR-0075's comparison is between the two, so retiring the leg-only plant
+    would retire the measurement with it.
+
+    ⚠️ **And the mounting is not cosmetic.** The study hung the six spine
+    spools in `<worldbody>`; these hang on the rear girdle, where ADR-0006 puts
+    the spine motors. That difference alone moved the righting figure by
+    **2.4 s** -- see the correction in
+    [ADR-0076](../docs/DESIGN_DECISIONS.md).
+    """
+    q = _quad_poses()
+
+    def build(**kw):
+        return mujoco.MjModel.from_xml_string(MT.quadruped_rig_spooled(
+            q_ref={nm: list(v) for nm, v in q.items()}, series_k=SERIES_K,
+            hip_height=0.176, spine=True, spool_servo=True, **kw))
+
+    rigid = mujoco.MjModel.from_xml_string(
+        MT.quadruped_rig(hip_height=0.176, spine=True))
+    legs = build(spine_spools=False)
+    both = build(spine_spools=True)
+
+    assert (rigid.nv, rigid.nu, rigid.neq) == (24, 18, 0)
+    assert (legs.nv, legs.nu, legs.neq) == (48, 18, 12)
+    assert (both.nv, both.nu, both.neq) == (60, 18, 18), (
+        f"all eighteen cables want a drivetrain: {both.nv}/{both.nu}/{both.neq}"
+    )
+
+    springs = [float(both.jnt_stiffness[i]) for i in range(both.njnt)
+               if both.jnt_stiffness[i] > 0.0]
+    assert len(springs) == 18, f"eighteen G3 elements, got {len(springs)}"
+    assert springs[0] == pytest.approx(SERIES_K * MT.SPOOL_R ** 2, rel=1e-9)
+
+    # ✅ the spine spools ride on the rear girdle, not on the world
+    for nm in SPINE_PAIRS:
+        b = mujoco.mj_name2id(both, mujoco.mjtObj.mjOBJ_BODY, f"rotor_{nm}")
+        parent = mujoco.mj_id2name(both, mujoco.mjtObj.mjOBJ_BODY,
+                                   both.body_parentid[b])
+        assert parent == "trunk", f"{nm} spool hangs off {parent}"
+
+    # ✅ and M46's a0 trap stays shut with six more cables in the model
+    d = mujoco.MjData(both)
+    for nm in QLEGS:
+        for k, a in enumerate(_qadr(both, nm)):
+            d.qpos[a] = q[nm][k]
+    mujoco.mj_forward(both, d)
+    assert float(np.max(np.abs(d.efc_pos[:d.nefc]))) < 1e-6
+
+
+def test_ADR0073s_CABLE_MARGIN_was_bought_by_a_RIGID_TRUNK():
+    """⚠️ **G3 keeps the cable inside its rating only while the trunk is a box.**
+
+    [ADR-0073](../docs/DESIGN_DECISIONS.md) dropped the quadruped on its side
+    with the motors holding and found the drivetrain taking the cable from
+    **223 N saturated** to **84-127 N**. That plant's trunk was a rigid box, so
+    the leg PD never had to chase a hip that moved. ADR-0006's spine is six
+    joints of trunk that move.
+
+    | plant | 0.05 m | 0.10 m | 0.30 m |
+    |---|---|---|---|
+    | rigid box, rigid cables | 222.9 N sat. | 222.9 sat. | 222.9 sat. |
+    | rigid box, legs G3 | **84.4 N** | 94.9 | 127.5 |
+    | **articulated spine, legs G3** | **222.9 sat.** | **222.9 sat.** | **222.9 sat.** |
+
+    ⚠️ **Same controller, same drop, same drivetrain: the margin is gone.**
+    The first two rows reproduce ADR-0073 (published 84 / 95 / 127); the third
+    is the same experiment with the trunk it is going to have.
+
+    ⚠️ **And it is not the spine controller doing it.** The leg cable saturates
+    at every spine hold gain swept -- 0, 50 and 300 N*m/rad -- so this is the
+    articulation, not the way the spine is held.
+
+    ⚠️ **The spine's own cables are far worse off**: 2.4-4.1 kN of demand
+    against a 222.9 N rating, **11-18x**, which is the same saturation
+    [ADR-0075](../docs/DESIGN_DECISIONS.md) found in the righting. Nobody has
+    ever measured a spine cable in a fall before.
+    """
+    box = _held_drop(0.05, True)
+    assert box["cable"] == pytest.approx(84.4, rel=0.02), (
+        "ADR-0073's baseline must reproduce"
+    )
+
+    peaks = {}
+    for h in (0.05, 0.10, 0.30):
+        r = _held_drop(h, True, spine=True)
+        peaks[h] = r
+        assert r["cable"] == pytest.approx(MT.TENSION_MAX, rel=1e-3), (
+            f"at {h} m the leg cable saturates: {r['cable']:.1f} N"
+        )
+        # ⚠️ and the spine's own cables are an order of magnitude past theirs
+        assert r["spine"] > 10.0 * MT.TENSION_MAX, (
+            f"spine demand {r['spine']:.0f} N at {h} m"
+        )
+    assert peaks[0.30]["spine"] > peaks[0.05]["spine"]
+
+    # ⚠️ not the spine controller: it saturates limp, softly held and stiffly
+    for skp in (0.0, 50.0):
+        r = _held_drop(0.05, True, spine=True, spine_kp=skp,
+                       spine_kd=(12.0 if skp else 0.0))
+        assert r["cable"] == pytest.approx(MT.TENSION_MAX, rel=1e-3), (
+            f"spine_kp={skp}: {r['cable']:.1f} N"
+        )
+
+
+def test_the_LANDING_with_a_COMPLIANT_SPINE_is_NOT_YET_ANSWERABLE():
+    """⚠️ **Fit G3 to the spine as well and the landing stops being measurable.**
+
+    The same drop on the all-18 plant returns numbers this project does not
+    believe and will not publish as a result:
+
+    | drop | spine demand | contact |
+    |---|---|---|
+    | 0.05 m | 26 607 N | 4831 N |
+    | 0.10 m | 26 273 N | 986 N |
+    | 0.30 m | 24 957 N | 11 040 N |
+
+    ⚠️ **Contact is not monotonic in drop height**, and 11 kN on a 4.30 kg
+    robot is **260x body weight**. The leg-only plant lands at 498-671 N over
+    the same heights, monotonically.
+
+    ⚠️ **What this test asserts is the part that is diagnosable**: the spine
+    command runs at **>20x its rating** on the compliant plant against ~11-18x
+    on the rigid-spine one, which is [ADR-0075](../docs/DESIGN_DECISIONS.md)'s
+    finding again -- a `kp = 300` spine loop is not realisable through a
+    transmission that can present `k*r^2 = 48.6 N*m/rad`. Until the spine has a
+    controller that lives inside its transmission, the landing question cannot
+    be asked of this plant.
+    """
+    soft = _held_drop(0.05, True, spine=True)
+    hard = _held_drop(0.05, True, spine=True, spine_drive=True)
+
+    assert hard["spine"] > 20.0 * MT.TENSION_MAX, (
+        f"the compliant spine's loop demands {hard['spine']:.0f} N"
+    )
+    assert hard["spine"] > 5.0 * soft["spine"], (
+        f"{hard['spine']:.0f} against {soft['spine']:.0f} N rigid-spine"
+    )
+    # ⚠️ and the contact it reports is not credible -- named, not published
+    assert hard["contact"] > 4.0 * soft["contact"], (
+        f"contact {hard['contact']:.0f} N against {soft['contact']:.0f}"
+    )
+    mass = 4.3041 * 9.81
+    assert hard["contact"] > 100.0 * mass / 9.81, "flagged as not credible"

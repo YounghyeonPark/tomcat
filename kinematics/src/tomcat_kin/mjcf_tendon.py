@@ -971,7 +971,8 @@ def quadruped_rig(hip_height: float = 0.175, elastic: dict | None = None,
                   spine: bool = False,
                   spools: float | None = None,
                   spool_a0: dict | None = None,
-                  spool_servo: bool = False) -> str:
+                  spool_servo: bool = False,
+                  spine_spools: bool = True) -> str:
     """Four tendon-driven legs on a floating trunk — the whole-body stand gate.
 
     Twelve leg DOF, **twenty tendons, twenty actuators**, all pull-only. The spine
@@ -1044,12 +1045,32 @@ def quadruped_rig(hip_height: float = 0.175, elastic: dict | None = None,
             drive_e.append(se)
             drive_a.append(sa)
 
+    # ⚠️ **M71: the other six cables.** M68 fitted the twelve LEG pairs and the
+    # spine kept driving through a rigid cable -- and the spine is the actuator
+    # that performs the sway and the righting. ADR-0075 measured what that
+    # costs (righting 2.14 -> 7.69 s) through a post-processed XML; this is the
+    # same drivetrain, in the builder. The spools live on the REAR GIRDLE, which
+    # is where ADR-0006 put the spine motors.
+    spine_drive = spine and spools is not None and spine_spools
+    if spine_drive:
+        for i, tname in enumerate(spine_pair_names(DEFAULT_SPINE.n_segments)):
+            side = 1.0 if tname[6] == "p" else -1.0
+            seg = int(tname[7]) - 1
+            sb, sw, se, sa = spool_xml(
+                tname, "", (0.0, side * 0.038, 0.034 + 0.014 * seg), spools,
+                indent=6, a0=(spool_a0 or {}).get(tname, 0.0), servo=spool_servo)
+            hind_spools.append(sb)
+            drive_w.append(sw)
+            drive_e.append(se)
+            drive_a.append(sa)
+
     nl = chr(10)
     if spine:
         return _spine_quadruped(hip_height, trunk_mass, nl.join(tendons),
                                 nl.join(acts), fore_bodies, hind_bodies,
                                 fore_spools, hind_spools,
-                                drive_w, drive_e, drive_a)
+                                drive_w, drive_e, drive_a,
+                                spine_drive=spine_drive)
     return f"""<mujoco model="tomcat_quadruped_tendon">
   <compiler angle="radian" autolimits="true"/>
   <option timestep="1e-4" gravity="0 0 {-GRAVITY}" integrator="implicitfast"/>
@@ -1081,7 +1102,8 @@ def quadruped_rig(hip_height: float = 0.175, elastic: dict | None = None,
 
 def _spine_quadruped(hip_height, trunk_mass, tendons, acts,
                      fore_bodies, hind_bodies, fore_spools, hind_spools,
-                     drive_w=(), drive_e=(), drive_a=()) -> str:
+                     drive_w=(), drive_e=(), drive_a=(),
+                     spine_drive: bool = False) -> str:
     """The quadruped with ADR-0006's ARTICULATED spine instead of a rigid box.
 
     ✅ **What M43 deliberately left out, and why it is safe to add now.** The
@@ -1135,8 +1157,7 @@ def _spine_quadruped(hip_height, trunk_mass, tendons, acts,
   </tendon>
 {_equality_block(list(drive_e))}
   <actuator>
-{nl.join(drive_a) if drive_a else acts}
-{spine_actuators(sp)}
+{nl.join(drive_a) if drive_a else acts}{"" if spine_drive else nl + spine_actuators(sp)}
   </actuator>
 </mujoco>
 """

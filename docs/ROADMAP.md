@@ -160,10 +160,10 @@ sequences the work that implements them.
 > model has no G3 ([ADR-0072](DESIGN_DECISIONS.md)).
 > **M68 done:** the whole body gets its **drivetrain** — G3 takes the shock out
 > of the **cable**, not the ground ([ADR-0073](DESIGN_DECISIONS.md)).
-> **M70 done:** the sway does not care about compliance; the righting does, and
-> takes **3.6× as long** once the spine has it
-> ([ADR-0075](DESIGN_DECISIONS.md)).
-> 500 passed + 5 xfailed Python, 17 Rust.
+> **M71 done:** the spine's drivetrain is in the builder, and it costs
+> ADR-0073's cable margin — which a rigid trunk had been buying
+> ([ADR-0076](DESIGN_DECISIONS.md)).
+> 503 passed + 5 xfailed Python, 17 Rust.
 
 ---
 
@@ -3471,17 +3471,60 @@ designed 66.7 mm.
 |---|---|---|
 | none — [ADR-0070](DESIGN_DECISIONS.md) | **2.14 s** | 84°/s |
 | legs (shipped) | **2.17 s** | 83°/s |
-| legs + spine | **7.69 s** | **23°/s** |
+| legs + spine | **10.10 s** | **17.8°/s** |
 
 ⚠️ **The discriminator is saturation.** The sway asks the spine for 76.8 N of
 its 222.9 N rating; the righting asks for **5002.9 N**, 22× the rating, so the
 spine runs against its stop for the whole cycle and the spring only changes how
 fast the stop is reached. ADR-0070 published 2.14 s without publishing that.
 
-⚠️ **A 4 s window called the compliant plant a failure.** It rights at 7.69 s.
+⚠️ **A 4 s window called the compliant plant a failure.** It rights at 10.10 s.
 ADR-0064 made the same mistake on a different plant.
 
-## Later milestones (candidate M71+, not committed)
+## Milestone M71 — The spine's drivetrain, and what it costs a landing (DONE)
+
+ADR-0075 left two things open: `quadruped_rig` had no way to build a spine
+drivetrain, and the standing and impact results were measured on the leg-only
+one.
+
+### ✅ `quadruped_rig(spine_spools=)`
+
+| plant | nv | actuators | equalities | G3 springs |
+|---|---|---|---|---|
+| spine, rigid | 24 | 18 | 0 | 0 |
+| spine, legs spooled | 48 | 18 | 12 | 12 |
+| spine, all 18 spooled | 60 | 18 | **18** | **18** |
+
+Spools on the **rear girdle**, where ADR-0006 puts the spine motors.
+
+### ⚠️ Which corrects M70's own number
+
+M70 hung them in `<worldbody>`. On the girdle the righting takes **10.10 s, not
+7.69** — **4.7×** the rigid 2.14 s, not 3.6, and a fall from **500 m**. It is
+not a momentum leak (drift 1.16e-3 vs 9.71e-4, same order). ✅ And re-swept
+there the spring is orderly: **10.10 s at 150 kN/m, 3.85 at 500, 4.11 at 926,
+3.81 at 3000** — stiffer helps and stops helping above ~500, so the spine
+wants **2.5–3.3× ADR-0050's band**. M70's `non-monotonic` was the mounting.
+
+### ⚠️ ADR-0073's cable margin was bought by a rigid trunk
+
+| plant | 0.05 m | 0.10 m | 0.30 m |
+|---|---|---|---|
+| rigid box, rigid cables | 222.9 N sat. | 222.9 sat. | 222.9 sat. |
+| rigid box, legs G3 | **84.4 N** | 94.9 | 127.5 |
+| **articulated spine, legs G3** | **222.9 sat.** | **222.9 sat.** | **222.9 sat.** |
+
+Same drop, same controller, same drivetrain — and the margin is gone at every
+height and every spine hold gain (0, 50, 300). ⚠️ The spine's own cables, never
+measured in a fall before, run at **2.4–4.1 kN** against a 222.9 N rating.
+
+### ⚠️ And with G3 on the spine too, the landing stops being measurable
+
+Contact comes back **non-monotonic in drop height** and reaches 11 kN — 260×
+body weight — while the spine loop runs at **>20× its rating**. Named as
+open, not published as a result.
+
+## Later milestones (candidate M72+, not committed)
 
 > This list is **curated, not append-only**. When a milestone closes an item it is
 > deleted here and the reasoning kept in the [ADR log](DESIGN_DECISIONS.md). Earlier
@@ -3514,18 +3557,20 @@ ADR-0064 made the same mistake on a different plant.
   **9–13× body weight**. Structure, bearings and girdles get no help, and
   nobody has checked them. ⚠️ Untested too: heights above 0.30 m, and landing on a
   corner or a single leg.
-- **THE SPINE HAS NO `spools` SUPPORT IN THE BUILDER.** ⚠️ ADR-0075 measured
-  its drivetrain through a post-processed XML. If the spine is to carry G3 as a
-  design position rather than a study, `quadruped_rig` has to grow it — and
-  the standing and impact results were measured on the leg-only drivetrain too.
+- **THE SPINE NEEDS A CONTROLLER THAT LIVES INSIDE ITS TRANSMISSION.** ⚠️
+  ADR-0076: a `kp = 300` spine loop is not realisable through `k*r^2 = 48.6
+  N*m/rad`, and that now blocks **two** results — the righting (ADR-0075) and
+  the landing, which cannot be measured on the compliant plant at all.
+- **STANDING WITH THE SPINE SPOOLED IS STILL UNMEASURED.** ⚠️ ADR-0074's margin
+  was taken on a plant with **no spine at all**; M71 did not re-run it.
 - **THE NULL-SPACE POSTURE TASK, at last affordable.** ✅ ADR-0074: a
   joint-space PD costs **74.4 N** with the drivetrain where it saturated the motor
   without it. The task ADR-0052 named and ADR-0058 said was only symptom-free, not
   unnecessary, now has room to exist.
-- **WHAT SPINE COMPLIANCE THE RIGHTING WANTS.** ⚠️ ADR-0075: time to right is
-  **non-monotonic** in the spine spring — 7.69 s at the specified 150 kN/m,
-  **2.68 at 500**, 9.40 at 926, 10.82 at 3000, 3.48 at 10 000. Five points are not
-  a design curve, and ADR-0050's band was set for the leg and the impact case.
+- **`mechanical/` MAY OWE A STIFFER SPINE SPRING.** ✅ ADR-0076: the righting
+  wants **~500 kN/m**, 2.5–3.3× ADR-0050's 150–200 band, and gains nothing
+  above it. That band was set for the leg and the impact case and was never asked
+  about a spine.
 - **A WALKING spine is still untested.** ⚠️ M58 is sway *in place*, legs planted.
   Swing legs and contact transitions are not in it.
 - **`mechanical/` owes a PER-LEG ANKLE ARM.** ⚠️ ADR-0061: the hind ankle runs at
@@ -3722,7 +3767,8 @@ Kept as a short table so the deletions above are auditable rather than silent.
 | Ask what a fall costs | M67 — [ADR-0072](DESIGN_DECISIONS.md): it cannot be answered — the whole body has no G3, and the spine's stops go first |
 | Build the whole-body drivetrain | M68 — [ADR-0073](DESIGN_DECISIONS.md): G3 takes the cable from 223 N saturated to 84–127, and does nothing for the ground |
 | Re-measure the control margin | M69 — [ADR-0074](DESIGN_DECISIONS.md): the mode halves and the margin **improves**; a posture term is affordable |
-| Re-check sway and righting with G3 | M70 — [ADR-0075](DESIGN_DECISIONS.md): the sway does not care, the righting takes **3.6× as long** through a compliant spine |
+| Re-check sway and righting with G3 | M70 — [ADR-0075](DESIGN_DECISIONS.md): the sway does not care, the righting takes **4.7× as long** through a compliant spine |
+| Build the spine's drivetrain | M71 — [ADR-0076](DESIGN_DECISIONS.md): G3 on all 18 cables, and ADR-0073's cable margin turns out to be a **rigid-trunk** result |
 
 ## Open reconciliation items (lead)
 

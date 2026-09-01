@@ -15,7 +15,7 @@ cat-like agility, energy-efficient movement, and passive shock absorption.
 
 ## Progress
 
-Seventy milestones in. The model now spans kinematics → real mass → 3D
+Seventy-one milestones in. The model now spans kinematics → real mass → 3D
 static stability → whole-body dynamics → a dynamic gait → closed-loop balance →
 an independent physics-engine cross-check → thermal duty → whole-body force
 allocation, with **493 passing + 5 suspended Python tests and 17 Rust** and every figure below
@@ -292,7 +292,8 @@ is **1.97**. That remedy *is* cheap: one step up in stock tube, under 4 g.
 | M67 | What a **fall** costs | it cannot be answered — the whole body has **no G3**, and the spine's stops go first |
 | M68 | The whole-body **drivetrain** | G3 takes the **cable** from 223 N saturated to 84 — and does nothing for the ground |
 | M69 | The margin, re-measured | the mode halves and the margin **improves** — a posture term is affordable |
-| M70 | Sway and righting, re-checked | the sway does not care about G3; the righting takes **3.6× as long** through a compliant spine |
+| M70 | Sway and righting, re-checked | the sway does not care about G3; the righting takes **4.7× as long** through a compliant spine |
+| M71 | The spine's **drivetrain** | G3 on all 18 cables — and ADR-0073's cable margin turns out to be a **rigid-trunk** result |
 
 Full detail in the [roadmap](docs/ROADMAP.md) and the [ADR log](docs/DESIGN_DECISIONS.md).
 
@@ -1043,7 +1044,7 @@ Full detail in the [roadmap](docs/ROADMAP.md) and the [ADR log](docs/DESIGN_DECI
 > **2.81** with the spine spooled too — +8 %, in the helpful direction.
 >
 > ⚠️ **The righting does.** 2.14 s rigid, 2.17 with the shipped drivetrain, and
-> **7.69 s** once the spine has one — **3.6× as long**, 84°/s down to 23.
+> **10.10 s** once the spine has one — **4.7× as long**, 84°/s down to 17.8.
 >
 > ⚠️ **The discriminator is saturation**, and it was there to read all along:
 > the sway asks the spine for **76.8 N** of its 222.9 N rating, the righting for
@@ -1053,7 +1054,34 @@ Full detail in the [roadmap](docs/ROADMAP.md) and the [ADR log](docs/DESIGN_DECI
 > that the actuator was saturated for the whole manoeuvre.
 >
 > ⚠️ **And a 4 s window called the compliant plant a failure** — it rights at
-> 7.69 s. [ADR-0075](docs/DESIGN_DECISIONS.md).
+> 10.10 s. [ADR-0075](docs/DESIGN_DECISIONS.md).
+
+> ### ⚠️ M71: the spine's drivetrain, and a margin that was never there
+>
+> M70 named two gaps: `quadruped_rig` could not build a spine drivetrain, and the
+> impact result was measured without one. ✅ **The builder grows it** —
+> `spine_spools=`, G3 on all eighteen cables, spools on the rear girdle where
+> ADR-0006 puts the motors.
+>
+> ⚠️ **Which corrects M70's own number.** M70 hung those spools in
+> `<worldbody>`; on the girdle the righting takes **10.10 s, not 7.69** —
+> **4.7×** the rigid time, a fall from **500 m**. It is not a momentum leak
+> (drift 1.16e-3 against 9.71e-4, same order); it is that the manoeuvre has no
+> margin anywhere. ✅ Re-swept there, the spring is orderly after all
+> — **3.85 s at 500 kN/m** against 10.10 at the specified 150 — so M70's
+> `non-monotonic, nothing recommended` was the mounting, and the spine wants
+> **2.5–3.3× ADR-0050's band**.
+>
+> ⚠️ **And ADR-0073's cable margin was bought by a rigid trunk.** Dropped on its
+> side with the motors holding, the leg cable went **223 N saturated — 84 N**
+> with G3. Articulate the trunk and it is **222.9 N saturated at every height**,
+> at every spine hold gain. Same drop, same controller, same drivetrain.
+>
+> ⚠️ **The spine's own cables, never measured in a fall, run at 2.4–4.1 kN**
+> against a 222.9 N rating — and with G3 on the spine as well the landing
+> stops being measurable at all (contact non-monotonic in drop height, reaching
+> 260× body weight). That one is **named, not published**.
+> [ADR-0076](docs/DESIGN_DECISIONS.md).
 
 ## Why tendon-driven?
 

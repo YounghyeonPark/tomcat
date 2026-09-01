@@ -5397,7 +5397,7 @@ ROM that does not exist.
 > **rigid-spine** figure, and it does not report that the spine motors are
 > commanded **5002.9 N** against a 222.9 N rating — saturated for the whole
 > manoeuvre. Give the spine the drivetrain [ADR-0026](#adr-0026) requires and the
-> same manoeuvre takes **7.69 s**.
+> same manoeuvre takes **10.10 s**.
 
 - **Status:** Accepted as a **measurement**. Nothing ships. **Closes the axial-DOF
   option [ADR-0069](#adr-0069) left open. ✅ First demonstration that the robot
@@ -5575,8 +5575,8 @@ left the project with G6.
 
   > ✅ **HALF RIGHT, MEASURED by [ADR-0075](#adr-0075) (M70).** The sway does
   > not care (2.60 — 2.81 mm) and neither does standing (ADR-0074). ⚠️ **The
-  > righting does**: with the drivetrain on the spine as well it takes **7.69 s
-  > against 2.14**, a factor of 3.6. The discriminator is saturation — the
+  > righting does**: with the drivetrain on the spine as well it takes **10.10 s
+  > against 2.14**, a factor of 4.7. The discriminator is saturation — the
   > sway asks the spine for 76.8 N of its 222.9 N rating, the righting for
   > **5002.9 N**.
 
@@ -5680,15 +5680,21 @@ not withdraw it -- an unpowered fall is a real case.
 
 ### Consequences
 
-- ✅ **A landing can now be priced**, and the first figure is that a powered
-  robot's cables stay inside their rating from 50 mm to 0.30 m.
+- ✅ ~~**A landing can now be priced**, and the first figure is that a powered
+  robot's cables stay inside their rating from 50 mm to 0.30 m.~~
+
+  > ⚠️ **ON A RIGID TRUNK ONLY — [ADR-0076](#adr-0076) (M71).** Repeat this drop
+  > on ADR-0006's articulated spine, same controller and same drivetrain, and the
+  > leg cable is **saturated at 222.9 N at every height**. The 84–127 N margin
+  > was bought by a trunk that does not move. The spine's own cables run at
+  > **2.4–4.1 kN** against the same 222.9 N rating.
 - ⚠️ **Every whole-body result before M68 was measured on rigid tendons** and can
   now be re-checked with compliance. ADR-0072 argued those are quasi-static or
   free-fall problems where compliance should not dominate; that argument is now
   testable rather than assumed.
 
   > ✅ **TESTED by [ADR-0075](#adr-0075) (M70), and it splits.** The sway does
-  > not care; the righting takes **3.6× as long** once the spine has a
+  > not care; the righting takes **4.7× as long** once the spine has a
   > drivetrain too — which the whole-body build does **not** give it.
   > `quadruped_rig(spools=)` fits the twelve leg pairs and no others.
 - ⚠️ **Untested**: heights above 0.30 m, landing on a corner or a single leg, and
@@ -5769,7 +5775,13 @@ Standing with a joint-space PD added on top of the force allocation:
 
 ## ADR-0075: The compliance scope note discharged — the sway does not care, the righting does
 
-- **Status:** Accepted — M70
+> ⚠️ **CORRECTED by [ADR-0076](#adr-0076) (M71).** The legs+spine figures below
+> were measured with the six spine spools mounted in `<worldbody>`. On the rear
+> girdle, where a motor sits, the righting takes **10.10 s, not 7.69** — the
+> conclusion holds and gets larger (**4.7×**, not 3.6), but the number and the
+> spring sweep were both artefacts of the mounting. The sway rows are unaffected.
+
+- **Status:** Accepted — M70, corrected M71
 - **Supersedes nothing. ✅ Discharges the scope note
   [ADR-0072](#adr-0072) opened and [ADR-0073](#adr-0073) said was assumed rather
   than tested. ⚠️ Corrects [ADR-0070](#adr-0070).**
@@ -5812,12 +5824,12 @@ back. The tilt is flat to a hundredth of a degree.
 |---|---|---|---|
 | none — [ADR-0070](#adr-0070) | **2.14 s** | 5.4 deg | 84 deg/s |
 | legs (shipped) | **2.17 s** | 1.5 deg | 83 deg/s |
-| legs + spine | **7.69 s** | 4.3 deg | **23 deg/s** |
+| legs + spine | **10.10 s** | 2.7 deg | **17.8 deg/s** |
 
 ✅ **The shipped drivetrain costs 1.4 %.** On the legs, ADR-0072's argument
 holds as well as it does for the sway.
 
-⚠️ **Put the same drivetrain behind the spine and righting takes 3.6× as
+⚠️ **Put the same drivetrain behind the spine and righting takes 4.7× as
 long.** The legs modulate inertia; the spine does the work. ADR-0072's claim was
 about the whole body, and on the half of it that matters it is wrong.
 
@@ -5836,7 +5848,7 @@ what it omits is that the manoeuvre has no force margin at all.
 ### ⚠️ And a short window read the compliant plant as a failure
 
 M70's first pass ran 4 s and then 6 s and recorded **no righting** for the
-legs+spine plant. It rights at **7.69 s**. [ADR-0064](#adr-0064) made the same
+legs+spine plant. It rights at **10.10 s**. [ADR-0064](#adr-0064) made the same
 mistake about a different plant, and it was caught here only because a stiffness
 sweep produced a result too strange to accept.
 
@@ -5851,17 +5863,19 @@ stiffness as an open design variable rather than a settled one.
 - ✅ **[ADR-0072](#adr-0072)'s scope note is discharged for the sway and for
   the legs**, and it was right about both.
 - ⚠️ **It is withdrawn for the spine.** [ADR-0070](#adr-0070)'s 2.14 s is a
-  rigid-spine figure; with G3 on all eighteen cables the robot rights in 7.69 s,
-  which is a fall from **290 m** against 22.5. ✅ That only strengthens M66's
+  rigid-spine figure; with G3 on all eighteen cables the robot rights in 10.10 s,
+  which is a fall from **500 m** against 22.5. ✅ That only strengthens M66's
   withdrawal of **G6** — the goal was already 9× short on the faster plant.
-- ⚠️ **What fixes it is not established.** Time to right is **non-monotonic**
+- ~~⚠️ **What fixes it is not established.** Time to right is **non-monotonic**
   in the spine spring: 7.69 s at the specified 150 kN/m, **2.68 at 500**, 9.40 at
   926, 10.82 at 3000 and 3.48 at 10 000 kN/m. A stiffer spring is not simply
-  better, and five points are not a design curve. [ADR-0050](#adr-0050)'s
-  150–200 kN/m band was set for the leg and the impact case; the spine's is
-  open. ⚠️ That sweep is five 15 s runs on a 60-DOF plant and is **priced here
-  rather than asserted by the suite** — what the tests pin is the three plants
-  the project actually has.
+  better, and five points are not a design curve.~~
+
+  > ✅ **THE SWEEP WAS THE PLANT, not the spring** — [ADR-0076](#adr-0076)
+  > (M71). Re-run with the spools on the girdle it is orderly: **10.10 s at 150
+  > kN/m, 3.85 at 500, 4.11 at 926, 3.81 at 3000**. A stiffer spring helps and
+  > stops helping above ~500 kN/m, which is 2.5–3.3×
+  > [ADR-0050](#adr-0050)'s band.
 - ⚠️ **The manoeuvre is as sensitive to the spine GAIN as to the spring.** On
   the rigid plant `kp = 300` rights in 2.14 s, `kp = 100` in **10.88**, and
   `kp = 48.6` not within 15 s at all. Nothing about this manoeuvre has margin.
@@ -5871,6 +5885,126 @@ stiffness as an open design variable rather than a settled one.
 - ⚠️ **Still untested**: whether the standing and impact results move when the
   spine has compliance — M69 and ADR-0073 measured those on the leg-only
   drivetrain too.
+
+## ADR-0076: The spine's drivetrain, in the builder — and what it costs a landing
+
+- **Status:** Accepted — M71
+- **✅ Closes the builder gap [ADR-0075](#adr-0075) named. ⚠️ Corrects
+  ADR-0075's righting figure. ⚠️ Qualifies [ADR-0073](#adr-0073).**
+- **Context:** ADR-0075 measured the spine drivetrain through a post-processed
+  XML and left two things open: `quadruped_rig` had no way to build one, and
+  the standing and impact results had been measured on the leg-only drivetrain.
+
+### ✅ `quadruped_rig(spine_spools=)` — G3 on all eighteen cables
+
+| plant | nv | actuators | winding equalities | G3 springs |
+|---|---|---|---|---|
+| spine, rigid | 24 | 18 | 0 | 0 |
+| spine, legs spooled | 48 | 18 | 12 | 12 |
+| spine, all 18 spooled | 60 | 18 | **18** | **18** |
+
+The spools ride on the **rear girdle**, where [ADR-0006](#adr-0006) puts the
+spine motors, and M46's `a0` trap stays shut with six more cables in the model
+(residual < 1e-6 m). `spine_spools=False` still builds the middle row, because
+ADR-0075's comparison is between the two.
+
+### ⚠️ And that mounting corrects ADR-0075's number
+
+ADR-0075 hung the six spine spools in `<worldbody>`. On the girdle the same
+manoeuvre gives:
+
+| compliance | ADR-0075 (world) | M71 (girdle) |
+|---|---|---|
+| none | 2.14 s | **2.14 s** |
+| legs | 2.17 s | **2.17 s** |
+| legs + spine | 7.69 s | **10.10 s** |
+
+The rigid and leg-only figures are untouched — their spools were always on
+the girdle. The compliant-spine figure moves by **2.4 s**, and it moves the
+wrong way for the robot: **4.7×** the rigid time, not 3.6, an effective
+**17.8 deg/s** against 84, and a fall from **500 m** against 22.5.
+
+✅ **It is not a momentum leak.** The obvious suspicion — that six motors
+bolted to an inertial frame dump their reaction into the world — was tested
+directly: in free fall with no contact the total angular momentum drifts
+**1.16e-3** on the world-mounted plant and **9.71e-4** on the girdle-mounted
+one. Same order, both from the tendon solver.
+
+⚠️ **What it is, is that the manoeuvre has no margin anywhere.** `kp = 300`
+rights in 2.14 s where `kp = 100` takes **10.88** and `kp = 48.6` never finishes
+inside 15 s; a 4 s window read the compliant plant as a failure when it needed
+10.10; and now a massless body's mounting point is worth **2.4 s**. A result this
+sensitive to things that should not matter is a result to hold loosely.
+
+✅ **Re-swept on the corrected plant, though, the spring stops being
+mysterious.** ADR-0075 reported time to right as **non-monotonic** in the spine
+spring and declined to recommend anything. That non-monotonicity was the
+world-mounted plant:
+
+| spine spring | cap `k*r^2` | ADR-0075 (world) | M71 (girdle) |
+|---|---|---|---|
+| 150 kN/m (specified) | 48.6 N*m/rad | 7.69 s | **10.10 s** |
+| 500 | 162.0 | 2.68 | **3.85 s** |
+| 926 | 300.0 | 9.40 | **4.11 s** |
+| 3000 | 972.0 | 10.82 | **3.81 s** |
+
+A stiffer spring **helps, and stops helping above ~500 kN/m**. So the spine
+wants roughly **500 kN/m**, 2.5–3.3× [ADR-0050](#adr-0050)'s 150–200
+band — which was set for the leg and the impact case, and was never asked
+about a spine.
+
+### ⚠️ ADR-0073's cable margin was bought by a rigid trunk
+
+| plant | 0.05 m | 0.10 m | 0.30 m |
+|---|---|---|---|
+| rigid box, rigid cables | 222.9 N sat. | 222.9 sat. | 222.9 sat. |
+| rigid box, legs G3 | **84.4 N** | 94.9 | 127.5 |
+| **articulated spine, legs G3** | **222.9 sat.** | **222.9 sat.** | **222.9 sat.** |
+
+The first two rows reproduce ADR-0073 exactly (it published 84 / 95 / 127). The
+third is the same drop, the same controller and the same drivetrain, with the
+trunk the robot is actually going to have. ⚠️ **The margin G3 bought is gone**,
+and it is the articulation that takes it, not the way the spine is held: the leg
+cable saturates at spine hold gains of 0, 50 and 300 alike.
+
+⚠️ **The spine's own cables have never been measured in a fall, and they are
+worse off**: **2.4–4.1 kN** of demand against a 222.9 N rating, **11–18×**.
+
+### ⚠️ With G3 on the spine as well, the landing stops being measurable
+
+| drop | spine demand | contact |
+|---|---|---|
+| 0.05 m | 26 607 N | 4831 N |
+| 0.10 m | 26 273 N | 986 N |
+| 0.30 m | 24 957 N | 11 040 N |
+
+Contact is **not monotonic in drop height**, and 11 kN on a 4.30 kg robot is
+**260× body weight**. The leg-only plant lands at 498–671 N over the same
+heights, monotonically. These numbers are **named, not published**: what is
+diagnosable is that the spine loop runs at **>20× its rating** where the
+rigid-spine plant runs at 11–18×, which is ADR-0075's finding again — a
+`kp = 300` spine loop is not realisable through a transmission that can present
+`k*r^2 = 48.6 N*m/rad`.
+
+### Decision
+
+Ship the spine drivetrain in the builder. Correct ADR-0075's righting figure to
+10.10 s. Withdraw ADR-0073's cable margin as a whole-body claim and record it as
+a rigid-trunk one. Record the compliant-spine landing as **not yet answerable**
+rather than publishing a number.
+
+### Consequences
+
+- ✅ **The whole robot can carry G3 now**, and the topology check is a test.
+- ⚠️ **[ADR-0073](#adr-0073)'s headline needs its qualifier**: G3 takes the
+  shock out of the cable *on a rigid trunk*. On ADR-0006's spine it does not.
+- ⚠️ **The spine needs a controller that lives inside its transmission** before
+  any landing question can be asked of the compliant plant. That is the same
+  requirement ADR-0075 raised for the righting, now blocking a second result.
+- ⚠️ **Standing with the spine spooled is still unmeasured.** M69's margin was
+  taken on a plant with **no spine at all**, and M71 has not re-run it.
+- ⚠️ **A modelling detail worth 2.4 s is a warning about every free-fall number
+  in this project**, not just this one.
 
 ---
 
