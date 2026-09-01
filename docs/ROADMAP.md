@@ -160,10 +160,10 @@ sequences the work that implements them.
 > model has no G3 ([ADR-0072](DESIGN_DECISIONS.md)).
 > **M68 done:** the whole body gets its **drivetrain** — G3 takes the shock out
 > of the **cable**, not the ground ([ADR-0073](DESIGN_DECISIONS.md)).
-> **M72 done:** the goal is **learning in simulation**, and the plant an agent
-> would train in has **no senses** — nor a joint encoder to give it any
-> ([ADR-0077](DESIGN_DECISIONS.md)).
-> 505 passed + 5 xfailed Python, 17 Rust.
+> **M73 done:** the balance loop had always run at **10 kHz**; at a real rate it
+> is the **joint PD** that breaks, not the plant — and **NFR12 holds**
+> ([ADR-0078](DESIGN_DECISIONS.md)).
+> 507 passed + 5 xfailed Python, 17 Rust.
 
 ---
 
@@ -3569,7 +3569,42 @@ which is privileged state.
 scales with tension — **2.21°** at the continuous rating, **6.08°** at
 the peak ADR-0076 found a landing runs at.
 
-## Later milestones (candidate M73+, not committed)
+## Milestone M73 — The control rate, and NFR12 tested at last (DONE)
+
+M72 found the plant had no senses and no delay. It also turned up that **every
+controller here recomputes every physics step** — the balance loop has always
+run at **10 kHz**. NFR12's 7.5 ms pipeline implies ~**133 Hz**.
+
+### ✅ The force allocation does not care about the rate. The PD does.
+
+| control rate | `kp = 0` | `kp = 25` | `kp = 50` |
+|---|---|---|---|
+| 10 kHz (as shipped) | 0.01° / 72 N | 0.34 / 73 | 0.39 / 74 |
+| 1 kHz | **0.01° / 72 N** | 12.9 / 223 | 36.4 / 223 |
+| 133 Hz (NFR12) | **0.01° / 72 N** | 180.0 / 223 | 94.5 / 223 |
+
+✅ ADR-0058's standing gate is **rate-insensitive**. ⚠️ ADR-0074's posture
+term is what breaks — *affordable in force, not in dynamics*.
+
+### ✅ NFR12's 7.5 ms budget holds
+
+| rate | 0 ms | 5 ms | **7.5 ms** | 15 ms | 20 ms |
+|---|---|---|---|---|---|
+| 1 kHz | 0.01° / 72 N | 0.01 / 73 | **0.01° / 74 N** | 1.81 / 158 | 3.59 / 223 |
+| 133 Hz | 0.01° / 73 N | 0.01 / 73 | **0.91° / 119 N** | 0.15 / 192 | 8.08 / 223 |
+
+Costs **2 N** at 1 kHz. Failure boundary **15–20 ms**, so re-casting NFR12
+from the old whole-loop 20 ms is what buys the margin. ⚠️ Read the cable
+column, not the tilt — tilt is non-monotonic because a robot on the edge
+falls whichever way it leans.
+
+### ⚠️ Two of M73's own sweeps were wrong first
+
+The first measured a 10 kHz loop with dead time. The second decimated
+`wbc.rotor_command` — the motor's **inner** loop — along with the balance
+loop. Both would have condemned a controller that is fine.
+
+## Later milestones (candidate M74+, not committed)
 
 > This list is **curated, not append-only**. When a milestone closes an item it is
 > deleted here and the reasoning kept in the [ADR log](DESIGN_DECISIONS.md). Earlier
@@ -3602,10 +3637,11 @@ the peak ADR-0076 found a landing runs at.
   **9–13× body weight**. Structure, bearings and girdles get no help, and
   nobody has checked them. ⚠️ Untested too: heights above 0.30 m, and landing on a
   corner or a single leg.
-- **LATENCY IS STILL ZERO.** ⚠️ ADR-0077: NFR12 budgets **7.5 ms** (contact
-  1.0 + estimation 5.0 + transport 1.0 + compute 0.5) — **75 steps** at the
-  shipped timestep, and the plant has none. A policy trained at zero delay will
-  exploit it. Bigger than any fidelity item on this list.
+- **THE POSTURE TASK IS BLOCKED AGAIN, for a new reason.** ⚠️ ADR-0078: the
+  joint PD ADR-0074 made affordable in **force** does not survive a realistic
+  **rate**. It needs a formulation that does.
+- **ONLY STANDING HAS BEEN RATE- AND LATENCY-TESTED.** ⚠️ The sway, the
+  righting and the landing all still run at 10 kHz on true instantaneous state.
 - **CAPSTAN FRICTION CANNOT BE RANDOMISED BECAUSE IT DOES NOT EXIST.** ⚠️
   ADR-0003 left `wrap_angle = 0`. For learning the reason to build it is not
   accuracy — a parameter absent from the model cannot be randomised over.
@@ -3824,6 +3860,7 @@ Kept as a short table so the deletions above are auditable rather than silent.
 | Re-check sway and righting with G3 | M70 — [ADR-0075](DESIGN_DECISIONS.md): the sway does not care, the righting takes **4.7× as long** through a compliant spine |
 | Build the spine's drivetrain | M71 — [ADR-0076](DESIGN_DECISIONS.md): G3 on all 18 cables, and ADR-0073's cable margin turns out to be a **rigid-trunk** result |
 | Make the plant sensable | M72 — [ADR-0077](DESIGN_DECISIONS.md): MJX is viable; `nsensor` was **0**; there is no joint encoder, and the ankle load cell is worth **6°** |
+| Test the control rate and NFR12 | M73 — [ADR-0078](DESIGN_DECISIONS.md): the allocation is rate-insensitive, the **joint PD** is not, and NFR12's 7.5 ms **holds** |
 
 ## Open reconciliation items (lead)
 

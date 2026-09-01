@@ -15,7 +15,7 @@ cat-like agility, energy-efficient movement, and passive shock absorption.
 
 ## Progress
 
-Seventy-two milestones in. The model now spans kinematics → real mass → 3D
+Seventy-three milestones in. The model now spans kinematics → real mass → 3D
 static stability → whole-body dynamics → a dynamic gait → closed-loop balance →
 an independent physics-engine cross-check → thermal duty → whole-body force
 allocation, with **493 passing + 5 suspended Python tests and 17 Rust** and every figure below
@@ -295,6 +295,7 @@ is **1.97**. That remedy *is* cheap: one step up in stock tube, under 4 g.
 | M70 | Sway and righting, re-checked | the sway does not care about G3; the righting takes **4.7× as long** through a compliant spine |
 | M71 | The spine's **drivetrain** | G3 on all 18 cables — and ADR-0073's cable margin turns out to be a **rigid-trunk** result |
 | M72 | The plant an agent would **train in** | MJX is viable; `nsensor` was **0**, there is no joint encoder, and the ankle load cell is worth **6°** |
+| M73 | The control **rate**, and NFR12 | the allocation is rate-insensitive, the **joint PD** is not — and NFR12's 7.5 ms **holds** |
 
 Full detail in the [roadmap](docs/ROADMAP.md) and the [ADR log](docs/DESIGN_DECISIONS.md).
 
@@ -1080,6 +1081,30 @@ Full detail in the [roadmap](docs/ROADMAP.md) and the [ADR log](docs/DESIGN_DECI
 > it grows with tension: **6.08°** at the peak a landing runs at. That number
 > decides `electronics/`'s open question about which boards populate the
 > front-end. [ADR-0077](docs/DESIGN_DECISIONS.md).
+
+> ### ✅ M73: it is the joint PD, not the plant — and NFR12 holds
+>
+> M72 also turned up that **every controller here recomputes every physics
+> step**: the balance loop has always run at **10 kHz**, which nothing does.
+> NFR12's 7.5 ms pipeline implies ~**133 Hz**.
+>
+> ✅ **The force allocation does not care.** ADR-0058's standing gate holds the
+> trunk to **0.01° at 72 N** at 10 kHz, 1 kHz, 500 Hz and 133 Hz alike.
+>
+> ⚠️ **The joint PD is what breaks** — 12.9° at 1 kHz, 180° at
+> 133 Hz. ADR-0074 called that posture term *affordable* at 74.4 N; it is
+> affordable in **force** and not in **dynamics**, and that was a 10 kHz result.
+>
+> ✅ **And NFR12's 7.5 ms budget holds** — the first requirement here
+> validated against the plant rather than an analytical envelope. It costs **2 N**
+> at 1 kHz (74 against 72) and 47 N at 133 Hz. The failure boundary is
+> **15–20 ms**, so re-casting from the old whole-loop 20 ms is what buys the
+> margin.
+>
+> ⚠️ **Two of M73's own sweeps were wrong first**: one measured a 10 kHz loop
+> with dead time, the other decimated the motor's **inner** servo along with the
+> balance loop. Both would have condemned a controller that is fine.
+> [ADR-0078](docs/DESIGN_DECISIONS.md).
 
 > ### ⚠️ M71: the spine's drivetrain, and a margin that was never there
 >

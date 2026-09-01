@@ -461,3 +461,40 @@ def quantise(x, bits: int, span: float = 2.0 * np.pi):
     AS5047/MA-class, which is 14-bit."""
     lsb = float(span) / (2 ** int(bits))
     return np.round(np.asarray(x, dtype=float) / lsb) * lsb
+
+
+class SensorDelay:
+    """A pure transport delay on the state a controller commits against.
+
+    ⚠️ **A first-order filter is not this.** MuJoCo's `dyntype="filter"` gives a
+    lag with no dead time, and dead time is what destabilises a loop. NFR12
+    budgets a **pipeline**: contact 1.0 + estimation 5.0 + transport 1.0 +
+    compute 0.5 = 7.5 ms, all of it between measuring and acting, which is a
+    delay and not a lag.
+
+    M11 framed it exactly right: that time *is* "the staleness of the
+    information the controller committed on". So this holds `(qpos, qvel)`
+    snapshots and hands back the one the controller is entitled to see.
+
+    Before the buffer fills, the initial state is returned -- a controller
+    cannot see the future, and at t=0 the freshest thing it has is the pose it
+    started from.
+    """
+
+    def __init__(self, seconds: float, timestep: float, qpos, qvel):
+        self.n = int(round(float(seconds) / float(timestep)))
+        q0, v0 = np.array(qpos, float), np.array(qvel, float)
+        self._buf = [(q0.copy(), v0.copy()) for _ in range(self.n + 1)]
+        self._i = 0
+
+    def push(self, qpos, qvel):
+        """Record what the sensors see now."""
+        if self.n == 0:
+            self._buf[0] = (np.array(qpos, float), np.array(qvel, float))
+            return
+        self._buf[self._i] = (np.array(qpos, float), np.array(qvel, float))
+        self._i = (self._i + 1) % len(self._buf)
+
+    def read(self):
+        """The state the controller is allowed to act on."""
+        return self._buf[self._i] if self.n else self._buf[0]

@@ -6578,8 +6578,15 @@ def _lowest_mode_whole(m):
 
 
 def _stand_at_gain(spooled, *, kp, seconds=1.2, mu=0.8, damp=6.0,
-                   attitude=(40.0, 4.0)):
-    """M53's standing gate with a joint-space PD added, on either plant."""
+                   attitude=(40.0, 4.0), latency_s=0.0, control_hz=0.0):
+    """M53's standing gate with a joint-space PD added, on either plant.
+
+    ⚠️ **`latency_s` is M73's addition.** Until then every controller in
+    this project read `d` -- the true state, this instant. NFR12 budgets 7.5 ms
+    between measuring and acting. The delay is applied by running the whole
+    controller against a SHADOW `MjData` holding the state it is entitled to
+    see, so nothing about the loop has to know it is being lied to.
+    """
     q = _quad_poses()
     if spooled:
         m = mujoco.MjModel.from_xml_string(MT.quadruped_rig_spooled(
@@ -6630,44 +6637,85 @@ def _stand_at_gain(spooled, *, kp, seconds=1.2, mu=0.8, damp=6.0,
     om = float(np.sqrt(9.81 / h0))
     z0 = float(d.qpos[2])
     peak = 0.0
-    for it in range(int(seconds / m.opt.timestep)):
-        if it and it % REFRESH_STATIC == 0:
+    lag = wbc.SensorDelay(latency_s, m.opt.timestep, d.qpos, d.qvel)
+    ds = mujoco.MjData(m) if lag.n else d
+    # ⚠️ Until M73 every controller here recomputed EVERY physics step,
+    # i.e. the balance loop ran at 10 kHz. `control_hz` decimates it to a rate a
+    # real one runs at, holding the last command in between (zero-order hold).
+    # The rotor servo is NOT decimated -- it is the motor's own fast loop.
+    every = 1 if not control_hz else max(1, int(round(
+        1.0 / (float(control_hz) * m.opt.timestep))))
+    hold = {nm: np.zeros(3) for nm in QLEGS}
+    tick = {"n": 0}
+
+    def outer():
+        """The BALANCE loop: force allocation + joint PD, at `control_hz`.
+
+        Produces a TENSION per pair. It does not touch the rotor -- that is the
+        inner loop's job, and it runs whether or not this one does.
+        """
+        nonlocal G, peak
+        if tick["n"] and tick["n"] % max(1, REFRESH_STATIC // every) == 0:
             G = {nm: legG(nm) for nm in QLEGS}
-        mujoco.mj_subtreeVel(m, d)
-        com = np.array(d.subtree_com[0])
-        vel = np.array(d.subtree_linvel[0])
-        feet = np.array([d.site_xpos[sid[nm]] for nm in QLEGS])
+        tick["n"] += 1
+        if lag.n:
+            sq, sv = lag.read()
+            ds.qpos[:] = sq
+            ds.qvel[:] = sv
+            mujoco.mj_forward(m, ds)
+        mujoco.mj_subtreeVel(m, ds)
+        com = np.array(ds.subtree_com[0])
+        vel = np.array(ds.subtree_linvel[0])
+        feet = np.array([ds.site_xpos[sid[nm]] for nm in QLEGS])
         w = wbc.desired_wrench(mass, com, vel,
                                wbc.realisable_cop(feet, com[:2]), om,
                                damp=damp, height=h0)
-        sg = 1.0 if float(d.qpos[3]) >= 0.0 else -1.0
+        sg = 1.0 if float(ds.qpos[3]) >= 0.0 else -1.0
         w[3:6] = (-attitude[0] * 2.0 * sg
-                  * np.array([float(v) for v in d.qpos[4:7]])
-                  - attitude[1] * np.array(d.qvel[3:6]))
+                  * np.array([float(v) for v in ds.qpos[4:7]])
+                  - attitude[1] * np.array(ds.qvel[3:6]))
         f = wbc.allocate(feet, com, w, mu)
         forces = {nm: f[i] for i, nm in enumerate(QLEGS)}
-        stq = wbc.stance_torque(mujoco, m, d, sid, forces, dof)
+        stq = wbc.stance_torque(mujoco, m, ds, sid, forces, dof)
         for nm in QLEGS:
-            tau = wbc.actuator_torque(d, dof[nm], stq[nm])
-            e = np.array([q[nm][i] - float(d.qpos[a])
+            tau = wbc.actuator_torque(ds, dof[nm], stq[nm])
+            e = np.array([q[nm][i] - float(ds.qpos[a])
                           for i, a in enumerate(qa[nm])])
-            ev = -np.array([float(d.qvel[a]) for a in dof[nm]])
+            ev = -np.array([float(ds.qvel[a]) for a in dof[nm]])
             T = wbc.pair_command(G[nm], tau + kp * e + kd * ev, MT.TENSION_MAX)
             peak = max(peak, float(np.max(np.abs(T))))
+            hold[nm] = T
+
+    for it in range(int(seconds / m.opt.timestep)):
+        # ⚠️ The sensors sample every physics step even when the balance
+        # loop does not run -- the delay is in the PIPELINE, not the schedule.
+        # Pushing only on control ticks would measure `n` ticks of lag instead
+        # of `n` steps, which is a different (and much larger) experiment.
+        if lag.n:
+            lag.push(d.qpos, d.qvel)
+        if it % every == 0:
+            outer()
+        # ✅ the INNER loop runs every step, on the motor's own encoder.
+        # ADR-0059's cascade: the rotor servo is fast and local, the balance
+        # loop is slow and central. Decimating the tension->rotor-angle
+        # conversion with the outer loop collapses that and is wrong.
+        for nm in QLEGS:
             if spooled:
                 cmd = wbc.rotor_command([d.qpos[j] for j in JR[nm]],
-                                        [d.qpos[j] for j in JS[nm]], T,
+                                        [d.qpos[j] for j in JS[nm]], hold[nm],
                                         K_TORS, MT.SPOOL_R, servo_kp=SERVO_KP)
-                for i, a in enumerate(A[nm]):
-                    d.ctrl[a] = float(cmd[i])
             else:
-                for i, a in enumerate(A[nm]):
-                    d.ctrl[a] = float(T[i])
+                cmd = hold[nm]
+            for i, a in enumerate(A[nm]):
+                d.ctrl[a] = float(cmd[i])
         mujoco.mj_step(m, d)
         assert np.all(np.isfinite(d.qpos))
     quat = np.array([float(v) for v in d.qpos[3:7]])
     return dict(sag=1e3 * (z0 - float(d.qpos[2])), peak=peak,
                 tilt=2.0 * math.degrees(math.acos(min(1.0, abs(quat[0])))))
+
+
+
 
 
 def test_the_DRIVETRAIN_LOWERS_THE_MODE_and_IMPROVES_THE_MARGIN():
@@ -7282,3 +7330,112 @@ def test_JOINT_ANGLE_IS_RECOVERABLE_but_the_ANKLE_LOAD_CELL_is_what_pays():
     assert ankle_err(MT.TENSION_MAX) == pytest.approx(6.08, abs=0.10), (
         "at the peak rating the ankle angle is unknown by six degrees"
     )
+
+
+# ==========================================================================
+# M73 -- the control RATE and the LATENCY nobody had ever put in the loop
+# ==========================================================================
+
+
+def test_it_is_the_JOINT_PD_that_cannot_TAKE_A_REAL_CONTROL_RATE_not_the_plant():
+    """⚠️ **[ADR-0074](../docs/DESIGN_DECISIONS.md)'s posture term is a 10 kHz
+    result. Nothing else in the standing loop cares about rate.**
+
+    Every controller in this project recomputed **every physics step** — the
+    balance loop ran at **10 kHz**, which no controller does.
+    `firmware/README.md` specifies >=1 kHz for the *motor* loops;
+    [NFR12](../docs/REQUIREMENTS.md)'s 7.5 ms pipeline implies ~133 Hz for
+    balance. Decimating the outer loop separates the two:
+
+    | control rate | `kp = 0` | `kp = 25` | `kp = 50` |
+    |---|---|---|---|
+    | 10 kHz (as shipped) | 0.01° / 72 N | 0.34 / 73 | 0.39 / 74 |
+    | 1 kHz | **0.01° / 72 N** | 12.9 / 223 | 36.4 / 223 |
+    | 500 Hz | **0.01° / 72 N** | 9.9 / 223 | 18.5 / 223 |
+    | 133 Hz (NFR12) | **0.01° / 72 N** | 180.0 / 223 | 94.5 / 223 |
+
+    ✅ **The force allocation is rate-insensitive.** ADR-0058's standing gate
+    holds the trunk to a hundredth of a degree at 72 N whether it runs at 10 kHz
+    or 133 Hz. The controller that does the actual work does not need the rate.
+
+    ⚠️ **The joint-space PD is what breaks.** ADR-0074 measured it at 74.4 N
+    with the drivetrain and called it *affordable*; that is true of its **force
+    cost** and false of its **dynamics**. Below 10 kHz it saturates the cable and
+    tips the robot at every gain tried, drivetrain or no drivetrain.
+
+    ⚠️ **Two of M73's own sweeps were wrong before this one.** The first
+    measured a 10 kHz loop with dead time. The second decimated
+    `wbc.rotor_command` along with the balance loop — but that is the motor's
+    **inner** loop closing on its own shaft encoder ([ADR-0059](../docs/DESIGN_DECISIONS.md)'s
+    cascade), and starving it of its own feedback is a property of the harness,
+    not the robot.
+    """
+    # ✅ pure force allocation does not care about the rate
+    slow = _stand_at_gain(True, kp=0.0, control_hz=133.0)
+    fast = _stand_at_gain(True, kp=0.0, control_hz=0.0)
+    assert slow["tilt"] < 0.05, f"133 Hz allocation tilt {slow['tilt']:.3f} deg"
+    assert slow["peak"] == pytest.approx(fast["peak"], rel=0.05), (
+        f"and it costs the same: {slow['peak']:.1f} vs {fast['peak']:.1f} N"
+    )
+    assert slow["peak"] < 0.4 * MT.TENSION_MAX, "nowhere near the rating"
+
+    # ⚠️ the joint PD ADR-0074 called affordable does not survive the rate
+    pd = _stand_at_gain(True, kp=50.0, control_hz=133.0)
+    assert pd["tilt"] > 10.0, (
+        f"the posture term tips the robot at 133 Hz: {pd['tilt']:.1f} deg"
+    )
+    assert pd["peak"] == pytest.approx(MT.TENSION_MAX, rel=1e-3), (
+        "and saturates the cable doing it"
+    )
+
+
+def test_NFR12s_LATENCY_BUDGET_holds_on_the_plant_at_last():
+    """✅ **NFR12's 7.5 ms is MET — measured on the plant, not on an
+    envelope.**
+
+    [ADR-0014](../docs/DESIGN_DECISIONS.md) sized the balance envelope against an
+    **assumed** latency and M11 allocated the budget as a fixed point; neither
+    ever put a delay in the simulator. `wbc.SensorDelay` does, by running the
+    whole controller against a shadow `MjData` holding the state it is entitled
+    to see. The sensors sample every physics step even when the balance loop does
+    not — the delay is in the **pipeline**, not the schedule.
+
+    Pure force allocation, the configuration the rate study leaves standing:
+
+    | rate | 0 ms | 5 ms | **7.5 ms** | 10 ms | 15 ms | 20 ms |
+    |---|---|---|---|---|---|---|
+    | 1 kHz | 0.01° / 72 N | 0.01 / 73 | **0.01° / 74 N** | 0.31 / 105 | 1.81 / 158 | 3.59 / 223 |
+    | 133 Hz | 0.01° / 73 N | 0.01 / 73 | **0.91° / 119 N** | 0.43 / 138 | 0.15 / 192 | 8.08 / 223 |
+
+    ✅ **At 1 kHz the budget costs 2 N** — 74 against a 72 N baseline. At
+    133 Hz it costs **47 N** and 0.91°, still standing but with less room.
+
+    ⚠️ **The failure boundary is 15-20 ms**, where the cable saturates. NFR12
+    was re-cast from a whole-loop <=20 ms; on this evidence 20 ms would have been
+    exactly the edge, and the re-cast to 7.5 ms is what buys the margin.
+
+    ⚠️ **Read the cable column, not the tilt.** Tilt is non-monotonic at 133 Hz
+    (0.91 → 0.43 → 0.15 → 8.08) because a robot on the edge falls in
+    whichever direction it happens to be leaning. Peak cable is monotonic in
+    latency at both rates and is the honest indicator.
+    """
+    base = _stand_at_gain(True, kp=0.0, control_hz=1000.0, latency_s=0.0)
+    budget = _stand_at_gain(True, kp=0.0, control_hz=1000.0, latency_s=7.5e-3)
+    over = _stand_at_gain(True, kp=0.0, control_hz=1000.0, latency_s=20.0e-3)
+
+    # ✅ NFR12's budget is met, and it is nearly free
+    assert budget["tilt"] < 0.05, f"at 7.5 ms tilt is {budget['tilt']:.3f} deg"
+    assert budget["peak"] < 1.1 * base["peak"], (
+        f"7.5 ms costs {budget['peak'] - base['peak']:.1f} N"
+    )
+    assert budget["peak"] < 0.4 * MT.TENSION_MAX
+
+    # ⚠️ and the boundary is real: at 20 ms the cable saturates
+    assert over["peak"] == pytest.approx(MT.TENSION_MAX, rel=1e-3), (
+        f"20 ms saturates: {over['peak']:.1f} N"
+    )
+    assert over["tilt"] > 20.0 * budget["tilt"]
+
+    # ✅ peak cable is monotonic in latency -- tilt is not, so assert on cable
+    mid = _stand_at_gain(True, kp=0.0, control_hz=1000.0, latency_s=15.0e-3)
+    assert base["peak"] <= budget["peak"] <= mid["peak"] <= over["peak"]

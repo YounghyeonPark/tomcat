@@ -5766,9 +5766,16 @@ Standing with a joint-space PD added on top of the force allocation:
 - ✅ **ADR-0073's warning is withdrawn.** The mode halves and the margin
   improves; the two are not the same quantity, and on a leg ADR-0060 measured the
   first while assuming the second.
-- ✅ **A joint-space posture term is now affordable.** Every previous whole-body
+- ✅ ~~**A joint-space posture term is now affordable.** Every previous whole-body
   controller used pure force allocation because a PD saturated the motors. That
-  constraint was the missing compliance, not the gain.
+  constraint was the missing compliance, not the gain.~~
+
+  > ⚠️ **AFFORDABLE IN FORCE, NOT IN DYNAMICS —
+  > [ADR-0078](#adr-0078) (M73).** The 74.4 N was measured with the balance loop
+  > running at **10 kHz**. At any rate a real controller runs at, the same term
+  > saturates the cable and tips the robot: **12.9° at 1 kHz** and
+  > **180° at 133 Hz**, drivetrain or no drivetrain. Pure force allocation
+  > is unaffected at every rate (0.01° / 72 N).
 - ⚠️ **This does not re-check the results themselves.** Standing, sway and
   righting were measured on rigid tendons; this shows the drivetrain does not
   disturb the standing baseline, which is one of the three.
@@ -6123,6 +6130,96 @@ and not of `qpos`.
   cannot be randomised over.
 - ✅ **Do not switch simulators.** Discrete cables cost **14.3×** on this
   plant (nv 60 → 1032) and buy what randomising the lumped parameters buys.
+
+## ADR-0078: It is the joint PD that cannot take a real control rate — and NFR12 holds
+
+- **Status:** Accepted — M73
+- **✅ Validates [NFR12](REQUIREMENTS.md) on the plant for the first time.
+  ⚠️ Qualifies [ADR-0074](#adr-0074).**
+- **Context:** [ADR-0077](#adr-0077) found the plant had no senses and no delay.
+  It also turned up something neither ADR-0014 nor M11 had noticed: **every
+  controller in this project recomputes every physics step**, so the balance
+  loop has always run at **10 kHz**. `firmware/README.md` specifies >=1 kHz for
+  the *motor* loops; NFR12's 7.5 ms pipeline implies ~**133 Hz** for balance.
+
+### ✅ The force allocation does not care about the rate. The PD does.
+
+Standing, spooled plant, zero latency throughout:
+
+| control rate | `kp = 0` | `kp = 25` | `kp = 50` |
+|---|---|---|---|
+| 10 kHz (as shipped) | 0.01 deg / 72 N | 0.34 / 73 | 0.39 / 74 |
+| 1 kHz | **0.01 deg / 72 N** | 12.9 / 223 | 36.4 / 223 |
+| 500 Hz | **0.01 deg / 72 N** | 9.9 / 223 | 18.5 / 223 |
+| 133 Hz (NFR12) | **0.01 deg / 72 N** | 180.0 / 223 | 94.5 / 223 |
+
+✅ **[ADR-0058](#adr-0058)'s standing gate is rate-insensitive** — a
+hundredth of a degree at 72 N whether it runs at 10 kHz or 133 Hz. The
+controller doing the actual work needs none of the rate it was given.
+
+⚠️ **[ADR-0074](#adr-0074)'s posture term is what breaks.** M69 measured it at
+**74.4 N** with the drivetrain against a saturated 222.9 N without, and called
+it *affordable*. That is true of its **force cost** and false of its
+**dynamics**: below 10 kHz it saturates the cable and tips the robot at every
+gain tried, drivetrain or not.
+
+### ✅ And NFR12's 7.5 ms budget holds, measured rather than assumed
+
+Pure force allocation — the configuration the rate study leaves standing:
+
+| rate | 0 ms | 5 ms | **7.5 ms** | 10 ms | 15 ms | 20 ms |
+|---|---|---|---|---|---|---|
+| 1 kHz | 0.01 deg / 72 N | 0.01 / 73 | **0.01 deg / 74 N** | 0.31 / 105 | 1.81 / 158 | 3.59 / 223 |
+| 133 Hz | 0.01 deg / 73 N | 0.01 / 73 | **0.91 deg / 119 N** | 0.43 / 138 | 0.15 / 192 | 8.08 / 223 |
+
+✅ **At 1 kHz the budget costs 2 N** (74 against 72). At 133 Hz it costs
+**47 N** and 0.91 deg — standing, with less room. ⚠️ **The failure boundary
+is 15–20 ms**, where the cable saturates. NFR12 was re-cast from a whole-loop
+<=20 ms; on this evidence 20 ms is exactly the edge, and the re-cast is what
+buys the margin.
+
+⚠️ **Read the cable column, not the tilt.** Tilt is non-monotonic at 133 Hz
+(0.91 → 0.43 → 0.15 → 8.08) because a robot on the edge falls
+whichever way it happens to lean. Peak cable is monotonic at both rates.
+
+### ⚠️ Two of this milestone's own sweeps were wrong first
+
+Recorded because the pattern keeps recurring and the corrections are the useful
+part:
+
+1. The first sweep reported **1 ms of latency knocks the robot over** (116.9 deg
+   tilt). It measured a **10 kHz** loop with dead time — a rate no controller
+   runs at. The non-monotonic tilts were the tell.
+2. The second added rate decimation and reported the controller failing at 1 kHz
+   with **zero** latency. It decimated `wbc.rotor_command` along with the balance
+   loop — but that is the motor's **inner** loop closing on its own shaft
+   encoder ([ADR-0059](#adr-0059)'s cascade). Starving it of its own feedback is
+   a property of the harness, not the robot.
+
+Both would have condemned a controller that is fine.
+
+### Decision
+
+Ship `wbc.SensorDelay` and `_stand_at_gain(control_hz=, latency_s=)`, defaults
+inert. Mark NFR12 **MET**. Qualify ADR-0074's affordability claim as a 10 kHz
+result rather than withdrawing it.
+
+### Consequences
+
+- ✅ **NFR12 is met with margin at 1 kHz** and met with less at 133 Hz. The
+  first requirement in this project validated against the plant rather than an
+  analytical envelope.
+- ⚠️ **The null-space posture task ADR-0074 unblocked is blocked again**, for a
+  different reason. ADR-0052 named it, ADR-0058 kept it open, ADR-0074 made it
+  affordable in force — and it still needs a formulation that survives a
+  realistic rate.
+- ✅ **The whole-body controller is implementable at 133 Hz**, which the
+  hardware can comfortably do. That was not previously known.
+- ⚠️ **Only standing has been tested this way.** The sway, the righting and the
+  landing all still run at 10 kHz on true instantaneous state.
+- ⚠️ **Latency is still absent from the plant itself** — this is a harness
+  facility. An RL environment wants it as a wrapper, together with the sensor
+  suite ADR-0077 added.
 
 ---
 
