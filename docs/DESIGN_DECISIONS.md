@@ -6384,6 +6384,86 @@ re-derived, at which point the pin can move.
   held-stance rollout said bit-identical and was used to withdraw a migration
   warning. It exercised almost nothing: the sway is where a solver change shows.
 
+## ADR-0081: The environment exists, and it cannot tell the robot where it is
+
+- **Status:** Accepted — M76
+- **✅ Builds the training environment [ADR-0077](#adr-0077) and
+  [ADR-0078](#adr-0078) supplied the parts for. ⚠️ Names the floating-base
+  estimator this project has never had.**
+- **Context:** ADR-0077 put the board's sensors on the plant and ADR-0078 added
+  the control rate and the transport delay, but both stayed inside the test
+  harness. An agent needs them behind a `step()`.
+
+### ✅ `tomcat_kin.env.TomcatEnv`
+
+The observation is assembled from `d.sensordata` and nothing else, so privileged
+state cannot be read by accident:
+
+| channel | count | source |
+|---|---|---|
+| rotor encoder, position + velocity | 18 + 18 | AS5047-class, **14-bit** |
+| tendon load cell | **14** | [ADR-0004](#adr-0004), DNP on the ankle |
+| IMU quat / gyro / accel | 4 + 3 + 3 | trunk |
+| foot contact | 4 | [FR12](REQUIREMENTS.md) |
+
+with **133.3 Hz** control (ADR-0078's NFR12 rate), **7.5 ms** of sensor delay,
+and the cascade kept intact: the action is a **tension**, and the rotor servo
+closes on its own shaft encoder every physics step rather than at the policy
+rate.
+
+### ✅ Joint angle survives the interface
+
+Through the delay, the quantisation and the missing ankle load cell,
+`env.joint_estimate` recovers every joint to **0.68 deg** worst. That is
+ADR-0077's ~1 deg ankle figure arriving through a real interface instead of a
+bench rig, and it is deliberately **not** exact — the missing cell is in
+there, because it is in the robot.
+
+### ⚠️ And the validation this milestone planned cannot be run
+
+The plan was to drive the force allocation through the env and confirm it still
+stands at 0.01 deg / 72 N ([ADR-0078](#adr-0078)). It cannot:
+
+| the controller needs | the board gives |
+|---|---|
+| joint angle | ✅ reconstructed, 0.68 deg |
+| trunk orientation | ✅ `imu_quat` |
+| trunk **position** | ⚠️ **nothing** |
+| CoM, CoM velocity, foot positions | ⚠️ all need the above |
+
+`wbc.allocate` and `wbc.desired_wrench` want world-frame quantities. The IMU
+gives orientation, not location. **No sensor on this robot measures where it
+is.**
+
+⚠️ **That is a real gap, not a wrapper defect.** Legged robots close it with a
+**floating-base estimator** — contact-aided IMU integration, or an invariant
+EKF — using the fact that a stance foot is stationary. This project has never
+had one, and every whole-body result it has published took the base pose from
+the simulator.
+
+✅ **It does not block learning.** A policy consumes the observation directly.
+It is the hand-written controller that needs the world frame, so this blocks the
+*validation route*, not the goal.
+
+### Decision
+
+Ship the environment with a sensor-only observation. Do not synthesise a base
+pose from privileged state to make the WBC run — that would hide the gap in
+exactly the place it matters.
+
+### Consequences
+
+- ✅ **An agent can be trained against this today.** Observation, action,
+  rate, delay and quantisation are all the robot's.
+- ⚠️ **The WBC has no path to hardware without a floating-base estimator.**
+  It is now the top item, ahead of capstan friction and randomisation.
+- ⚠️ **Every whole-body result in this project used a simulator-supplied base
+  pose.** Nothing is retracted — they are plant measurements — but none of
+  them is a controller that could run on the robot, which is the same
+  qualification ADR-0077 made about joint angle.
+- ⚠️ **No reward, no randomisation, no episode termination yet.** This is the
+  interface, not the task.
+
 ---
 
 ### How to add an ADR

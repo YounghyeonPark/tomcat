@@ -160,10 +160,10 @@ sequences the work that implements them.
 > model has no G3 ([ADR-0072](DESIGN_DECISIONS.md)).
 > **M68 done:** the whole body gets its **drivetrain** — G3 takes the shock out
 > of the **cable**, not the ground ([ADR-0073](DESIGN_DECISIONS.md)).
-> **M75 done:** the **3.12 gate passes** — what it caught was an assertion
-> this suite read *after the robot had fallen*
-> ([ADR-0080](DESIGN_DECISIONS.md)).
-> 508 passed + 5 xfailed Python, 17 Rust.
+> **M76 done:** the training **environment** exists and is honest — and it
+> cannot tell the robot **where it is**
+> ([ADR-0081](DESIGN_DECISIONS.md)).
+> 510 passed + 5 xfailed Python, 17 Rust.
 
 ---
 
@@ -3667,7 +3667,35 @@ floor.* Removed; tilt, force and slip already assert the real claim.
 measurements, deliberately untouched: `strict=False` would silence a marker
 without the re-derivation it waits for.
 
-## Later milestones (candidate M76+, not committed)
+## Milestone M76 — The environment an agent trains in (DONE)
+
+M72 put the board's sensors on the plant, M73 added the rate and the delay, and
+both stayed inside the test harness. An agent needs them behind a `step()`.
+
+### ✅ `tomcat_kin.env.TomcatEnv`
+
+Observation assembled from `d.sensordata` **only** — 18 rotor encoders
+(14-bit) with velocities, **14** load cells (DNP on the ankle), IMU, 4 contact
+channels. **133.3 Hz** control, **7.5 ms** delay, and the cascade intact: the
+action is a **tension**, and the rotor servo closes on its own encoder every
+physics step.
+
+✅ **Joint angle survives it: 0.68° worst** — ADR-0077's ankle figure
+arriving through a real interface. Deliberately not exact; the missing cell is
+in there because it is in the robot.
+
+### ⚠️ And the validation this milestone planned cannot be run
+
+Driving the force allocation through the env needs the CoM, its velocity and the
+foot positions **in the world**. The IMU gives orientation, not location, and
+**no sensor measures where the robot is**.
+
+⚠️ That wants a **floating-base estimator** (contact-aided IMU integration),
+which this project has never had — every whole-body result took the base pose
+from the simulator. ✅ It does not block learning: a policy consumes the
+observation directly.
+
+## Later milestones (candidate M77+, not committed)
 
 > This list is **curated, not append-only**. When a milestone closes an item it is
 > deleted here and the reasoning kept in the [ADR log](DESIGN_DECISIONS.md). Earlier
@@ -3700,6 +3728,10 @@ without the re-derivation it waits for.
   **9–13× body weight**. Structure, bearings and girdles get no help, and
   nobody has checked them. ⚠️ Untested too: heights above 0.30 m, and landing on a
   corner or a single leg.
+- **THE WBC HAS NO PATH TO HARDWARE WITHOUT A FLOATING-BASE ESTIMATOR.** ⚠️
+  ADR-0081: `wbc.allocate` needs world-frame CoM, velocity and foot positions;
+  the board measures none of them. Contact-aided IMU integration is the standard
+  answer and does not exist here. **Top item.**
 - **THE POSTURE TASK IS BLOCKED AGAIN, for a new reason.** ⚠️ ADR-0078: the
   joint PD ADR-0074 made affordable in **force** does not survive a realistic
   **rate**. It needs a formulation that does.
@@ -3926,6 +3958,7 @@ Kept as a short table so the deletions above are auditable rather than silent.
 | Test the control rate and NFR12 | M73 — [ADR-0078](DESIGN_DECISIONS.md): the allocation is rate-insensitive, the **joint PD** is not, and NFR12's 7.5 ms **holds** |
 | Answer the throughput question | M74 — [ADR-0079](DESIGN_DECISIONS.md): **262,678 steps/s** on the 4090 already in the machine; MJX-Warp keeps all 18 equalities |
 | Gate the 3.12 migration | M75 — [ADR-0080](DESIGN_DECISIONS.md): stable results **bit-identical**; the failure was an assertion read after the fall |
+| Build the training environment | M76 — [ADR-0081](DESIGN_DECISIONS.md): sensor-only observation at 133 Hz / 7.5 ms; **no sensor says where the robot is** |
 
 ## Open reconciliation items (lead)
 

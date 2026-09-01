@@ -7509,3 +7509,108 @@ def test_the_PLANT_STAYS_INSIDE_the_GPU_BACKENDS_FEATURE_SET():
     spooled = plants["spine, all 18 spooled"]
     assert spooled.neq == 18
     assert set(int(t) for t in spooled.eq_type) == {int(mujoco.mjtEq.mjEQ_TENDON)}
+
+
+# ==========================================================================
+# M76 -- the environment an agent trains in, and what it cannot see
+# ==========================================================================
+
+
+def test_the_ENV_CANNOT_SEE_JOINT_ANGLE_OR_WORLD_POSITION():
+    """✅ **`TomcatEnv` exposes the board's channels and nothing else.**
+
+    Every controller before M76 read `d.qpos`. `tomcat_kin.env` assembles its
+    observation from `d.sensordata` alone, so privileged state is not available
+    to be read by accident:
+
+    | channel | count | from |
+    |---|---|---|
+    | rotor encoder, position + velocity | 18 + 18 | AS5047-class, 14-bit |
+    | tendon load cell | **14** | [ADR-0004](../docs/DESIGN_DECISIONS.md), DNP on the ankle |
+    | IMU quat / gyro / accel | 4 + 3 + 3 | trunk |
+    | foot contact | 4 | [FR12](../docs/REQUIREMENTS.md) |
+
+    ⚠️ **And nothing in it is a world position.** The IMU gives orientation,
+    not location. That is not an omission in the wrapper -- it is what the robot
+    has.
+    """
+    from tomcat_kin.env import TomcatEnv, LEGS as ELEGS
+
+    env = TomcatEnv()
+    obs = env.reset()
+
+    assert env.decim == 75 and env.control_hz == pytest.approx(133.3, abs=0.1)
+    assert env.latency_s == pytest.approx(7.5e-3), "NFR12's pipeline budget"
+    assert env.encoder_bits == 14
+
+    assert set(obs) == {"rotor", "rotor_vel", "load", "imu_quat", "imu_gyro",
+                        "imu_acc", "contact", "t"}
+    assert obs["rotor"].shape == (18,) and obs["rotor_vel"].shape == (18,)
+    assert obs["contact"].shape == (4,)
+    # ⚠️ fourteen load cells, and not one of them on an ankle
+    assert len(obs["load"]) == 14
+    assert not [k for k in obs["load"] if k.endswith("ankle")]
+
+    # ✅ the encoder is quantised -- every reading is a multiple of the LSB
+    lsb = 2.0 * math.pi / 2 ** env.encoder_bits
+    assert np.allclose(obs["rotor"] / lsb, np.round(obs["rotor"] / lsb))
+
+    # ⚠️ the action is a TENSION, and the rotor servo is not decimated with it
+    obs2 = env.step(np.full(18, 20.0))
+    assert obs2["t"] == pytest.approx(env.decim * env.dt)
+
+
+def test_the_ENV_RECONSTRUCTS_JOINT_ANGLE_but_has_NO_FLOATING_BASE():
+    """⚠️ **The observation determines the joints. It does not determine where
+    the robot is.**
+
+    ✅ **Joint angle survives the wrapper.** Through the delay, the
+    quantisation and the missing ankle load cell, `env.joint_estimate` recovers
+    every joint to **0.68°** worst -- which is
+    [ADR-0077](../docs/DESIGN_DECISIONS.md)'s ~1° ankle figure arriving
+    through a real interface rather than a bench rig.
+
+    ⚠️ **But the whole-body controller cannot run on it.** `wbc.allocate` and
+    `wbc.desired_wrench` need the CoM position, the CoM velocity and the four
+    foot positions **in the world**. Every one of those needs the trunk's world
+    position, and no sensor on this robot measures it:
+
+    | the controller needs | the board gives |
+    |---|---|
+    | joint angle | ✅ reconstructed, 0.68° |
+    | trunk orientation | ✅ `imu_quat` |
+    | trunk **position** | ⚠️ **nothing** |
+    | CoM, CoM velocity, foot positions | ⚠️ all need the above |
+
+    ⚠️ **So M76's planned validation cannot be run**: driving the force
+    allocation through this interface to confirm it still stands at
+    0.01° / 72 N ([ADR-0078](../docs/DESIGN_DECISIONS.md)) needs a
+    **floating-base estimator** -- contact-aided IMU integration, standard on
+    legged robots -- and this project has never had one.
+
+    ✅ **It does not block learning.** A policy consumes the observation
+    directly; it is the hand-written controller that needs the world frame.
+    """
+    from tomcat_kin.env import TomcatEnv, LEGS as ELEGS
+
+    env = TomcatEnv()
+    obs = env.reset()
+    for _ in range(120):
+        obs = env.step(np.full(18, 25.0))
+
+    qa = {nm: [env.model.jnt_qposadr[env._id(mujoco.mjtObj.mjOBJ_JOINT,
+                                             f"{nm}_q{i}")] for i in (1, 2, 3)]
+          for nm in ELEGS}
+    est = env.joint_estimate(obs)
+    worst = 0.0
+    for nm in ELEGS:
+        true = np.array([float(env.data.qpos[a]) for a in qa[nm]])
+        worst = max(worst, float(np.max(np.degrees(np.abs(est[nm] - true)))))
+    assert worst < 1.5, f"joint reconstruction through the env: {worst:.3f} deg"
+    assert worst > 0.1, (
+        "and it is NOT exact -- the missing ankle load cell is in there"
+    )
+
+    # ⚠️ the gap, asserted: no observable is a world position
+    assert "com" not in obs and "base_pos" not in obs
+    assert set(obs) & {"rotor", "imu_quat", "contact"}, "sensors only"

@@ -15,7 +15,7 @@ cat-like agility, energy-efficient movement, and passive shock absorption.
 
 ## Progress
 
-Seventy-five milestones in. The model now spans kinematics → real mass → 3D
+Seventy-six milestones in. The model now spans kinematics → real mass → 3D
 static stability → whole-body dynamics → a dynamic gait → closed-loop balance →
 an independent physics-engine cross-check → thermal duty → whole-body force
 allocation, with **493 passing + 5 suspended Python tests and 17 Rust** and every figure below
@@ -298,6 +298,7 @@ is **1.97**. That remedy *is* cheap: one step up in stock tube, under 4 g.
 | M73 | The control **rate**, and NFR12 | the allocation is rate-insensitive, the **joint PD** is not — and NFR12's 7.5 ms **holds** |
 | M74 | **Throughput**, answered | **262,678 steps/s** on the 4090 already in the machine — training is affordable |
 | M75 | The **3.12 gate** | stable results bit-identical — the failure was an assertion read **after the robot fell** |
+| M76 | The training **environment** | sensor-only observation — and **no sensor says where the robot is** |
 
 Full detail in the [roadmap](docs/ROADMAP.md) and the [ADR log](docs/DESIGN_DECISIONS.md).
 
@@ -1144,6 +1145,27 @@ Full detail in the [roadmap](docs/ROADMAP.md) and the [ADR log](docs/DESIGN_DECI
 > finding landing on the suite that recorded it: *a "better" number is often the
 > robot on its way to the floor.* Removed; tilt, force and slip already assert
 > the claim. [ADR-0080](docs/DESIGN_DECISIONS.md).
+
+> ### ⚠️ M76: the environment exists, and it cannot tell the robot where it is
+>
+> ✅ **`TomcatEnv` is honest.** The observation comes from `d.sensordata` and
+> nothing else — 18 rotor encoders (14-bit), **14** load cells (none on an
+> ankle), IMU, 4 contact channels — at **133 Hz** with **7.5 ms** of delay,
+> and the action is a **tension** so the rotor servo keeps its own fast loop.
+>
+> ✅ **Joint angle survives it: 0.68° worst**, the missing ankle load cell
+> included, because it is in the robot.
+>
+> ⚠️ **But the planned validation cannot be run.** Driving the force allocation
+> through the env needs the CoM, its velocity and the foot positions **in the
+> world** — and the IMU gives orientation, not location. **No sensor measures
+> where this robot is.** That wants a **floating-base estimator**, which the
+> project has never had: every whole-body result took the base pose from the
+> simulator.
+>
+> ✅ It does not block learning — a policy consumes the observation
+> directly. It is the hand-written controller that needs the world frame.
+> [ADR-0081](docs/DESIGN_DECISIONS.md).
 
 > ### ⚠️ M71: the spine's drivetrain, and a margin that was never there
 >
