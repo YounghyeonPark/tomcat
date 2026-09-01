@@ -421,3 +421,43 @@ def _inside_hull(hull: np.ndarray, p: np.ndarray, tol: float = 1e-12) -> bool:
             return False
     return True
 
+
+
+# ==========================================================================
+# M72 -- the state the ROBOT can see, not the state the simulator has
+# ==========================================================================
+
+def joint_from_encoders(theta_rotor, theta_spool, a0, C, r_spool: float):
+    """Reconstruct joint angle from what `electronics/BOARD_OUTLINE.md` measures.
+
+    ⚠️ **There is no joint encoder on this robot.** The board carries a rotor
+    absolute encoder, phase-current sense, a tension front-end populated on
+    spine+hip/knee only, an IMU and foot contact (ADR-0004, FR12). Every
+    controller in this project reads `d.qpos[joint]` out of the simulator, which
+    is privileged state that hardware cannot supply.
+
+    It is recoverable, because two things line up:
+
+    * the winding equality makes the cable length ``L = a0 - r*(theta_r + theta_s)``
+    * the pair map is lower-triangular, ``L = C q``, so ``C`` inverts
+
+    hence ``q = C^-1 (a0 - r*(theta_r + theta_s))``.
+
+    ⚠️ **It needs the spring deflection `theta_spool`, which is a tension
+    measurement** -- and ADR-0004 leaves the ankle on a current estimate with no
+    load cell. Pass the ankle's `theta_spool` as zero to see what ignoring it
+    costs.
+
+    `a0` and `C` come from the build (`quadruped_rig_spooled`, `pair_matrix`).
+    """
+    theta_rotor = np.asarray(theta_rotor, dtype=float)
+    theta_spool = np.asarray(theta_spool, dtype=float)
+    L = np.asarray(a0, dtype=float) - float(r_spool) * (theta_rotor + theta_spool)
+    return np.linalg.solve(np.asarray(C, dtype=float), L)
+
+
+def quantise(x, bits: int, span: float = 2.0 * np.pi):
+    """An absolute encoder reads `bits` counts over `span`. ADR-0004 wants
+    AS5047/MA-class, which is 14-bit."""
+    lsb = float(span) / (2 ** int(bits))
+    return np.round(np.asarray(x, dtype=float) / lsb) * lsb

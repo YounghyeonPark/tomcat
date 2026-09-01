@@ -15,7 +15,7 @@ cat-like agility, energy-efficient movement, and passive shock absorption.
 
 ## Progress
 
-Seventy-one milestones in. The model now spans kinematics → real mass → 3D
+Seventy-two milestones in. The model now spans kinematics → real mass → 3D
 static stability → whole-body dynamics → a dynamic gait → closed-loop balance →
 an independent physics-engine cross-check → thermal duty → whole-body force
 allocation, with **493 passing + 5 suspended Python tests and 17 Rust** and every figure below
@@ -294,6 +294,7 @@ is **1.97**. That remedy *is* cheap: one step up in stock tube, under 4 g.
 | M69 | The margin, re-measured | the mode halves and the margin **improves** — a posture term is affordable |
 | M70 | Sway and righting, re-checked | the sway does not care about G3; the righting takes **4.7× as long** through a compliant spine |
 | M71 | The spine's **drivetrain** | G3 on all 18 cables — and ADR-0073's cable margin turns out to be a **rigid-trunk** result |
+| M72 | The plant an agent would **train in** | MJX is viable; `nsensor` was **0**, there is no joint encoder, and the ankle load cell is worth **6°** |
 
 Full detail in the [roadmap](docs/ROADMAP.md) and the [ADR log](docs/DESIGN_DECISIONS.md).
 
@@ -1055,6 +1056,30 @@ Full detail in the [roadmap](docs/ROADMAP.md) and the [ADR log](docs/DESIGN_DECI
 >
 > ⚠️ **And a 4 s window called the compliant plant a failure** — it rights at
 > 10.10 s. [ADR-0075](docs/DESIGN_DECISIONS.md).
+
+> ### ⚠️ M72: the plant an agent would train in has no senses
+>
+> The goal is **learning in simulation**, which changes the target from
+> *accurate* to *randomisable and fast*.
+>
+> ✅ **MJX is viable** — `put_model` keeps all **18 winding constraints**,
+> agrees with C MuJoCo to **0.029°**, `vmap`s at batch 32, and the MuJoCo
+> 3.10 → 3.12 bump it requires is **bit-identical**. Throughput still needs a
+> GPU; JAX has no CUDA build on Windows.
+>
+> ⚠️ **A trap on the way**: at a 1e-3 timestep the winding constraint is out by
+> **16 mm and nothing warns**. G3 stops being modelled and the sim runs happily.
+>
+> ⚠️ **And `nsensor = 0`.** The board carries 18 rotor encoders, 14 load cells
+> (spine+hip/knee only) an IMU and 4 foot channels — and **no joint encoder**.
+> Every controller here reads `d.qpos[joint]`: state the robot cannot supply.
+>
+> ✅ **It is recoverable** — the winding equality plus a lower-triangular
+> pair map give `q = C^-1(a0 - r(theta_r + theta_s))`, good to **0.010°**
+> with a 14-bit encoder. ⚠️ **Without the ankle load cell it is 1.09°**, and
+> it grows with tension: **6.08°** at the peak a landing runs at. That number
+> decides `electronics/`'s open question about which boards populate the
+> front-end. [ADR-0077](docs/DESIGN_DECISIONS.md).
 
 > ### ⚠️ M71: the spine's drivetrain, and a margin that was never there
 >

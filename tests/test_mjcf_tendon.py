@@ -7112,3 +7112,173 @@ def test_the_LANDING_with_a_COMPLIANT_SPINE_is_NOT_YET_ANSWERABLE():
     )
     mass = 4.3041 * 9.81
     assert hard["contact"] > 100.0 * mass / 9.81, "flagged as not credible"
+
+
+# ==========================================================================
+# M72 -- the state the ROBOT can see, against the state the simulator has
+# ==========================================================================
+
+
+def _sensed_quad(sensors=True):
+    """The shipped plant with `electronics/BOARD_OUTLINE.md`'s sensor suite."""
+    q = _quad_poses()
+    xml = MT.quadruped_rig_spooled(
+        q_ref={nm: list(v) for nm, v in q.items()}, series_k=SERIES_K,
+        hip_height=0.176, spine=True, spool_servo=True, sensors=sensors)
+    return mujoco.MjModel.from_xml_string(xml), q
+
+
+def test_the_PLANT_HAS_NO_SENSES_and_every_CONTROLLER_READS_PRIVILEGED_STATE():
+    """⚠️ **`nsensor = 0`. Nothing in this project has ever been sensed.**
+
+    Every controller here — the standing gate, the sway, the righting, the
+    landing — reads `d.qpos[joint]` and `d.qvel[joint]` straight out of the
+    simulator. `electronics/BOARD_OUTLINE.md` does not put a joint encoder on
+    this robot:
+
+    | what the board carries | count | measurable |
+    |---|---|---|
+    | rotor absolute encoder (AS5047/MA-class, ADR-0004) | 18 | ✅ |
+    | phase-current sense | 18 | ✅ |
+    | tendon load cell (in-amp front-end) | **14** | ✅ spine+hip/knee ONLY |
+    | IMU on the trunk | 1 | ✅ |
+    | per-foot contact + normal force (FR12) | 4 | ✅ |
+    | **joint encoder** | **0** | ⚠️ **there is none** |
+
+    ⚠️ **So joint angle is not an observation, it is an inference** — and
+    ADR-0004 leaves the ankle's tension on a current estimate with the load-cell
+    front-end DNP, which is what the next test prices.
+
+    ✅ `sensors=True` emits the suite the board actually provides, and it is
+    off by default so no existing measurement moves.
+    """
+    plain, _ = _sensed_quad(sensors=False)
+    assert plain.nsensor == 0, "the shipped plant has never had a sensor"
+
+    m, _ = _sensed_quad()
+    names = [mujoco.mj_id2name(m, mujoco.mjtObj.mjOBJ_SENSOR, i)
+             for i in range(m.nsensor)]
+    enc = [n for n in names if n.startswith("enc_") and not n.startswith("encv")]
+    load = [n for n in names if n.startswith("load_")]
+    touch = [n for n in names if n.startswith("touch_")]
+
+    assert len(enc) == 18, f"one rotor encoder per pair: {len(enc)}"
+    assert len(touch) == 4, "FR12 wants per-foot contact"
+    assert {"imu_quat", "imu_gyro", "imu_acc"} <= set(names)
+
+    # ⚠️ ADR-0004 populates the tension front-end on spine + hip/knee only
+    assert len(load) == 14, f"fourteen load cells, not eighteen: {len(load)}"
+    assert not [n for n in load if n.endswith("_ankle")], (
+        "the ankle front-end is DNP -- that is the decision, not an omission"
+    )
+
+    # ⚠️ and nothing here reads a joint angle
+    assert not [n for n in names
+                if any(n.endswith(f"_q{i}") for i in (1, 2, 3))], (
+        "there is no joint encoder on this robot"
+    )
+
+
+def test_JOINT_ANGLE_IS_RECOVERABLE_but_the_ANKLE_LOAD_CELL_is_what_pays():
+    """✅ **Joint angle is recoverable to 0.010° — except at the ankle.**
+
+    Two things line up to make it observable at all: the winding equality gives
+    `L = a0 - r*(theta_rotor + theta_spool)`, and the pair map is
+    **lower-triangular** (`L = C q`, hip crosses one joint, knee two, ankle
+    three), so `C` inverts. Hence `q = C^-1 (a0 - r*(theta_r + theta_s))`.
+
+    | what the robot knows | worst error |
+    |---|---|
+    | perfect encoder + all 18 load cells | **0.004°** |
+    | 14-bit encoder + all 18 load cells | **0.010°** |
+    | 14-bit encoder, **no ankle load cell** | **1.09°** |
+    | perfect encoder, no ankle load cell | 1.08° |
+
+    ✅ **The encoder is not the limit.** A 14-bit absolute encoder (0.022°
+    per count) costs 0.006° of joint angle. ⚠️ **The missing ankle load cell
+    costs 111× that**, and the last row proves it: a *perfect* encoder without
+    the cell is no better.
+
+    ⚠️ **And it scales with tension, because the missed quantity is the G3
+    spring's own deflection** (`theta_spool = T*r/k_tors`):
+
+    | ankle tension | ankle angle error |
+    |---|---|
+    | 25 N | 0.68° |
+    | 81.1 N (continuous rating) | **2.21°** |
+    | 222.9 N (peak, and where ADR-0076 found the leg runs in a landing) | **6.08°** |
+
+    ⚠️ So the plant this project has been measuring is not one a controller
+    could run on: at the tensions ADR-0073 and ADR-0076 record, the ankle's true
+    angle is unknown by degrees. `electronics/BOARD_OUTLINE.md` lists exactly
+    this as its open G-Tens item — **which boards populate the front-end** —
+    and this is the number that decides it.
+    """
+    arms = [float(a) for a in DEFAULT_TENDON.joint_moment_arm]
+    C = MT.pair_matrix(arms)
+    assert np.allclose(C, np.tril(C)), "recoverability rests on triangularity"
+
+    m, q = _sensed_quad()
+    d = mujoco.MjData(m)
+    qa = {n: _qadr(m, n) for n in QLEGS}
+    JR = {n: [m.jnt_qposadr[_adr(m, mujoco.mjtObj.mjOBJ_JOINT, f"jr_{n}_{p}")]
+              for p in PULLEY_PAIRS] for n in QLEGS}
+    JS = {n: [m.jnt_qposadr[_adr(m, mujoco.mjtObj.mjOBJ_JOINT, f"js_{n}_{p}")]
+              for p in PULLEY_PAIRS] for n in QLEGS}
+    TID = {n: [_adr(m, mujoco.mjtObj.mjOBJ_TENDON, f"{n}_{p}")
+               for p in PULLEY_PAIRS] for n in QLEGS}
+    A = {n: [_adr(m, mujoco.mjtObj.mjOBJ_ACTUATOR, f"m_{n}_{p}")
+             for p in PULLEY_PAIRS] for n in QLEGS}
+    for n in QLEGS:
+        for i, a in enumerate(qa[n]):
+            d.qpos[a] = q[n][i]
+    mujoco.mj_forward(m, d)
+    a0 = {n: np.array([float(d.ten_length[t]) for t in TID[n]]) for n in QLEGS}
+
+    for _ in range(3000):
+        for n in QLEGS:
+            cmd = wbc.rotor_command([d.qpos[j] for j in JR[n]],
+                                    [d.qpos[j] for j in JS[n]],
+                                    np.array([60.0, 40.0, 25.0]), K_TORS,
+                                    MT.SPOOL_R, servo_kp=SERVO_KP)
+            for i, a in enumerate(A[n]):
+                d.ctrl[a] = float(cmd[i])
+        mujoco.mj_step(m, d)
+        assert np.all(np.isfinite(d.qpos))
+
+    def worst(bits=None, drop_ankle=False):
+        e = 0.0
+        for n in QLEGS:
+            jr = np.array([float(d.qpos[j]) for j in JR[n]])
+            js = np.array([float(d.qpos[j]) for j in JS[n]])
+            if bits:
+                jr = wbc.quantise(jr, bits)
+            if drop_ankle:
+                js = js.copy()
+                js[2] = 0.0
+            qh = wbc.joint_from_encoders(jr, js, a0[n], C, MT.SPOOL_R)
+            qt = np.array([float(d.qpos[a]) for a in qa[n]])
+            e = max(e, float(np.max(np.degrees(np.abs(qh - qt)))))
+        return e
+
+    ideal, quant = worst(), worst(bits=14)
+    no_cell, no_cell_ideal = worst(bits=14, drop_ankle=True), worst(drop_ankle=True)
+
+    assert ideal < 0.01, f"the reconstruction must be exact: {ideal:.4f} deg"
+    assert quant < 0.02, f"a 14-bit encoder costs almost nothing: {quant:.4f}"
+    # ⚠️ the missing ankle load cell dominates by two orders of magnitude
+    assert no_cell > 50.0 * quant, (
+        f"no ankle cell {no_cell:.3f} deg against {quant:.4f} quantised"
+    )
+    # ⚠️ and a perfect encoder does not rescue it -- it is the cell, not the enc
+    assert no_cell_ideal > 0.9 * no_cell
+
+    # ⚠️ the error is the spring deflection, so it grows with tension
+    def ankle_err(T):
+        dL = MT.SPOOL_R * (T * MT.SPOOL_R / K_TORS)
+        return math.degrees(np.linalg.solve(C, np.array([0.0, 0.0, dL]))[2])
+
+    assert ankle_err(81.1) == pytest.approx(2.21, abs=0.05)
+    assert ankle_err(MT.TENSION_MAX) == pytest.approx(6.08, abs=0.10), (
+        "at the peak rating the ankle angle is unknown by six degrees"
+    )

@@ -6006,6 +6006,124 @@ rather than publishing a number.
 - ⚠️ **A modelling detail worth 2.4 s is a warning about every free-fall number
   in this project**, not just this one.
 
+## ADR-0077: The plant an agent would train in has no senses
+
+- **Status:** Accepted — M72
+- **✅ Answers the tooling question directly (MJX is viable). ⚠️ Finds that
+  every controller in this project reads state the robot cannot measure.**
+- **Context:** The project owner set the goal: **maximally realistic modelling
+  for learning in simulation**. That changes the target from *accurate* to
+  *randomisable and fast*, and it makes one question decisive — what can the
+  robot actually observe?
+
+### ✅ First, the tooling question: MJX is viable, no blocker
+
+Measured rather than assumed, in a throwaway venv so nothing shipped moved:
+
+| check | result |
+|---|---|
+| feature parity | `TENDON` equality, `<fixed>` tendons, tendon transmission, `IMPLICITFAST`, condim 4/6 — all supported |
+| `mjx.put_model` on the shipped plant | **`neq = 18`, `eq_type = [mjEQ_TENDON]`** — the drivetrain survives |
+| MJX against C MuJoCo, 400 steps | **0.029 deg** worst joint |
+| `vmap` at batch 32 | finite, compiles, runs |
+| MuJoCo 3.10 → 3.12 (which `mujoco-mjx` requires) | **bit-identical** across 61 qpos × 400 steps |
+
+✅ **The failure worth guarding against did not happen**: MJX does not
+silently drop the winding constraints, which would have handed a policy a robot
+with no G3 to train against. ⚠️ Throughput is still unanswered — JAX has no
+CUDA build on Windows (`CpuDevice`), so the speedup case needs Linux/WSL2 and a
+GPU. Per-env MJX on CPU is 1,374 steps/s against C's 25,320, which is expected
+and is not the point of MJX.
+
+### ⚠️ A timestep trap, found on the way
+
+| timestep | x realtime | winding-equality residual |
+|---|---|---|
+| 1e-4 (shipped) | 1.60 | **0.5 um** |
+| 2e-4 | 3.16 | 0.7 um |
+| 5e-4 | 7.38 | 124 um |
+| 1e-3 | 8.05 | **16 mm** |
+| 2e-3 | 15.0 | 204 mm |
+
+⚠️ **At 1e-3 the drivetrain constraint is out by 16 mm and nothing warns.** The
+sim does not crash; G3 simply stops being modelled. Anyone speeding the plant up
+for training without asserting that residual trains against a different robot.
+2e-4 is a free 2×; past 5e-4 the model is no longer the model.
+
+### ⚠️ And the finding that matters most: `nsensor = 0`
+
+`electronics/BOARD_OUTLINE.md` puts this on the robot:
+
+| the board carries | count |
+|---|---|
+| rotor absolute encoder (AS5047/MA-class, [ADR-0004](#adr-0004)) | 18 |
+| phase-current sense | 18 |
+| tendon load cell, in-amp front-end | **14** — spine+hip/knee only, DNP on ankle/tail |
+| IMU on the trunk | 1 |
+| per-foot contact and normal force ([FR12](REQUIREMENTS.md)) | 4 |
+| **joint encoder** | **0** |
+
+⚠️ **There is no joint encoder, and every controller in this project reads
+`d.qpos[joint]`.** The standing gate, the sway, the righting, the landing —
+all of them run on privileged state that hardware cannot supply. The plant had
+**no sensors at all** until this milestone.
+
+⚠️ `firmware/README.md` lists *"joint angle"* among the sampled signals. The
+board has no such channel. That inconsistency is now recorded rather than
+carried.
+
+### ✅ Joint angle IS recoverable — and the ankle load cell is what pays
+
+Two facts line up: the winding equality gives `L = a0 - r*(theta_r + theta_s)`,
+and the pair map is **lower-triangular** (`L = C q`), so `C` inverts. Hence
+`q = C^-1 (a0 - r*(theta_r + theta_s))`.
+
+| what the robot knows | worst joint error |
+|---|---|
+| perfect encoder + all 18 load cells | **0.004 deg** |
+| 14-bit encoder + all 18 load cells | **0.010 deg** |
+| 14-bit encoder, **no ankle load cell** | **1.09 deg** |
+| perfect encoder, no ankle load cell | 1.08 deg |
+
+✅ **The encoder is not the limit.** A 14-bit absolute encoder costs
+0.006 deg. ⚠️ **The missing ankle load cell costs 111× that**, and the last
+row proves the attribution: a perfect encoder without the cell is no better.
+
+⚠️ **It scales with tension**, because what is being ignored is G3's own spring
+deflection:
+
+| ankle tension | ankle angle error |
+|---|---|
+| 25 N | 0.68 deg |
+| 81.1 N (continuous rating) | **2.21 deg** |
+| 222.9 N (peak — where [ADR-0076](#adr-0076) found the leg runs in a landing) | **6.08 deg** |
+
+### Decision
+
+Emit the board's sensor suite from the builder (`sensors=`, default off so no
+measurement moves), ship the reconstruction in `wbc.joint_from_encoders`, and
+treat any observation space built for learning as a function of **that** suite
+and not of `qpos`.
+
+### Consequences
+
+- ✅ **`electronics/BOARD_OUTLINE.md`'s open G-Tens item now has a number.**
+  "Which driver boards populate the load-cell front-end" is decided by 0.010 deg
+  against 2.21–6.08 deg of ankle-angle knowledge.
+- ⚠️ **Every whole-body result in this project used privileged state.** Nothing
+  is retracted — they are plant measurements, not controller proposals —
+  but none of them is a controller that could run on the robot.
+- ⚠️ **Latency is still zero.** [NFR12](REQUIREMENTS.md) budgets **7.5 ms**
+  (contact 1.0 + estimation 5.0 + transport 1.0 + compute 0.5), which is **75
+  steps** at the shipped timestep. A policy trained at zero delay will exploit
+  it. That is the next gap, and it is bigger than any of the fidelity items.
+- ⚠️ **Capstan friction still cannot be randomised** because the mechanism does
+  not exist (`wrap_angle = 0`, [ADR-0003](#adr-0003)). For learning, the reason
+  to build it is not accuracy — it is that a parameter absent from the model
+  cannot be randomised over.
+- ✅ **Do not switch simulators.** Discrete cables cost **14.3×** on this
+  plant (nv 60 → 1032) and buy what randomising the lumped parameters buys.
+
 ---
 
 ### How to add an ADR

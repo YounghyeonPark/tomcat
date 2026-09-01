@@ -406,6 +406,26 @@ def pair_rows(arms, ankle_pair: bool = True):
     return rows
 
 
+def pair_matrix(arms, ankle_pair: bool = True):
+    """The pair map `C` with `L = C q`, as a dense lower-triangular matrix.
+
+    `pair_rows` emits the same coefficients as XML; this is them as numbers, so a
+    state estimator can invert them. Lower-triangular by construction -- the hip
+    pair crosses one joint, the knee pair two, the ankle pair three -- which is
+    why joint angle is recoverable from cable length at all.
+    """
+    import numpy as np
+
+    rows = pair_rows(arms, ankle_pair)
+    order = ["hip", "knee", "ankle"][: 3 if ankle_pair else 2]
+    jidx = {"q1": 0, "q2": 1, "q3": 2}
+    C = np.zeros((len(order), 3))
+    for i, k in enumerate(order):
+        for jn, c in rows[k]:
+            C[i, jidx[jn]] = c
+    return C
+
+
 def pulley_tendons(name: str, arms, ankle_pair: bool = True) -> str:
     """One `<fixed>` tendon per antagonistic PAIR -- [ADR-0008](../../../docs/DESIGN_DECISIONS.md).
 
@@ -972,7 +992,8 @@ def quadruped_rig(hip_height: float = 0.175, elastic: dict | None = None,
                   spools: float | None = None,
                   spool_a0: dict | None = None,
                   spool_servo: bool = False,
-                  spine_spools: bool = True) -> str:
+                  spine_spools: bool = True,
+                  sensors: bool = False) -> str:
     """Four tendon-driven legs on a floating trunk — the whole-body stand gate.
 
     Twelve leg DOF, **twenty tendons, twenty actuators**, all pull-only. The spine
@@ -1070,7 +1091,7 @@ def quadruped_rig(hip_height: float = 0.175, elastic: dict | None = None,
                                 nl.join(acts), fore_bodies, hind_bodies,
                                 fore_spools, hind_spools,
                                 drive_w, drive_e, drive_a,
-                                spine_drive=spine_drive)
+                                spine_drive=spine_drive, sensors=sensors)
     return f"""<mujoco model="tomcat_quadruped_tendon">
   <compiler angle="radian" autolimits="true"/>
   <option timestep="1e-4" gravity="0 0 {-GRAVITY}" integrator="implicitfast"/>
@@ -1084,6 +1105,7 @@ def quadruped_rig(hip_height: float = 0.175, elastic: dict | None = None,
       <freejoint name="root"/>
       <geom name="trunk_g" type="box" size="0.130 0.035 0.030"
             mass="{trunk_mass:.5f}"/>
+      <site name="imu" pos="0 0 0.030" size="0.003"/>
 {nl.join(spool_sites)}
 {nl.join(bodies)}
     </body>
@@ -1096,14 +1118,15 @@ def quadruped_rig(hip_height: float = 0.175, elastic: dict | None = None,
   <actuator>
 {nl.join(drive_a) if drive_a else nl.join(acts)}
   </actuator>
-</mujoco>
+{sensor_block([n for n, *_ in legs], spooled=spools is not None) if sensors else ""}</mujoco>
 """
 
 
 def _spine_quadruped(hip_height, trunk_mass, tendons, acts,
                      fore_bodies, hind_bodies, fore_spools, hind_spools,
                      drive_w=(), drive_e=(), drive_a=(),
-                     spine_drive: bool = False) -> str:
+                     spine_drive: bool = False,
+                     sensors: bool = False) -> str:
     """The quadruped with ADR-0006's ARTICULATED spine instead of a rigid box.
 
     ✅ **What M43 deliberately left out, and why it is safe to add now.** The
@@ -1145,6 +1168,7 @@ def _spine_quadruped(hip_height, trunk_mass, tendons, acts,
       <freejoint name="root"/>
       <geom name="rear_girdle_g" type="box" size="0.030 0.030 0.028"
             mass="{sp.rear_girdle_mass:.5f}"/>
+      <site name="imu" pos="0 0 0.028" size="0.003"/>
 {nl.join(hind_spools)}
 {nl.join(hind_bodies)}
 {chain}
@@ -1159,8 +1183,62 @@ def _spine_quadruped(hip_height, trunk_mass, tendons, acts,
   <actuator>
 {nl.join(drive_a) if drive_a else acts}{"" if spine_drive else nl + spine_actuators(sp)}
   </actuator>
-</mujoco>
+{sensor_block(QUAD_LEGS, spine_pair_names(sp.n_segments) if spine_drive else (), spooled=bool(drive_e)) if sensors else ""}</mujoco>
 """
+
+
+#: Which pairs get a tendon LOAD CELL. ADR-0004's hybrid closed the tension
+#: method as "current-estimate everywhere + joint-end load cell on
+#: stiffness-critical joints", and `electronics/BOARD_OUTLINE.md` populates the
+#: front-end on **spine + hip/knee** and leaves it DNP on **ankle/tail**. So the
+#: ankle's tension is a current ESTIMATE, and any state built on it is worse.
+LOAD_CELL_PAIRS = ("hip", "knee")
+
+#: Leg names, in the order every rig emits them.
+QUAD_LEGS = ("LF", "RF", "LR", "RR")
+
+
+def sensor_block(legs, spine_names=(), spooled=False) -> str:
+    """The sensors `electronics/BOARD_OUTLINE.md` actually puts on the robot.
+
+    ⚠️ **There is no joint encoder.** The board carries a rotor absolute
+    encoder (AS5047/MA-class, ADR-0004), phase-current sense, a tension
+    front-end populated on spine+hip/knee only, an IMU and foot contact. Joint
+    angle is **not measured** -- it has to be reconstructed through the
+    drivetrain, and the drivetrain has G3's spring in the middle of it.
+
+    Every controller in this project reads `d.qpos[joint]` straight out of the
+    simulator. That state does not exist on the robot.
+    """
+    rows = []
+    if spooled:
+        rows.append("    <!-- rotor absolute encoder: what the board measures -->")
+        for nm in legs:
+            for p in PULLEY_PAIRS_NAMES:
+                rows.append(f'    <jointpos name="enc_{nm}_{p}" joint="jr_{nm}_{p}"/>')
+                rows.append(f'    <jointvel name="encv_{nm}_{p}" joint="jr_{nm}_{p}"/>')
+        for n in spine_names:
+            rows.append(f'    <jointpos name="enc_{n}" joint="jr_{n}"/>')
+            rows.append(f'    <jointvel name="encv_{n}" joint="jr_{n}"/>')
+        rows.append("    <!-- tendon load cell: ADR-0004 populates spine+hip/knee only -->")
+        for nm in legs:
+            for p in PULLEY_PAIRS_NAMES:
+                if p in LOAD_CELL_PAIRS:
+                    rows.append(f'    <jointpos name="load_{nm}_{p}" joint="js_{nm}_{p}"/>')
+        for n in spine_names:
+            rows.append(f'    <jointpos name="load_{n}" joint="js_{n}"/>')
+    rows.append("    <!-- IMU on the trunk -->")
+    rows.append('    <framequat name="imu_quat" objtype="site" objname="imu"/>')
+    rows.append('    <gyro name="imu_gyro" site="imu"/>')
+    rows.append('    <accelerometer name="imu_acc" site="imu"/>')
+    rows.append("    <!-- FR12: per-foot contact and normal force -->")
+    for nm in legs:
+        rows.append(f'    <touch name="touch_{nm}" site="{nm}_foot"/>')
+    nl = chr(10)
+    return "  <sensor>" + nl + nl.join(rows) + nl + "  </sensor>" + nl
+
+
+PULLEY_PAIRS_NAMES = ("hip", "knee", "ankle")
 
 
 def _equality_block(rows) -> str:

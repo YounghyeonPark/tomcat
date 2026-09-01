@@ -160,10 +160,10 @@ sequences the work that implements them.
 > model has no G3 ([ADR-0072](DESIGN_DECISIONS.md)).
 > **M68 done:** the whole body gets its **drivetrain** — G3 takes the shock out
 > of the **cable**, not the ground ([ADR-0073](DESIGN_DECISIONS.md)).
-> **M71 done:** the spine's drivetrain is in the builder, and it costs
-> ADR-0073's cable margin — which a rigid trunk had been buying
-> ([ADR-0076](DESIGN_DECISIONS.md)).
-> 503 passed + 5 xfailed Python, 17 Rust.
+> **M72 done:** the goal is **learning in simulation**, and the plant an agent
+> would train in has **no senses** — nor a joint encoder to give it any
+> ([ADR-0077](DESIGN_DECISIONS.md)).
+> 505 passed + 5 xfailed Python, 17 Rust.
 
 ---
 
@@ -3524,7 +3524,52 @@ Contact comes back **non-monotonic in drop height** and reaches 11 kN — 260×
 body weight — while the spine loop runs at **>20× its rating**. Named as
 open, not published as a result.
 
-## Later milestones (candidate M72+, not committed)
+## Milestone M72 — The plant an agent would train in (DONE)
+
+The project owner set the goal: **maximally realistic modelling for learning in
+simulation**. That changes the target from *accurate* to *randomisable and
+fast*, and makes one question decisive — what can the robot observe?
+
+### ✅ The tooling question, answered: MJX is viable
+
+`mjx.put_model` keeps **all 18 winding constraints** (`eq_type = mjEQ_TENDON`),
+agrees with C MuJoCo to **0.029°** over 400 steps, and `vmap`s at batch 32.
+MuJoCo 3.10 → 3.12 (which `mujoco-mjx` requires) is **bit-identical**.
+⚠️ Throughput is unanswered: JAX has no CUDA build on Windows, so that needs
+Linux/WSL2 and a GPU.
+
+### ⚠️ A timestep trap
+
+| timestep | × realtime | winding residual |
+|---|---|---|
+| 1e-4 (shipped) | 1.60 | **0.5 um** |
+| 2e-4 | 3.16 | 0.7 um |
+| 5e-4 | 7.38 | 124 um |
+| 1e-3 | 8.05 | **16 mm** |
+
+⚠️ At 1e-3 the drivetrain is out by **16 mm and nothing warns** — G3 simply
+stops being modelled. Speeding the plant up for training without asserting that
+residual trains a policy against a different robot.
+
+### ⚠️ `nsensor = 0`, and there is no joint encoder
+
+The board carries 18 rotor encoders, 18 current senses, **14** load cells
+(spine+hip/knee; DNP on ankle/tail), an IMU and 4 foot-contact channels — and
+**no joint encoder**. Every controller in this project reads `d.qpos[joint]`,
+which is privileged state.
+
+### ✅ Joint angle is recoverable — the ankle load cell is what pays
+
+| what the robot knows | worst error |
+|---|---|
+| 14-bit encoder + all 18 load cells | **0.010°** |
+| 14-bit encoder, **no ankle load cell** | **1.09°** |
+
+✅ The encoder is not the limit; the missing cell costs **111×** it, and it
+scales with tension — **2.21°** at the continuous rating, **6.08°** at
+the peak ADR-0076 found a landing runs at.
+
+## Later milestones (candidate M73+, not committed)
 
 > This list is **curated, not append-only**. When a milestone closes an item it is
 > deleted here and the reasoning kept in the [ADR log](DESIGN_DECISIONS.md). Earlier
@@ -3557,6 +3602,15 @@ open, not published as a result.
   **9–13× body weight**. Structure, bearings and girdles get no help, and
   nobody has checked them. ⚠️ Untested too: heights above 0.30 m, and landing on a
   corner or a single leg.
+- **LATENCY IS STILL ZERO.** ⚠️ ADR-0077: NFR12 budgets **7.5 ms** (contact
+  1.0 + estimation 5.0 + transport 1.0 + compute 0.5) — **75 steps** at the
+  shipped timestep, and the plant has none. A policy trained at zero delay will
+  exploit it. Bigger than any fidelity item on this list.
+- **CAPSTAN FRICTION CANNOT BE RANDOMISED BECAUSE IT DOES NOT EXIST.** ⚠️
+  ADR-0003 left `wrap_angle = 0`. For learning the reason to build it is not
+  accuracy — a parameter absent from the model cannot be randomised over.
+  `mechanical/cad/leg_tendons.py` already solves the wraps: 1.24× hip, 1.32×
+  knee, and **1.21× / 1.99×** on the two sides of the ankle pair.
 - **THE SPINE NEEDS A CONTROLLER THAT LIVES INSIDE ITS TRANSMISSION.** ⚠️
   ADR-0076: a `kp = 300` spine loop is not realisable through `k*r^2 = 48.6
   N*m/rad`, and that now blocks **two** results — the righting (ADR-0075) and
@@ -3769,6 +3823,7 @@ Kept as a short table so the deletions above are auditable rather than silent.
 | Re-measure the control margin | M69 — [ADR-0074](DESIGN_DECISIONS.md): the mode halves and the margin **improves**; a posture term is affordable |
 | Re-check sway and righting with G3 | M70 — [ADR-0075](DESIGN_DECISIONS.md): the sway does not care, the righting takes **4.7× as long** through a compliant spine |
 | Build the spine's drivetrain | M71 — [ADR-0076](DESIGN_DECISIONS.md): G3 on all 18 cables, and ADR-0073's cable margin turns out to be a **rigid-trunk** result |
+| Make the plant sensable | M72 — [ADR-0077](DESIGN_DECISIONS.md): MJX is viable; `nsensor` was **0**; there is no joint encoder, and the ankle load cell is worth **6°** |
 
 ## Open reconciliation items (lead)
 
