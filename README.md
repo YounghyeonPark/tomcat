@@ -15,7 +15,7 @@ cat-like agility, energy-efficient movement, and passive shock absorption.
 
 ## Progress
 
-Seventy-nine milestones in. The model now spans kinematics → real mass → 3D
+Eighty milestones in. The model now spans kinematics → real mass → 3D
 static stability → whole-body dynamics → a dynamic gait → closed-loop balance →
 an independent physics-engine cross-check → thermal duty → whole-body force
 allocation, with **493 passing + 5 suspended Python tests and 17 Rust** and every figure below
@@ -302,6 +302,7 @@ is **1.97**. That remedy *is* cheap: one step up in stock tube, under 4 g.
 | M77 | The standing **task** | no constant action stands it — and tilt alone scored a collapsed robot **192** |
 | M78 | The **extensor** side | ADR-0042's retraction covered one cable of two — the ankle extensor is **1.985×** |
 | M79 | **Domain randomisation** | four parameters, each verified to bite — one of them **did not** |
+| M80 | **Sensor** randomisation | five more errors — and a bite test that had to change shape |
 
 Full detail in the [roadmap](docs/ROADMAP.md) and the [ADR log](docs/DESIGN_DECISIONS.md).
 
@@ -1230,6 +1231,25 @@ Full detail in the [roadmap](docs/ROADMAP.md) and the [ADR log](docs/DESIGN_DECI
 > from a routing `mechanical/` still owes, and randomising around a geometry
 > known to be wrong would bake the defect into a policy.
 > [ADR-0084](docs/DESIGN_DECISIONS.md).
+
+> ### ✅ M80: sensor randomisation, and a bite test that changed shape
+>
+> M79 made the **plant** a distribution and left the **sensors** exact — so a
+> policy would learn to trust instruments the robot does not have. Five errors
+> now move per episode: encoder zeroing and noise, load-cell calibration, IMU
+> misalignment, gyro noise.
+>
+> ⚠️ **M79's own bite test would have called all five inert.** Sensor error
+> changes the **observation**, and with a fixed action the plant never reads it
+> — the trajectory is bit-identical **by construction**. The question had to
+> be asked of the observation and of the joint estimate instead.
+>
+> ✅ **Nothing leaks**: the three transmission-side errors move the joint
+> estimate and leave the IMU alone, and the two IMU errors do the reverse.
+>
+> ⚠️ Two of them happen to *reduce* the estimate error — one draw landing
+> against the standing bias, not a benefit — so the test asserts that a value
+> **moves** and never which way. [ADR-0085](docs/DESIGN_DECISIONS.md).
 
 > ### ⚠️ M71: the spine's drivetrain, and a margin that was never there
 >

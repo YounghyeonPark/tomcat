@@ -160,10 +160,10 @@ sequences the work that implements them.
 > model has no G3 ([ADR-0072](DESIGN_DECISIONS.md)).
 > **M68 done:** the whole body gets its **drivetrain** — G3 takes the shock out
 > of the **cable**, not the ground ([ADR-0073](DESIGN_DECISIONS.md)).
-> **M79 done:** **domain randomisation** — four parameters, every one
-> verified to bite, after one of them turned out not to
-> ([ADR-0084](DESIGN_DECISIONS.md)).
-> 514 passed + 5 xfailed Python, 17 Rust.
+> **M80 done:** **sensor randomisation** — five more errors, and a bite test
+> that had to change shape to catch them
+> ([ADR-0085](DESIGN_DECISIONS.md)).
+> 515 passed + 5 xfailed Python, 17 Rust.
 
 ---
 
@@ -3780,7 +3780,37 @@ was checked rather than assumed.
 ⚠️ `mu_capstan` is deliberately **absent**: ADR-0083's wraps come from a
 routing `mechanical/` still owes.
 
-## Later milestones (candidate M80+, not committed)
+## Milestone M80 — Sensor randomisation (DONE)
+
+M79 made the **plant** a distribution and left the **sensors** exact, so a
+policy would learn to trust instruments the robot does not have.
+
+### ✅ Five errors, drawn per episode
+
+`enc_offset_rad` (encoder zeroing), `enc_noise_rad` (~2 LSB), `load_scale`
+(calibration, which ADR-0004 still owes), `imu_tilt_deg` (mounting), and
+`gyro_noise`.
+
+### ⚠️ M79's bite test would have called all five inert
+
+Sensor error changes the **observation**, and with a fixed action the plant
+never reads it — the trajectory is **bit-identical by construction**. So the
+question is asked of the observation and of `joint_estimate` instead:
+
+| knob | joint estimate | IMU tilt | gyro |
+|---|---|---|---|
+| (clean) | 0.684° | 64.962° | 0.0289 |
+| `enc_offset_rad` | **0.784°** | = | = |
+| `load_scale` | **0.631°** | = | = |
+| `imu_tilt_deg` | = | **65.415°** | = |
+| `gyro_noise` | = | = | **0.0323** |
+
+✅ **Nothing leaks** — transmission errors move the estimate only, IMU
+errors the IMU only. ⚠️ Two of them happen to *reduce* the error, which is one
+draw against the standing bias and not a benefit, so the test asserts movement
+and never direction.
+
+## Later milestones (candidate M81+, not committed)
 
 > This list is **curated, not append-only**. When a milestone closes an item it is
 > deleted here and the reasoning kept in the [ADR log](DESIGN_DECISIONS.md). Earlier
@@ -4055,6 +4085,7 @@ Kept as a short table so the deletions above are auditable rather than silent.
 | Define the standing task | M77 — [ADR-0082](DESIGN_DECISIONS.md): no constant action stands; tilt alone scored a collapsed robot **192** |
 | Solve the extensor wraps | M78 — [ADR-0083](DESIGN_DECISIONS.md): ADR-0042's retraction covered **one cable of two**; the ankle extensor is **1.985×** |
 | Randomise the plant | M79 — [ADR-0084](DESIGN_DECISIONS.md): four parameters, each verified to bite — one of them **did not** |
+| Randomise the sensors | M80 — [ADR-0085](DESIGN_DECISIONS.md): five errors, and a bite test that had to **change shape** |
 
 ## Open reconciliation items (lead)
 

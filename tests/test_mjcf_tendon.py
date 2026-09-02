@@ -7885,3 +7885,100 @@ def test_EVERY_RANDOMISED_PARAMETER_ACTUALLY_BITES():
     env.reset()
     assert float(np.sum(env.model.body_mass)) == pytest.approx(
         float(np.sum(env._nom["mass"])), rel=1e-9), "and it restores nominal"
+
+
+# ==========================================================================
+# M80 -- sensor randomisation, which bites somewhere else entirely
+# ==========================================================================
+
+
+def test_SENSOR_RANDOMISATION_BITES_THE_OBSERVATION_not_the_trajectory():
+    """✅ **Five sensor errors, each moving only what it should.**
+
+    [ADR-0084](../docs/DESIGN_DECISIONS.md) randomised the **plant** -- mass,
+    friction, spring, delay -- and every knob was checked by running an episode
+    and requiring it to differ. That check cannot work here: sensor error changes
+    the **observation**, and with a fixed action the plant never reads it, so the
+    trajectory is bit-identical by construction. Asking "does the episode
+    differ" would have reported all five as inert.
+
+    So the question is asked of the observation and of `env.joint_estimate`:
+
+    | knob | joint estimate | IMU tilt | gyro |
+    |---|---|---|---|
+    | (clean) | 0.684° | 64.962° | 0.0289 |
+    | `enc_offset_rad` | **0.784°** | = | = |
+    | `enc_noise_rad` | **0.668°** | = | = |
+    | `load_scale` | **0.631°** | = | = |
+    | `imu_tilt_deg` | = | **65.415°** | = |
+    | `gyro_noise` | = | = | **0.0323** |
+
+    ✅ **Nothing leaks.** The three transmission-side errors move the joint
+    estimate and leave the IMU alone; the two IMU errors do the reverse. That
+    separation is the evidence the wiring is right.
+
+    ⚠️ **`enc_noise` and `load_scale` happen to REDUCE the error here**
+    (0.684 → 0.668, 0.631). That is one draw landing against the standing
+    bias, not a benefit -- so this test asserts only that the value **moves**,
+    never that it grows. Asserting a direction would encode a coincidence.
+
+    ✅ **The encoder offset is a constant, not noise.** It is where the magnet
+    sits, drawn once per episode; it does not average away over a rollout, which
+    is exactly why a policy has to be robust to it.
+    """
+    from tomcat_kin.env import TomcatEnv
+
+    def settle(env, n=120):
+        env.reset()
+        for _ in range(n):
+            obs, *_ = env.step(np.full(18, 25.0))
+        return obs
+
+    def measure(**over):
+        env = TomcatEnv(rng=np.random.default_rng(0))
+        settle(env)
+        for k, v in over.items():
+            env.drawn[k] = v
+            if k == "enc_offset_rad":
+                env._enc_bias = np.random.default_rng(1).normal(0.0, v, 18)
+            if k == "load_scale":
+                env._load_gain = v
+            if k == "imu_tilt_deg":
+                env._imu_tilt = math.radians(v)
+        obs = env.observe()
+        qa = {nm: [env.model.jnt_qposadr[env._id(mujoco.mjtObj.mjOBJ_JOINT,
+                                                 f"{nm}_q{i}")] for i in (1, 2, 3)]
+              for nm in ("LF", "RF", "LR", "RR")}
+        est = env.joint_estimate(obs)
+        err = 0.0
+        for nm in qa:
+            true = np.array([float(env.data.qpos[a]) for a in qa[nm]])
+            err = max(err, float(np.max(np.degrees(np.abs(est[nm] - true)))))
+        return (err, TomcatEnv._tilt(obs), float(np.linalg.norm(obs["imu_gyro"])))
+
+    clean = measure()
+    for name, (_, hi) in TomcatEnv.SENSOR_RANGES.items():
+        got = measure(**{name: hi})
+        assert got != clean, f"{name} is an inert sensor knob"
+
+    # ✅ transmission errors move the estimate and leave the IMU alone
+    for name in ("enc_offset_rad", "load_scale"):
+        got = measure(**{name: TomcatEnv.SENSOR_RANGES[name][1]})
+        assert got[0] != clean[0], f"{name} must reach the joint estimate"
+        assert got[1] == pytest.approx(clean[1]), f"{name} must not touch the IMU"
+
+    # ✅ and IMU errors do the reverse
+    got = measure(imu_tilt_deg=1.5)
+    assert got[1] != clean[1] and got[0] == pytest.approx(clean[0])
+    got = measure(gyro_noise=0.02)
+    assert got[2] != clean[2] and got[0] == pytest.approx(clean[0])
+
+    # ⚠️ with a FIXED action the trajectory is untouched -- which is why the
+    # ADR-0084 style of bite check would have called all five inert
+    a = TomcatEnv(randomize={"enc_offset_rad": (0.004, 0.004)},
+                  rng=np.random.default_rng(2))
+    b = TomcatEnv(rng=np.random.default_rng(2))
+    settle(a, 40)
+    settle(b, 40)
+    assert float(a.data.qpos[2]) == pytest.approx(float(b.data.qpos[2]),
+                                                  rel=1e-12)

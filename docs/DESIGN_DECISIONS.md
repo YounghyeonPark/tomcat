@@ -6674,6 +6674,71 @@ opposite of the point.
   load-cell scale are all exact. ADR-0077 measured the ankle's missing load cell
   at 1.09-6.08 deg; that error is present but not varied.
 
+## ADR-0085: Sensor randomisation — and a bite test that had to change shape
+
+- **Status:** Accepted — M80
+- **✅ Closes the gap [ADR-0084](#adr-0084) left: the sensors were exact.**
+- **Context:** ADR-0084 made the **plant** a distribution and recorded that the
+  **sensors** were not: encoder, IMU and load cell were all perfect, so a policy
+  would learn to trust instruments the robot does not have.
+
+### ✅ Five errors, drawn per episode
+
+| knob | range | what it is |
+|---|---|---|
+| `enc_offset_rad` | 0 – 0.004 | absolute-encoder mounting / zeroing |
+| `enc_noise_rad` | 0 – 0.0008 | ~2 LSB of a 14-bit encoder |
+| `load_scale` | 0.90 – 1.10 | load-cell calibration, which [ADR-0004](#adr-0004) still owes |
+| `imu_tilt_deg` | 0 – 1.5 | IMU mounting misalignment |
+| `gyro_noise` | 0 – 0.02 | rad/s |
+
+### ⚠️ And ADR-0084's bite test would have called every one of them inert
+
+ADR-0084 checked each knob by running an episode and requiring it to differ.
+That cannot work here. Sensor error changes the **observation**; with a fixed
+action the plant never reads the observation, so the trajectory is
+**bit-identical by construction** — asserted, because it is the whole point.
+
+The question has to be asked of the observation and of `env.joint_estimate`:
+
+| knob | joint estimate | IMU tilt | gyro |
+|---|---|---|---|
+| (clean) | 0.684 deg | 64.962 deg | 0.0289 |
+| `enc_offset_rad` | **0.784 deg** | = | = |
+| `enc_noise_rad` | **0.668 deg** | = | = |
+| `load_scale` | **0.631 deg** | = | = |
+| `imu_tilt_deg` | = | **65.415 deg** | = |
+| `gyro_noise` | = | = | **0.0323** |
+
+✅ **Nothing leaks.** The three transmission-side errors move the joint
+estimate and leave the IMU untouched; the two IMU errors do the reverse. That
+separation is the evidence the wiring is right, and it is what the test asserts.
+
+⚠️ **Two of them happen to REDUCE the error** (0.684 → 0.668 and 0.631).
+That is one draw landing against the standing bias, not a benefit. The test
+asserts only that the value **moves** — asserting a direction would encode a
+coincidence, which is the mistake [ADR-0065](#adr-0065) made from a single
+phase.
+
+✅ **The encoder offset is a constant, not noise.** It is where the magnet
+sits: drawn once per episode, and it does not average away over a rollout, which
+is precisely why a policy has to be robust to it.
+
+### Consequences
+
+- ✅ **Both halves of the plant are now distributions** — dynamics
+  (ADR-0084) and instruments (here).
+- ⚠️ **Sensor error still does not reach the plant.** It only matters through a
+  closed loop, so its real effect is unmeasured until a policy exists.
+- ⚠️ **The ranges are judgement, not calibration.** `load_scale` at +/-10 % is
+  a guess at a front-end ADR-0004 has not specified, and the hardware does not
+  exist to measure.
+- ⚠️ **The ankle still has no load cell at all**, and that error
+  ([ADR-0077](#adr-0077): 1.09 deg rising to 6.08 at the peak rating) is present
+  but not varied — it is a missing channel, not a noisy one.
+- ⚠️ **Contact sensing is not randomised.** [FR12](REQUIREMENTS.md) wants
+  per-foot normal force; the observation reports it exactly.
+
 ---
 
 ### How to add an ADR

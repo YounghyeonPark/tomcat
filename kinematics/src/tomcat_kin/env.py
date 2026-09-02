@@ -105,6 +105,10 @@ class TomcatEnv:
                                                     "js_" + p)]
                     for p in self.pairs]
         self.randomize = dict(randomize or {})
+        self.drawn = {}
+        self._enc_bias = np.zeros(18)
+        self._load_gain = 1.0
+        self._imu_tilt = 0.0
         self.fall_deg = float(fall_deg)
         self.collapse_m = float(collapse_m)
         self.jitter_deg = float(jitter_deg)
@@ -193,13 +197,30 @@ class TomcatEnv:
 
         enc = np.array([take("enc_" + p)[0] for p in self.pairs])
         encv = np.array([take("encv_" + p)[0] for p in self.pairs])
+        enc = enc + getattr(self, "_enc_bias", 0.0)
+        n = self.drawn.get("enc_noise_rad", 0.0) if hasattr(self, "drawn") else 0.0
+        if n:
+            enc = enc + self.rng.normal(0.0, n, enc.shape)
         if self.encoder_bits:
             enc = wbc.quantise(enc, self.encoder_bits)
-        load = {p: float(take("load_" + p)[0])
+        gain = getattr(self, "_load_gain", 1.0)
+        load = {p: float(take("load_" + p)[0]) * gain
                 for p in self.pairs if ("load_" + p) in self._sensor}
+        quat = np.array(take("imu_quat"), float)
+        tilt = getattr(self, "_imu_tilt", 0.0)
+        if tilt:
+            # a mounting misalignment: rotate the reported frame about x
+            c, sn = math.cos(0.5 * tilt), math.sin(0.5 * tilt)
+            w, x, y, z = quat
+            quat = np.array([c * w - sn * x, c * x + sn * w,
+                             c * y - sn * z, c * z + sn * y])
+        gyro = np.array(take("imu_gyro"), float)
+        gn = self.drawn.get("gyro_noise", 0.0) if hasattr(self, "drawn") else 0.0
+        if gn:
+            gyro = gyro + self.rng.normal(0.0, gn, 3)
         return {
             "rotor": enc, "rotor_vel": encv, "load": load,
-            "imu_quat": take("imu_quat"), "imu_gyro": take("imu_gyro"),
+            "imu_quat": quat, "imu_gyro": gyro,
             "imu_acc": take("imu_acc"),
             "contact": np.array([take("touch_" + nm)[0] for nm in LEGS]),
             "t": self.t,
@@ -234,6 +255,18 @@ class TomcatEnv:
         "floor_mu": (0.5, 1.1),          # ADR-0058 ships 0.8
         "series_k_scale": (0.7, 1.4),    # ADR-0050's 150-200 kN/m band, widened
         "latency_s": (3.0e-3, 12.0e-3),  # NFR12 budgets 7.5 ms
+    }
+
+    #: Sensor error, drawn per episode. ⚠️ These change the OBSERVATION, not
+    #: the plant — with a fixed action the trajectory is untouched, and they
+    #: only reach the robot through a closed loop. So "does it bite" is asked of
+    #: the observation and of `joint_estimate`, not of the episode.
+    SENSOR_RANGES = {
+        "enc_offset_rad": (0.0, 0.004),   # absolute-encoder mounting/zeroing
+        "enc_noise_rad": (0.0, 0.0008),   # ~2 LSB of a 14-bit encoder
+        "load_scale": (0.90, 1.10),       # load-cell calibration, ADR-0004 owes it
+        "imu_tilt_deg": (0.0, 1.5),       # IMU mounting misalignment
+        "gyro_noise": (0.0, 0.02),        # rad/s
     }
 
     def _nominal(self):
@@ -290,6 +323,15 @@ class TomcatEnv:
         if "latency_s" in self.randomize:
             self.latency_s = float(r.uniform(*self.randomize["latency_s"]))
             out["latency_s"] = self.latency_s
+        for k in self.SENSOR_RANGES:
+            if k in self.randomize:
+                out[k] = float(r.uniform(*self.randomize[k]))
+        # a per-episode encoder zero error is a CONSTANT, not noise: it is where
+        # the magnet sits, and it does not average away over an episode
+        self._enc_bias = (r.normal(0.0, out["enc_offset_rad"], 18)
+                          if out.get("enc_offset_rad") else np.zeros(18))
+        self._load_gain = out.get("load_scale", 1.0)
+        self._imu_tilt = math.radians(out.get("imu_tilt_deg", 0.0))
         self.drawn = out
         return out
 
