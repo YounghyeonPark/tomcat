@@ -6532,6 +6532,74 @@ ADR-0081 found in exactly the place it matters.
   the floating-base estimator ADR-0081 named, so a trained policy will have
   nothing to be compared against.
 
+## ADR-0083: The extensor side of every pair was never solved
+
+- **Status:** Accepted — M78
+- **⚠️ Corrects [ADR-0042](#adr-0042)'s retraction, which covered one cable of
+  two. ✅ Makes the capstan wrap a `[solved]` parameter instead of an inert
+  one.**
+- **Context:** [ADR-0003](#adr-0003) specified capstan friction
+  (`T_out = T_in * e^{mu*theta}`) and `params.py` has carried
+  `friction_coeff = 0.10` live with `wrap_angle = 0.0` **inert** ever since,
+  the comment saying it waits on *"a per-joint-wrap extension"*. M37 then solved
+  the paths from station geometry. This is that extension — and solving the
+  other side of each pair changes the answer.
+
+### ⚠️ ADR-0042 retracted the penalty on the FLEXOR only
+
+M37's retraction reads: *"the ankle path sums to ~108 deg, not 360, so its
+capstan penalty is ~1.21x, not 1.87x. Good news — the motor-side tension
+margin this was inflating can come back."* That is `side=+1`.
+`route(side=-1)` — the **extensor**, the other cable of the same
+antagonistic pair — had never been called anywhere in this project.
+
+| pair | flexor | extensor |
+|---|---|---|
+| hip | 122.1 deg / 1.237x | 7.9 deg / 1.014x |
+| knee | 158.6 deg / 1.319x | 124.7 deg / 1.243x |
+| ankle | 107.6 deg / 1.207x | **392.9 deg / 1.985x** |
+
+⚠️ **The ankle extensor is at 1.985x** — essentially the 1.87x ADR-0042
+called an over-estimate and handed back as recovered margin. The margin was
+recovered on one cable of two.
+
+### ⚠️ And the cause is the defect M37 diagnosed, still present
+
+M37's own words: *"339 deg of wrap on a redirect pulley against the 30-45 deg
+LEG_TENDON_SPEC 3.4 assumes ... a routing mistake being read as a physics
+result."*
+
+Per station, the ankle extensor is **hip via 198 deg**, knee via 80, ankle
+sheave 115. The knee flexor puts **140 deg** on that same hip via. Both are
+**redirects**, which 3.4 budgets at **30-45 deg**.
+
+⚠️ `route()` already enumerates the free wrap senses and takes the minimum, so
+this is not an unmade sense choice. It is the station **geometry**.
+
+### Decision
+
+Carry the solved wraps as `TendonParams.pair_wrap`, `(flexor, extensor)` per
+pair, re-derived from the router by test so they cannot drift. Do **not** apply
+them to the torque budgets yet — the routing is a `mechanical/` defect, and
+budgeting against a geometry that is about to change would bake it in.
+
+### Consequences
+
+- ✅ **Capstan friction is now expressible**, which is what
+  [ADR-0082](#adr-0082) needs before `mu` can be domain-randomised. A parameter
+  absent from the model cannot be randomised over.
+- ⚠️ **`mechanical/` owes a routing fix**: two redirect stations at 140 and
+  198 deg against a 30-45 deg budget. Bearing-mounted sheaves would cut
+  effective `mu` to ~0.01-0.03 and collapse the whole term, at a mass cost.
+- ⚠️ **ADR-0061's hind-ankle margin is unrecalculated.** It has the joint at
+  **1.19x** its continuous rating over a trot on a **frictionless** model, and
+  the ankle is the worst-wrap path in the machine.
+- ⚠️ **Every tension in this project is still frictionless** — 84 N, 127 N,
+  the 222.9 N saturation. This ADR makes the correction computable; it does not
+  apply it.
+- ⚠️ **Only the hind leg, only the stance pose.** Wrap varies over the ROM and
+  the fore leg has its own geometry.
+
 ---
 
 ### How to add an ADR

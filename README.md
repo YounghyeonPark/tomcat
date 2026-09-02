@@ -15,7 +15,7 @@ cat-like agility, energy-efficient movement, and passive shock absorption.
 
 ## Progress
 
-Seventy-seven milestones in. The model now spans kinematics → real mass → 3D
+Seventy-eight milestones in. The model now spans kinematics → real mass → 3D
 static stability → whole-body dynamics → a dynamic gait → closed-loop balance →
 an independent physics-engine cross-check → thermal duty → whole-body force
 allocation, with **493 passing + 5 suspended Python tests and 17 Rust** and every figure below
@@ -300,6 +300,7 @@ is **1.97**. That remedy *is* cheap: one step up in stock tube, under 4 g.
 | M75 | The **3.12 gate** | stable results bit-identical — the failure was an assertion read **after the robot fell** |
 | M76 | The training **environment** | sensor-only observation — and **no sensor says where the robot is** |
 | M77 | The standing **task** | no constant action stands it — and tilt alone scored a collapsed robot **192** |
+| M78 | The **extensor** side | ADR-0042's retraction covered one cable of two — the ankle extensor is **1.985×** |
 
 Full detail in the [roadmap](docs/ROADMAP.md) and the [ADR log](docs/DESIGN_DECISIONS.md).
 
@@ -1185,6 +1186,28 @@ Full detail in the [roadmap](docs/ROADMAP.md) and the [ADR log](docs/DESIGN_DECI
 > the reconstructed joints. Both failure modes are now caught, each by the
 > criterion that sees it, and every reward term is computable on hardware.
 > [ADR-0082](docs/DESIGN_DECISIONS.md).
+
+> ### ⚠️ M78: the extensor side of every pair was never solved
+>
+> M37 solved the tendon paths and retracted the ankle's capstan penalty from
+> **1.87× to 1.21×** as recovered margin. That was `side=+1`, the **flexor**.
+> `route(side=-1)` — the **extensor**, the other cable of the same
+> antagonistic pair — had never been called anywhere in this project.
+>
+> | pair | flexor | extensor |
+> |---|---|---|
+> | hip | 122.1° / 1.237× | 7.9° / 1.014× |
+> | knee | 158.6° / 1.319× | 124.7° / 1.243× |
+> | ankle | 107.6° / 1.207× | **392.9° / 1.985×** |
+>
+> ⚠️ **The margin was recovered on one cable of two**, and the cause is M37's
+> own diagnosis still present: **198° on a redirect pulley** that
+> LEG_TENDON_SPEC §3.4 budgets at 30–45. `route()` already minimises over
+> free senses, so it is the station **geometry**.
+>
+> ✅ Capstan friction is now expressible — `wrap_angle` had been inert since
+> ADR-0003 — which is what domain randomisation needs before `@MU@` can be a
+> range. [ADR-0083](docs/DESIGN_DECISIONS.md).
 
 > ### ⚠️ M71: the spine's drivetrain, and a margin that was never there
 >

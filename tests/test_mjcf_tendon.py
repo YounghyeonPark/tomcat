@@ -7705,3 +7705,89 @@ def test_the_TASK_CATCHES_BOTH_FAILURES_and_TILT_ALONE_DOES_NOT():
         if done:
             break
     assert done and info["tilt_deg"] > env.fall_deg
+
+
+# ==========================================================================
+# M78 -- the EXTENSOR side of every pair, which nobody had ever solved
+# ==========================================================================
+
+
+def test_the_EXTENSOR_SIDE_was_never_solved_and_ADR0042s_RETRACTION_is_half():
+    """⚠️ **ADR-0042 retracted the capstan penalty on the flexor only.**
+
+    M37 solved the tendon paths from station geometry and retracted
+    LEG_TENDON_SPEC §3.4's assumed wraps: *"the ankle path sums to ~108°,
+    not 360, so its capstan penalty is ~1.21x, not 1.87"*. That is `side=+1`,
+    the **flexor**. `route(side=-1)` — the **extensor**, the other cable of
+    the same antagonistic pair — had never been called anywhere in this
+    project.
+
+    | pair | flexor | extensor |
+    |---|---|---|
+    | hip | 122.1° / 1.237× | 7.9° / 1.014× |
+    | knee | 158.6° / 1.319× | 124.7° / 1.243× |
+    | ankle | 107.6° / 1.207× | **392.9° / 1.985×** |
+
+    ⚠️ **The ankle extensor is back at 1.985×** — essentially the 1.87×
+    ADR-0042 called an over-estimate and handed back as recovered margin. It was
+    recovered on one cable of two.
+
+    ⚠️ **And the reason is the defect M37 diagnosed, still present.** M37's own
+    words: *"339 deg of wrap on a redirect pulley against the 30-45 deg
+    §3.4 assumes ... a routing mistake being read as a physics result."*
+    Per station, the ankle extensor is **hip via 198°**, knee via 80, ankle
+    sheave 115 — and the knee flexor puts **140°** on the same hip via.
+    Both are *redirects*, which §3.4 budgets at 30-45°.
+
+    ⚠️ `route()` already enumerates the free wrap senses and takes the minimum,
+    so this is not a sense choice left unmade. It is the station **geometry**,
+    and it is `mechanical/`'s to fix.
+
+    ✅ These are `[solved]`, not assumed: this test re-derives them from the
+    router, so `TendonParams.pair_wrap` cannot drift from the CAD.
+    """
+    import os
+    cad = os.path.join(os.path.dirname(__file__), "..", "mechanical", "cad")
+    if cad not in sys.path:
+        sys.path.insert(0, cad)
+    import leg_tendons as LT
+    import tendon_route as TR
+
+    q = np.asarray(LegModel(DEFAULT_HINDLEG).inverse((0.04, -0.17, 0.0)), float)
+    solved = {}
+    for name in ("hip", "knee", "ankle"):
+        for side in (+1, -1):
+            solved[(name, side)] = LT.route(q, name, side=side,
+                                            leg=DEFAULT_HINDLEG)
+
+    # ✅ params carries what the router solves, to 0.1 deg
+    for i, name in enumerate(("hip", "knee", "ankle")):
+        for k, side in enumerate((+1, -1)):
+            want = float(DEFAULT_TENDON.pair_wrap[i][k])
+            got = float(solved[(name, side)]["total_wrap"])
+            assert got == pytest.approx(want, abs=2e-3), (
+                f"{name} side {side}: params {math.degrees(want):.1f} deg, "
+                f"router {math.degrees(got):.1f}"
+            )
+
+    # ⚠️ the ankle extensor is 3.7x the flexor's wrap and back near 1.87x
+    flex = solved[("ankle", +1)]
+    ext = solved[("ankle", -1)]
+    assert math.degrees(flex["total_wrap"]) == pytest.approx(107.6, abs=1.0)
+    assert math.degrees(ext["total_wrap"]) == pytest.approx(392.9, abs=1.0)
+    assert ext["capstan"] > 1.9, (
+        f"the extensor penalty ADR-0042 never saw: {ext['capstan']:.3f}x"
+    )
+    assert ext["total_wrap"] > 3.0 * flex["total_wrap"]
+
+    # ⚠️ and it is a REDIRECT carrying it -- LEG_TENDON_SPEC 3.4 budgets 30-45
+    ankle_via_hip = math.degrees(ext["wraps"][1])
+    knee_via_hip = math.degrees(solved[("knee", +1)]["wraps"][1])
+    assert ankle_via_hip > 150.0, (
+        f"ankle extensor puts {ankle_via_hip:.0f} deg on the hip via"
+    )
+    assert knee_via_hip > 100.0, (
+        f"knee flexor puts {knee_via_hip:.0f} deg on the same via"
+    )
+    # ✅ the sheaves are not the problem -- those wraps are the ROM they must span
+    assert math.degrees(solved[("hip", +1)]["wraps"][1]) < 180.0

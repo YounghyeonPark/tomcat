@@ -160,10 +160,10 @@ sequences the work that implements them.
 > model has no G3 ([ADR-0072](DESIGN_DECISIONS.md)).
 > **M68 done:** the whole body gets its **drivetrain** — G3 takes the shock out
 > of the **cable**, not the ground ([ADR-0073](DESIGN_DECISIONS.md)).
-> **M77 done:** the **standing task** — no constant action can do it, and a
-> tilt-only termination scored a collapsed robot **192**
-> ([ADR-0082](DESIGN_DECISIONS.md)).
-> 512 passed + 5 xfailed Python, 17 Rust.
+> **M78 done:** the **extensor** side of every pair was never solved —
+> ADR-0042's retraction covered one cable of two
+> ([ADR-0083](DESIGN_DECISIONS.md)).
+> 513 passed + 5 xfailed Python, 17 Rust.
 
 ---
 
@@ -3724,7 +3724,37 @@ its own **feet** (`env.stance_height`, from reconstructed joints).
 | zero | 0.12 s | 10.7° | **117 mm** | collapse |
 | uniform 25 N | 0.08 s | **47.9°** | 152 mm | tip |
 
-## Later milestones (candidate M78+, not committed)
+## Milestone M78 — The extensor side, never solved (DONE)
+
+ADR-0003 specified capstan friction and `params.py` has carried
+`friction_coeff = 0.10` live with `wrap_angle = 0.0` **inert** ever since,
+waiting on *"a per-joint-wrap extension"*. This is that extension.
+
+### ⚠️ ADR-0042 retracted the penalty on the FLEXOR only
+
+| pair | flexor | extensor |
+|---|---|---|
+| hip | 122.1° / 1.237× | 7.9° / 1.014× |
+| knee | 158.6° / 1.319× | 124.7° / 1.243× |
+| ankle | 107.6° / 1.207× | **392.9° / 1.985×** |
+
+M37 solved `side=+1` and retracted the ankle from 1.87× to 1.21× as
+recovered margin. `route(side=-1)` — the other cable of the same pair —
+had never been called. It is at **1.985×**, essentially the figure that was
+called an over-estimate.
+
+### ⚠️ And the cause is M37's own defect, still present
+
+Per station the ankle extensor is **hip via 198°**, knee via 80, ankle
+sheave 115; the knee flexor puts **140°** on that same hip via. Both are
+**redirects**, budgeted at **30–45°** by LEG_TENDON_SPEC §3.4 — which
+is exactly what M37 called *"a routing mistake being read as a physics result"*.
+`route()` already minimises over free senses, so this is station **geometry**.
+
+✅ Carried as `TendonParams.pair_wrap`, re-derived from the router by test.
+Not applied to the budgets: the routing is about to change.
+
+## Later milestones (candidate M79+, not committed)
 
 > This list is **curated, not append-only**. When a milestone closes an item it is
 > deleted here and the reasoning kept in the [ADR log](DESIGN_DECISIONS.md). Earlier
@@ -3781,6 +3811,14 @@ its own **feet** (`env.stance_height`, from reconstructed joints).
   joint-space PD costs **74.4 N** with the drivetrain where it saturated the motor
   without it. The task ADR-0052 named and ADR-0058 said was only symptom-free, not
   unnecessary, now has room to exist.
+- **`mechanical/` OWES A ROUTING FIX.** ⚠️ ADR-0083: two **redirect** stations
+  carry **140°** and **198°** against LEG_TENDON_SPEC §3.4's 30–45°
+  budget, which is M37's own diagnosis still unfixed on the extensor side.
+  Bearing-mounted sheaves (@MU@ ~0.01–0.03) would collapse the term at a mass
+  cost.
+- **ADR-0061's HIND-ANKLE MARGIN IS UNRECALCULATED.** ⚠️ It has the joint at
+  **1.19×** its continuous rating over a trot on a **frictionless** model, and
+  the ankle is the worst-wrap path in the machine.
 - **`mechanical/` MAY OWE A STIFFER SPINE SPRING.** ✅ ADR-0076: the righting
   wants **~500 kN/m**, 2.5–3.3× ADR-0050's 150–200 band, and gains nothing
   above it. That band was set for the leg and the impact case and was never asked
@@ -3989,6 +4027,7 @@ Kept as a short table so the deletions above are auditable rather than silent.
 | Gate the 3.12 migration | M75 — [ADR-0080](DESIGN_DECISIONS.md): stable results **bit-identical**; the failure was an assertion read after the fall |
 | Build the training environment | M76 — [ADR-0081](DESIGN_DECISIONS.md): sensor-only observation at 133 Hz / 7.5 ms; **no sensor says where the robot is** |
 | Define the standing task | M77 — [ADR-0082](DESIGN_DECISIONS.md): no constant action stands; tilt alone scored a collapsed robot **192** |
+| Solve the extensor wraps | M78 — [ADR-0083](DESIGN_DECISIONS.md): ADR-0042's retraction covered **one cable of two**; the ankle extensor is **1.985×** |
 
 ## Open reconciliation items (lead)
 

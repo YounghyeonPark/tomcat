@@ -341,11 +341,19 @@ per-pulley wrap to model the tension the **motor** must supply vs. what the
 | Knee idler (ankle pass-through) | ~30–45° | redirect only | `[assumed]` |
 | Ankle sheave | ~60–90° | `[assumed]` |
 
-> ⚠️ **OVER-estimated — M37 ([ADR-0042](../docs/DESIGN_DECISIONS.md)).** Solved
+> ⚠️ ~~**OVER-estimated — M37 ([ADR-0042](../docs/DESIGN_DECISIONS.md)).** Solved
 > rather than assumed, the wrap angles are much smaller than tabulated here: the
 > ankle path sums to **~108°**, not 360°, so its capstan penalty is **~1.21x**, not
 > 1.87x. Good news — the motor-side tension margin this was inflating can come back.
-> Wraps are computed by `cad/tendon_route.py` from the real station geometry.
+> Wraps are computed by `cad/tendon_route.py` from the real station geometry.~~
+>
+> > ⚠️ **THAT IS THE FLEXOR ONLY — [ADR-0083](../docs/DESIGN_DECISIONS.md)
+> > (M78).** `route(side=-1)`, the **extensor** of the same antagonistic pair,
+> > had never been called. It solves to **392.9° / 1.985x** — essentially the
+> > 1.87x this banner called an over-estimate. The margin came back on one cable
+> > of two, and the cause is this spec's own §3.4 budget being blown: **198° on
+> > the hip via** (a redirect, budgeted 30–45°), and 140° on the same via from
+> > the knee flexor.
 
 **Friction coefficient:** UHMWPE over anodized-aluminum pulley, lightly
 lubricated: **μ ≈ 0.08–0.12**; over a PTFE-lined sheath μ ≈ 0.05–0.10 but with

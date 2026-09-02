@@ -269,6 +269,20 @@ class TendonParams:
     friction_coeff: float = 0.10
     wrap_angle: float = 0.0
 
+    # ✅ M78: the per-joint-wrap extension the comment above was waiting for,
+    # SOLVED from station geometry by `mechanical/cad/leg_tendons.route()`
+    # rather than assumed. `(flexor, extensor)` total wrap in radians per pair,
+    # at the stance pose. `[solved]` — `test_the_EXTENSOR_SIDE_was_never_solved`
+    # re-derives these from the router, so they cannot drift from the geometry.
+    #
+    # ⚠️ **ADR-0042's retraction covered the FLEXOR only.** It cites the
+    # ankle at ~108 deg / 1.21x, which is `side=+1`; nothing in this project had
+    # ever called `route(side=-1)`. The extensor solves to **392.9 deg / 1.985x**,
+    # back at the 1.87x ADR-0042 called an over-estimate.
+    pair_wrap: tuple = ((2.1305, 0.1378),     # hip   122.1 /   7.9 deg
+                        (2.7681, 2.1765),     # knee  158.6 / 124.7 deg
+                        (1.8781, 6.8570))     # ankle 107.6 / 392.9 deg
+
     # Series cable compliance: model the tendon as a linear spring of stiffness
     # k_cable (N/m). Under tension T it stretches dL = T / k_cable, so the motor
     # must wind extra travel (dL / r_spool) beyond the geometric r*q to hold a
