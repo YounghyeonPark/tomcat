@@ -7791,3 +7791,97 @@ def test_the_EXTENSOR_SIDE_was_never_solved_and_ADR0042s_RETRACTION_is_half():
     )
     # ✅ the sheaves are not the problem -- those wraps are the ROM they must span
     assert math.degrees(solved[("hip", +1)]["wraps"][1]) < 180.0
+
+
+# ==========================================================================
+# M79 -- domain randomisation, and a knob that did not turn
+# ==========================================================================
+
+
+def test_EVERY_RANDOMISED_PARAMETER_ACTUALLY_BITES():
+    """⚠️ **Setting the floor's friction alone changed nothing at all.**
+
+    A randomisation knob that does not move the plant is worse than no knob: it
+    buys a policy nothing while reporting that it is covered. So every range in
+    `TomcatEnv.RANGES` is moved to both ends, one at a time, against one fixed
+    action, and the episode has to come out different.
+
+    | parameter | low | high |
+    |---|---|---|
+    | `mass_scale` | 51.4° | 46.3° |
+    | `floor_mu` | 49.0° / 156.3 mm | 48.6° / 158.8 mm |
+    | `series_k_scale` | 10 steps / 150.1 mm | 8 steps / 162.9 mm |
+    | `latency_s` | 8 steps / 46.2° | 10 steps / 51.1° |
+
+    ⚠️ **`floor_mu` first came back byte-identical at 0.5.** MuJoCo takes the
+    **elementwise maximum** of the two geoms' friction, and the paw pads ship at
+    0.8 exactly like the floor -- so `max(0.5, 0.8)` is still 0.8 and lowering
+    the floor could only ever raise friction, never lower it. Writing friction
+    where the contact does not read it is
+    [ADR-0063](../docs/DESIGN_DECISIONS.md)'s M59 mistake, repeated here in the
+    randomiser. Fixed by setting the pads too.
+
+    ⚠️ **`mu_capstan` is deliberately not in `RANGES`.**
+    [ADR-0083](../docs/DESIGN_DECISIONS.md) found the wraps it would scale come
+    from a routing `mechanical/` still owes -- 198° on a redirect against a
+    30-45° budget. Randomising around a geometry known to be wrong buys
+    nothing.
+
+    ✅ **The controller is never told what was drawn.** `self.k_tors` stays
+    nominal: the rotor servo on the real robot does not know which spring it
+    got, and updating both together would train against an error that cancels.
+    """
+    from tomcat_kin.env import TomcatEnv
+
+    def run(**over):
+        env = TomcatEnv(rng=np.random.default_rng(0))
+        env.reset()
+        if "mass_scale" in over:
+            f = over["mass_scale"]
+            env.model.body_mass[:] = env._nom["mass"] * f
+            env.model.body_inertia[:] = env._nom["inertia"] * f
+        if "floor_mu" in over:
+            for g in env._friction_geoms:
+                env.model.geom_friction[g, 0] = over["floor_mu"]
+        if "series_k_scale" in over:
+            k = env._nom["stiffness"] > 0.0
+            env.model.jnt_stiffness[k] = env._nom["stiffness"][k] * over["series_k_scale"]
+        if "latency_s" in over:
+            env.latency_s = over["latency_s"]
+            env._lag = wbc.SensorDelay(env.latency_s, env.dt,
+                                       env.data.sensordata,
+                                       np.zeros_like(env.data.sensordata))
+        env.mj.mj_forward(env.model, env.data)
+        n, tilt = 0, 0.0
+        for _ in range(400):
+            obs, _, done, info = env.step(np.full(18, 30.0))
+            n += 1
+            tilt = max(tilt, info["tilt_deg"])
+            if done:
+                break
+        return n, tilt, 1e3 * env.stance_height(obs)
+
+    base = run()
+    for name, (lo, hi) in TomcatEnv.RANGES.items():
+        low, high = run(**{name: lo}), run(**{name: hi})
+        assert low != base or high != base, f"{name} is an inert knob"
+        assert low != high, f"{name}: both ends give the same episode"
+
+    # ⚠️ the friction knob has to work DOWNWARD, which is what failed
+    assert run(floor_mu=0.5) != base, (
+        "lowering friction must change the episode -- the pads ship at 0.8 too"
+    )
+    # ✅ and the capstan is not offered, because ADR-0083 says the wraps move
+    assert "mu_capstan" not in TomcatEnv.RANGES
+
+    # ✅ randomisation is never cumulative across resets
+    env = TomcatEnv(randomize=TomcatEnv.RANGES, rng=np.random.default_rng(1))
+    masses = []
+    for _ in range(3):
+        env.reset()
+        masses.append(float(np.sum(env.model.body_mass)))
+    assert len(set(np.round(masses, 6))) == 3, "each episode draws afresh"
+    env.randomize = {}
+    env.reset()
+    assert float(np.sum(env.model.body_mass)) == pytest.approx(
+        float(np.sum(env._nom["mass"])), rel=1e-9), "and it restores nominal"

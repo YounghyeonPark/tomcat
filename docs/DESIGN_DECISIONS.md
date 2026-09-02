@@ -6600,6 +6600,80 @@ budgeting against a geometry that is about to change would bake it in.
 - ⚠️ **Only the hind leg, only the stance pose.** Wrap varies over the ROM and
   the fore leg has its own geometry.
 
+## ADR-0084: Domain randomisation — and a knob that did not turn
+
+- **Status:** Accepted — M79
+- **✅ Supplies the randomisation [ADR-0082](#adr-0082) named as missing.
+  ⚠️ Repeats, and fixes, [ADR-0063](#adr-0063)'s M59 mistake inside the
+  randomiser.**
+- **Context:** ADR-0082 shipped a trainable environment with **fixed** dynamics:
+  mass, friction, spring and delay were all nominal, so a policy would learn one
+  particular robot. Under [ADR-0077](#adr-0077)'s framing — randomisable and
+  fast beats accurate — this is the piece that makes the plant a distribution.
+
+### ✅ Four parameters, and every one of them verified to bite
+
+`TomcatEnv.RANGES`, drawn per episode:
+
+| parameter | range | why |
+|---|---|---|
+| `mass_scale` | 0.85 – 1.15 | build tolerance, unmodelled cabling |
+| `floor_mu` | 0.5 – 1.1 | [ADR-0058](#adr-0058) ships 0.8 |
+| `series_k_scale` | 0.7 – 1.4 | [ADR-0050](#adr-0050)'s 150-200 kN/m band, widened |
+| `latency_s` | 3 – 12 ms | [NFR12](REQUIREMENTS.md) budgets 7.5 |
+
+Each is moved to both ends against one fixed action and the episode has to come
+out different:
+
+| parameter | low | high |
+|---|---|---|
+| `mass_scale` | 51.4 deg | 46.3 deg |
+| `floor_mu` | 49.0 deg / 156.3 mm | 48.6 deg / 158.8 mm |
+| `series_k_scale` | 10 steps / 150.1 mm | 8 steps / 162.9 mm |
+| `latency_s` | 8 steps / 46.2 deg | 10 steps / 51.1 deg |
+
+### ⚠️ And `floor_mu` first came back byte-identical
+
+Setting the floor's friction to **0.5** produced an episode identical to nominal
+to the decimal. MuJoCo combines contact friction as the **elementwise maximum**
+of the two geoms, and the paw pads ship at **0.8** exactly like the floor — so
+`max(0.5, 0.8)` is still 0.8, and lowering the floor could only ever raise
+friction, never lower it.
+
+⚠️ That is M59's mistake — friction written where the contact does not read
+it — repeated in the randomiser by the same project that recorded it. It was
+caught only because every knob was checked for bite rather than assumed.
+Fixed by writing both surfaces.
+
+### ⚠️ What is deliberately NOT randomised
+
+`mu_capstan` is absent. [ADR-0083](#adr-0083) found the wraps it would scale
+come from a routing `mechanical/` still owes — **198 deg on a redirect**
+against a 30-45 deg budget. Randomising around a geometry known to be wrong
+buys nothing, and would bake the defect into a policy.
+
+### ✅ The controller is never told what was drawn
+
+`self.k_tors` stays nominal through every draw. The rotor servo on the real
+robot does not know which spring it got; updating the plant and the controller's
+belief together would train a policy against an error that cancels, which is the
+opposite of the point.
+
+### Consequences
+
+- ✅ **The environment is a distribution, not a robot.** Mass, friction,
+  spring and delay all move per episode, and none of it is cumulative — each
+  reset restores nominal first.
+- ⚠️ **Capstan friction is still not covered**, and it is the largest single
+  unmodelled effect: 1.24× to 1.99× on motor-side tension. It waits on the
+  routing fix.
+- ⚠️ **The ranges are engineering judgement, not measurement.** `mass_scale`
+  and `series_k_scale` are plausible bands, not surveyed tolerances. The
+  hardware has not been built, so there is nothing to survey yet.
+- ⚠️ **Still nothing randomises the SENSORS** — encoder bits, IMU noise and
+  load-cell scale are all exact. ADR-0077 measured the ankle's missing load cell
+  at 1.09-6.08 deg; that error is present but not varied.
+
 ---
 
 ### How to add an ADR

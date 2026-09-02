@@ -69,7 +69,8 @@ class TomcatEnv:
                  spine: bool = True, series_k: float = SERIES_K,
                  hip_height: float = 0.176, fall_deg: float = 45.0,
                  collapse_m: float = 0.12,
-                 jitter_deg: float = 0.0, rng=None):
+                 jitter_deg: float = 0.0, rng=None,
+                 randomize: dict | None = None):
         import mujoco
 
         self.mj = mujoco
@@ -103,6 +104,7 @@ class TomcatEnv:
         self._js = [self.model.jnt_qposadr[self._id(mujoco.mjtObj.mjOBJ_JOINT,
                                                     "js_" + p)]
                     for p in self.pairs]
+        self.randomize = dict(randomize or {})
         self.fall_deg = float(fall_deg)
         self.collapse_m = float(collapse_m)
         self.jitter_deg = float(jitter_deg)
@@ -135,6 +137,8 @@ class TomcatEnv:
                 jit = math.radians(self.jitter_deg) * (
                     self.rng.standard_normal() if self.jitter_deg else 0.0)
                 self.data.qpos[a] = self.q_ref[nm][i] + jit
+        self._nominal()
+        self._roll()
         self.mj.mj_forward(self.model, self.data)
         self.steps = 0
         self.a0 = {}
@@ -217,6 +221,76 @@ class TomcatEnv:
             a0 = np.array([self.a0[f"{nm}_{p}"] for p in PAIRS])
             out[nm] = wbc.joint_from_encoders(jr, js, a0, self.pair_map,
                                               MT.SPOOL_R)
+        return out
+
+    # -- domain randomisation ---------------------------------------------
+    #: What may be randomised, and the range M79 measured as biting. ⚠️
+    #: `mu_capstan` is deliberately ABSENT: [ADR-0083](../../../docs/DESIGN_DECISIONS.md)
+    #: found the wraps it would scale come from a routing `mechanical/` still
+    #: owes (198 deg on a redirect against a 30-45 deg budget), and randomising
+    #: around a geometry known to be wrong buys nothing.
+    RANGES = {
+        "mass_scale": (0.85, 1.15),      # build tolerance + unmodelled cabling
+        "floor_mu": (0.5, 1.1),          # ADR-0058 ships 0.8
+        "series_k_scale": (0.7, 1.4),    # ADR-0050's 150-200 kN/m band, widened
+        "latency_s": (3.0e-3, 12.0e-3),  # NFR12 budgets 7.5 ms
+    }
+
+    def _nominal(self):
+        """Snapshot the shipped model, so randomisation is never cumulative."""
+        if hasattr(self, "_nom"):
+            self.model.body_mass[:] = self._nom["mass"]
+            self.model.body_inertia[:] = self._nom["inertia"]
+            self.model.geom_friction[:] = self._nom["friction"]
+            self.model.jnt_stiffness[:] = self._nom["stiffness"]
+            return
+        self._friction_geoms = [
+            i for i in range(self.model.ngeom)
+            if (self.mj.mj_id2name(self.model, self.mj.mjtObj.mjOBJ_GEOM, i)
+                or "") in ("floor",) or (
+                self.mj.mj_id2name(self.model, self.mj.mjtObj.mjOBJ_GEOM, i)
+                or "").endswith("_pad")]
+        self._nom = {
+            "mass": np.array(self.model.body_mass, float),
+            "inertia": np.array(self.model.body_inertia, float),
+            "friction": np.array(self.model.geom_friction, float),
+            "stiffness": np.array(self.model.jnt_stiffness, float),
+        }
+
+    def _roll(self):
+        """Draw one episode's plant. ⚠️ The CONTROLLER is not told.
+
+        `self.k_tors` stays nominal on purpose: the rotor servo on the real robot
+        does not know the spring it actually got. Updating it here would randomise
+        the plant and the model together, which trains a policy against an error
+        that cancels.
+        """
+        r, out = self.rng, {}
+        if "mass_scale" in self.randomize:
+            f = r.uniform(*self.randomize["mass_scale"])
+            self.model.body_mass[:] = self._nom["mass"] * f
+            self.model.body_inertia[:] = self._nom["inertia"] * f
+            out["mass_scale"] = f
+        if "floor_mu" in self.randomize:
+            f = r.uniform(*self.randomize["floor_mu"])
+            # ⚠️ **Both sides, or it only works upward.** MuJoCo takes the
+            # elementwise MAX of the two geoms' friction, and the paw pads ship
+            # at 0.8 like the floor. Setting the floor alone to 0.5 gave a
+            # BYTE-IDENTICAL episode -- max(0.5, 0.8) is still 0.8 -- which is
+            # M59's mistake (friction written where the contact does not read
+            # it) repeated in the randomiser.
+            for g in self._friction_geoms:
+                self.model.geom_friction[g, 0] = f
+            out["floor_mu"] = f
+        if "series_k_scale" in self.randomize:
+            f = r.uniform(*self.randomize["series_k_scale"])
+            k = self._nom["stiffness"] > 0.0
+            self.model.jnt_stiffness[k] = self._nom["stiffness"][k] * f
+            out["series_k_scale"] = f
+        if "latency_s" in self.randomize:
+            self.latency_s = float(r.uniform(*self.randomize["latency_s"]))
+            out["latency_s"] = self.latency_s
+        self.drawn = out
         return out
 
     # -- the task ---------------------------------------------------------

@@ -160,10 +160,10 @@ sequences the work that implements them.
 > model has no G3 ([ADR-0072](DESIGN_DECISIONS.md)).
 > **M68 done:** the whole body gets its **drivetrain** — G3 takes the shock out
 > of the **cable**, not the ground ([ADR-0073](DESIGN_DECISIONS.md)).
-> **M78 done:** the **extensor** side of every pair was never solved —
-> ADR-0042's retraction covered one cable of two
-> ([ADR-0083](DESIGN_DECISIONS.md)).
-> 513 passed + 5 xfailed Python, 17 Rust.
+> **M79 done:** **domain randomisation** — four parameters, every one
+> verified to bite, after one of them turned out not to
+> ([ADR-0084](DESIGN_DECISIONS.md)).
+> 514 passed + 5 xfailed Python, 17 Rust.
 
 ---
 
@@ -3754,7 +3754,33 @@ is exactly what M37 called *"a routing mistake being read as a physics result"*.
 ✅ Carried as `TendonParams.pair_wrap`, re-derived from the router by test.
 Not applied to the budgets: the routing is about to change.
 
-## Later milestones (candidate M79+, not committed)
+## Milestone M79 — Domain randomisation (DONE)
+
+M77 shipped a trainable environment with **fixed** dynamics, so a policy would
+learn one particular robot.
+
+### ✅ Four parameters, each verified to bite
+
+| parameter | range | low | high |
+|---|---|---|---|
+| `mass_scale` | 0.85–1.15 | 51.4° | 46.3° |
+| `floor_mu` | 0.5–1.1 | 49.0° | 48.6° |
+| `series_k_scale` | 0.7–1.4 | 10 steps | 8 steps |
+| `latency_s` | 3–12 ms | 8 steps | 10 steps |
+
+### ⚠️ And `floor_mu` first did nothing at all
+
+Setting the floor to **0.5** gave an episode identical to nominal. MuJoCo takes
+the **elementwise max** of the two geoms' friction and the paw pads ship at
+**0.8** like the floor, so `max(0.5, 0.8)` is still 0.8 — the knob could only
+raise friction, never lower it. That is M59's mistake, repeated in the
+randomiser by the project that recorded it, and caught only because every knob
+was checked rather than assumed.
+
+⚠️ `mu_capstan` is deliberately **absent**: ADR-0083's wraps come from a
+routing `mechanical/` still owes.
+
+## Later milestones (candidate M80+, not committed)
 
 > This list is **curated, not append-only**. When a milestone closes an item it is
 > deleted here and the reasoning kept in the [ADR log](DESIGN_DECISIONS.md). Earlier
@@ -4028,6 +4054,7 @@ Kept as a short table so the deletions above are auditable rather than silent.
 | Build the training environment | M76 — [ADR-0081](DESIGN_DECISIONS.md): sensor-only observation at 133 Hz / 7.5 ms; **no sensor says where the robot is** |
 | Define the standing task | M77 — [ADR-0082](DESIGN_DECISIONS.md): no constant action stands; tilt alone scored a collapsed robot **192** |
 | Solve the extensor wraps | M78 — [ADR-0083](DESIGN_DECISIONS.md): ADR-0042's retraction covered **one cable of two**; the ankle extensor is **1.985×** |
+| Randomise the plant | M79 — [ADR-0084](DESIGN_DECISIONS.md): four parameters, each verified to bite — one of them **did not** |
 
 ## Open reconciliation items (lead)
 

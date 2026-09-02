@@ -15,7 +15,7 @@ cat-like agility, energy-efficient movement, and passive shock absorption.
 
 ## Progress
 
-Seventy-eight milestones in. The model now spans kinematics → real mass → 3D
+Seventy-nine milestones in. The model now spans kinematics → real mass → 3D
 static stability → whole-body dynamics → a dynamic gait → closed-loop balance →
 an independent physics-engine cross-check → thermal duty → whole-body force
 allocation, with **493 passing + 5 suspended Python tests and 17 Rust** and every figure below
@@ -301,6 +301,7 @@ is **1.97**. That remedy *is* cheap: one step up in stock tube, under 4 g.
 | M76 | The training **environment** | sensor-only observation — and **no sensor says where the robot is** |
 | M77 | The standing **task** | no constant action stands it — and tilt alone scored a collapsed robot **192** |
 | M78 | The **extensor** side | ADR-0042's retraction covered one cable of two — the ankle extensor is **1.985×** |
+| M79 | **Domain randomisation** | four parameters, each verified to bite — one of them **did not** |
 
 Full detail in the [roadmap](docs/ROADMAP.md) and the [ADR log](docs/DESIGN_DECISIONS.md).
 
@@ -1208,6 +1209,27 @@ Full detail in the [roadmap](docs/ROADMAP.md) and the [ADR log](docs/DESIGN_DECI
 > ✅ Capstan friction is now expressible — `wrap_angle` had been inert since
 > ADR-0003 — which is what domain randomisation needs before `@MU@` can be a
 > range. [ADR-0083](docs/DESIGN_DECISIONS.md).
+
+> ### ⚠️ M79: a randomisation knob that did not turn
+>
+> The environment had **fixed** dynamics, so a policy would learn one particular
+> robot. Four parameters now move per episode — mass, floor friction, series
+> spring and latency — and **every one was checked to bite** rather than
+> assumed.
+>
+> ⚠️ **`floor_mu` came back byte-identical at 0.5.** MuJoCo takes the
+> **elementwise max** of two geoms' friction, and the paw pads ship at **0.8**
+> exactly like the floor: `max(0.5, 0.8)` is still 0.8, so the knob could only
+> ever raise friction, never lower it.
+>
+> That is M59's mistake — friction written where the contact does not read it
+> — repeated inside the randomiser by the project that recorded it. Caught
+> only because each knob was tested. ✅ Fixed by writing both surfaces.
+>
+> ⚠️ **`μ_capstan` is deliberately not randomised**: ADR-0083's wraps come
+> from a routing `mechanical/` still owes, and randomising around a geometry
+> known to be wrong would bake the defect into a policy.
+> [ADR-0084](docs/DESIGN_DECISIONS.md).
 
 > ### ⚠️ M71: the spine's drivetrain, and a margin that was never there
 >
