@@ -7684,7 +7684,10 @@ def test_the_TASK_CATCHES_BOTH_FAILURES_and_TILT_ALONE_DOES_NOT():
 
     env = TomcatEnv(rng=np.random.default_rng(0))
     obs = env.reset()
-    assert env.stance_height(obs) == pytest.approx(0.170, abs=0.003)
+    # ⚠️ 165 mm, not the nominal 170: M82 made reset() SETTLE the robot
+    # onto its feet, and standing on them compresses the stance slightly.
+    # The old value was the pose it had while still 6 mm in the air.
+    assert env.stance_height(obs) == pytest.approx(0.1654, abs=0.004)
     assert not env.terminated(obs)
     assert env.reward(obs) == pytest.approx(2.0, abs=0.05)
 
@@ -8031,7 +8034,8 @@ def test_STANCE_HEIGHT_needs_the_IMU_and_the_SHALLOWEST_leg():
 
     env = TomcatEnv(rng=np.random.default_rng(0))
     obs = env.reset()
-    assert env.stance_height(obs) == pytest.approx(0.170, abs=0.004)
+    # ⚠️ see above: a settled stance sits at 165 mm, not 170.
+    assert env.stance_height(obs) == pytest.approx(0.1654, abs=0.004)
 
     # ✅ hole 1: the drop must be measured against the WORLD, so a lie-down
     # cannot report a bigger number than standing

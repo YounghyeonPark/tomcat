@@ -131,8 +131,71 @@ class TomcatEnv:
         return np.array(self.data.sensordata[adr:adr + dim], dtype=float)
 
     # -- gym-ish surface --------------------------------------------------
-    def reset(self):
-        """Stance pose, cleared delay buffer, and the first observation."""
+    def _settle(self, seconds=0.30, kp=30.0, kd=1.5):
+        """Put the robot ON ITS FEET before the episode starts.
+
+        ⚠️ **M82: every episode used to begin mid-fall.** `hip_height` puts
+        the paws **6 mm in the air**, so at `reset` there were 2 contacts
+        carrying **0.66 N** against a 42.26 N weight -- 2 % -- and the policy had
+        to survive a landing before it could try to stand. Held by a joint PD for
+        0.30 s instead: **4 contacts, 44.94 N (106 %), trunk quiet at
+        0.0024 m/s**.
+
+        ✅ This is a FIXTURE, not a controller. It uses `d.qpos` freely, which
+        the robot cannot ([ADR-0081](../../../docs/DESIGN_DECISIONS.md)) -- but a
+        real robot is stood up by hand before a run, and nothing here survives
+        into the episode. The policy still only ever sees sensors.
+        """
+        from . import wbc as _w
+        qa = {nm: self._qadr(nm) for nm in LEGS}
+        dof = {nm: self._dofadr(nm) for nm in LEGS}
+        q0 = {nm: np.array([float(self.data.qpos[a]) for a in qa[nm]])
+              for nm in LEGS}
+        G = {nm: self._leg_gain(nm, qa[nm]) for nm in LEGS}
+        for _ in range(int(seconds / self.dt)):
+            for nm in LEGS:
+                e = q0[nm] - np.array([float(self.data.qpos[a]) for a in qa[nm]])
+                ev = -np.array([float(self.data.qvel[a]) for a in dof[nm]])
+                bias = np.array([float(self.data.qfrc_bias[a]
+                                       - self.data.qfrc_passive[a])
+                                 for a in dof[nm]])
+                T = _w.pair_command(G[nm], bias + kp * e + kd * ev,
+                                    MT.TENSION_MAX)
+                idx = [self.pairs.index(f"{nm}_{p}") for p in PAIRS]
+                cmd = _w.rotor_command(self.data.qpos[[self._jr[i] for i in idx]],
+                                       self.data.qpos[[self._js[i] for i in idx]],
+                                       T, self.k_tors, MT.SPOOL_R,
+                                       servo_kp=self.servo_kp)
+                for k, i in enumerate(idx):
+                    self.data.ctrl[self._act[i]] = float(cmd[k])
+            self.mj.mj_step(self.model, self.data)
+        self.data.ctrl[:] = 0.0
+
+    def _qadr(self, nm):
+        return [self.model.jnt_qposadr[self._id(self.mj.mjtObj.mjOBJ_JOINT,
+                                                f"{nm}_q{i}")] for i in (1, 2, 3)]
+
+    def _dofadr(self, nm):
+        return [self.model.jnt_dofadr[self._id(self.mj.mjtObj.mjOBJ_JOINT,
+                                               f"{nm}_q{i}")] for i in (1, 2, 3)]
+
+    def _leg_gain(self, nm, qa):
+        tid = [self._id(self.mj.mjtObj.mjOBJ_TENDON, f"{nm}_{p}") for p in PAIRS]
+        J = np.zeros((3, 3))
+        base = [float(self.data.qpos[a]) for a in qa]
+        for k in range(3):
+            L = []
+            for sg in (+1, -1):
+                dd = self.mj.MjData(self.model)
+                dd.qpos[:] = self.data.qpos
+                dd.qpos[qa[k]] = base[k] + sg * 0.002
+                self.mj.mj_forward(self.model, dd)
+                L.append(np.array([dd.ten_length[t] for t in tid]))
+            J[:, k] = (L[0] - L[1]) / 0.004
+        return (-J).T
+
+    def reset(self, settle: bool = True):
+        """Stance pose, ON ITS FEET, cleared delay buffer, first observation."""
         self.mj.mj_resetData(self.model, self.data)
         for nm in LEGS:
             for i, jn in enumerate((f"{nm}_q1", f"{nm}_q2", f"{nm}_q3")):
@@ -149,10 +212,13 @@ class TomcatEnv:
         for p in self.pairs:
             t = self._id(self.mj.mjtObj.mjOBJ_TENDON, p)
             self.a0[p] = float(self.data.ten_length[t])
+        if settle:
+            self._settle()
         self._lag = wbc.SensorDelay(self.latency_s, self.dt,
                                     self.data.sensordata,
                                     np.zeros_like(self.data.sensordata))
         self.t = 0.0
+        self.steps = 0
         return self.observe()
 
     def step(self, tension):
