@@ -160,10 +160,10 @@ sequences the work that implements them.
 > model has no G3 ([ADR-0072](DESIGN_DECISIONS.md)).
 > **M68 done:** the whole body gets its **drivetrain** — G3 takes the shock out
 > of the **cable**, not the ground ([ADR-0073](DESIGN_DECISIONS.md)).
-> **M80 done:** **sensor randomisation** — five more errors, and a bite test
-> that had to change shape to catch them
-> ([ADR-0085](DESIGN_DECISIONS.md)).
-> 515 passed + 5 xfailed Python, 17 Rust.
+> **M81 done:** training ran and learned nothing — the **referee** was the
+> reason, and it took two more corrections
+> ([ADR-0086](DESIGN_DECISIONS.md)).
+> 517 passed + 5 xfailed Python, 17 Rust.
 
 ---
 
@@ -3810,7 +3810,46 @@ errors the IMU only. ⚠️ Two of them happen to *reduce* the error, which is o
 draw against the standing bias and not a benefit, so the test asserts movement
 and never direction.
 
-## Later milestones (candidate M81+, not committed)
+## Milestone M81 — The first training run (DONE)
+
+M79 and M80 finished the randomisation, so the environment was trainable. M77
+had recorded that the **reward was unvalidated** and only a policy could test it.
+
+### ⚠️ 200k PPO steps, and nothing moved
+
+stable-baselines3, 8 envs, all nine ranges. `ep_len_mean` sat at **21 steps**
+and never moved. ⚠️ The log was truncated to the last 20 % by a `tail -30`, so
+the early curve — the one artefact a training run exists to produce — is
+unrecoverable.
+
+### ⚠️ The referee had two more holes
+
+M77 caught a tilt-only termination and added `stance_height`. That fix was never
+checked, and:
+
+1. **The leg frame is not the world.** Splay the legs, lie down, and the number
+   *grows*: the trunk sank to **27.8 mm** while it read **264 mm and rising**.
+2. **`max` let one leg vouch for the robot** — hind pair folded to 32 mm with
+   the rear on the floor, fore pair at 250, and `max` passed it.
+
+| action | before | after |
+|---|---|---|
+| **gravity hold** | **533 (full episode)** | **10** |
+| zero | 15 | 15 |
+| random | 2 | 2 |
+
+✅ The corrected figure agrees with what M77 measured on that action all
+along. **The referee was wrong, not the measurement.**
+
+### ⚠️ And the diagnosis inverts
+
+Nothing survives a tenth of a second — random 2 steps, gravity hold 10, zero
+15 — so PPO had no gradient to climb. That is a **task-design** problem, not
+a reward problem, and it is M77's own finding from the other side. ⚠️ The
+action scale compounds it: `action = 1` is 222.9 N where the useful band is
+**14–145 N**.
+
+## Later milestones (candidate M82+, not committed)
 
 > This list is **curated, not append-only**. When a milestone closes an item it is
 > deleted here and the reasoning kept in the [ADR log](DESIGN_DECISIONS.md). Earlier
@@ -4086,6 +4125,7 @@ Kept as a short table so the deletions above are auditable rather than silent.
 | Solve the extensor wraps | M78 — [ADR-0083](DESIGN_DECISIONS.md): ADR-0042's retraction covered **one cable of two**; the ankle extensor is **1.985×** |
 | Randomise the plant | M79 — [ADR-0084](DESIGN_DECISIONS.md): four parameters, each verified to bite — one of them **did not** |
 | Randomise the sensors | M80 — [ADR-0085](DESIGN_DECISIONS.md): five errors, and a bite test that had to **change shape** |
+| Run the first training | M81 — [ADR-0086](DESIGN_DECISIONS.md): learned nothing, and the **referee** was why — a belly-flopped robot passed 4 s |
 
 ## Open reconciliation items (lead)
 

@@ -15,7 +15,7 @@ cat-like agility, energy-efficient movement, and passive shock absorption.
 
 ## Progress
 
-Eighty milestones in. The model now spans kinematics → real mass → 3D
+Eighty-one milestones in. The model now spans kinematics → real mass → 3D
 static stability → whole-body dynamics → a dynamic gait → closed-loop balance →
 an independent physics-engine cross-check → thermal duty → whole-body force
 allocation, with **493 passing + 5 suspended Python tests and 17 Rust** and every figure below
@@ -303,6 +303,7 @@ is **1.97**. That remedy *is* cheap: one step up in stock tube, under 4 g.
 | M78 | The **extensor** side | ADR-0042's retraction covered one cable of two — the ankle extensor is **1.985×** |
 | M79 | **Domain randomisation** | four parameters, each verified to bite — one of them **did not** |
 | M80 | **Sensor** randomisation | five more errors — and a bite test that had to change shape |
+| M81 | The first **training run** | learned nothing — and the **referee** was why |
 
 Full detail in the [roadmap](docs/ROADMAP.md) and the [ADR log](docs/DESIGN_DECISIONS.md).
 
@@ -1250,6 +1251,27 @@ Full detail in the [roadmap](docs/ROADMAP.md) and the [ADR log](docs/DESIGN_DECI
 > ⚠️ Two of them happen to *reduce* the estimate error — one draw landing
 > against the standing bias, not a benefit — so the test asserts that a value
 > **moves** and never which way. [ADR-0085](docs/DESIGN_DECISIONS.md).
+
+> ### ⚠️ M81: training ran, learned nothing, and the referee was the reason
+>
+> 200k PPO steps (stable-baselines3, 8 envs, all nine randomisation ranges).
+> `ep_len_mean` sat at **21 steps** and never moved.
+>
+> ⚠️ **The reward was not the problem — the termination criterion was.**
+> M77's `stance_height` had two holes of its own, never checked after it was
+> written. The leg frame is not the world, so splaying the legs and lying down
+> made the number **grow** (trunk at **27.8 mm**, criterion reading **264 mm**);
+> and `max` let **one** extended leg vouch for a robot whose hind pair had
+> folded to 32 mm with the rear on the floor.
+>
+> The gravity-compensating hold passed a **full 4 s episode** as standing. With
+> the referee fixed it lasts **10 steps** — exactly what M77 measured on that
+> action all along. The referee was wrong, not the measurement.
+>
+> ⚠️ **And the diagnosis inverts.** Nothing survives a tenth of a second
+> — random 2 steps, gravity hold 10, zero 15 — so PPO had no gradient to
+> climb. A **task-design** problem, not a reward problem, and the reward is
+> still unvalidated. [ADR-0086](docs/DESIGN_DECISIONS.md).
 
 > ### ⚠️ M71: the spine's drivetrain, and a margin that was never there
 >

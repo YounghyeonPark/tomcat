@@ -373,14 +373,40 @@ class TomcatEnv:
         forward kinematics, and read the paw drop. That is observable, and it is
         what tells a collapsed robot from a standing one.
 
-        Returns the deepest leg's drop, so a robot folded onto its belly reports
-        a small number even when it is perfectly level.
+        ⚠️ **The leg frame is not the world, and M81 found that the hard
+        way.** A first version returned the paw drop straight out of
+        `LegModel.forward`, which is the leg's own sagittal frame. Splay the legs
+        and lie down and that number *grows*: the gravity-compensating hold sank
+        the trunk to **27.8 mm** while this reported **264 mm** and rising, so a
+        robot flat on its belly passed as standing for a full 4 s episode. That
+        is M77's own mistake -- a termination that cannot see the failure -- one
+        layer further in.
+
+        The fix keeps everything observable: rotate the hip-to-paw vector by the
+        **IMU quaternion** and take the world-vertical component. A leg pointing
+        sideways contributes nothing, which is what lying down looks like.
+
+        ⚠️ The fore legs hang off the front girdle, which the spine moves;
+        this uses the trunk IMU for all four, so a strongly bent spine flatters
+        the fore pair. One IMU is what the board has.
         """
         from . import LegModel
         lp = {"LF": DEFAULT_FORELEG, "RF": DEFAULT_FORELEG,
               "LR": DEFAULT_HINDLEG, "RR": DEFAULT_HINDLEG}
         est = self.joint_estimate(obs)
-        return max(float(-LegModel(lp[nm]).forward(est[nm])[1]) for nm in LEGS)
+        R = np.zeros(9)
+        self.mj.mju_quat2Mat(R, np.asarray(obs["imu_quat"], float))
+        R = R.reshape(3, 3)
+        drops = []
+        for nm in LEGS:
+            x, z = LegModel(lp[nm]).forward(est[nm])[:2]
+            drops.append(-float((R @ np.array([x, 0.0, z]))[2]))
+        # ⚠️ **`min`, not `max`.** Taking the largest drop let ONE extended
+        # leg vouch for the whole robot: under the gravity hold the hind pair
+        # folded to 32 mm with the rear on the floor while the fore pair
+        # stretched to 250, and `max` reported 250 and passed it. If any corner
+        # is down, the robot is down.
+        return min(drops)
 
     def terminated(self, obs) -> bool:
         """⚠️ Tilt ALONE is not enough, and that is a measured mistake.

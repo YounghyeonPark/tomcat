@@ -7669,14 +7669,16 @@ def test_the_TASK_CATCHES_BOTH_FAILURES_and_TILT_ALONE_DOES_NOT():
     forward kinematics, read the paw drop. `env.stance_height` is that, and it
     needs no world frame.
 
-    | action | terminates at | tilt | stance height | caught by |
-    |---|---|---|---|---|
-    | zero | 0.12 s | 10.7° | **117 mm** | collapse |
-    | uniform 25 N | 0.08 s | **47.9°** | 152 mm | tip |
+    | action | terminates at | tilt | caught by |
+    |---|---|---|---|
+    | zero | 0.11 s | 9.4° | collapse |
+    | uniform 25 N | 0.05 s | 32.9° | collapse |
 
-    ✅ Both failure modes, each by the criterion that sees it, and every term
-    of the reward is computable on hardware. A reward that needed `d.qpos` could
-    not be used to fine-tune on the real robot.
+    ⚠️ **M81 corrected `stance_height` twice more** and it now fires first
+    in both cases, where the 25 N tip used to be caught on tilt. Tilt is kept as
+    a backstop rather than removed: it costs nothing and the failure modes here
+    are not an enumerated set. Every reward term is still computable on
+    hardware, which is the constraint that matters.
     """
     from tomcat_kin.env import TomcatEnv
 
@@ -7698,13 +7700,15 @@ def test_the_TASK_CATCHES_BOTH_FAILURES_and_TILT_ALONE_DOES_NOT():
     )
     assert env.stance_height(obs) < env.collapse_m
 
-    # ✅ and the tip: caught on tilt
+    # ⚠️ the tip. It USED to be caught on tilt; since M81 tightened
+    # stance_height the collapse term sees it first, at 32.9 deg.
     env.reset()
     for _ in range(300):
         obs, _, done, info = env.step(np.full(18, 25.0))
         if done:
             break
-    assert done and info["tilt_deg"] > env.fall_deg
+    assert done, "the 25 N episode must end"
+    assert env.stance_height(obs) < env.collapse_m
 
 
 # ==========================================================================
@@ -7982,3 +7986,141 @@ def test_SENSOR_RANDOMISATION_BITES_THE_OBSERVATION_not_the_trajectory():
     settle(b, 40)
     assert float(a.data.qpos[2]) == pytest.approx(float(b.data.qpos[2]),
                                                   rel=1e-12)
+
+
+# ==========================================================================
+# M81 -- training ran, learned nothing, and the reason was the referee
+# ==========================================================================
+
+
+def test_STANCE_HEIGHT_needs_the_IMU_and_the_SHALLOWEST_leg():
+    """⚠️ **A robot flat on its belly passed a full 4 s episode as standing.**
+
+    M77 caught a tilt-only termination scoring a collapsed robot 192 and added
+    `stance_height`. That fix had two holes of its own, and PPO found neither --
+    it simply never learned anything, which is what sent us looking.
+
+    **Hole 1: the leg frame is not the world.** `LegModel.forward` returns the
+    paw in the leg's own sagittal frame. Splay the legs and lie down and the
+    number *grows*: under the gravity-compensating hold the trunk sank to
+    **27.8 mm** while `stance_height` read **264 mm and rising**.
+
+    **Hole 2: `max` let one leg vouch for the robot.** With the IMU projection
+    added, the hind pair folded to **32 mm** with the rear on the floor while
+    the fore pair stretched to **250 mm** -- and `max` returned 250 and passed
+    it. If any corner is down, the robot is down.
+
+    | action | before | after |
+    |---|---|---|
+    | zero | 15 steps | 15 steps |
+    | uniform 25 N | 7 | 7 |
+    | **gravity hold** | **533 (full episode)** | **10** |
+    | random | 2 | 2 |
+
+    ✅ The corrected figure agrees with what M77 measured on the same action
+    all along: it tips to 38.7° and collapses. The referee was wrong, not
+    the measurement.
+
+    ⚠️ **Three corrections to one criterion, each closing a real hole and
+    exposing the next.** The lesson is not any single fix: it is that M77 patched
+    tilt and then never checked the patch.
+    """
+    from tomcat_kin.env import TomcatEnv
+    from tomcat_kin import LegModel
+    from tomcat_kin.params import DEFAULT_FORELEG as FL, DEFAULT_HINDLEG as HL
+
+    env = TomcatEnv(rng=np.random.default_rng(0))
+    obs = env.reset()
+    assert env.stance_height(obs) == pytest.approx(0.170, abs=0.004)
+
+    # ✅ hole 1: the drop must be measured against the WORLD, so a lie-down
+    # cannot report a bigger number than standing
+    lp = {"LF": FL, "RF": FL, "LR": HL, "RR": HL}
+    est = env.joint_estimate(obs)
+    leg_frame = min(float(-LegModel(lp[nm]).forward(est[nm])[1])
+                    for nm in ("LF", "RF", "LR", "RR"))
+    assert leg_frame == pytest.approx(env.stance_height(obs), abs=0.005), (
+        "upright, the IMU projection and the leg frame must agree"
+    )
+
+    # ⚠️ and the case that broke it: the gravity hold, which M77 measured
+    # tipping to 38.7 deg, must NOT survive
+    hold = np.zeros(18)
+    for i, nm in enumerate(("LF", "RF", "LR", "RR")):
+        hold[3 * i:3 * i + 3] = (37.8, 45.5, 36.3) if nm[1] == "F" else (43.9, 14.1, 65.1)
+    hold[12:] = (-145.0, 0.0, -71.3, 0.0, -23.2, 0.0)
+    env.reset()
+    done = False
+    for k in range(533):
+        obs, _, done, info = env.step(hold)
+        if done:
+            break
+    assert done, "the gravity hold collapses -- it must not pass as standing"
+    assert k < 60, f"and it must be caught early, not at step {k}"
+
+    # ⚠️ `min`, not `max`: one extended leg cannot vouch for a folded robot
+    drops = []
+    R = np.zeros(9)
+    mujoco.mju_quat2Mat(R, np.asarray(obs["imu_quat"], float))
+    R = R.reshape(3, 3)
+    est = env.joint_estimate(obs)
+    for nm in ("LF", "RF", "LR", "RR"):
+        x, z = LegModel(lp[nm]).forward(est[nm])[:2]
+        drops.append(-float((R @ np.array([x, 0.0, z]))[2]))
+    assert env.stance_height(obs) == pytest.approx(min(drops), abs=1e-9)
+    assert min(drops) < max(drops), "the legs disagree, which is the whole point"
+
+
+def test_NOTHING_SURVIVES_LONG_ENOUGH_TO_LEARN_FROM():
+    """⚠️ **PPO ran 200k steps and learned nothing, and it could not have.**
+
+    Trained with stable-baselines3 (chosen so the algorithm would not itself be
+    a suspect), 8 parallel envs, all nine randomisation ranges on. Episode
+    length sat at **21 steps** and never moved over the last 40k.
+
+    The reason is not the reward. With the referee corrected, **no behaviour
+    known to this project survives a tenth of a second**:
+
+    | action | steps | seconds |
+    |---|---|---|
+    | random | 2 | 0.015 |
+    | uniform 25 N | 7 | 0.05 |
+    | gravity hold | 10 | 0.075 |
+    | zero | 15 | 0.11 |
+
+    ⚠️ An episode that ends in 2 steps carries almost no gradient toward
+    standing, so PPO had nothing to climb. That is a **task design** problem,
+    not a reward problem, and it is the same fact
+    [ADR-0082](../docs/DESIGN_DECISIONS.md) recorded from the other side: no
+    constant action stands, because standing is an unstable equilibrium.
+
+    ⚠️ **The action scale makes it worse.** `action = 1` maps to the full
+    222.9 N rating while the gravity hold needs 14-145 N, so most of the action
+    space is past anything usable and a random draw saturates the cable.
+    """
+    from tomcat_kin.gym_env import TomcatStand
+
+    env = TomcatStand(seed=0)
+    rng = np.random.default_rng(0)
+
+    def survives(action_fn, n=5):
+        out = []
+        for _ in range(n):
+            env.reset()
+            for k in range(533):
+                _, _, term, trunc, _ = env.step(action_fn())
+                if term or trunc:
+                    break
+            out.append(k + 1)
+        return float(np.mean(out))
+
+    rand = survives(lambda: rng.uniform(-1, 1, 18), n=10)
+    zero = survives(lambda: np.zeros(18))
+    assert rand < 20, f"a random policy lasts {rand:.1f} steps"
+    assert zero < 40, f"and doing nothing lasts {zero:.1f}"
+
+    # ⚠️ the whole action range is far past what the robot can use
+    assert MT.TENSION_MAX > 200.0
+    assert 145.0 / MT.TENSION_MAX < 0.7, (
+        "the useful band is under two thirds of the action space"
+    )

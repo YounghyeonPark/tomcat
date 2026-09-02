@@ -6525,6 +6525,12 @@ ADR-0081 found in exactly the place it matters.
 - ⚠️ **The reward is unvalidated as a reward.** Its *shape* is tested; whether
   it produces good standing is not knowable without a policy. No open-loop
   reference exists to check it against, which is this ADR's first finding.
+
+  > ⚠️ **STILL UNVALIDATED after a training run — [ADR-0086](#adr-0086)
+  > (M81).** 200k PPO steps learned nothing, but not because of the reward: the
+  > termination criterion this ADR introduced had two holes of its own, and with
+  > them fixed **no known behaviour survives 0.11 s**. The task never produced an
+  > episode long enough to reward.
 - ⚠️ **Dynamics randomisation is still absent** — only initial-pose jitter.
   Mass, friction, `series_k`, latency and the capstan (ADR-0003's inert
   `wrap_angle`) all want ranges before a policy is trusted off this plant.
@@ -6738,6 +6744,95 @@ is precisely why a policy has to be robust to it.
   but not varied — it is a missing channel, not a noisy one.
 - ⚠️ **Contact sensing is not randomised.** [FR12](REQUIREMENTS.md) wants
   per-foot normal force; the observation reports it exactly.
+
+## ADR-0086: Training ran, learned nothing, and the referee was the reason
+
+- **Status:** Accepted — M81
+- **⚠️ Corrects [ADR-0082](#adr-0082)'s termination twice more. ✅ Answers
+  what a first training run was for.**
+- **Context:** [ADR-0084](#adr-0084) and [ADR-0085](#adr-0085) finished the
+  randomisation, so the environment was trainable. ADR-0082 had recorded that
+  the **reward was unvalidated as a reward** and that only a policy could
+  validate it. This is that run.
+
+### ⚠️ 200k steps, and nothing moved
+
+`stable-baselines3` PPO, 8 parallel envs, all nine ranges on. Chosen over a
+hand-rolled PPO deliberately: a homemade one that failed to learn would leave
+*"bad reward"* and *"bad PPO"* indistinguishable, which is the entire question.
+
+**`ep_len_mean` sat at 21 steps and never moved** across the last 40k. 588
+steps/s, 5.7 minutes.
+
+⚠️ **And the log was truncated to the last 20 %** by a `tail -30` in the
+harness, so whether anything improved early is now unknowable. A learning curve
+is the one artefact a training run exists to produce.
+
+### ⚠️ The referee had two more holes
+
+ADR-0082 caught a tilt-only termination scoring a collapsed robot 192 and added
+`stance_height`. That fix was never itself checked, and it had two holes:
+
+1. **The leg frame is not the world.** `LegModel.forward` returns the paw in the
+   leg's own sagittal frame. Splay the legs and lie down and the number
+   *grows*: under the gravity-compensating hold the trunk sank to **27.8 mm**
+   while `stance_height` read **264 mm and rising**.
+2. **`max` let one leg vouch for the robot.** With the IMU projection added, the
+   hind pair folded to **32 mm** with the rear on the floor while the fore pair
+   stretched to **250 mm**, and `max` returned 250 and passed it.
+
+| action | before | after |
+|---|---|---|
+| zero | 15 steps | 15 |
+| uniform 25 N | 7 | 7 |
+| **gravity hold** | **533 (full episode)** | **10** |
+| random | 2 | 2 |
+
+✅ The corrected figure agrees with what ADR-0082 measured on that same action
+all along — it tips to 38.7 deg and collapses. **The referee was wrong, not
+the measurement.**
+
+### ⚠️ And with the referee fixed, the diagnosis inverts
+
+Nothing this project knows how to do survives a tenth of a second:
+
+| action | steps | seconds |
+|---|---|---|
+| random | 2 | 0.015 |
+| uniform 25 N | 7 | 0.05 |
+| gravity hold | 10 | 0.075 |
+| zero | 15 | 0.11 |
+
+An episode ending in 2 steps carries almost no gradient toward standing, so PPO
+had nothing to climb. ⚠️ **This is a task-design problem, not a reward
+problem** — and it is ADR-0082's own finding from the other side: no constant
+action stands, because standing is an unstable equilibrium.
+
+⚠️ **The action scale compounds it.** `action = 1` maps to the full 222.9 N
+rating while the gravity hold needs **14-145 N**, so most of the action space is
+past anything usable and a random draw saturates the cable.
+
+### Decision
+
+Fix the referee; do not touch the reward. The reward remains **unvalidated**:
+this run could not test it, because the task never produced an episode long
+enough to reward.
+
+### Consequences
+
+- ✅ **Three corrections to one criterion**, each closing a real hole and
+  exposing the next. The lesson is not any single fix — it is that ADR-0082
+  patched tilt and then never checked the patch.
+- ⚠️ **The tilt term is now nearly redundant.** The corrected `stance_height`
+  fires first on every case tested, including the 25 N tip it used to miss.
+  Kept as a backstop because these failure modes are not an enumerated set.
+- ⚠️ **The task needs redesign before training means anything.** Candidates:
+  scale the action to the usable band; start episodes from a supported pose; or
+  make the policy a **residual** on a gravity-compensating baseline, which is
+  standard for legged RL and matches ADR-0082's finding exactly.
+- ⚠️ **Keep the whole training log.** Truncating it cost the early curve, which
+  was the one thing that would have separated "never learned" from "learned then
+  plateaued".
 
 ---
 
