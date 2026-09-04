@@ -3849,7 +3849,35 @@ a reward problem, and it is M77's own finding from the other side. ⚠️ The
 action scale compounds it: `action = 1` is 222.9 N where the useful band is
 **14–145 N**.
 
-## Later milestones (candidate M82+, not committed)
+## Milestone M85 — The capsule model's swing inertia (DONE)
+
+`mjcf_tendon` derives link inertia from capsules at uniform density.
+`mass_closure.py` flagged that as a first-order proxy in its own comment, and
+`tomcat_leg_detail.py` has had every part placed since M41.
+
+### ⚠️ Measured about the hip, same leg, same pose
+
+| | mass | I_yy about hip |
+|---|---|---|
+| CAD placed parts | 182.2 g | **1.244e-3 kg m×** |
+| MJCF capsules | 168.2 g | **1.701e-3** |
+
+Masses agree to 8 %, so it is not a mass error — it is **where the mass is**.
+**148.4 g of 182.2 (81 %) is joint hardware sitting at the joints**, near the
+axis it swings about, and the CF tube between them is **9 g**. A uniform capsule
+spreads that mass further out.
+
+⚠️ The prediction going in was the reverse. ⚠️ Swing inertia is the P1 metric
+and ADR-0043 moved it +62 % by redistributing link mass alone.
+
+### ✅ The approach that worked, after three that did not
+
+Three attempts to reproduce `per_link_mass()`'s part-to-link rule came out
++105 %, -79 % and +20 % wrong. **Whole-leg inertia about the hip does not need
+that rule** — only where the mass physically is — so asking it that way
+answered it in one measurement.
+
+## Later milestones (candidate M86+, not committed)
 
 > This list is **curated, not append-only**. When a milestone closes an item it is
 > deleted here and the reasoning kept in the [ADR log](DESIGN_DECISIONS.md). Earlier

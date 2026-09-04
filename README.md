@@ -15,7 +15,7 @@ cat-like agility, energy-efficient movement, and passive shock absorption.
 
 ## Progress
 
-Eighty-one milestones in. The model now spans kinematics → real mass → 3D
+Eighty-five milestones in. The model now spans kinematics → real mass → 3D
 static stability → whole-body dynamics → a dynamic gait → closed-loop balance →
 an independent physics-engine cross-check → thermal duty → whole-body force
 allocation, with **493 passing + 5 suspended Python tests and 17 Rust** and every figure below
@@ -304,6 +304,7 @@ is **1.97**. That remedy *is* cheap: one step up in stock tube, under 4 g.
 | M79 | **Domain randomisation** | four parameters, each verified to bite — one of them **did not** |
 | M80 | **Sensor** randomisation | five more errors — and a bite test that had to change shape |
 | M81 | The first **training run** | learned nothing — and the **referee** was why |
+| M85 | The **capsule model's inertia** | leg swing inertia is **37% too high** — the hardware sits at the joints |
 
 Full detail in the [roadmap](docs/ROADMAP.md) and the [ADR log](docs/DESIGN_DECISIONS.md).
 
@@ -1272,6 +1273,29 @@ Full detail in the [roadmap](docs/ROADMAP.md) and the [ADR log](docs/DESIGN_DECI
 > — random 2 steps, gravity hold 10, zero 15 — so PPO had no gradient to
 > climb. A **task-design** problem, not a reward problem, and the reward is
 > still unvalidated. [ADR-0086](docs/DESIGN_DECISIONS.md).
+
+> ### ⚠️ M85: the capsules overstate leg swing inertia by a third
+>
+> `mjcf_tendon` derives link inertia from capsules at uniform density.
+> Measured about the hip, same leg, same pose: the CAD's placed parts give
+> **1.244e-3 kg m×** against the capsules' **1.701e-3**. Masses agree to
+> 8 %, so it is not a mass error — it is **where the mass is**.
+>
+> ⚠️ **148.4 g of 182.2 (81 %) is joint hardware sitting at the joints**,
+> near the axis it swings about, and the carbon tube between them is **9 g**.
+> A uniform capsule spreads the same mass further out. The prediction going
+> in was the reverse.
+>
+> ⚠️ Swing inertia is the P1 metric and ADR-0043 moved it **+62 %** by
+> redistributing link mass alone. The tendon drive's central argument —
+> motors on the body so the leg stays light — has been understated by a
+> third in every result that depends on leg swing.
+>
+> ✅ **The approach mattered.** Three attempts to reproduce the
+> part-to-link apportionment came out +105 %, -79 % and +20 % wrong.
+> Whole-leg inertia about the hip does not need that rule, only where the
+> mass physically is — asked that way it took one measurement.
+> [ADR-0087](docs/DESIGN_DECISIONS.md).
 
 > ### ⚠️ M71: the spine's drivetrain, and a margin that was never there
 >

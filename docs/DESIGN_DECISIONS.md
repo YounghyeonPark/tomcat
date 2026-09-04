@@ -6834,6 +6834,84 @@ enough to reward.
   was the one thing that would have separated "never learned" from "learned then
   plateaued".
 
+## ADR-0087: The capsule model overstates leg swing inertia by a third
+
+- **Status:** Accepted — M85
+- **⚠️ Qualifies every result that depends on leg swing.
+  ✅ Answers the question [ADR-0043](#adr-0043) and `mass_closure.py` both
+  left open.**
+- **Context:** `mjcf_tendon` draws each link as a capsule and lets MuJoCo derive
+  the inertia at uniform density. `mass_closure.py` says what that costs in its
+  own comment: *"`inertia_ratio` is used as a first-order proxy ... the real
+  quantity is `Lambda = (J M^-1 J^T)^-1` ... which needs the per-link inertia
+  tensors this ..."*. `tomcat_leg_detail.py` has placed every part since M41, so
+  the tensors were always computable.
+
+### ⚠️ Measured about the hip, same leg, same stance pose
+
+| | mass | I_yy about hip |
+|---|---|---|
+| CAD placed parts (18 solids) | 182.2 g | **1.244e-3 kg m^2** |
+| MJCF capsules | 168.2 g | **1.701e-3** |
+| | +8 % | **MJCF +37 %** |
+
+The masses agree to 8 %, so this is not a mass error — it is **where the
+mass sits**.
+
+### ⚠️ And the cause is the opposite of the intuition
+
+| part | mass | z from hip |
+|---|---|---|
+| bearings | 63.8 g | -41 mm |
+| sheaves | 44.1 g | -42 mm |
+| clevises | 40.5 g | -50 mm |
+| **joint hardware** | **148.4 g — 81 %** | **at the joints** |
+| CF tube | 9.0 g | -79 mm |
+| bonded inserts | 13.2 g | -91 mm |
+| paw pad | 5.7 g | -173 mm |
+
+**Four fifths of the leg is joint hardware sitting at the joints** — that is,
+near the axis it swings about — and the carbon tube between them is **9 g**.
+A uniform-density capsule spreads the same mass along the link and so places it
+further out.
+
+⚠️ **The prediction going in was the reverse**: mass at the ends, therefore
+higher inertia. The hardware is at the *joints*, not the ends, and the hip is
+the reference.
+
+### ✅ How it was measured, after three failures
+
+Three attempts tried to reproduce `per_link_mass()`'s part-to-link rule so each
+link could carry its own tensor. They came out **+105 %**, **-79 %** and
+**+20 %** wrong, because ASSEMBLY_SPEC 2 is not a proximity rule: a joint sits
+*between* two links and its hardware belongs to the **distal** one, which no
+geometric heuristic recovers.
+
+**The question did not need that rule.** Whole-leg inertia about the hip depends
+only on where the mass physically is, not on which link it is charged to. Asking
+it that way answered it in one measurement and is immune to the error that had
+blocked three.
+
+⚠️ Two harness bugs were caught before the result was reported, both by
+printing the centre of mass and the pose beside the ratio rather than the ratio
+alone: `d.xanchor` indexed by **dof address** instead of joint id, which put the
+hip 167 mm away and manufactured a fake **5×** gap; and `FOOT_X` read as mm
+when it is metres.
+
+### Consequences
+
+- ⚠️ **Every result that depends on leg swing is affected.** Swing inertia is
+  the P1 metric; [ADR-0043](#adr-0043) moved it **+62 %** by redistributing link
+  mass alone, and this is a further third in the other direction.
+- ⚠️ **The tendon drive's central argument is understated.** Motors on the body
+  so the leg stays light — the real leg swings **a third easier** than every
+  simulation has assumed.
+- ⚠️ **Not yet fixed in the MJCF.** This measures the gap; it does not close
+  it. Closing it needs per-link tensors, and the honest route is to take
+  `per_link_mass()`'s masses as authoritative rather than re-derive the
+  apportionment that failed three times.
+- ⚠️ **The girdles and spine are unmeasured** — this is the leg only.
+
 ---
 
 ### How to add an ADR

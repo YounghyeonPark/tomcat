@@ -129,3 +129,112 @@ def test_THE_GIRDLE_DENSITY_IS_SANE_AGAINST_ITS_OWN_GEOMETRY():
     motor_vol = 6 * np.pi * (0.0345 / 2) ** 2 * 0.0361
     assert motor_vol == pytest.approx(2.025e-4, rel=1e-2)
     assert 6 * 0.1317 / motor_vol == pytest.approx(3903.0, rel=0.01)
+
+
+def test_THE_CAPSULE_MODEL_OVERSTATES_LEG_SWING_INERTIA_BY_A_THIRD():
+    """⚠️ **The MJCF's capsules put the leg's swing inertia 37 % too high.**
+
+    `mjcf_tendon` draws each link as a capsule and lets MuJoCo derive the
+    inertia at uniform density. `mass_closure.py` flags the consequence itself:
+
+        `inertia_ratio` is used as a **first-order proxy** ... The real quantity
+        is `Lambda = (J M^-1 J^T)^-1` ... which needs the per-link inertia
+        tensors this ...
+
+    Measured about the hip, in the same stance pose, on the same leg:
+
+    | | mass | I_yy about hip |
+    |---|---|---|
+    | CAD placed parts | 182.2 g | **1.244e-3 kg m×** |
+    | MJCF capsules | 168.2 g | **1.701e-3** |
+
+    ✅ **This comparison is deliberately assignment-independent.** Three
+    earlier attempts tried to reproduce `per_link_mass()`'s part-to-link rule and
+    came out +105 %, -79 % and +20 % wrong. Whole-leg inertia about the hip does
+    not care which link a part is charged to, only where the mass physically is,
+    so the question can be answered without that rule at all.
+
+    ⚠️ **The cause is the opposite of the intuition.** The joint hardware
+    — clevis, sheave, bearings — is **148.4 g of the 182.2**, and it
+    clusters at the joints, i.e. near the axis it swings about. The CF tube is
+    only **9 g**. A uniform-density capsule spreads that same mass along the
+    link and therefore further out.
+
+    ⚠️ **What it costs.** Swing inertia is the P1 metric, and
+    [ADR-0043](../docs/DESIGN_DECISIONS.md) moved it **+62 %** by redistributing
+    link mass alone. The tendon drive's central argument — motors on the body
+    so the leg stays light — has been **understated by a third** in every
+    simulation result that depends on leg swing.
+    """
+    import sys as _sys
+    import tomcat_leg_detail as LD
+    import link_inertia as LI
+    from tomcat_kin import LegModel
+    from tomcat_kin.params import DEFAULT_HINDLEG as HL
+
+    comps, report, pts = LD.build()
+
+    # ---- the two must be in the SAME pose, or the comparison means nothing
+    q = LegModel(HL).inverse((LD.FOOT_X, LD.FOOT_Z, LD.FOOT_PITCH))
+    kin = 1e3 * np.asarray(LegModel(HL).joint_positions(q))
+    assert np.allclose(np.asarray(pts), kin, atol=0.5), (
+        "the detail CAD and the kinematics disagree about the stance pose"
+    )
+
+    # ---- CAD: every leg part about the hip, however it is apportioned
+    hip = np.asarray(report["femur"]["p0"], float) * 1e-3
+    parts = []
+    for group, solids in comps.items():
+        if group == "motor":            # girdle-mounted, not in the leg (P1)
+            continue
+        rho = LI.RHO.get(group)
+        if rho is None:
+            continue
+        for sd in (s for c in solids for s in c.solids()):
+            mm, com, I = LI._props(sd, rho)
+            if mm > 0:
+                parts.append((mm, com, I))
+    M_cad, com_cad, I_cad = BI.combine(parts)
+    d = com_cad - hip
+    I_cad_hip = I_cad + M_cad * (np.dot(d, d) * np.eye(3) - np.outer(d, d))
+
+    # ---- MJCF: the same leg, the same hip
+    m = mujoco.MjModel.from_xml_string(
+        MT.quadruped_rig(hip_height=0.176, spine=False))
+    dd = mujoco.MjData(m)
+    for i, jn in enumerate(("LR_q1", "LR_q2", "LR_q3")):
+        dd.qpos[m.jnt_qposadr[mujoco.mj_name2id(
+            m, mujoco.mjtObj.mjOBJ_JOINT, jn)]] = q[i]
+    mujoco.mj_forward(m, dd)
+    # ⚠️ `xanchor` is indexed by JOINT id. Indexing it by dof address put the
+    # hip 167 mm away and inflated the parallel-axis term into a fake 5x gap.
+    jid = mujoco.mj_name2id(m, mujoco.mjtObj.mjOBJ_JOINT, "LR_q1")
+    hip_w = np.array(dd.xanchor[jid])
+    mparts = []
+    for nm in ("LR_femur", "LR_tibia", "LR_meta", "LR_paw"):
+        b = mujoco.mj_name2id(m, mujoco.mjtObj.mjOBJ_BODY, nm)
+        R = dd.ximat[b].reshape(3, 3)
+        mparts.append((float(m.body_mass[b]), np.array(dd.xipos[b]),
+                       R @ np.diag(m.body_inertia[b]) @ R.T))
+    M_mj, com_mj, I_mj = BI.combine(mparts)
+    d2 = com_mj - hip_w
+    I_mj_hip = I_mj + M_mj * (np.dot(d2, d2) * np.eye(3) - np.outer(d2, d2))
+
+    # ✅ the masses agree to under 10 %, so this is about DISTRIBUTION
+    assert M_cad == pytest.approx(M_mj, rel=0.12), (
+        f"CAD {1e3 * M_cad:.1f} g vs MJCF {1e3 * M_mj:.1f} g"
+    )
+
+    # ⚠️ and the capsule model overstates the swing inertia by about a third
+    ratio = I_cad_hip[1, 1] / I_mj_hip[1, 1]
+    assert 0.65 < ratio < 0.82, (
+        f"CAD/MJCF swing inertia {ratio:.3f} "
+        f"({I_cad_hip[1, 1]:.3e} vs {I_mj_hip[1, 1]:.3e})"
+    )
+
+    # ⚠️ because 80 % of the leg is joint hardware sitting AT the joints
+    hw = 0.0
+    for group in ("clevis", "sheave", "bearing"):
+        for sd in (s for c in comps[group] for s in c.solids()):
+            hw += LI._props(sd, LI.RHO[group])[0]
+    assert hw / M_cad > 0.75, f"joint hardware is {100 * hw / M_cad:.0f} % of the leg"
