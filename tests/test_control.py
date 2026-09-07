@@ -256,11 +256,18 @@ def test_envelope_in_physical_units_is_a_real_shove():
     # disturbance v maps to xi = v/omega. That is the number to judge.
     p = _plant()
     env = ctl.rejection_envelope(p, use_spine=True)
-    # ⚠️ M41: ~90 -> **73 mm**. The zero-latency with-spine figure fell with the
-    # spine's own authority (42.2 -> 37.0 mm of sway, below), and this is the
+    # ⚠️ M41: ~90 → **73 mm**. The zero-latency with-spine figure fell with the
+    # spine's own authority (42.2 → 37.0 mm of sway, below), and this is the
     # idealised number ADR-0014/0015 quoted before latency was modelled at all.
-    assert env > 0.065                           # ~73 mm
-    assert env * p.omega > 0.6                   # rejects a >0.6 m/s lateral shove
+    #
+    # ⚠️ M87 (ADR-0089): **73 → 78 mm, and 0.61 → 0.595 m/s.** The envelope in
+    # DCM grew because the corrected girdles raised the CoM, but omega fell with
+    # it, and the product -- the physical shove -- came out slightly SMALLER. The
+    # two move opposite ways, which is why this test judges the product and not
+    # the millimetres: "0.6 m/s" was never a round number the design earns, and
+    # it no longer clears it.
+    assert env > 0.065                           # ~78 mm
+    assert env * p.omega > 0.55                  # rejects a ~0.6 m/s lateral shove
 
 
 def test_spine_dominates_foot_placement_for_lateral_balance():

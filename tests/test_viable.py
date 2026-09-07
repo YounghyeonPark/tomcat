@@ -89,13 +89,14 @@ def test_the_1D_reduction_lands_on_the_worst_direction(setup):
     ⚠️ The absolute bound has moved twice on the same argument: M41 (ADR-0046)
     **29.8 → 29.22 mm** when the manufacturing model shifted the leg CoM, and
     M86 (ADR-0088) **29.22 → 30.06 mm** when that distribution was MEASURED
-    rather than modelled as capsules. The 2-3 % agreement is what this test
+    rather than modelled as capsules, and M87 (ADR-0089) **30.06 → 29.45 mm**
+    when the girdles got the housing and inertia their motors need. The 2-3 % agreement is what this test
     claims and it has survived both — the absolute number is not the finding.
     """
     c, plant, q, reach = setup
     exact = _worst(viable.viable_set(c, q, plant.omega, plant.stance, reach, steps=20))
     quoted = control.rejection_envelope(plant)
-    assert exact == pytest.approx(0.0301, abs=5e-4)
+    assert exact == pytest.approx(0.0295, abs=5e-4)
     assert abs(quoted - exact) / exact < 0.03
 
 
@@ -183,8 +184,15 @@ def test_NFR15_is_met_from_floor_mu_0_6_at_both_trot_speeds(period, speed_cm_s):
     `self_consistent_envelope` takes no `floor_mu` at all, so it cannot produce a
     μ-dependent column. A stale table in a CRITICAL risk section.
 
-    On the exact viable set, NFR15's 48 mm is met from **μ ≥ 0.6 at both speeds** —
-    where R2 implied μ 0.70 was needed with no margin at all.
+    On the exact viable set, NFR15's 48 mm is met from **μ ≥ 0.6** — where R2
+    implied μ 0.70 was needed with no margin at all.
+
+    ⚠️ **M87 (ADR-0089) narrowed it to ONE speed.** Giving the girdles the
+    housing and inertia their motors actually need moved the body CoM, and the
+    **0.30 s / 67 cm/s** gait fell from 48.1 mm to **47.5 mm** -- 1 % under the
+    requirement. The shipped 0.40 s / 50 cm/s gait still clears it. So the claim
+    is now speed-dependent, and this test parametrises the threshold rather than
+    asserting the faster gait passes.
     """
     c = gait.GaitController(gait.trot_params(period=period))
     q = mjcf.stance_pose(c, 0.25)
@@ -198,20 +206,33 @@ def test_NFR15_is_met_from_floor_mu_0_6_at_both_trot_speeds(period, speed_cm_s):
         return _worst(region)
 
     assert envelope(0.5) < 0.048, "mu 0.5 should still fail — do not overclaim"
-    assert envelope(0.6) >= 0.048, "mu 0.6 must meet NFR15"
-    assert envelope(0.7) >= 0.048
+    if period >= 0.40:
+        assert envelope(0.6) >= 0.048, "the shipped gait must meet NFR15 at mu 0.6"
+    else:
+        # ⚠️ the fast gait misses by 1 %, and that is the finding
+        assert 0.047 <= envelope(0.6) < 0.048, (
+            f"the 67 cm/s gait is {1e3 * envelope(0.6):.1f} mm against NFR15's 48"
+        )
+    assert envelope(0.7) >= 0.048   # both speeds clear it once mu reaches 0.7
     # Monotone in friction, or the spine clamp is wired backwards.
     assert envelope(0.4) < envelope(0.6) < envelope(0.8)
 
 
 def test_the_ADR_0020_slowdown_is_not_required_by_NFR15():
-    """⚠️ M29. ADR-0020 slowed the shipped trot **67 → 50 cm/s** because the spine's
-    friction demand exceeded a realistic floor. On the exact viable set the faster
-    gait **also meets NFR15** at μ ≥ 0.6 (48.1 mm), and it carries a *better* sensing
-    margin besides — per-step growth is 3.21 at 0.30 s against 4.73 at 0.40 s.
+    """⚠️ **WITHDRAWN by M87 (ADR-0089). NFR15 is a reason again.**
 
-    This does not reinstate 67 cm/s by itself: ADR-0020's friction accounting is
-    still un-cross-checked (ADR-0025). It removes NFR15 as the reason.
+    M29 measured the 67 cm/s gait at **48.1 mm** on the exact viable set, clearing
+    NFR15's 48 mm, and concluded ADR-0020's **67 → 50 cm/s** slowdown was not
+    required by NFR15 (though ADR-0020's friction accounting was still
+    un-cross-checked, so 67 was never reinstated).
+
+    Giving the girdles their real housing and inertia moved the body CoM and the
+    same measurement now reads **47.5 mm** -- **1 % short**. The margin M29 rested
+    on was inside the error of a girdle box that could not hold its own motors.
+
+    ✅ What survives is the SENSING half: per-step growth is still lower at
+    0.30 s than at 0.40, so the faster gait is easier to sense, which was never
+    the disputed part. This test now asserts the withdrawal.
     """
     fast = gait.GaitController(gait.trot_params(period=0.30))
     q = mjcf.stance_pose(fast, 0.25)
@@ -219,7 +240,10 @@ def test_the_ADR_0020_slowdown_is_not_required_by_NFR15():
     reach = (float(plant.reach[0]), float(plant.reach[1]))
     region = viable.viable_set(fast, q, plant.omega, plant.stance, reach,
                                steps=20, spine=plant.spine)
-    assert _worst(region) >= 0.048
+    assert 0.047 <= _worst(region) < 0.048, (
+        f"the fast gait is {1e3 * _worst(region):.1f} mm against NFR15's 48 -- "
+        f"if it clears again, M29's argument is back and ADR-0089 needs a note"
+    )
 
     slow = gait.GaitController(gait.trot_params(period=0.40))
     slow_plant = control.StepPlant.from_gait(slow, n=96, latency=0.0075, floor_mu=0.6)

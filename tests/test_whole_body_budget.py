@@ -42,6 +42,12 @@ def _symmetric_body():
         segment_com_frac=(0.5, 0.5, 0.5),
         front_girdle_mass=0.5,
         rear_girdle_mass=0.5,
+        # ⚠️ A body this fixture calls SYMMETRIC has to build symmetric girdles.
+        # M87 measured `front/rear_girdle_com` and the defaults leaked in, giving
+        # a deliberately balanced body a 0.032 N.m base-joint torque. Inputs a
+        # test asserts about belong to the test.
+        front_girdle_com=(0.0, 0.0),
+        rear_girdle_com=(0.0, 0.0),
     )
     sym_leg = LegModel(LegParams(link_mass=(0.05, 0.05, 0.05, 0.05)))
     return WholeBody(

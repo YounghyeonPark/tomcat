@@ -56,6 +56,14 @@ def _symmetric_trunk_body(leg_mass=0.0):
         segment_com_frac=(0.5, 0.5, 0.5),
         front_girdle_mass=0.5,
         rear_girdle_mass=0.5,
+        # ⚠️ A body this fixture calls SYMMETRIC has to build symmetric girdles.
+        # M87 measured `front/rear_girdle_com` at (-4.6, +17.4) and (-5.7, +16.0)
+        # mm -- the motor bank stacks upward and its third module sits on the rear
+        # column -- and the defaults leaked in, tilting a body whose whole purpose
+        # is to be exactly balanced. Inputs a test asserts about belong to the
+        # test.
+        front_girdle_com=(0.0, 0.0),
+        rear_girdle_com=(0.0, 0.0),
     )
     leg = LegModel(LegParams(link_mass=(leg_mass / 4,) * 4))
     return WholeBody(spine=SpineModel(params=uniform), fore_leg=leg, hind_leg=leg)
@@ -261,11 +269,22 @@ def test_girdle_com_follows_the_girdle_pose():
     front = body.girdle_com(STRAIGHT, Girdle.FRONT)
     assert rear.mass == pytest.approx(DEFAULT_SPINE.rear_girdle_mass)
     assert front.mass == pytest.approx(DEFAULT_SPINE.front_girdle_mass)
-    assert np.allclose(rear.com, [0.0, 0.0])
-    assert np.allclose(front.com, [DEFAULT_SPINE.total_length, 0.0])
+    # ⚠️ Both were `[0, 0]` while `front/rear_girdle_com` were the (0, 0)
+    # placeholder. M87 measured them from the packed motor banks: the bank stacks
+    # upward, so each girdle's mass sits ~16-17 mm ABOVE its mount vertebra, and
+    # a few mm behind it because the third module of a 2-per-layer bank lands on
+    # the rear column. What this test is named for -- that the offset RIDES with
+    # the girdle pose -- is asserted below.
+    assert np.allclose(rear.com, DEFAULT_SPINE.rear_girdle_com)
+    assert np.allclose(
+        front.com,
+        [DEFAULT_SPINE.total_length + DEFAULT_SPINE.front_girdle_com[0],
+         DEFAULT_SPINE.front_girdle_com[1]])
+    assert DEFAULT_SPINE.front_girdle_com[1] > 0.015, "the bank stacks UPWARD"
     # Arching the back lifts the FRONT girdle but leaves the base put.
     assert body.girdle_com(ARCH, Girdle.FRONT).z > 0.0
-    assert np.allclose(body.girdle_com(ARCH, Girdle.REAR).com, [0.0, 0.0])
+    assert np.allclose(body.girdle_com(ARCH, Girdle.REAR).com,
+                       body.girdle_com(STRAIGHT, Girdle.REAR).com)
 
 
 def test_point_masses_com_and_combine():

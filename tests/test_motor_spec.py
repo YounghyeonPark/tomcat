@@ -124,8 +124,9 @@ def test_NFR6s_runtime_does_NOT_survive(duty):
     |---|---|
     | published pre-M40 (4.045 kg, 8.0 mm spool, Kt 0.44) | 30.2 min |
     | shipped model, everything folded in (M41) | 18.85 min |
-    | measured leg inertia (M86) | **19.39 min** |
-    | ...and on the vendor's Kt | **14.01 min** |
+    | measured leg inertia (M86) | 19.39 min |
+    | measured girdle (M87) | **19.53 min** |
+    | ...and on the vendor's Kt | **14.12 min** |
 
     ⚠️ M41 folded ADR-0043's mass and §2's spool into `params.py`, so `power.py`
     now recomputes rather than being scaled. The answer came out slightly *below*
@@ -145,8 +146,8 @@ def test_NFR6s_runtime_does_NOT_survive(duty):
     t_opt = 60.0 * wh / opt["total_w"]
     t_pess = 60.0 * wh / pess["total_w"]
 
-    assert t_opt == pytest.approx(19.39, abs=0.4)
-    assert t_pess == pytest.approx(13.62, abs=0.4)
+    assert t_opt == pytest.approx(19.53, abs=0.4)
+    assert t_pess == pytest.approx(14.12, abs=0.4)
     assert t_opt < 30.0, "if this clears 30 min again, NFR6 was re-derived"
     assert t_pess / t_opt < 0.80, "the Kt question alone is worth >20 % of runtime"
 
@@ -287,7 +288,7 @@ def test_the_runtime_bracket_is_FOURTEEN_to_NINETEEN_minutes():
     | basis | total | runtime |
     |---|---|---|
     | **Kt 0.44, measured leg inertia (M86)** | 130.0 W | **19.39 min** |
-    | **Kt 0.35, same** | 179.8 W | **14.01 min** |
+    | **Kt 0.35, same** | 178.4 W | **14.12 min** |
 
     The three-phase factor applies under any Kt reading, so the honest bracket is
     **14–19 min** against NFR6's published ~30 -- the bracket survives M86,
@@ -303,6 +304,6 @@ def test_the_runtime_bracket_is_FOURTEEN_to_NINETEEN_minutes():
     t_lo = 60.0 * wh / lo["total_w"]
 
     assert t_hi == pytest.approx(19.39, abs=0.4)
-    assert t_lo == pytest.approx(14.01, abs=0.4)
+    assert t_lo == pytest.approx(14.12, abs=0.4)
     assert t_hi < 20.0 and t_lo > 13.0, "the 14-19 min bracket"
     assert t_hi < 30.0, "NFR6's published ~30 min does not survive either corner"

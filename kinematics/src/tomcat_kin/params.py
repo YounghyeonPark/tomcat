@@ -475,10 +475,68 @@ class SpineParams:
     front_girdle_mass: float = 1.122
     rear_girdle_mass: float = 0.902
 
+    #: Girdle housing, full extents (m), and the height of its centre above the
+    #: girdle mount vertebra.
+    #:
+    #: ⚠️ **The MJCF drew a 60x60x56 mm box that its own motors do not fit in.**
+    #: Six GIM3505-9 modules with their spools are **212,133 mm3** against that
+    #: box's **201,600 -- 105 %**, a packing fraction no arrangement of cylinders
+    #: can reach. `tomcat_packaging.girdle_box()` sizes the housing from the
+    #: motors' bounding box plus 5 mm of clearance, and gets **82 x 86.5 x
+    #: 108.2 mm**, 3.8x the volume.
+    #:
+    #: The motors STACK upward, so the housing is not centred on the hip axis:
+    #: it runs 31 mm below and **77 mm above** it. Belly clearance barely moves
+    #: (148 -> 145 mm); what grows is the back and the flanks.
+    #: `[derived: mechanical/cad/tomcat_packaging.py]`
+    girdle_size: tuple[float, float, float] = (0.0820, 0.0865, 0.1082)
+    girdle_offset_z: float = 0.0231
+
     # Girdle CoM offset (x, z) in the girdle's own frame (m). (0, 0) = the mass
-    # acts exactly at the girdle mount vertebra.  ❓ TBD
-    front_girdle_com: tuple[float, float] = (0.0, 0.0)
-    rear_girdle_com: tuple[float, float] = (0.0, 0.0)
+    # acts exactly at the girdle mount vertebra.
+    #
+    # ⚠️ Both were (0, 0) and marked TBD. Measured from the packed motors, the
+    # mass sits **17 mm above** the mount and a few mm behind it -- the bank is
+    # 2-per-layer and the third motor stacks on the inboard column, which is
+    # where the -4.6 / -5.7 mm of x comes from.
+    #
+    # ⚠️ **`mjcf.py` hard-coded `pos="0 0 0"` for the same body**, and agreed
+    # with this parameter only because the parameter was (0, 0). The same shape
+    # of defect as the paw's `0.5 * l4`, found the same way -- by giving the
+    # parameter a real value.  `[derived: cad/tomcat_packaging.py]`
+    front_girdle_com: tuple[float, float] = (-0.00461, 0.01739)
+    rear_girdle_com: tuple[float, float] = (-0.00574, 0.01600)
+
+    #: MJCF `fullinertia` about each girdle's CoM, in its own frame
+    #: (ixx iyy izz ixy ixz iyz, kg m²).
+    #:
+    #: ⚠️ A uniform box at the housing size would be **2.9x** too high -- the six
+    #: motors are only 28 % of that volume. These place the motors where the CAD
+    #: packs them and spread the remainder (structure, and the head+neck the
+    #: front girdle absorbs) through the housing.
+    #:
+    #: ⚠️ **The head is the weak point and it is not in the box.** The front
+    #: girdle "deliberately ABSORBS the HEAD + NECK" -- 240 g of its 1122 -- and
+    #: nobody has placed it. Lumped in the housing here, as the old model lumped
+    #: it at the origin. Putting it forward would raise the pitch inertia.
+    #: `[derived: cad/tomcat_packaging.py]`
+    front_girdle_inertia: tuple[float, ...] = (
+        1.2577e-03, 1.1412e-03, 9.8045e-04, 0.0, 1.4855e-04, -1.7442e-05)
+    rear_girdle_inertia: tuple[float, ...] = (
+        8.9693e-04, 7.8852e-04, 7.1418e-04, 0.0, 1.5575e-04, -1.7442e-05)
+
+    #: Per-segment `fullinertia`, or `None` to derive it from the segment box.
+    #:
+    #: ⚠️ Only the MIDDLE segment is measured: it carries the 7-motor spine and
+    #: tail bank plus the battery in an 82 x 82 x 100 mm mid-body bay, which the
+    #: 60 x 60 mm cross-section the others assume understates by **1.6x**. The
+    #: outer two are bone and structure and remain `[assumed]`.
+    #: `[derived: cad/tomcat_packaging.py]`
+    segment_inertia: tuple[tuple[float, ...] | None, ...] = (
+        None,
+        (1.4110e-03, 1.4110e-03, 1.1042e-03, 5.3457e-05, 6.3457e-05, 6.3457e-05),
+        None,
+    )
 
     def __post_init__(self) -> None:
         for name in (

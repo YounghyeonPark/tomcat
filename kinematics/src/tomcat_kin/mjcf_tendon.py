@@ -952,6 +952,30 @@ def spine_pair_names(n_segments: int = 3):
             for i in range(n_segments) for ax, *_ in SPINE_AXES]
 
 
+def _girdle_xml(name, mass, com, fullinertia, sp, pad) -> str:
+    """A girdle: the housing its motors actually need, and the inertia they have.
+
+    ⚠️ **The box used to be 60x60x56 mm and could not hold its own motors** --
+    six GIM3505-9 with their spools are 212,133 mm³ against 201,600, a packing
+    fraction of **105 %**. `SpineParams.girdle_size` is `tomcat_packaging`'s
+    motor bounding box plus 5 mm of clearance; the bank stacks upward, so the
+    housing sits `girdle_offset_z` **above** the mount rather than centred on it.
+
+    ⚠️ **The `<inertial>` is explicit because a uniform box at that size would be
+    2.9x too high** -- the motors are only 28 % of the volume. Letting MuJoCo
+    derive it from the geom would trade one wrong number for a bigger one.
+    """
+    hx, hy, hz = (0.5 * v for v in sp.girdle_size)
+    fi = " ".join(f"{v:.4e}" for v in fullinertia)
+    return "\n".join([
+        f'{pad}<inertial pos="{com[0]:.6f} 0 {com[1]:.6f}" mass="{mass:.5f}" '
+        f'fullinertia="{fi}"/>',
+        f'{pad}<geom name="{name}" type="box" '
+        f'size="{hx:.5f} {hy:.5f} {hz:.5f}" '
+        f'pos="0 0 {sp.girdle_offset_z:.5f}" mass="0"/>',
+    ])
+
+
 def spine_chain_xml(sp, indent: int, legs_front: str, spool_front: str) -> str:
     """The vertebral chain, built innermost-out, with the FRONT girdle at its end.
 
@@ -964,8 +988,9 @@ def spine_chain_xml(sp, indent: int, legs_front: str, spool_front: str) -> str:
     pad = " " * (indent + 2 * n)
     chain = "\n".join([
         f'{pad}<body name="front_girdle" pos="{sp.segment_lengths[-1]:.5f} 0 0">',
-        f'{pad}  <geom name="front_girdle_g" type="box" '
-        f'size="0.030 0.030 0.028" mass="{sp.front_girdle_mass:.5f}"/>',
+        _girdle_xml("front_girdle_g", sp.front_girdle_mass,
+                    sp.front_girdle_com, sp.front_girdle_inertia, sp,
+                    pad + "  "),
         spool_front,
         legs_front,
         f'{pad}</body>',
@@ -974,7 +999,16 @@ def spine_chain_xml(sp, indent: int, legs_front: str, spool_front: str) -> str:
         pad = " " * (indent + 2 * i)
         pos = 0.0 if i == 0 else sp.segment_lengths[i - 1]
         ln, mass = sp.segment_lengths[i], sp.segment_mass[i]
-        ix, iy, iz = _box_inertia(mass, ln / 2, 0.030, 0.030)
+        # ⚠️ The MIDDLE segment carries the 7-motor spine and tail bank plus the
+        # battery in an 82 x 82 x 100 mm mid-body bay; the 60 x 60 mm cross
+        # section assumed here understates it by 1.6x. Measured where measured.
+        _fi = sp.segment_inertia[i] if i < len(sp.segment_inertia) else None
+        if _fi is None:
+            ix, iy, iz = _box_inertia(mass, ln / 2, 0.030, 0.030)
+            _inertia = f'diaginertia="{ix:.9g} {iy:.9g} {iz:.9g}"'
+        else:
+            _inertia = ('fullinertia="'
+                        + " ".join(f"{v:.4e}" for v in _fi) + '"')
         joints = "".join(
             f'{pad}  <joint name="spine_{ax}{i + 1}" type="hinge" axis="{axis}" '
             f'range="{getattr(sp, lo)[i]:.5f} {getattr(sp, hi)[i]:.5f}"/>\n'
@@ -983,7 +1017,7 @@ def spine_chain_xml(sp, indent: int, legs_front: str, spool_front: str) -> str:
             f'{pad}<body name="spine{i + 1}" pos="{pos:.5f} 0 0">\n'
             f'{joints}'
             f'{pad}  <inertial pos="{sp.segment_com_frac[i] * ln:.5f} 0 0" '
-            f'mass="{mass:.5f}" diaginertia="{ix:.9g} {iy:.9g} {iz:.9g}"/>\n'
+            f'mass="{mass:.5f}" {_inertia}/>\n'
             f'{pad}  <geom type="capsule" fromto="0 0 0 {ln:.5f} 0 0" '
             f'size="{SPINE_RADIUS}" mass="0" contype="0" conaffinity="0" '
             f'rgba="0.7 0.6 0.6 0.35"/>\n'
@@ -1210,9 +1244,9 @@ def _spine_quadruped(hip_height, trunk_mass, tendons, acts,
           friction="0.8 0.005 0.0001"/>
     <body name="trunk" pos="{-total / 2.0:.5f} 0 {hip_height:.4f}">
       <freejoint name="root"/>
-      <geom name="rear_girdle_g" type="box" size="0.030 0.030 0.028"
-            mass="{sp.rear_girdle_mass:.5f}"/>
-      <site name="imu" pos="0 0 0.028" size="0.003"/>
+{_girdle_xml("rear_girdle_g", sp.rear_girdle_mass, sp.rear_girdle_com,
+                 sp.rear_girdle_inertia, sp, "      ")}
+      <site name="imu" pos="0 0 {0.5 * sp.girdle_size[2] + sp.girdle_offset_z:.4f}" size="0.003"/>
 {nl.join(hind_spools)}
 {nl.join(hind_bodies)}
 {chain}

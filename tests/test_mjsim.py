@@ -124,12 +124,20 @@ def test_balance_needs_compliant_legs(controller):
         assert _mean_dcm(stiff, slice(-8, None)) > 2.0 * soft_late
 
 
-@pytest.mark.parametrize("angle_deg,floor_mm", [(300, 12.0), (60, 40.0)])
+# ⚠️ M87 (ADR-0089) moved WHICH directions are best and worst, not the
+# spread: 0° is now the worst at 12.3 mm and 180° the best at 41.1 mm,
+# a **3.33x** span against the 3.4x M17 published. 60°, which used to be a
+# good direction at >40 mm, is now 14.4.
+@pytest.mark.parametrize("angle_deg,floor_mm", [(0, 10.0), (180, 35.0)])
 def test_the_envelope_is_strongly_direction_dependent(controller, angle_deg, floor_mm):
     """M17 found the two diagonals topple along axes 52.4 deg apart but could not
-    cost it. Measured: the envelope spans **3.4x** across direction — 19.3 mm at its
-    worst against 65.7 mm at its best — while `StepPlant` quotes a single 30.34 mm
+    cost it. Measured: the envelope spans **3.3x** across direction — 12.3 mm at
+    its worst against 41.1 mm at its best — while `StepPlant` quotes one number
     for every direction.
+
+    ⚠️ The span is the finding and it has held through two mass corrections; the
+    absolute values and the extreme DIRECTIONS have not. Full sweep at M87:
+    0° 12.3, 60° 14.4, 120° 16.4, 180° 41.1, 240° 30.8, 300° 20.5 mm.
 
     ⚠️ The worst direction is **64 % of the prediction**. Checked loosely here
     because a bisection is slow; the numbers are in ADR-0026.
@@ -256,7 +264,7 @@ def test_the_proportional_spine_assist_has_unity_loop_gain_and_is_harmful(contro
     The authority is not the problem (see the held-sway test); reactive use of it is.
     """
     plant = control.StepPlant.from_gait(controller, n=96, latency=0.0075, floor_mu=0.8)
-    assert plant.spine == pytest.approx(0.0366, abs=5e-4)
+    assert plant.spine == pytest.approx(0.0360, abs=5e-4)
 
     model = mjsim.build(controller, mujoco, kp=80, spine=True, spine_kp=1000)
 
@@ -375,15 +383,20 @@ def test_measuring_friction_demand_needs_a_PAIRED_design(controller):
 
     assert len(shifts) >= 4, "not enough usable trials to characterise the variance"
     sd = float(np.std(shifts, ddof=1))
-    # The friction effect M30 was chasing is ~5.7 mm at mu 0.7. The phase-to-phase
-    # spread here is ~2.2 mm on this quantity and 10-15 mm on the CoM-versus-feet
-    # shift the measurement actually used — comparable to, or larger than, the
-    # signal either way. That is the whole reason the design has to be paired.
-    assert sd > 0.0015, (
-        f"phase-to-phase spread is only {1000 * sd:.1f} mm — if the variance really "
-        "has fallen, an unpaired friction measurement may now be viable; re-check M30"
+    # ⚠️ **M87 (ADR-0089): this proxy's spread collapsed, 2.2 → 0.4 mm.** The
+    # friction effect M30 was chasing is ~5.7 mm at mu 0.7, so on THIS quantity an
+    # unpaired measurement would now be viable -- the evidence this test carried
+    # for M30's paired design is gone.
+    #
+    # ⚠️ What M30's conclusion still rests on is the OTHER spread it quoted:
+    # 10-15 mm on the CoM-versus-feet shift the measurement actually used, which
+    # this test does not measure. So the conclusion is not overturned, it is
+    # unsupported here, and the test now records that rather than asserting a
+    # variance the corrected mass model no longer produces.
+    assert sd < 0.0010, (
+        f"phase-to-phase spread is {1000 * sd:.1f} mm — if it has grown back, the "
+        "paired-design argument has its own evidence again; re-check M30"
     )
-    assert sd < 0.020, "spread this large would mean the baseline itself is broken"
 
 
 @pytest.mark.xfail(reason=XFAIL_M41, strict=True)
@@ -447,7 +460,18 @@ def test_the_envelope_is_horizon_limited_and_must_be_converged(controller):
     assert long > 0.7 * bound, "the controller should still be within ~30 % of optimal"
 
 
-# ✅ **M41 xfailed this; M86 UN-xfailed it** -- see `XFAIL_M41`.
+@pytest.mark.xfail(reason=(
+    "M87 (ADR-0089) re-marked this. M41 xfailed it, M86 un-xfailed it when it "
+    "passed on the measured leg tensors, and the corrected girdles INVERT it "
+    "again: lam realisation now measures 27.7 mm against the shipped 12.3, i.e. "
+    "it HELPS by 2.3x where ADR-0037 measured it hurting by 2x. Two independent "
+    "mass corrections have flipped this result's sign in opposite directions, "
+    "which is not a conclusion changing -- it is an instrument that cannot "
+    "support one. It reads the SURVIVAL criterion, and M87 showed that criterion "
+    "is NON-MONOTONIC in the disturbance (see "
+    "test_the_SURVIVAL_criterion_is_NOT_AN_ENVELOPE). Re-derive with "
+    "measure_envelope(recover=True) before asserting anything about ADR-0037."
+), strict=True)
 def test_realising_the_load_split_makes_it_worse_not_better(controller):
     """⚠️ M32, and the fourth consecutive result of this shape.
 
@@ -617,46 +641,62 @@ def test_the_noise_floor_RISES_at_a_short_stance(controller):
     )
 
 
-# ✅ **M41 xfailed this; M86 UN-xfailed it** -- see `XFAIL_M41`.
-def test_the_envelope_measures_SURVIVAL_not_recovery(controller):
-    """⚠️ M35, and it re-reads every envelope figure from M21 onward.
+def test_the_SURVIVAL_criterion_is_NOT_AN_ENVELOPE(controller):
+    """⚠️ **M35's point, and M87 measured the thing itself instead of a corner.**
 
-    `run` scores a trial as passed when the CoM never drops below 0.11 m inside the
-    horizon. That is **did not fall**. `viable.py` computes the set the robot can
-    **recover** from. M21–M34 compared those two numbers to each other as if they
-    were one quantity — including the `measured <= bound` consistency check — and it
-    held only because at the shipped configuration they happen not to cross.
+    `run` scores a trial as passed when the CoM never drops below 0.11 m inside
+    the horizon. That is **did not fall**. `viable.py` computes the set the robot
+    can **recover** from. M21-M34 compared those two numbers as if they were one
+    quantity, and it held only because at the shipped configuration they happen
+    not to cross.
 
-    Probed at its own certified 25.6 mm envelope, the shipped controller ends with a
-    mean DCM offset of **26.2 mm against a 3.9 mm noise floor**: it is still off its
-    support by more than the disturbance it was given. Re-measured with
-    `measure_envelope(recover=True)` the worst direction collapses
-    **25.6 -> 1.5 mm**, one bisection quantum.
+    This test used to probe one point -- the certified 25.6 mm -- and assert that
+    the robot survived it while settling badly. That corner moved with every mass
+    correction and the test moved with it. ⚠️ **M87 swept the disturbance instead,
+    at 300°, and the criterion does not even ORDER:**
 
-    The mechanism is steady-state error: the placement law arrests a topple but has
-    no term that removes a persistent offset, so it settles into a biased limit
-    cycle. That is the failure the README already describes for at-DCM placement —
-    *"stable, and walking away sideways"* — and the shipped law has it too, smaller.
+    | push (mm) | 8 | 12 | 14 | 16 | 18 | 20 | 22 | 24 |
+    |---|---|---|---|---|---|---|---|---|
+    | fell | no | **yes** | no | **yes** | no | no | no | yes |
+    | settled (mm) | 45.6 | 122.6 | 39.8 | 117.2 | 12.6 | 9.6 | 22.9 | 107.7 |
 
-    ⚠️ This test asserts the DEFECT, so it fails once the controller gains integral
-    action. That failure is the signal to re-measure, not to relax the test.
+    ⚠️ **A smaller push fells the robot where a larger one does not**, twice. A
+    quantity that is not monotonic in the disturbance is not an envelope, and no
+    threshold fitted to it means anything. That is [ADR-0040](../docs/DESIGN_DECISIONS.md)'s
+    argument, shown directly rather than inferred.
+
+    ⚠️ **And "survived" does not mean recovered.** At the smallest push that
+    survives, 8 mm, the robot settles **45.6 mm** off its support -- 18x the noise
+    floor and nearly 6x the disturbance it was given. It is stable and walking
+    away sideways, which is what the README already says about at-DCM placement.
+
+    ⚠️ Asserts the DEFECT. It fails when the criterion becomes monotonic, which is
+    the signal that `measure_envelope(recover=True)` has replaced it.
     """
     model = mjsim.build(controller, mujoco, kp=COMPLIANT_KP)
-
     floor = mjsim.undisturbed_drift(mjsim.BalanceHarness(controller, mujoco, model))
     assert 0.002 < floor < 0.007, f"noise floor moved to {1000 * floor:.2f} mm"
 
-    h = mjsim.BalanceHarness(controller, mujoco, model)
     u = np.array([np.cos(np.radians(300)), np.sin(np.radians(300))])
-    data = h.reset()
-    h.run(data, steps=400, until=0.8)
-    hist, fell = h.run(data, steps=400, until=3.2, disturbance=0.0256 * h.omega * u)
 
-    assert not fell, "25.6 mm is the certified survival envelope; it must survive"
-    tail = hist[len(hist) // 2:]
-    settled = float(np.mean([np.hypot(e["perp"], e["para"]) for e in tail]))
-    assert settled > 2.0 * floor, (
-        f"the trial settled at {1000 * settled:.1f} mm against a {1000 * floor:.1f} mm "
-        "floor — if this is now a real recovery, the controller gained a term it did "
-        "not have in M35 and every envelope figure should be re-measured"
+    def trial(mm):
+        h = mjsim.BalanceHarness(controller, mujoco, model)
+        data = h.reset()
+        h.run(data, steps=400, until=0.8)
+        hist, fell = h.run(data, steps=400, until=3.2,
+                           disturbance=mm * 1e-3 * h.omega * u)
+        tail = hist[len(hist) // 2:]
+        settled = float(np.mean([np.hypot(e["perp"], e["para"]) for e in tail]))
+        return fell, settled
+
+    small_fell, _ = trial(16.0)
+    big_fell, big_settled = trial(20.0)
+    assert small_fell and not big_fell, (
+        "16 mm must fell it where 20 mm does not -- if the criterion has become "
+        "monotonic, measure_envelope(recover=True) has done its job and this "
+        "defect test should go"
+    )
+    assert big_settled > 2.0 * floor, (
+        f"20 mm settled at {1000 * big_settled:.1f} mm against a "
+        f"{1000 * floor:.1f} mm floor -- surviving is not recovering"
     )

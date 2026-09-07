@@ -7071,6 +7071,9 @@ than a number. It is a milestone of its own. **This one has a single cause.**
 
 - ⚠️ **Every result that depends on leg swing and predates M86 is understated
   by 45 %.** Swing inertia is the P1 metric.
+- ⚠️ **[ADR-0089](#adr-0089) (M87) found the other half.** Correcting the legs
+  alone inverted M17's LIPM guard; the girdles restored it. A mass model's
+  errors can be cancelling, and half a correction was worse than none.
 - ⚠️ **The girdles are measured and NOT yet fixed.** The MJCF girdle box is
   60×60×56 mm; six motors and their spools are **212,133 mm² against its
   201,600** — **the box is smaller than the parts it houses (105 %)**, where
@@ -7079,6 +7082,136 @@ than a number. It is a milestone of its own. **This one has a single cause.**
   box's. So the trunk is too *easy* to rotate while the legs were too *hard* to
   swing.
 - ⚠️ **Still no skin.** 7 contact geoms: floor, two girdles, four pads.
+
+## ADR-0089: The girdle box could not hold its own motors, and three findings rested on it
+
+- **Status:** Accepted — M87
+- **⚠️ NARROWS [ADR-0073](#adr-0073)'s landing alarm into a requirement on the
+  spine loop, WITHDRAWS [ADR-0075](#adr-0075)'s compliance penalty and M29's
+  NFR15 argument. ✅ Restores M17's LIPM guard
+  that [ADR-0088](#adr-0088) had just inverted.**
+- **Context:** ADR-0088 measured the legs and left the girdles as the other half.
+  They are **2.02 kg of a 4.30 kg robot** — 47 % of it — drawn as a
+  60×60×56 mm box.
+
+### ⚠️ The box was smaller than the parts inside it
+
+| | volume |
+|---|---|
+| MJCF girdle box, 60×60×56 mm | 201,600 mm³ |
+| six GIM3505-9 with their spools | **212,133 mm³** |
+| | **105 %** |
+
+No arrangement of cylinders reaches 105 % packing. `tomcat_packaging.girdle_box()`
+sizes the housing from the motors' own bounding box plus 5 mm of clearance and
+gets **82 × 86.5 × 108.2 mm**, **3.8×** the volume at **28 %** packing. The
+bank stacks upward, so the housing sits **23.1 mm above** the hip axis rather
+than centred on it: 31 mm below, 77 above. Belly clearance barely moves
+(148 → 145 mm); the back and the flanks are what grow.
+
+⚠️ **[ADR-0084](#adr-0084) already had this box in its hands.** It corrected the
+"denser than tungsten" claim by finding the right denominator and reported
+4,474 and 5,565 kg/m³ as *"what a box packed with motors should look like:
+six per girdle ... is 202.5 cm³ — the whole box"*. **The whole box** was the
+finding, printed and read as reassurance.
+
+### ⚠️ Three published findings were artefacts of it
+
+| finding | rested on | measured with the real girdle |
+|---|---|---|
+| [ADR-0073](#adr-0073): the cable margin was bought by a **rigid trunk** | the leg cable saturates at **every** spine hold gain | saturates at gain 0 and 50, **64.7 N at the shipped 300** |
+| [ADR-0075](#adr-0075): spine compliance costs the righting **4.7×** | 10.10 s against 2.14 | **2.35 s against 2.28 — 3 %** |
+| M29: ADR-0020's slowdown is **not required by NFR15** | 48.1 mm against a 48 mm requirement | **47.5 mm — 1 % short** |
+
+A girdle with the inertia its motors actually have is not whipped around by the
+spine, so the leg loops are not chasing a violently moving hip and the series
+spring has almost nothing left to absorb. ⚠️ **The mechanism ADR-0075 named
+— saturation — is still there; what has gone is its cost.** The spine's own
+cables still run **1.1-1.7 kN against a 222.9 N rating**, and that was always the
+larger number.
+
+⚠️ **ADR-0073's alarm does not go away, it gets a condition.** Its own gain
+sweep — *"the leg cable saturates at every spine hold gain, so this is the
+articulation, not the way the spine is held"* — was the evidence, and it was
+read backwards: the girdle box was small enough to swamp the gain, so the sweep
+looked flat. On the real girdle the gains separate:
+
+| spine hold gain, 0.05 m drop | leg cable |
+|---|---|
+| 0, limp | **222.9 N, saturated** |
+| 50, softly held | **222.9 N, saturated** |
+| **300, the shipped loop** | **64.7 N** |
+
+So **holding the spine is what protects the leg cable**, and a margin conditional
+on a loop gain is weaker than a structural one — particularly one
+[ADR-0067](#adr-0067) shows there is no room to raise.
+
+✅ **The landing contact became believable on the way.** 4831 / 986 / 11,040 N
+— non-monotonic, 260× body weight — became **437-535 N, 10-13×**, which
+is the 9-13× ADR-0073 expects an impact of this kind to deliver.
+
+### ✅ Correcting HALF a mass model was worse than correcting neither
+
+| plant | LIPM omega | rigid-body rate | ratio |
+|---|---|---|---|
+| capsule legs, 60 mm box | — | ~2 % slower | **0.98** |
+| **measured legs, 60 mm box (M86)** | 7.743 | 8.266 | **1.068** |
+| measured legs, measured girdles (M87) | 7.562 | 7.169 | **0.948** |
+
+M17 measured the rigid body toppling ~2 % SLOWER than the LIPM every envelope in
+`control.py` is sized on, and called the reduced-order model conservative.
+ADR-0088 replaced the legs' capsule inertia with measured tensors — a strict
+improvement — and the guard **inverted**: the robot diverged 6.8 % FASTER than
+the model. Finishing the other half restores the margin **wider than M17's**.
+
+⚠️ **The lesson is not "measure more", it is that a mass model's errors can be
+cancelling.** ADR-0088's leg correction was right and made one published guard
+wrong, for one milestone, and nothing but the girdle work would have found it.
+
+### ⚠️ The same defect, twice more
+
+[ADR-0088](#adr-0088) found `mjcf.py` hard-coding the paw's centre of mass at
+`0.5 * l4` while `mass.py` read `link_com_frac[3]`; they agreed only because the
+parameter happened to BE 0.50. Two more of exactly that:
+
+- `mjcf.py`'s `_girdle_block` wrote `pos="0 0 0"` while `spine.girdle_com` read
+  `front/rear_girdle_com`;
+- `spine.center_of_mass_y` rotated the fore LEGS' fore-aft offset into y under
+  yaw — M20's own correction — but not the **girdle's**, which had none to
+  rotate.
+
+Both stayed silent for exactly as long as the parameter kept its `(0, 0)`
+placeholder. **A hard-coded copy of a parameter is not a duplicate, it is a
+second source of truth**, and giving the parameter a real value is what finds it.
+
+### ⚠️ And the survival criterion is not an envelope
+
+Probing the balance harness across disturbance magnitude at 300°:
+
+| push (mm) | 8 | 12 | 14 | 16 | 18 | 20 | 22 | 24 |
+|---|---|---|---|---|---|---|---|---|
+| fell | no | **yes** | no | **yes** | no | no | no | yes |
+| settled (mm) | 45.6 | 122.6 | 39.8 | 117.2 | 12.6 | 9.6 | 22.9 | 107.7 |
+
+A smaller push fells the robot where a larger one does not, twice. [ADR-0040](#adr-0040)
+argued survival was the wrong quantity; this shows it **does not even order**, so
+no threshold fitted to it means anything. And "survived" is not recovered: the
+smallest push that survives settles **45.6 mm** off support, 18× the noise
+floor. `test_the_SURVIVAL_criterion_is_NOT_AN_ENVELOPE` asserts the
+non-monotonicity directly, replacing a test that probed one moving corner.
+
+### Consequences
+
+- ✅ **The plant's contact shell is right for the first time.** 82×86.5×108.2
+  mm at 28 % packing, with the motors' measured inertia rather than a uniform
+  box's (which would be **2.9×** too high).
+- ⚠️ **Every balance result moved**, and the lateral stability margin with them:
+  5.0 → **4.58 mm**. The walk is still stable; the headroom is under 5 mm.
+- ⚠️ **NFR15 is a reason to slow down again.** The 67 cm/s trot misses by 1 %.
+- ⚠️ **Still no skin, and no tail.** 7 contact geoms.
+- ⚠️ **The head is still not placed.** The front girdle absorbs 240 g of head and
+  neck and `front_girdle_com` lumps it in the housing; putting it forward would
+  raise the pitch inertia. `[owed]`
 
 ---
 

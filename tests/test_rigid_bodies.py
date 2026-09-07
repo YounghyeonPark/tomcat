@@ -103,14 +103,22 @@ def test_THE_GIRDLE_DENSITY_IS_SANE_AGAINST_ITS_OWN_GEOMETRY():
     `trunk` is pelvis blades and a tail, while the MJCF's `trunk` is a
     60 × 60 × 56 mm girdle **box**. Same name, different object.
 
-    | girdle | MJCF box | mass | density |
-    |---|---|---|---|
-    | rear (`trunk`) | 201.6 cm³ | 902 g | **4 474** |
-    | front | 201.6 cm³ | 1122 g | **5 565** |
+    ⚠️ **And the corrected denominator was still the wrong box.** 201.6 cm³
+    is 60 × 60 × 56 mm, and six motors with their spools are **212.1 cm³** --
+    **105 %** of it. A housing cannot be smaller than what it houses, and the
+    4 474 / 5 565 kg/m³ that looked reassuring was the arithmetic of a box that
+    could not exist. M87 sized it from `tomcat_packaging`: **82 × 86.5 ×
+    108.2 mm, 767.5 cm³**.
 
-    ✅ Which is what a box packed with motors should look like: six per girdle
-    at Ø34.5 × 36.1 mm is **202.5 cm³** — the whole box — and **790 g**, and the
-    motor's own back-solved density is 3 903 kg/m³.
+    | girdle | MJCF box | mass | density | motors |
+    |---|---|---|---|---|
+    | rear (`trunk`) | 767.5 cm³ | 902 g | **1 175** | 28 % of the volume |
+    | front | 767.5 cm³ | 1122 g | **1 462** | same |
+
+    ✅ **1.2-1.5 g/cm³ is what a mostly-empty housing should read**: heavier
+    than the air it mostly is, far lighter than the 3 903 kg/m³ of the motors
+    inside it. The number to check is not the density on its own but the
+    **packing fraction**, which is now a figure a real assembly can hit.
     """
     m = mujoco.MjModel.from_xml_string(
         MT.quadruped_rig(hip_height=0.176, spine=True))
@@ -120,15 +128,22 @@ def test_THE_GIRDLE_DENSITY_IS_SANE_AGAINST_ITS_OWN_GEOMETRY():
         b = mujoco.mj_name2id(m, mujoco.mjtObj.mjOBJ_BODY, body)
         vol = 8.0 * float(np.prod(m.geom_size[g][:3]))
         rho = float(m.body_mass[b]) / vol
-        assert vol == pytest.approx(2.016e-4, rel=1e-3), "60 x 60 x 56 mm"
-        assert 3000.0 < rho < 7000.0, (
-            f"{body}: {rho:.0f} kg/m3 against its OWN geometry"
+        assert vol == pytest.approx(7.675e-4, rel=1e-3), "82 x 86.5 x 108.2 mm"
+        assert 800.0 < rho < 2000.0, (
+            f"{body}: {rho:.0f} kg/m3 against its OWN geometry -- a housing "
+            f"that is mostly air, not a solid billet"
         )
 
-    # ✅ and the motors alone account for it: six fill the box
-    motor_vol = 6 * np.pi * (0.0345 / 2) ** 2 * 0.0361
-    assert motor_vol == pytest.approx(2.025e-4, rel=1e-2)
-    assert 6 * 0.1317 / motor_vol == pytest.approx(3903.0, rel=0.01)
+    # ⚠️ **The check that matters: the box holds its motors.** Six modules with
+    # their spools, against the housing they sit in.
+    motor_vol = 6 * (np.pi * (0.0345 / 2) ** 2 * 0.0361
+                     + np.pi * (0.016 / 2) ** 2 * 0.008)
+    assert motor_vol == pytest.approx(2.121e-4, rel=1e-2)
+    packing = motor_vol / vol
+    assert packing < 0.5, f"packing {100 * packing:.0f} % -- cylinders cannot"
+    assert packing > 0.2, f"packing {100 * packing:.0f} % -- the box is padding"
+    assert 6 * 0.1317 / (6 * np.pi * (0.0345 / 2) ** 2 * 0.0361) == pytest.approx(
+        3903.0, rel=0.01)
 
 
 def test_the_mjcf_now_swings_like_the_cad_leg():

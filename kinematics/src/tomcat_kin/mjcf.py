@@ -137,15 +137,27 @@ def _leg_xml(name: str, track_y: float, leg_p, indent: int) -> str:
     return "\n".join(out)
 
 
-def _girdle_block(name: str, mass: float, indent: int) -> str:
+def _girdle_block(name: str, mass: float, com, fullinertia, sp,
+                  indent: int) -> str:
+    """⚠️ This read `pos="0 0 0"` while `spine.girdle_com` read
+    `front/rear_girdle_com` for the same body. They agreed only because that
+    parameter was `(0, 0)` and marked TBD; M87 measured it at
+    (-4.6, +17.4) mm and (-5.7, +16.0), and the two parted.
+
+    **The third instance of the same defect** -- after the paw's `0.5 * l4` and
+    the girdle box's own size. A hard-coded copy of a parameter is not a
+    duplicate, it is a second source of truth, and it stays silent for exactly as
+    long as the parameter keeps its placeholder value.
+    """
     pad = " " * indent
-    ix, iy, iz = _box_inertia(mass, 0.030, TRUNK_HALF_W, TRUNK_HALF_H)
+    hx, hy, hz = (0.5 * v for v in sp.girdle_size)
+    fi = " ".join(f"{v:.4e}" for v in fullinertia)
     return (
-        f'{pad}<inertial pos="0 0 0" mass="{mass}" '
-        f'diaginertia="{ix:.9g} {iy:.9g} {iz:.9g}"/>\n'
+        f'{pad}<inertial pos="{com[0]:.6f} 0 {com[1]:.6f}" mass="{mass}" '
+        f'fullinertia="{fi}"/>\n'
         f'{pad}<geom name="{name}" type="box" '
-        f'size="0.030 {TRUNK_HALF_W} {TRUNK_HALF_H}" mass="0" '
-        f'contype="0" conaffinity="0" rgba="0.6 0.6 0.65 0.35"/>'
+        f'size="{hx:.5f} {hy:.5f} {hz:.5f}" pos="0 0 {sp.girdle_offset_z:.5f}" '
+        f'mass="0" contype="0" conaffinity="0" rgba="0.6 0.6 0.65 0.35"/>'
     )
 
 
@@ -215,7 +227,9 @@ def build_mjcf(controller, leg_q: dict, height: float = 0.17,
     depth = 6 + 2 * n
     chain = "\n".join([
         f'{" " * depth}<body name="front_girdle" pos="{sp.segment_lengths[-1]} 0 0">',
-        _girdle_block("front_girdle_g", sp.front_girdle_mass, depth + 2),
+        _girdle_block("front_girdle_g", sp.front_girdle_mass,
+                      sp.front_girdle_com, sp.front_girdle_inertia, sp,
+                      depth + 2),
         legs_on("front", depth + 2),
         f'{" " * depth}</body>',
     ])
@@ -268,7 +282,7 @@ def build_mjcf(controller, leg_q: dict, height: float = 0.17,
     <geom name="floor" type="plane" size="5 5 0.1" rgba="0.9 0.9 0.9 1"/>
     <body name="trunk" pos="0 0 {height}">
 {root}
-{_girdle_block("rear_girdle_g", sp.rear_girdle_mass, 6)}
+{_girdle_block("rear_girdle_g", sp.rear_girdle_mass, sp.rear_girdle_com, sp.rear_girdle_inertia, sp, 6)}
 {legs_on("rear", 6)}
 {chain}
     </body>

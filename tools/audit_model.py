@@ -110,9 +110,14 @@ def main():
     row(PART, "reward", "shape tested; never validated by a policy")
 
     print("\nUNMEASURED")
-    row(PART, "girdle + spine inertia", "measured 1.34-1.56x the box; not applied")
-    row(NO, "girdle box holds its motors", "60x60x56 mm box, 212,133 mm3 of "
-        "motors -- 105 %; packaging says 82x86.5x108.2")
+    row(YES, "girdle + spine inertia", "measured, ADR-0089")
+    # ⚠️ Computed here, not quoted: six GIM3505-9 with spools are
+    # 212,133 mm3, and a box that cannot hold them is not a housing.
+    gi = mujoco.mj_name2id(m, mujoco.mjtObj.mjOBJ_GEOM, "rear_girdle_g")
+    vol = 8.0 * float(np.prod(m.geom_size[gi][:3])) * 1e9        # mm3
+    row(YES if vol > 212133.0 else NO, "girdle box holds its motors",
+        "%.0f mm3 box vs 212,133 of motors -- %.0f %% packing"
+        % (vol, 100.0 * 212133.0 / vol))
     row(NO, "structure under impact", "ADR-0073: 9-13x body weight, unchecked")
     row(NO, "floating-base estimator", "ADR-0081: no sensor gives world position")
     print("\n" + "=" * 74)

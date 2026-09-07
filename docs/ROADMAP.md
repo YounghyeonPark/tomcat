@@ -3910,7 +3910,34 @@ isolated points. Pinned at `rel=1e-9`.
 **3.8×** the volume, and at equal mass its inertia is **1.34-1.56×** the
 box's. Measured, not yet fixed.
 
-## Later milestones (candidate M87+, not committed)
+## Milestone M87 — The girdle box, and three findings that rested on it (DONE)
+
+The MJCF drew each girdle as a 60×60×56 mm box. Six GIM3505-9 with their
+spools are **212,133 mm³** against that box's **201,600** — **105 %**, a
+packing fraction no arrangement of cylinders reaches. `tomcat_packaging` sizes
+the housing at **82 × 86.5 × 108.2 mm**, 3.8× the volume, sitting 23 mm
+above the hip axis because the bank stacks upward.
+
+### ⚠️ Three published findings were artefacts of the small box
+
+| finding | rested on | with the real girdle |
+|---|---|---|
+| ADR-0073's landing alarm | leg cable **222.9 N saturated** | **64.7 N** |
+| ADR-0075's compliance penalty | **4.7×** righting time | **1.03×** |
+| M29 on NFR15 | 48.1 mm against 48 | **47.5 mm** |
+
+### ✅ Correcting HALF a mass model was worse than correcting neither
+
+M86's leg correction inverted M17's LIPM guard (2 % conservative → 6.8 %
+optimistic). Finishing the girdles restores it **wider than M17's**: 5.2 %
+conservative. Mass-model errors can be cancelling.
+
+### ⚠️ The survival criterion does not even order
+
+At 300° the robot falls at 12 and 16 mm and survives at 8, 14, 18, 20 and 22.
+ADR-0040 argued survival was the wrong quantity; this measures it.
+
+## Later milestones (candidate M88+, not committed)
 
 > This list is **curated, not append-only**. When a milestone closes an item it is
 > deleted here and the reasoning kept in the [ADR log](DESIGN_DECISIONS.md). Earlier

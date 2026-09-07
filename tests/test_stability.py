@@ -191,8 +191,13 @@ def test_default_walk_IS_laterally_stable_via_the_actuated_spine():
     from tomcat_kin import GaitController
     c = GaitController()
     poly = c.support_polygon_sweep(200)
+    # ⚠️ M87 (ADR-0089): **5.0 → 4.58 mm.** Giving the girdles the housing and
+    # inertia their motors need moved the body CoM, and the lateral margin went
+    # with it. The finding -- the actuated sway CLOSES the 3D margin, where
+    # without it the CoM leaves the polygon by more than 20 mm -- is unchanged.
+    # What shrank is the headroom above zero, and it is now under 5 mm.
     assert all(p.is_stable for p in poly)
-    assert min(p.margin for p in poly) > 0.005                    # > 5 mm
+    assert min(p.margin for p in poly) > 0.004                    # > 4 mm
     assert all(m.is_stable for m in c.stability_sweep(200))       # 2D still fine
 
 
@@ -243,8 +248,8 @@ def test_over_swaying_is_WORSE_than_the_optimum():
 
 def test_sequencing_is_not_the_lever_for_lateral_stability():
     # Reordering the swings changes WHEN postures occur, not WHICH postures occur,
-    # so across all 24 assignments of the offset SET {0,.25,.5,.75} the worst-case
-    # margin barely moves (~1.5 mm on ~7 mm) and every one is stable. It is the
+    # so across all 24 assignments of the offset SET {0,.25,.5,.75} every one is
+    # stable (3.4-9.9 mm worst-case margin). It is the
     # SWAY that fixes lateral stability, not the sequence -- retiring "just
     # re-sequence the gait" as a lever.
     from tomcat_kin import GaitController, GaitParams
@@ -254,7 +259,11 @@ def test_sequencing_is_not_the_lever_for_lateral_stability():
     for perm in itertools.permutations([0.0, 0.25, 0.5, 0.75]):
         c = GaitController(params=GaitParams(phase_offsets=dict(zip(legs, perm))))
         worsts.append(min(p.margin for p in c.support_polygon_sweep(96)))
-    assert all(w > 0.004 for w in worsts)          # every sequence is stable
+    # ⚠️ M87: every sequence is still stable, but the spread grew 1.5 → 6.5 mm
+    # on a 3.4-9.9 mm range, so "barely moves" is no longer the right word. The
+    # CONCLUSION is unchanged and is the second assertion below: no sequence
+    # rescues a swayless gait, so sequencing is not the lever.
+    assert all(w > 0.003 for w in worsts)          # every sequence is stable
     assert max(worsts) - min(worsts) < 0.008       # and they differ by < 8 mm
 
     # Without sway, NO sequence is stable -- the same sweep, one parameter changed.

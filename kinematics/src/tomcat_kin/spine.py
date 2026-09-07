@@ -583,6 +583,14 @@ class WholeBody:
         m_fore = sum(self.legs[n].params.mass for n in fore)
         num = float((m_seg * seg_y).sum()) + (sp.front_girdle_mass + m_fore) * tip_y
 
+        # ⚠️ **The girdle's own CoM offset projects into y too**, and this line
+        # was missing while `front_girdle_com` was the (0, 0) placeholder. M87
+        # measured it at (-4.6, +17.4) mm and the sway parted from MuJoCo by
+        # 0.85 mm. Exactly the correction M20 made for the fore LEGS below, one
+        # body further in -- the yaw rotates any fore-aft offset into y, and the
+        # girdle has one because its motor bank stacks on the inboard column.
+        num += sp.front_girdle_mass * sp.front_girdle_com[0] * math.sin(theta)
+
         if leg_q is not None:
             # Each fore leg's CoM is offset from its hip by `dx` along the girdle's
             # own x. The girdle is yawed by `theta`, so that offset projects into y.
