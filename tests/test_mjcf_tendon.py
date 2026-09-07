@@ -364,8 +364,18 @@ def test_an_outer_POSITION_LOOP_holds_it(rig):
     # and clipping does not merely cost a degree here -- it loses the leg
     clipped = _hold(m, dof, q, tb=5.0, kp=10.0, kd=0.2, seconds=2.0,
                     method="clip")
-    assert np.abs(clipped[0]) > 50.0, (
-        f"clipped hip drift {clipped[0]:.1f} deg -- M44 measured 197"
+    # ⚠️ **M44's 197° does not reproduce: it is 17.3° on the measured leg.**
+    # M44 measured a plant carrying 45 % too much swing inertia (ADR-0088), and
+    # "clipping loses the leg" was partly that. What survives is the ratio: the
+    # clipped allocator drifts **~1700x** what the proper one does, from 0.01° to
+    # 17.3°, which is still the note for the firmware.
+    assert np.abs(clipped[0]) > 5.0, (
+        f"clipped hip drift {clipped[0]:.1f} deg -- M44 measured 197 on a "
+        f"45 % heavier leg, M86 measures 17.3"
+    )
+    assert np.abs(clipped[0]) > 100.0 * np.abs(proper[0]), (
+        f"and it is orders worse than the proper allocator: {clipped[0]:.1f} vs "
+        f"{proper[0]:.4f} deg"
     )
 
     # ⚠️ the ankle is the one joint that does NOT hold, and that is a design
@@ -1342,7 +1352,9 @@ def test_standing_runs_the_FORE_KNEE_FLEXOR_over_its_continuous_rating(stood):
 
     | tendon | rms | vs 81.1 N continuous |
     |---|---|---|
-    | **fore knee flexor** | **100.5 N** | **1.24×** |
+    | **hind hip extensor** | **164.8 N rms, 222.9 peak** | **2.03×** |
+    | fore knee flexor | 86.0 N | 1.06× |
+    | hind ankle | 69.2 N | 0.85× |
     | hind ankle | 67.8 N | 0.84× |
     | hind hip extensor | 63.4 N | **0.78×, inside** |
 
@@ -1381,26 +1393,36 @@ def test_standing_runs_the_FORE_KNEE_FLEXOR_over_its_continuous_rating(stood):
         f"worst tendon {worst_name} at {worst:.1f} N against a "
         f"{MT.TENSION_CONTINUOUS:.1f} N continuous rating"
     )
-    assert worst == pytest.approx(100.5, abs=3.0), (
-        f"the overrun is 1.24x, not the 2.5x the old contact model gave: {worst:.1f} N"
+    # ⚠️ **M86 (ADR-0088) UNDID M59's ranking inversion.** M43 measured the worst
+    # tendon as the HIND HIP EXTENSOR at ~2.5x continuous; M59's point-foot fix
+    # moved it to the fore knee flexor at 100.5 N, and that was published as the
+    # finding. On the MEASURED leg inertia the hind hip extensor binds again at
+    # **164.8 N rms, 2.03x** -- close to where M43 had it -- and its peak sits on
+    # the 222.9 N ceiling. So the inversion was the capsule model's 45 % of
+    # surplus swing inertia, not the foot.
+    assert worst == pytest.approx(164.8, abs=3.0), (
+        f"the overrun is 2.03x continuous: {worst:.1f} N"
     )
-    assert worst_name.endswith("knee_flex") and worst_name.startswith(("LF", "RF")), (
-        f"⚠️ M59: the binding tendon is a FORE knee flexor, not a hind hip "
-        f"extensor -- got {worst_name}"
+    assert worst_name.endswith("hip_ext") and worst_name.startswith(("LR", "RR")), (
+        f"the binding tendon is a HIND hip extensor again -- got {worst_name}"
     )
-    # ⚠️ and the tendon the old headline named is now comfortably inside
-    hind_hip = max(
-        float(np.sqrt((np.array(rows)[:, TEN_PER_LEG.index("hip_ext")] ** 2).mean()))
-        for nm, rows in stood["tens"].items() if nm.startswith(("LR", "RR")))
-    assert hind_hip < MT.TENSION_CONTINUOUS, (
-        f"the hind hip extensor is inside its rating now: {hind_hip:.1f} N"
+    # ⚠️ and the fore knee flexor M59 named is only just over its rating
+    fore_knee = max(
+        float(np.sqrt((np.array(rows)[:, TEN_PER_LEG.index("knee_flex")] ** 2).mean()))
+        for nm, rows in stood["tens"].items() if nm.startswith(("LF", "RF")))
+    assert MT.TENSION_CONTINUOUS < fore_knee < 1.2 * MT.TENSION_CONTINUOUS, (
+        f"the fore knee flexor sits at {fore_knee:.1f} N, "
+        f"{fore_knee / MT.TENSION_CONTINUOUS:.2f}x continuous"
     )
     # and it stays under the peak rating, so this is thermal and not a stall
     assert stood["peak"] <= MT.TENSION_MAX + 1e-9
-    # the spring reference is what keeps it off the ceiling
-    assert stood["peak"] < MT.TENSION_MAX - 5.0, (
-        "referencing the ankle spring at the stance angle drops the worst tendon "
-        "from the 222.9 N ceiling to 207.4 N"
+    # ⚠️ **and the spring reference no longer keeps it off the ceiling.** M55
+    # referenced the ankle spring at the stance angle and dropped the worst tendon
+    # from 222.9 to 207.4 N. On the measured inertia the hind hip extensor is back
+    # ON the ceiling: peak 222.9. The mechanism still works -- it is the ankle it
+    # was ever about -- but it no longer buys the whole-robot headline.
+    assert stood["peak"] == pytest.approx(MT.TENSION_MAX, rel=1e-3), (
+        f"the worst tendon is at the ceiling: {stood['peak']:.1f} N"
     )
 
 
@@ -1566,7 +1588,10 @@ def test_option_B_sags_and_option_A_holds_the_UNLOADED_leg():
 
     assert abs(b_drift[2]) > 10.0, f"Option B ankle sag {b_drift[2]:.2f} deg"
     assert abs(a_drift[2]) < 0.5, f"Option A ankle drift {a_drift[2]:.2f} deg"
-    assert a_peak < 0.3 * b_peak, (
+    # ⚠️ M86 (ADR-0088): the ratio is 0.30 on the measured leg inertia, so a
+    # 0.3 threshold now sits exactly on it. Widened to 0.32 -- the claim is
+    # "under a third", and it still is.
+    assert a_peak < 0.32 * b_peak, (
         f"Option A should need far less tension: {a_peak:.1f} vs {b_peak:.1f} N"
     )
 
@@ -1593,7 +1618,10 @@ def test_a_STIFFER_SPRING_buys_the_same_holding_with_NO_extra_motors():
     drift, peak = _ankle_hold(k3=MT.ANKLE_SPRING_TO_HOLD)
     assert drift is not None
     assert abs(drift[2]) < 1.0, f"at 8 N.m/rad the ankle holds: {drift[2]:.2f} deg"
-    assert peak < 0.3 * base_peak, (
+    # ⚠️ M86 (ADR-0088): the ratio is 0.30 on the measured leg inertia, so a
+    # 0.3 threshold now sits exactly on it. Widened to 0.32 -- the claim is
+    # "under a third", and it still is.
+    assert peak < 0.32 * base_peak, (
         f"and needs far less tension: {peak:.1f} vs {base_peak:.1f} N"
     )
     # monotone in the spring, so 8 is a knee and not a lucky point
@@ -2365,13 +2393,17 @@ def test_the_CASCADE_holds_the_pose_that_M46_could_not():
     3. **droop compensation** — `(kp + k_tors)/kp`, exact.
 
     Outside it, the joint PD and non-negative tension allocation the project already
-    had. It holds the stance pose to **0.00°** at every joint gain from 10 to 50.
+    had. It holds the stance pose to **0.01°** at every joint gain from 10 to 50.
+
+    ⚠️ M86 (ADR-0088): **0.00° -> 0.013° at `kp` 50.** A leg with 45 % less
+    swing inertia responds faster to the same gain, so the same cascade overshoots
+    marginally more. Thirteen thousandths of a degree is still a hold.
     """
     m, q = _servo_rig()
     for kp, kd in ((10.0, 0.2), (25.0, 0.5), (50.0, 1.0)):
         drift = _cascade_hold(m, q, kp=kp, kd=kd)
         assert drift is not None, f"kp={kp} diverged"
-        assert float(np.max(np.abs(drift))) < 0.01, (
+        assert float(np.max(np.abs(drift))) < 0.02, (
             f"kp={kp}: drift {np.round(drift, 4)}"
         )
 
@@ -4014,7 +4046,10 @@ def test_the_CASCADE_TRANSFERS_to_the_pulley_drivetrain_UNCHANGED():
     err, peak, sat, _ = out
     assert np.max(np.abs(err)) < 0.01, f"holds to {err} deg"
     assert sat == 0.0, "and it does it without ever asking past the motor"
-    assert peak < 10.0, f"peak commanded force {peak:.1f} N"
+    # ⚠️ M86: 15.1 N where the capsule plant asked under 10 -- the lighter leg
+    # needs more cable force for the same joint torque because its own weight no
+    # longer helps. Still a fifteenth of the 222.9 N rating.
+    assert peak < 20.0, f"peak commanded force {peak:.1f} N"
 
     # the inner loop is rotor-local, so it cannot have moved
     assert SERVO_KP == pytest.approx(MT.ROTOR_ARMATURE * MT.ROTOR_BANDWIDTH ** 2)
@@ -4029,8 +4064,12 @@ def test_ONE_SPOOL_PER_PAIR_HALVES_the_lowest_drivetrain_MODE():
 
     | | lowest mode | usable outer `kp` |
     |---|---|---|
-    | legacy, one spool per cable | 54.9 Hz | holds to **600** |
-    | **shipped, one spool per pair** | **27.4 Hz** | holds to **200** |
+    | legacy, one spool per cable | 69.6 Hz | holds to **600** |
+    | **shipped, one spool per pair** | **35.8 Hz** | holds to **100** |
+
+    ⚠️ M86 (ADR-0088) moved both by +27 % (54.9 → 69.6, 27.4 → 35.8) -- a leg
+    45 % lighter to swing raises every structural frequency. **The ratio is
+    0.514**, so the halving this test is about is untouched.
 
     The lowest drivetrain mode **halves**, and the outer loop's usable gain range
     falls with it -- from 16× M47's chosen `kp` down to **6×**. That is real
@@ -4049,18 +4088,22 @@ def test_ONE_SPOOL_PER_PAIR_HALVES_the_lowest_drivetrain_MODE():
 
     f_ship = _lowest_mode_hz(ship, q)
     f_legacy = _lowest_mode_hz(legacy, q)
-    assert f_legacy == pytest.approx(54.9, abs=1.5)
-    assert f_ship == pytest.approx(27.4, abs=1.5)
+    assert f_legacy == pytest.approx(69.6, abs=1.5)
+    assert f_ship == pytest.approx(35.8, abs=1.5)
     assert f_ship < 0.6 * f_legacy, (
         f"the lowest mode must have roughly halved: {f_legacy:.1f} -> {f_ship:.1f}"
     )
 
-    # and the outer loop's edge moved with it
-    ok = _ship_run(ship, q, kp=200.0, kd=2.83)
-    assert ok is not None and np.max(np.abs(ok[0])) < 0.1, "kp=200 still holds"
-    bad = _ship_run(ship, q, kp=300.0, kd=3.46)
+    # ⚠️ **M86 halved the usable gain again: 200 -> 100.** Measured drift at
+    # kp = 50 / 100 / 150 / 200 is 0.001 / 0.002 / 2.353 / 1.473 deg. Less
+    # inertia means the same gain commands more acceleration, so the corrected
+    # leg destabilises where the capsule one held. M47's `kp = 50` is now only
+    # **2x** inside the edge, where it used to be 4x.
+    ok = _ship_run(ship, q, kp=100.0, kd=2.0)
+    assert ok is not None and np.max(np.abs(ok[0])) < 0.1, "kp=100 still holds"
+    bad = _ship_run(ship, q, kp=200.0, kd=2.83)
     assert bad is None or np.max(np.abs(bad[0])) > 0.5, (
-        "kp=300 must not hold -- that is the headroom the pulley spent"
+        "kp=200 must not hold -- that is the headroom the pulley spent"
     )
 
 
@@ -4134,7 +4177,8 @@ def test_the_ankle_TRACKS_EXACTLY_and_the_bound_is_now_the_JOINT_LIMIT():
     for dq in (20.0, 40.0, 52.0):
         err, peak, sat, _ = _ship_run(m, q, dq3_deg=dq, ramp_s=2.0)
         assert np.max(np.abs(err)) < 0.01, f"+{dq} deg -> {err}"
-        assert sat == 0.0 and peak < 10.0, f"+{dq} deg asked {peak:.1f} N"
+        # ⚠️ M86: 14.9 N at +20 deg, was under 10 -- same cause as the cascade.
+        assert sat == 0.0 and peak < 20.0, f"+{dq} deg asked {peak:.1f} N"
 
     # past the end stop it misses by exactly the overshoot, not by more
     err, _, _, _ = _ship_run(m, q, dq3_deg=55.0, ramp_s=2.0)
@@ -5314,14 +5358,16 @@ def test_the_LATERAL_ARM_buys_COST_not_SWAY():
     from friction to the spine's own torque capacity"*, through the 20 mm lateral
     moment arm. Lengthen that arm and the sway does not move **at all**:
 
-    | foot | lateral arm | CoM sway | max slip |
+    | foot | lateral arm | CoM sway | spine raw |
     |---|---|---|---|
-    | as built | 20 mm | 2.60 mm | 17.0 mm |
-    | as built | 60 mm | **2.60 mm** | 17.0 mm |
-    | anisotropic 0.03 | 20 mm | 8.26 mm | 13.4 mm |
-    | anisotropic 0.03 | 60 mm | **8.26 mm** | 13.4 mm |
+    | as built | 20 mm | 3.06 mm | 76.8 N |
+    | as built | 60 mm | **3.06 mm** | **35.9 N** |
+    | anisotropic 0.03 | 20 mm | 6.54 mm | 93.4 N |
 
-    Identical to three significant figures across a **3×** change. ✅ The reason
+    Identical to three significant figures across a **3×** change (⚠️ re-measured
+    in M86 on the corrected leg inertia; the sway reads 3.06 mm where the capsule
+    plant gave 2.60, and the pad multiplier is **2.14×**, not the 3× the old
+    number implied). ✅ The reason
     is elementary once stated: the controller commands a **torque**, `kp·e`, and
     the arm only sets what that torque costs in cable force, `f = tau/r`. Same
     gain, same error, same torque, same motion.
@@ -5333,8 +5379,8 @@ def test_the_LATERAL_ARM_buys_COST_not_SWAY():
     puts the robot on the floor.
 
     ✅ **What the arm does buy is real, and it is thermal.** The lateral demand
-    falls **exactly** in proportion: 76.8 N at 20 mm, **25.6 N** at 60 -- from 95 %
-    of the continuous rating to 32 %.
+    falls in proportion: 76.8 N at 20 mm, **35.9 N** at 60 -- from 95 % of the
+    continuous rating to 44 %.
     """
     designed = 66.7
     p, c = _walk()
@@ -5359,8 +5405,8 @@ def test_the_LATERAL_ARM_buys_COST_not_SWAY():
         f"{runs['plain60']['raw_peak']:.1f} N"
     )
     # ✅ and the directional pad is what actually moves the body
-    assert runs["aniso20"]["sway"] > 2.5 * runs["plain20"]["sway"], (
-        f"the pad triples the sway: {runs['aniso20']['sway']:.2f} vs "
+    assert runs["aniso20"]["sway"] > 2.0 * runs["plain20"]["sway"], (
+        f"the pad doubles the sway: {runs['aniso20']['sway']:.2f} vs "
         f"{runs['plain20']['sway']:.2f} mm"
     )
     assert max(runs["aniso20"]["slip"].values()) < max(
@@ -5411,7 +5457,7 @@ def test_the_DIRECTIONAL_PAD_CHARGES_the_SAGITTAL_spine():
     assert max(pad[i] for i in sag) > max(pad[i] for i in lat), (
         f"⚠️ with the pad the SAGITTAL pairs bind: {np.round(pad, 1)}"
     )
-    assert max(pad[i] for i in sag) > 3.0 * max(plain[i] for i in sag), (
+    assert max(pad[i] for i in sag) > 2.5 * max(plain[i] for i in sag), (
         f"and the pad raises the sagittal demand several fold: "
         f"{max(plain[i] for i in sag):.1f} -> {max(pad[i] for i in sag):.1f} N"
     )
@@ -5437,17 +5483,29 @@ def test_ONLY_ONE_GAIN_PAIR_actually_STANDS():
 
     Measured across attitude gain × spine gain, **with the trunk tilt reported**:
 
+    ⚠️ **Re-measured in M86 on the corrected leg inertia (ADR-0088). The
+    conclusion holds; the REASON changed.** The old table showed spine `kp` 30
+    putting the robot **upside down at 179.91°** while asking 31,750 N. On a leg
+    that is 45 % lighter to swing, nothing topples any more:
+
     | attitude `kp` | spine `kp` | CoM sway | spine raw | tilt | |
     |---|---|---|---|---|---|
-    | **40** | **8** | **2.60 mm** | **76.8 N** | **2.03°** | ✅ **stands** |
-    | 40 | 30 | 101.74 mm | 31 750 N | **179.91°** | upside down |
-    | 20 | 30 | 15.08 mm | 288 N | 14.96° | falling |
-    | 10 | 30 | 8.23 mm | 288 N | 14.68° | falling |
-    | 10 | 8 | 1.88 mm | 76.8 N | 6.26° | falling |
-    | 0 | 8 | 0.31 mm | 77.8 N | 30.23° | falling |
+    | **40** | **8** | **3.06 mm** | **76.8 N** | **1.89°** | ✅ **stands** |
+    | 40 | 30 | 25.02 mm | **288 N** | 11.94° | asks for tension that does not exist |
+    | 20 | 30 | 14.29 mm | **288 N** | 12.08° | same |
+    | 10 | 30 | 6.16 mm | **288 N** | 13.96° | same |
+    | 10 | 8 | 2.31 mm | 76.8 N | 5.76° | falling, and buys no sway |
+    | 0 | 8 | 0.56 mm | 77.9 N | 32.29° | not standing |
 
-    ⚠️ **Every apparent improvement is the robot on its way to the floor.** The
-    8.23 mm at attitude 10 looks like the trade working; the tilt says 14.68°.
+    ⚠️ **288 N is 1.3× the motor's PEAK** (`TENSION_MAX` 222.9) and **3.5× its
+    continuous rating.** So the frontier is still not there, but the wall is a
+    different one: the alternatives no longer fall over, they **command a tension
+    the actuator cannot produce** and get the clamp instead. The shipped point
+    already sits at **95 % of the continuous rating** with nothing spare.
+
+    ⚠️ The old reading -- "every apparent improvement is the robot on its way to
+    the floor" -- was measured on a leg carrying 45 % too much swing inertia. The
+    tilts it quoted (14.96°, 179.91°) do not reproduce.
 
     ✅ **And the attitude term turns out to be doing two jobs at once.** It is
     what converts a spine bend into CoM *translation* -- at attitude 0 the trunk
@@ -5457,10 +5515,10 @@ def test_ONLY_ONE_GAIN_PAIR_actually_STANDS():
     lowered to make room for the spine loop.
 
     **There is no frontier to trade along. There is one working point**, it is the
-    shipped one, and it delivers **4 %** of what ADR-0009 designed.
+    shipped one, and it delivers **4.6 %** of what ADR-0009 designed.
 
     ⚠️ Even that point is disturbed: commanding the sway takes the tilt from
-    M57's undisturbed **0.006°** to **2.03°**, some 300x.
+    M57's undisturbed **0.006°** to **1.89°**, some 300x.
     """
     p, c = _walk()
     m, q = _spine_quad()
@@ -5479,9 +5537,14 @@ def test_ONLY_ONE_GAIN_PAIR_actually_STANDS():
         f"and it delivers {100 * shipped['sway'] / designed:.0f} % of the design"
     )
 
-    # ⚠️ more spine gain: the robot goes over
+    # ⚠️ more spine gain: it asks for tension that does not exist
     hot = go((40.0, 4.0), 30.0)
-    assert hot["tilt"] > 90.0, f"it turns over: {hot['tilt']:.1f} deg"
+    assert hot["raw_peak"] > MT.TENSION_MAX, (
+        f"the command is inside the actuator after all: {hot['raw_peak']:.0f} N"
+    )
+    assert hot["tilt"] > 5.0 * shipped["tilt"], (
+        f"and it leans: {hot['tilt']:.1f} vs {shipped['tilt']:.2f} deg"
+    )
     assert hot["sway"] > shipped["sway"], (
         "and its 'sway' looks better, which is the trap this test exists for"
     )
@@ -5860,14 +5923,19 @@ def test_the_DESIGNED_MANOEUVRE_helps_by_HALF_not_by_FIVE():
     worse (68.2°/s), and every one of 24 configurations kept the same sign, so
     the mechanism is robust rather than numerical.
 
-    | manoeuvre | roll rate |
-    |---|---|
-    | spine only (ADR-0068) | 52.7°/s |
-    | + symmetric tuck | 68.2°/s |
-    | **+ anti-phase tuck, 30°, 0.30 s** | **78.4°/s** |
+    | manoeuvre | roll rate (M86) | as published (M64) |
+    |---|---|---|
+    | spine only (ADR-0068) | **74.1°/s** | 52.7°/s |
+    | **+ anti-phase tuck, 30°, 0.30 s** | **95.6°/s** | 78.4°/s |
 
-    ⚠️ **+49 %, and still 3.6× short.** 180° takes **2.30 s** -- a fall from
-    **25.8 m**. Against a cat-like 0.3 m drop it is **9.3×** short.
+    ⚠️ **M86 (ADR-0088) raised both ends and narrowed the gain.** A leg 45 %
+    lighter to swing rotates the body faster with the spine alone, so the tuck
+    adds **+29 %** where it used to add +49. The mechanism and its sign are
+    untouched; what shrank is how much the legs still had to give.
+
+    ⚠️ **Still 2.9× short** of the 282°/s a 2 m fall needs. 180° takes
+    **1.88 s** -- a fall from **17.4 m**. Against a cat-like 0.3 m drop it is
+    **7.6×** short, where it used to be 9.3.
 
     ⚠️ **And pushing past the joint limits makes it unreliable, not stronger.**
     30° of knee tuck is the largest legal amplitude (the hind knee sits at
@@ -5879,7 +5947,7 @@ def test_the_DESIGNED_MANOEUVRE_helps_by_HALF_not_by_FIVE():
     best, knee = _right_with_legs(tuck_deg=30.0, tuck_phase=0.0, period=0.30)
 
     # ✅ the designed manoeuvre helps, and by a real margin
-    assert abs(best) > 1.3 * abs(base), (
+    assert abs(best) > 1.25 * abs(base), (
         f"the leg tuck must help: {abs(base):.1f} -> {abs(best):.1f} deg/s"
     )
     # ✅ and it stays inside the knee ROM, which 60 deg would not
@@ -5893,7 +5961,7 @@ def test_the_DESIGNED_MANOEUVRE_helps_by_HALF_not_by_FIVE():
         f"{abs(best):.1f} deg/s against {need_2m:.0f} needed from 2 m"
     )
     seconds = 180.0 / abs(best)
-    assert 0.5 * 9.81 * seconds ** 2 > 15.0, (
+    assert 0.5 * 9.81 * seconds ** 2 > 12.0, (
         f"180 deg takes {seconds:.2f} s, a fall from "
         f"{0.5 * 9.81 * seconds ** 2:.1f} m"
     )
@@ -6093,7 +6161,7 @@ def _righting_run(axial_deg=None, *, s0=-1.0, period=0.30, seconds=4.0,
 
 
 def test_CLOSING_THE_LOOP_rights_the_robot_but_from_TWENTY_TWO_METRES():
-    """✅ **The robot rights itself. It needs a 22.5 m fall to finish.**
+    """✅ **The robot rights itself. It needs a 14.9 m fall to finish.**
 
     ADR-0068 and ADR-0069 measured rotation *rates* from open-loop shape cycles,
     where the direction turned out to be unpredictable across parameters. Closing
@@ -6103,28 +6171,32 @@ def test_CLOSING_THE_LOOP_rights_the_robot_but_from_TWENTY_TWO_METRES():
 
     ✅ **It works, and this is the first time the robot has actually righted**
     rather than merely rotated: from fully inverted it reaches upright in
-    **2.14 s** and settles at 5.4°.
+    **1.74 s**.
 
-    ⚠️ **2.14 s is a fall from 22.5 m.** A cat rights in ~0.3 s from ~0.3 m;
-    the fall windows here are 0.247 s from 0.3 m, 0.639 s from 2.0 m and 1.010 s
-    from 5.0 m. Even from five metres it is **2.1×** short.
+    ⚠️ **M86 (ADR-0088): 2.14 s — 1.74 s.** The measured leg is 45 % lighter to
+    swing, so the same shape cycle turns the body faster. The finding does not
+    change sign, only size: **1.74 s is still a fall from 14.9 m.** A cat rights
+    in ~0.3 s from ~0.3 m; the fall windows here are 0.247 s from 0.3 m, 0.639 s
+    from 2.0 m and 1.010 s from 5.0 m. Even from five metres it is **1.7×**
+    short, where it used to be 2.1.
 
-    ✅ **And closing the loop buys direction, not speed** -- exactly as expected.
-    The effective rate is 180/2.14 = **84°/s** against ADR-0069's open-loop
-    **78.4**. The magnitude comes from the area a shape cycle encloses, and the
+    ✅ **And closing the loop buys direction, not speed** -- the rate rose with
+    the inertia, not with the feedback. The effective rate is 180/1.74 =
+    **103°/s** against ADR-0069's open-loop **78.4**, measured on the heavier
+    plant. The magnitude comes from the area a shape cycle encloses, and the
     ROM bounds that; feedback cannot enlarge it.
     """
     t, closest, spine_peak = _righting_run(None, s0=-1.0, seconds=4.0)
     assert t is not None, f"it must right: closest approach {closest:.1f} deg"
-    assert t == pytest.approx(2.14, abs=0.5), f"righted in {t:.2f} s"
+    assert t == pytest.approx(1.74, abs=0.20), f"righted in {t:.2f} s"
 
     # ⚠️ that is a fall from far higher than anything G6 could mean
     height = 0.5 * 9.81 * t ** 2
-    assert height > 15.0, f"180 deg needs a fall of {height:.1f} m"
+    assert height > 10.0, f"180 deg needs a fall of {height:.1f} m"
 
     # ✅ feedback buys direction, not rate
     rate = 180.0 / t
-    assert rate == pytest.approx(84.0, abs=15.0), (
+    assert rate == pytest.approx(103.0, abs=15.0), (
         f"effective {rate:.0f} deg/s against ADR-0069's open-loop 78.4"
     )
 
@@ -6766,12 +6838,24 @@ def test_the_DRIVETRAIN_LOWERS_THE_MODE_and_IMPROVES_THE_MARGIN():
         q_ref={nm: list(v) for nm, v in q.items()}, series_k=SERIES_K,
         hip_height=0.176, spool_servo=True))
 
-    # ⚠️ the mode drops, as ADR-0060 said it would
+    # ⚠️ **M86 (ADR-0088) VOIDED the rigid half of this comparison.** On the
+    # measured leg inertia the rigid quadruped has no oscillatory structural mode
+    # at all: its lowest is **1365 Hz**, a CONTACT mode. The 12.6 Hz this used to
+    # read was a leg mode that only existed because the capsules carried 45 % too
+    # much swing inertia -- lighter, it is over-damped by the same joint damping
+    # and splits into two real eigenvalues.
+    #
+    # ✅ The drivetrain side is untouched: **4.6 Hz, exactly ADR-0060's number.**
+    # So the claim is now the stronger one -- the drivetrain does not *lower* a
+    # mode, it *introduces* one, three orders below anything the rigid plant has.
     f_rigid = _lowest_mode_whole(rigid)
     f_spool = _lowest_mode_whole(spooled)
-    assert f_rigid == pytest.approx(12.6, abs=1.5)
     assert f_spool == pytest.approx(4.6, abs=1.0)
-    assert f_spool < 0.5 * f_rigid, f"{f_rigid:.1f} -> {f_spool:.1f} Hz"
+    assert f_rigid > 1000.0, (
+        f"the rigid plant has a structural mode again at {f_rigid:.1f} Hz -- "
+        f"if the inertia or the damping moved, re-read this test"
+    )
+    assert f_spool < 0.01 * f_rigid, f"{f_rigid:.1f} -> {f_spool:.1f} Hz"
 
     # ✅ the kp = 0 baseline is undisturbed
     b_r = _stand_at_gain(False, kp=0.0)
@@ -6882,7 +6966,7 @@ def test_the_SPINE_DRIVETRAIN_DELIVERS_ITS_TENSION_before_anything_is_read_into_
 
 
 def test_COMPLIANCE_leaves_the_SWAY_alone_exactly_as_ADR0072_ASSUMED():
-    """✅ **The sway is compliance-insensitive: 2.60 -> 2.81 mm.**
+    """✅ **The sway is compliance-insensitive: 3.06 -> 3.20 mm.**
 
     [ADR-0072](../docs/DESIGN_DECISIONS.md) noted every whole-body result was
     measured on rigid tendons and argued the quasi-static ones would not depend
@@ -6891,13 +6975,16 @@ def test_COMPLIANCE_leaves_the_SWAY_alone_exactly_as_ADR0072_ASSUMED():
 
     | compliance | nv | CoM sway | tilt | spine demand |
     |---|---|---|---|---|
-    | none (rigid) | 24 | **2.60 mm** | 2.033° | 76.8 N |
-    | legs (the shipped drivetrain) | 48 | **2.81 mm** | 2.020° | 76.8 N |
-    | legs + spine | 60 | **2.81 mm** | 2.013° | 76.8 N |
+    | none (rigid) | 24 | **3.06 mm** | 1.891° | 76.8 N |
+    | legs (the shipped drivetrain) | 48 | **3.18 mm** | 1.909° | 76.8 N |
+    | legs + spine | 60 | **3.20 mm** | 1.901° | 76.8 N |
 
-    ✅ **+8 %, and in the helpful direction** — [ADR-0067](../docs/DESIGN_DECISIONS.md)
-    measured 2.60 mm against ADR-0009's designed 66.7, so a little more sway is a
-    little more of the margin back. The tilt is flat to a hundredth of a degree.
+    ✅ **+4.6 %, and in the helpful direction** — [ADR-0067](../docs/DESIGN_DECISIONS.md)
+    measured this against ADR-0009's designed 66.7, so a little more sway is a
+    little more of the margin back. The tilt is flat to **two hundredths of a
+    degree**, which is the finding; M86 (ADR-0088) re-measured on the corrected
+    leg inertia and the spread narrowed from 0.020° to 0.018° while its SIGN
+    flipped -- at that size the ordering is noise and is no longer asserted.
 
     ✅ **Why it does not care** is visible in the last column: the spine
     demands **76.8 N**, a third of its 222.9 N rating, at every level of
@@ -6918,14 +7005,17 @@ def test_COMPLIANCE_leaves_the_SWAY_alone_exactly_as_ADR0072_ASSUMED():
                                period=p.period)
         assert out[label] is not None, f"{label} diverged"
 
-    assert out["rigid"]["sway"] == pytest.approx(2.60, abs=0.15)
+    assert out["rigid"]["sway"] == pytest.approx(3.06, abs=0.15)
     for label in ("legs", "legs+spine"):
-        assert out[label]["sway"] == pytest.approx(2.81, abs=0.15), (
+        assert out[label]["sway"] == pytest.approx(3.19, abs=0.15), (
             f"{label} swayed {out[label]['sway']:.2f} mm"
         )
         # ✅ the compliant plants sway MORE, which is the direction that helps
         assert out[label]["sway"] > out["rigid"]["sway"]
-        assert out[label]["tilt"] < out["rigid"]["tilt"]
+        # ⚠️ the tilt is EQUAL to two hundredths of a degree, not ordered: see
+        # the docstring. Asserting the ordering pinned noise.
+        assert out[label]["tilt"] == pytest.approx(out["rigid"]["tilt"],
+                                                   abs=0.05)
         # ✅ and none of the three saturates the spine
         assert out[label]["raw_peak"] < 0.5 * MT.TENSION_MAX, (
             f"{label} peak {out[label]['raw_peak']:.1f} N"
@@ -6938,14 +7028,18 @@ def test_COMPLIANCE_costs_the_RIGHTING_a_FACTOR_OF_THREE_when_the_SPINE_has_it()
 
     | compliance | t to right | closest | effective rate |
     |---|---|---|---|
-    | none — [ADR-0070](../docs/DESIGN_DECISIONS.md) | **2.14 s** | 5.4° | 84°/s |
-    | legs (the shipped drivetrain) | **2.17 s** | 1.5° | 83°/s |
-    | legs + spine | **10.10 s** | 2.7° | **17.8°/s** |
+    | none — [ADR-0070](../docs/DESIGN_DECISIONS.md) | **1.74 s** | 5.5° | 103°/s |
+    | legs (the shipped drivetrain) | **1.79 s** | 2.6° | 101°/s |
+    | legs + spine | **7.15 s** | 7.0° | **25.2°/s** |
 
-    ✅ **The shipped drivetrain costs 1.4 %.** M68 fitted the legs, and on the
+    ⚠️ Re-measured in M86 on the corrected leg inertia (ADR-0088): 2.14 — 1.74,
+    2.17 — 1.79, 10.10 — 7.15 s. Everything got faster because the legs are
+    45 % lighter to swing; **every ratio this test is about survived.**
+
+    ✅ **The shipped drivetrain costs 2.6 %.** M68 fitted the legs, and on the
     legs the free-fall argument holds as well as it does for the sway.
 
-    ⚠️ **Put the same drivetrain behind the spine and righting takes 4.7× as
+    ⚠️ **Put the same drivetrain behind the spine and righting takes 4.1× as
     long.** The spine is the actuator that *does* the manoeuvre; the legs only
     modulate inertia. ADR-0072's `compliance is unlikely to dominate` was a
     statement about the whole body, and on the half of it that matters it is
@@ -6953,7 +7047,7 @@ def test_COMPLIANCE_costs_the_RIGHTING_a_FACTOR_OF_THREE_when_the_SPINE_has_it()
 
     ⚠️ **The discriminator is saturation, and it was there to be read all
     along.** The sway asks the spine for 76.8 N of its 222.9 N rating and does
-    not care about compliance. This manoeuvre asks for **5002.9 N** — 22×
+    not care about compliance. This manoeuvre asks for **6778.0 N** — 30×
     the rating — so the spine runs against its stop for the whole cycle, and
     what the series spring changes is how fast the stop is reached. ADR-0070
     reported 2.14 s without reporting that the actuator was saturated throughout.
@@ -6980,24 +7074,24 @@ def test_COMPLIANCE_costs_the_RIGHTING_a_FACTOR_OF_THREE_when_the_SPINE_has_it()
     rigid_t, rigid_c, rigid_peak = _righting_run(None, s0=-1.0, seconds=4.0)
     legs_t, legs_c, _ = _righting_run(None, s0=-1.0, seconds=4.0, spooled=True)
 
-    assert rigid_t == pytest.approx(2.14, abs=0.05)
-    assert legs_t is not None and legs_t == pytest.approx(2.17, abs=0.10), (
+    assert rigid_t == pytest.approx(1.74, abs=0.05)
+    assert legs_t is not None and legs_t == pytest.approx(1.79, abs=0.10), (
         f"the shipped drivetrain rights in {legs_t} s"
     )
     assert abs(legs_t - rigid_t) / rigid_t < 0.05, "legs cost under 5 %"
     assert legs_c < rigid_c, "and it settles closer"
 
     # ⚠️ the spine command is 22x its rating -- saturated for the whole cycle
-    assert rigid_peak == pytest.approx(5002.9, rel=0.02)
+    assert rigid_peak == pytest.approx(6778.0, rel=0.02)
     assert rigid_peak > 20.0 * MT.TENSION_MAX
 
     # ⚠️ and with the spine spooled the same manoeuvre takes 4.7x as long
     both_t, both_c, _ = _righting_run(None, s0=-1.0, seconds=11.0, spooled=True,
                                       spine_drive=True)
-    assert both_t is not None and both_t == pytest.approx(10.10, abs=0.35), (
+    assert both_t is not None and both_t == pytest.approx(7.15, abs=0.35), (
         f"legs+spine rights in {both_t} s"
     )
-    assert both_t > 4.0 * rigid_t, (
+    assert both_t > 3.5 * rigid_t, (
         f"{both_t:.2f} s against {rigid_t:.2f} rigid"
     )
     # ⚠️ and a 4 s window -- M65's -- would have reported no righting at all
@@ -7082,37 +7176,48 @@ def test_ADR0073s_CABLE_MARGIN_was_bought_by_a_RIGID_TRUNK():
 
     | plant | 0.05 m | 0.10 m | 0.30 m |
     |---|---|---|---|
-    | rigid box, rigid cables | 222.9 N sat. | 222.9 sat. | 222.9 sat. |
-    | rigid box, legs G3 | **84.4 N** | 94.9 | 127.5 |
-    | **articulated spine, legs G3** | **222.9 sat.** | **222.9 sat.** | **222.9 sat.** |
+    | rigid box, legs G3 | **59.6 N** | 67.0 | 90.4 |
+    | **articulated spine, legs G3** | **222.9 sat.** | **222.9 sat.** | 68.8 |
+    | spine's OWN cables | **1460 N** | 1804 | **2510** |
 
-    ⚠️ **Same controller, same drop, same drivetrain: the margin is gone.**
-    The first two rows reproduce ADR-0073 (published 84 / 95 / 127); the third
-    is the same experiment with the trunk it is going to have.
+    ⚠️ **Same controller, same drop, same drivetrain: the margin is gone at the
+    two heights that load it.** M86 (ADR-0088) re-measured on the corrected leg
+    inertia: the box baseline falls **84.4 — 59.6 N** because a lighter leg
+    needs less cable to arrest, and the articulated trunk still saturates it.
+
+    ⚠️ **The 0.30 m column no longer saturates (68.8 N), and that is not good
+    news.** The leg cable reads low there because the robot is no longer holding
+    the pose to load it -- the spine demand at the same height is its highest,
+    **2510 N**. A number that falls because the experiment stopped working is
+    not a margin, which is why the assertions below cover 0.05 and 0.10 m and
+    this row is reported rather than asserted.
 
     ⚠️ **And it is not the spine controller doing it.** The leg cable saturates
     at every spine hold gain swept -- 0, 50 and 300 N*m/rad -- so this is the
     articulation, not the way the spine is held.
 
-    ⚠️ **The spine's own cables are far worse off**: 2.4-4.1 kN of demand
-    against a 222.9 N rating, **11-18x**, which is the same saturation
+    ⚠️ **The spine's own cables are far worse off**: 1.5-2.5 kN of demand
+    against a 222.9 N rating, **6.5-11x**, which is the same saturation
     [ADR-0075](../docs/DESIGN_DECISIONS.md) found in the righting. Nobody has
     ever measured a spine cable in a fall before.
     """
     box = _held_drop(0.05, True)
-    assert box["cable"] == pytest.approx(84.4, rel=0.02), (
-        "ADR-0073's baseline must reproduce"
+    assert box["cable"] == pytest.approx(59.6, rel=0.02), (
+        "the rigid-box baseline must reproduce"
     )
 
     peaks = {}
     for h in (0.05, 0.10, 0.30):
         r = _held_drop(h, True, spine=True)
         peaks[h] = r
-        assert r["cable"] == pytest.approx(MT.TENSION_MAX, rel=1e-3), (
-            f"at {h} m the leg cable saturates: {r['cable']:.1f} N"
-        )
-        # ⚠️ and the spine's own cables are an order of magnitude past theirs
-        assert r["spine"] > 10.0 * MT.TENSION_MAX, (
+        # ⚠️ 0.30 m is REPORTED, not asserted: see the docstring -- the leg cable
+        # reads low there because the pose is no longer being held.
+        if h < 0.30:
+            assert r["cable"] == pytest.approx(MT.TENSION_MAX, rel=1e-3), (
+                f"at {h} m the leg cable saturates: {r['cable']:.1f} N"
+            )
+        # ⚠️ and the spine's own cables are most of an order past theirs
+        assert r["spine"] > 6.0 * MT.TENSION_MAX, (
             f"spine demand {r['spine']:.0f} N at {h} m"
         )
     assert peaks[0.30]["spine"] > peaks[0.05]["spine"]
@@ -7134,16 +7239,20 @@ def test_the_LANDING_with_a_COMPLIANT_SPINE_is_NOT_YET_ANSWERABLE():
 
     | drop | spine demand | contact |
     |---|---|---|
-    | 0.05 m | 26 607 N | 4831 N |
-    | 0.10 m | 26 273 N | 986 N |
-    | 0.30 m | 24 957 N | 11 040 N |
+    | 0.05 m | 21 773 N | 760 N |
+    | 0.10 m | 23 377 N | 887 N |
+    | 0.30 m | 19 165 N | **2927 N** |
 
-    ⚠️ **Contact is not monotonic in drop height**, and 11 kN on a 4.30 kg
-    robot is **260x body weight**. The leg-only plant lands at 498-671 N over
-    the same heights, monotonically.
+    ⚠️ **2.9 kN on a 4.30 kg robot is 69x body weight**, against 604-660 N on
+    the rigid-spine plant over the same heights. M86 (ADR-0088) re-measured this
+    on the corrected leg inertia: the numbers came down by a factor of four and
+    **the contact is now monotonic in drop height**, where it used to jump
+    4831 -> 986 -> 11 040. So one of the two reasons this result was called
+    unbelievable has gone; the other -- a spine command at **98x** its rating --
+    has not, and it is the one the test asserts.
 
     ⚠️ **What this test asserts is the part that is diagnosable**: the spine
-    command runs at **>20x its rating** on the compliant plant against ~11-18x
+    command runs at **98x its rating** on the compliant plant against ~6.5-11x
     on the rigid-spine one, which is [ADR-0075](../docs/DESIGN_DECISIONS.md)'s
     finding again -- a `kp = 300` spine loop is not realisable through a
     transmission that can present `k*r^2 = 48.6 N*m/rad`. Until the spine has a
@@ -7159,12 +7268,16 @@ def test_the_LANDING_with_a_COMPLIANT_SPINE_is_NOT_YET_ANSWERABLE():
     assert hard["spine"] > 5.0 * soft["spine"], (
         f"{hard['spine']:.0f} against {soft['spine']:.0f} N rigid-spine"
     )
-    # ⚠️ and the contact it reports is not credible -- named, not published
-    assert hard["contact"] > 4.0 * soft["contact"], (
+    # ⚠️ and the contact it reports is still not credible -- named, not
+    # published. At 0.05 m it is 1.3x the rigid-spine plant's, at 0.30 m it is
+    # 4.4x; what makes it unbelievable is the magnitude, not the ratio.
+    assert hard["contact"] > soft["contact"], (
         f"contact {hard['contact']:.0f} N against {soft['contact']:.0f}"
     )
-    mass = 4.3041 * 9.81
-    assert hard["contact"] > 100.0 * mass / 9.81, "flagged as not credible"
+    weight = 4.3041 * 9.81
+    assert hard["contact"] > 15.0 * weight, (
+        f"{hard['contact'] / weight:.0f}x body weight -- flagged as not credible"
+    )
 
 
 # ==========================================================================
@@ -7409,13 +7522,19 @@ def test_NFR12s_LATENCY_BUDGET_holds_on_the_plant_at_last():
 
     | rate | 0 ms | 5 ms | **7.5 ms** | 10 ms | 15 ms | 20 ms |
     |---|---|---|---|---|---|---|
-    | 1 kHz | 0.01° / 72 N | 0.01 / 73 | **0.01° / 74 N** | 0.31 / 105 | 1.81 / 158 | 3.59 / 223 |
-    | 133 Hz | 0.01° / 73 N | 0.01 / 73 | **0.91° / 119 N** | 0.43 / 138 | 0.15 / 192 | 8.08 / 223 |
+    | 1 kHz | 0.01° / 73.8 N | 0.01 / 75.6 | **0.01° / 76.7 N** | 0.02 / 77.8 | 2.18 / 147.7 | 2.77 / **203.7** |
+    | 133 Hz | 0.01° / 74.7 N | 0.01 / 76.4 | **0.53° / 104.0 N** | 0.03 / 120.9 | 1.47 / 166.1 | 1.32 / **222.9** |
 
-    ✅ **At 1 kHz the budget costs 2 N** — 74 against a 72 N baseline. At
-    133 Hz it costs **47 N** and 0.91°, still standing but with less room.
+    ⚠️ Re-measured in M86 on the corrected leg inertia (ADR-0088). NFR12 is still
+    MET and the boundary is still 15-20 ms; the tilts moved because a lighter leg
+    falls differently, which is why the cable column is the one to read.
 
-    ⚠️ **The failure boundary is 15-20 ms**, where the cable saturates. NFR12
+    ✅ **At 1 kHz the budget costs 2.9 N** — 76.7 against a 73.8 N baseline. At
+    133 Hz it costs **29 N** and 0.53°, still standing but with less room.
+
+    ⚠️ **The failure boundary is 15-20 ms.** At 133 Hz the cable saturates there;
+    at 1 kHz it reaches **203.7 N, 91 % of the rating** -- close enough that the
+    conclusion is unchanged, but it no longer quite clips. NFR12
     was re-cast from a whole-loop <=20 ms; on this evidence 20 ms would have been
     exactly the edge, and the re-cast to 7.5 ms is what buys the margin.
 
@@ -7436,8 +7555,9 @@ def test_NFR12s_LATENCY_BUDGET_holds_on_the_plant_at_last():
     assert budget["peak"] < 0.4 * MT.TENSION_MAX
 
     # ⚠️ and the boundary is real: at 20 ms the cable saturates
-    assert over["peak"] == pytest.approx(MT.TENSION_MAX, rel=1e-3), (
-        f"20 ms saturates: {over['peak']:.1f} N"
+    assert over["peak"] > 0.9 * MT.TENSION_MAX, (
+        f"20 ms runs the cable to the edge: {over['peak']:.1f} N of "
+        f"{MT.TENSION_MAX:.1f}"
     )
     assert over["tilt"] > 20.0 * budget["tilt"]
 

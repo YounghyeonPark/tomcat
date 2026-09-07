@@ -131,8 +131,9 @@ def test_THE_GIRDLE_DENSITY_IS_SANE_AGAINST_ITS_OWN_GEOMETRY():
     assert 6 * 0.1317 / motor_vol == pytest.approx(3903.0, rel=0.01)
 
 
-def test_THE_CAPSULE_MODEL_OVERSTATES_LEG_SWING_INERTIA_BY_A_THIRD():
-    """⚠️ **The MJCF's capsules put the leg's swing inertia 37 % too high.**
+def test_the_mjcf_now_swings_like_the_cad_leg():
+    """✅ **Closed in M86.** The capsules put leg swing inertia **45 % too high**;
+    the MJCF now carries an explicit `<inertial>` per link and matches the CAD.
 
     `mjcf_tendon` draws each link as a capsule and lets MuJoCo derive the
     inertia at uniform density. `mass_closure.py` flags the consequence itself:
@@ -145,8 +146,17 @@ def test_THE_CAPSULE_MODEL_OVERSTATES_LEG_SWING_INERTIA_BY_A_THIRD():
 
     | | mass | I_yy about hip |
     |---|---|---|
-    | CAD placed parts | 182.2 g | **1.244e-3 kg m×** |
-    | MJCF capsules | 168.2 g | **1.701e-3** |
+    | CAD, bearing ENVELOPES | 182.2 g | 1.244e-3 kg m× |
+    | CAD, catalogue bearings | 167.2 g | **1.175e-3** |
+    | MJCF capsules, before M86 | 168.2 g | **1.701e-3** = **+45 %** |
+    | MJCF `<inertial>`, now | 167.2 g | **1.175e-3** = ratio **0.9999** |
+
+    ⚠️ **ADR-0087 published 1.244e-3 and it was 6 % high.** `bearing()` says
+    "envelope" in its own docstring: it draws a solid Ø19x6 steel annulus where
+    the catalogue bearing is 8.0 g, so its volume weighs 12.0 g -- 50 % over,
+    15.9 g over the leg. ADR-0087 read that as agreement ("the masses agree to
+    8 %, so this is not a mass error"); the 8 % *was* the error. Same class of
+    mistake as sizing a girdle from its fit box.
 
     ✅ **This comparison is deliberately assignment-independent.** Three
     earlier attempts tried to reproduce `per_link_mass()`'s part-to-link rule and
@@ -160,11 +170,11 @@ def test_THE_CAPSULE_MODEL_OVERSTATES_LEG_SWING_INERTIA_BY_A_THIRD():
     only **9 g**. A uniform-density capsule spreads that same mass along the
     link and therefore further out.
 
-    ⚠️ **What it costs.** Swing inertia is the P1 metric, and
+    ⚠️ **What it cost.** Swing inertia is the P1 metric, and
     [ADR-0043](../docs/DESIGN_DECISIONS.md) moved it **+62 %** by redistributing
-    link mass alone. The tendon drive's central argument — motors on the body
-    so the leg stays light — has been **understated by a third** in every
-    simulation result that depends on leg swing.
+    link mass alone. Every simulation result that depends on leg swing and
+    predates M86 understates the tendon drive's central argument — motors on
+    the body so the leg stays light — by **45 %**.
     """
     import sys as _sys
     import tomcat_leg_detail as LD
@@ -220,16 +230,22 @@ def test_THE_CAPSULE_MODEL_OVERSTATES_LEG_SWING_INERTIA_BY_A_THIRD():
     d2 = com_mj - hip_w
     I_mj_hip = I_mj + M_mj * (np.dot(d2, d2) * np.eye(3) - np.outer(d2, d2))
 
-    # ✅ the masses agree to under 10 %, so this is about DISTRIBUTION
+    # ⚠️ The CAD side here still uses the ENVELOPE masses, so it reads 8 % heavy
+    # against the MJCF's catalogue-calibrated ones. That gap is the finding above,
+    # not slack: `test_link_inertia.py` pins the calibrated pair to 2 %.
     assert M_cad == pytest.approx(M_mj, rel=0.12), (
         f"CAD {1e3 * M_cad:.1f} g vs MJCF {1e3 * M_mj:.1f} g"
     )
 
-    # ⚠️ and the capsule model overstates the swing inertia by about a third
+    # ✅ the swing inertia now agrees; before M86 this ratio was 0.73
     ratio = I_cad_hip[1, 1] / I_mj_hip[1, 1]
-    assert 0.65 < ratio < 0.82, (
-        f"CAD/MJCF swing inertia {ratio:.3f} "
+    assert 1.0 < ratio < 1.12, (
+        f"CAD(envelope)/MJCF swing inertia {ratio:.3f} "
         f"({I_cad_hip[1, 1]:.3e} vs {I_mj_hip[1, 1]:.3e})"
+    )
+    # ✅ and against the calibrated CAD number it is exact
+    assert I_mj_hip[1, 1] == pytest.approx(1.1753e-3, rel=0.02), (
+        f"MJCF swing inertia {I_mj_hip[1, 1]:.4e}, CAD says 1.1753e-3"
     )
 
     # ⚠️ because 80 % of the leg is joint hardware sitting AT the joints

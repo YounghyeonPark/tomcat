@@ -86,15 +86,16 @@ def test_the_1D_reduction_lands_on_the_worst_direction(setup):
     the true worst-direction limit. The reduction is not optimistic — it happens to
     pick out the binding direction.
 
-    ⚠️ M41 (ADR-0046): the bound moved **29.8 -> 29.22 mm**, because the measured
-    leg masses shifted the CoM and the trot foothold was re-tuned 0.005 -> 0.00214 m
-    with it. The 2 % agreement is what matters here and it survived — that is the
-    claim, not the absolute number.
+    ⚠️ The absolute bound has moved twice on the same argument: M41 (ADR-0046)
+    **29.8 → 29.22 mm** when the manufacturing model shifted the leg CoM, and
+    M86 (ADR-0088) **29.22 → 30.06 mm** when that distribution was MEASURED
+    rather than modelled as capsules. The 2-3 % agreement is what this test
+    claims and it has survived both — the absolute number is not the finding.
     """
     c, plant, q, reach = setup
     exact = _worst(viable.viable_set(c, q, plant.omega, plant.stance, reach, steps=20))
     quoted = control.rejection_envelope(plant)
-    assert exact == pytest.approx(0.0292, abs=5e-4)
+    assert exact == pytest.approx(0.0301, abs=5e-4)
     assert abs(quoted - exact) / exact < 0.03
 
 

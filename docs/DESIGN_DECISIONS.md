@@ -3295,8 +3295,10 @@ coupling itself. On dualis 0.2 the pack is a real domain on the same bus, so
   against `params`' 4.3041, and the 0.224 kg gap was exactly 4x the per-leg pulley
   geom masses. [ADR-0041](#adr-0041)'s manufacturing model **already apportions
   every sheave and bearing into `link_mass`**, so giving the geoms their own mass
-  double-counts it. The residual 4 g is the four paw pads, which `link_mass` does
-  not carry.
+  double-counts it. ~~The residual 4 g is the four paw pads, which `link_mass`
+  does not carry.~~ ⚠️ **Wrong, corrected in [ADR-0088](#adr-0088):
+  `per_link_mass()` adds the 5.68 g pad to the paw on its own line, so
+  `link_mass` DOES carry it and the 1 g pad geom was a double count.**
 
 ### The gate: it does not stand, and the failure is a LEAN
 
@@ -6837,6 +6839,11 @@ enough to reward.
 ## ADR-0087: The capsule model overstates leg swing inertia by a third
 
 - **Status:** Accepted — M85
+- **⚠️ CORRECTED by [ADR-0088](#adr-0088) (M86): the figure below is
+  **1.244e-3 with bearing ENVELOPES**; with catalogue bearings the leg is
+  **1.175e-3**, so the capsule model was **+45 %**, not +37 %. The "masses agree
+  to 8 %" line below is not a check that passed — the 8 % is the error. The
+  gap is now CLOSED in the MJCF.**
 - **⚠️ Qualifies every result that depends on leg swing.
   ✅ Answers the question [ADR-0043](#adr-0043) and `mass_closure.py` both
   left open.**
@@ -6911,6 +6918,167 @@ when it is metres.
   `per_link_mass()`'s masses as authoritative rather than re-derive the
   apportionment that failed three times.
 - ⚠️ **The girdles and spine are unmeasured** — this is the leg only.
+
+## ADR-0088: The MJCF carries measured per-link inertia, and two numbers it corrects
+
+- **Status:** Accepted — M86
+- **✅ Closes [ADR-0087](#adr-0087)'s gap in the plant.**
+  **⚠️ Corrects ADR-0087's published figure and [ADR-0073](#adr-0073)'s paw-pad
+  claim.**
+- **Context:** ADR-0087 measured the gap and said closing it "needs per-link
+  tensors, and the honest route is to take `per_link_mass()`'s masses as
+  authoritative rather than re-derive the apportionment that failed three
+  times." That is what this does.
+
+### ✅ The apportionment was not hard, it was ill-posed
+
+Three attempts assigned CAD solids to a **link** by proximity: +105 %, -79 %,
++20 % wrong. A joint sits physically *between* two links, so neither is
+"nearest" in any stable way.
+
+ASSEMBLY_SPEC ²2 never assigns hardware to a link by position. It assigns it
+to a **joint**, then to that joint's **distal** link. Joints are isolated points
+70-100 mm apart, so *which joint* is well-posed. `link_inertia.assign()` applies
+exactly that, and `test_sheave_mass_lands_on_the_distal_link` pins it at
+`rel=1e-9` — both sides measure the same solids, so there is no tolerance to
+hide in.
+
+### ⚠️ ADR-0087's 1.244e-3 was 6 % high, and its agreement check was the error
+
+`bearing()` says **"envelope"** in its own docstring: it draws a solid
+Ø19×6 steel annulus where the catalogue bearing is 8.0 g. Its volume weighs
+**12.0 g — 50 % over**, and 15.9 g over the leg.
+
+ADR-0087 reported *"the masses agree to 8 %, so this is not a mass error"*. The
+8 % **was** that error. Same class of mistake as reading a girdle's fit box as
+a mass model — **a drawing made to prove clearance, read as if it were a
+part.**
+
+| | mass | I_yy about hip |
+|---|---|---|
+| CAD, bearing envelopes — *ADR-0087 as published* | 182.2 g | 1.244e-3 kg m² |
+| CAD, catalogue bearings | 167.2 g | **1.175e-3** |
+| MJCF capsules, before M86 | 168.2 g | 1.701e-3 — **+45 %**, not +37 % |
+| MJCF `<inertial>`, now | 167.2 g | **1.175e-3** — ratio **0.9999** |
+
+The last row is measured **in MuJoCo**, not derived: build the plant, pose the
+hind leg, sum the four bodies about `xanchor`. A wrong frame conversion would
+not survive it.
+
+### ✅ Where the mass actually sits, and a —— TBD that had an answer
+
+| | was | measured |
+|---|---|---|
+| `link_com_frac` | 0.45 / 0.45 / 0.50 / 0.50 —— TBD | **0.065 / 0.072 / 0.076 / 0.874** |
+
+The old value was justified as *"muscle bellies sit proximally"*, a hand-waved
+45 %. The femur's centre of mass is **5.9 mm** from the hip on a **90 mm**
+link. It is not a belly part-way down a bone — it is joint hardware sitting
+**on** the joint. The paw is the mirror image (87 %) because the pad is its tip.
+
+`link_mass` moved too, total unchanged at 0.1672 kg: `per_link_mass()` divides
+the clevis mass equally by three, but the ankle clevis carries a Ø10 bearing
+against the hip's Ø19 and is the smaller part — 7.6 g placed against 13.5 g
+by thirds.
+
+### ⚠️ A bug ADR-0087's number was structurally unable to catch
+
+`build()` moves every solid to the limb plane on its last pass and leaves
+`report`'s joint coordinates behind, so joints and solids sat **48 mm apart in
+y**. `I_yy = sum m(x² + z²)` contains no y, so the published figure agreed
+to four figures with the hip out of plane, while `I_xx` and `I_zz` were both
+wrong. Found by printing the centre of mass beside the ratio.
+
+### ⚠️ ADR-0073's paw pads are double counted
+
+ADR-0073 explains a 4 g residual as *"the four paw pads, which `link_mass` does
+not carry"*. It does: `per_link_mass()` adds the 5.68 g pad to the paw on its
+own line. The 1 g pad geom was 1 g of double count per leg. Moot now — an
+explicit `<inertial>` makes MuJoCo ignore geom mass — but the geom no longer
+claims it either.
+
+### ⚠️ What it re-baselined: 23 published results, and four that did not survive
+
+Correcting the inertia broke **36 tests**. Every one was re-measured rather than
+re-fitted; the pattern is that **anything resting on the leg being hard to swing
+got weaker, and anything resting on it being heavy to hold did not move.**
+
+| result | published | measured | |
+|---|---|---|---|
+| trot power / runtime | 7.36 W / 18.85 min | **7.16 W / 19.39 min** | cheaper |
+| righting, rigid spine | 2.14 s | **1.74 s** | faster |
+| righting, all-18 spooled | 10.10 s | **7.15 s** | ratio 4.7× → 4.1× |
+| lowest drivetrain mode | 54.9 / 27.4 Hz | **69.6 / 35.8 Hz** | ratio 0.51, unchanged |
+| spine command in righting | 5003 N, 22× | **6778 N, 30×** | worse |
+| landing contact, all-18 | 4.8 / 1.0 / 11.0 kN | **0.76 / 0.89 / 2.93 kN** | 4× lower |
+| NFR12 at 7.5 ms | 0.01° / 74 N | **0.01° / 76.7 N** | still MET |
+| swing-leg roll moment | 0.0736 N.m | **0.0508 N.m** | **-31 %** |
+
+#### ✅ Three of M41's five `xfail(strict=True)` came back on their own
+
+M41 apportioned leg mass from a manufacturing **model**; the survival envelope
+went degenerate (37.17 mm at both 120° and 300°) and four tests were
+marked rather than retuned. With the **measured** tensors three of them pass
+unaided, including [ADR-0029](#adr-0029)'s *"the proportional spine assist is
+harmful"*, whose **direction** M41 had inverted. **The instrument was wrong, not
+the conclusions.**
+
+#### ⚠️ Four findings did not survive, and they are named
+
+- **[ADR-0046](#adr-0046)/M59's ranking inversion is undone.** M43 measured the
+  worst standing tendon as the hind hip extensor at ~2.5× continuous; M59's
+  point-foot fix moved it to the fore knee flexor at 100.5 N. On the measured
+  inertia the **hind hip extensor binds again at 164.8 N rms, 2.03×**, peak on
+  the 222.9 N ceiling. The inversion was the capsule surplus, not the foot.
+- **M44's "clipping loses the leg" (197° of hip drift) does not reproduce**
+  — it is **17.3°**. The ratio against the proper allocator survives at
+  ~1700×, and that is what the firmware note rests on.
+- **M61's "raise the spine gain and it goes over" does not reproduce.** At spine
+  `kp` 30 the tilt was **179.91°**; it is **11.94°**. The conclusion
+  holds for a different reason: those gains command **288 N, 1.3× the motor's
+  PEAK**, and get the clamp.
+- **M55's spring reference no longer keeps the worst tendon off the ceiling.**
+  It dropped 222.9 → 207.4 N on the capsule plant; the hind hip extensor is
+  back at 222.9. The ankle mechanism is intact; the whole-robot headline is not.
+
+#### ⚠️ And one guard flipped from safe to unsafe
+
+[M17](#adr-0014) measured the rigid-body divergence **2 % SLOWER** than the LIPM
+`omega = sqrt(g/z)` every envelope in `control.py` is sized on, and concluded the
+reduced-order model was conservative. That held only for the capsule mass
+distribution. Measured, the robot diverges **6.8 % FASTER**: less inertia far
+from the pivot means less resisting the topple. **Every envelope in `control.py`
+is optimistic by that much**, and re-sizing them is owed.
+
+#### ⚠️ The rotor inertia the capsules were standing in for
+
+The rigid plant's leg joints carry `armature = 0`. Through a spool of radius
+`SPOOL_R` driving a sheave of radius `r`, the rotor appears at the joint as
+`I_rotor (r/R)²`: **2.05e-4 at the hip (17 % of the whole leg's swing
+inertia)** and **5.12e-5 at the ankle (72 % of the metatarsus and paw about it)**.
+Removing the capsules' surplus without adding this made the plant *less* physical
+in one respect — the lowest oscillatory mode stopped oscillating and that
+metric jumped 12.6 → 1365 Hz, a contact mode.
+
+`leg_tendon_xml(rotor_armature=True)` computes it and is **default OFF**, and
+neither reason is that zero is right. `ROTOR_ARMATURE` is `[assumed]` — the
+vendor does not publish it — so switching it on trades one set of re-baselined
+results for another; and most findings here compare the rigid plant against the
+spooled one, where adding it to the rigid side alone moves the comparison rather
+than a number. It is a milestone of its own. **This one has a single cause.**
+
+### Consequences
+
+- ⚠️ **Every result that depends on leg swing and predates M86 is understated
+  by 45 %.** Swing inertia is the P1 metric.
+- ⚠️ **The girdles are measured and NOT yet fixed.** The MJCF girdle box is
+  60×60×56 mm; six motors and their spools are **212,133 mm² against its
+  201,600** — **the box is smaller than the parts it houses (105 %)**, where
+  `tomcat_packaging` sizes the real one at 82×86.5×108.2 mm, **3.8×** the
+  volume. At equal mass the motor cluster's inertia is **1.34-1.56×** the
+  box's. So the trunk is too *easy* to rotate while the legs were too *hard* to
+  swing.
+- ⚠️ **Still no skin.** 7 contact geoms: floor, two girdles, four pads.
 
 ---
 

@@ -184,14 +184,51 @@ class LegParams:
     # PULLEYS.  Drawn as parts the split is 39.5 / 35.3 / 20.7 / 4.5 — the
     # metatarsus more than DOUBLES — and leg swing inertia about the hip rises
     # **+62 %** (ADR-0043).
-    link_mass: tuple[float, float, float, float] = (0.06604, 0.05893, 0.03460,
+    #
+    # ⚠️ M86 moved the SPLIT again (the total is unchanged at 0.1672 kg).
+    # `per_link_mass()` divides the clevis mass equally by three, but the ankle
+    # clevis carries a Ø10 bearing against the hip's Ø19 and is physically the
+    # smaller part: placed, it is 7.6 g where equal thirds charge it 13.5.
+    # `[derived: cad/link_inertia.py]`, and re-derived by `test_link_inertia.py`.
+    link_mass: tuple[float, float, float, float] = (0.07177, 0.06267, 0.02513,
                                                     0.00759)
 
     # Fraction of each link's LENGTH, measured from that link's PROXIMAL joint,
     # at which its centre of mass sits (dimensionless, 0 = proximal joint,
-    # 1 = distal joint).  0.45 on the two muscled proximal links (muscle bellies
-    # sit proximally), 0.50 on the mostly-bony distal links.  ❓ TBD
-    link_com_frac: tuple[float, float, float, float] = (0.45, 0.45, 0.50, 0.50)
+    # 1 = distal joint).
+    #
+    # ⚠️ Was (0.45, 0.45, 0.50, 0.50) and marked ❓ TBD -- "muscle bellies sit
+    # proximally" as a hand-waved 45 %. **Measured, the three proximal links sit
+    # at 6-8 %**: the mass is joint hardware sitting ON the proximal joint, not
+    # a belly part-way down a bone. The paw is the opposite (87 %) because the
+    # pad is at its tip.  `[derived: cad/link_inertia.py]`
+    link_com_frac: tuple[float, float, float, float] = (0.0652, 0.0725,
+                                                        0.0762, 0.8743)
+
+    #: Centre of mass in the link's OWN body frame (m), +x along the link from
+    #: its proximal joint. The full vector `link_com_frac` cannot carry: the
+    #: sheaves stand ~4 mm off the limb plane in +y.  `[derived: cad/link_inertia.py]`
+    link_com: tuple[tuple[float, float, float], ...] = (
+        (0.005870, 0.004314, -0.000909),      # femur
+        (0.006885, 0.003286, 0.000504),       # tibia
+        (0.005331, 0.001808, -0.000125),      # meta
+        (0.021858, 0.000000, -0.002353),      # paw
+    )
+
+    #: MJCF `fullinertia` about each link's CoM, in its body frame
+    #: (ixx iyy izz ixy ixz iyz, kg m²).
+    #:
+    #: ⚠️ Until M86 `mjcf_tendon` derived these from a uniform-density capsule,
+    #: which overstated leg swing inertia about the hip by **45 %**
+    #: ([ADR-0087](../../../docs/DESIGN_DECISIONS.md)). Four fifths of a link is
+    #: joint hardware sitting at its joints; a capsule spreads it down the bone.
+    #: `[derived: cad/link_inertia.py]`
+    link_inertia: tuple[tuple[float, ...], ...] = (
+        (1.2256e-05, 3.8913e-05, 3.4705e-05, 1.4973e-06, -2.2258e-07, 5.8603e-07),
+        (8.3748e-06, 3.3155e-05, 3.1214e-05, 7.7285e-07, -4.6472e-07, -8.1556e-08),
+        (1.7410e-06, 8.1947e-06, 8.4082e-06, -9.8548e-08, 1.5077e-07, -9.2521e-09),
+        (3.0802e-07, 7.2523e-07, 9.1886e-07, 0.0, 5.6145e-08, 0.0),
+    )
 
     def __post_init__(self) -> None:
         for name in ("link_mass", "link_com_frac"):
@@ -580,7 +617,22 @@ DEFAULT_FORELEG = LegParams(
     # joint hardware dominates and it is the SAME hardware on both, so the shorter
     # fore links barely register.  Design review F2 settled the fore/hind weight
     # split using the assumed asymmetry and needs re-checking (ADR-0043).
-    link_mass=(0.06662, 0.05873, 0.03445, 0.00759),
+    link_mass=(0.07226, 0.06188, 0.02566, 0.00759),
+    # ⚠️ Re-derived at the FORE link lengths, not copied from the hind leg:
+    # the same hardware on shorter links moves the fractions.
+    link_com_frac=(0.0837, 0.0645, 0.0762, 0.8743),
+    link_com=(
+        (0.008372, 0.004231, -0.000603),      # humerus
+        (0.005803, 0.003313, -0.000332),      # radius
+        (0.004955, 0.002024, 0.000718),       # metacarpus
+        (0.021858, 0.000000, -0.002353),      # paw
+    ),
+    link_inertia=(
+        (1.2968e-05, 4.4294e-05, 3.9305e-05, 9.2589e-07, -2.1822e-07, 6.9045e-07),
+        (8.0572e-06, 2.7163e-05, 2.5642e-05, 9.3731e-07, 2.0518e-07, 1.3732e-07),
+        (2.2838e-06, 7.5599e-06, 7.3028e-06, -1.6622e-07, 1.6862e-07, -1.8532e-08),
+        (3.0802e-07, 7.2523e-07, 9.1886e-07, 0.0, 5.6145e-08, 0.0),
+    ),
 )
 
 # Total mass of the default body, for cross-checking against LoadCase.body_mass_kg.

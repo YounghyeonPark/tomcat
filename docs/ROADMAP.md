@@ -3877,7 +3877,40 @@ Three attempts to reproduce `per_link_mass()`'s part-to-link rule came out
 that rule** — only where the mass physically is — so asking it that way
 answered it in one measurement.
 
-## Later milestones (candidate M86+, not committed)
+## Milestone M86 — Measured inertia reaches the plant (DONE)
+
+ADR-0087 measured the gap; this closes it. The MJCF now emits an explicit
+`<inertial>` per link from `cad/link_inertia.py`.
+
+| | mass | I_yy about hip |
+|---|---|---|
+| CAD, bearing envelopes — *ADR-0087 as published* | 182.2 g | 1.244e-3 |
+| CAD, catalogue bearings | 167.2 g | **1.175e-3** |
+| MJCF capsules, before | 168.2 g | 1.701e-3 — **+45 %** |
+| MJCF now | 167.2 g | **1.175e-3**, ratio **0.9999** |
+
+### ✅ The split that failed three times was ill-posed, not hard
+
+Proximity to a **link** cannot place a joint that sits *between* two. ASSEMBLY
+SPEC ²2 assigns to a **joint** then to its **distal** link, and joints are
+isolated points. Pinned at `rel=1e-9`.
+
+### ⚠️ Three corrections
+
+- ADR-0087's 1.244e-3 used `bearing()`'s **fit envelope** (12.0 g) where the
+  catalogue bearing is 8.0 g. Its "masses agree to 8 %" was the error itself.
+- `link_com_frac` was 0.45/0.45/0.50/0.50 and —— TBD; measured it is
+  **0.065/0.072/0.076/0.874**. The femur's CoM is **5.9 mm** down a 90 mm link.
+- ADR-0073's "the four paw pads, which `link_mass` does not carry" — it does.
+
+### ⚠️ Open: the girdle box is smaller than its own motors
+
+60×60×56 mm holds 201,600 mm²; six motors and spools are **212,133** —
+**105 %**. `tomcat_packaging` sizes the real girdle at 82×86.5×108.2 mm,
+**3.8×** the volume, and at equal mass its inertia is **1.34-1.56×** the
+box's. Measured, not yet fixed.
+
+## Later milestones (candidate M87+, not committed)
 
 > This list is **curated, not append-only**. When a milestone closes an item it is
 > deleted here and the reasoning kept in the [ADR log](DESIGN_DECISIONS.md). Earlier

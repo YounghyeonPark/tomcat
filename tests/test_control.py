@@ -241,13 +241,14 @@ def test_spine_is_ROM_limited_not_RATE_limited():
     # And the correction is real, not a rounding change.
     naive = abs(c.body.center_of_mass_y(np.full(3, rom)))
     assert naive > full
-    # ⚠️ M41 (ADR-0046): **4.0 % -> 7.1 %.** ADR-0025's correction is the fore
-    # legs' fore-aft CoM offset being rotated into y by the spine's yaw, so its size
-    # is set by WHERE the leg mass sits. The manufacturing model moved that mass
-    # distally (the metatarsus more than doubled), which lengthens the lever and
-    # nearly doubles the error the naive form makes. The finding is unchanged and
-    # its magnitude grew.
-    assert (naive - full) / naive == pytest.approx(0.071, abs=0.006)
+    # ⚠️ M41 (ADR-0046): **4.0 % -> 7.1 %**, then M86: **7.1 % -> 6.0 %.**
+    # ADR-0025's correction is the fore legs' fore-aft CoM offset rotated into y
+    # by the spine's yaw, so its size is set by WHERE the leg mass sits. M41's
+    # manufacturing model moved that mass distally and lengthened the lever;
+    # M86's MEASURED distribution moves it back proximally -- four fifths of a
+    # link is joint hardware sitting ON its joint -- and gives back a third of
+    # what M41 added. The finding is unchanged through both.
+    assert (naive - full) / naive == pytest.approx(0.060, abs=0.006)
 
 
 def test_envelope_in_physical_units_is_a_real_shove():
@@ -428,22 +429,25 @@ def test_spine_authority_is_ALSO_friction_limited():
     # ⚠️ M41 (ADR-0046) INVERTED this at mu 0.8, and the crossover is the result.
     #
     # ADR-0019's claim is that ground friction, not spine ROM, is what limits the
-    # sway. It was true at the old mass because the ROM-limited sway was 42.2 mm and
-    # mu 0.8 clipped it to 36.6. The measured leg masses moved the whole-body CoM
-    # and the ROM-limited sway fell to **37.0 mm** -- at which point mu 0.8 no longer
-    # reaches it:
+    # sway. M41 INVERTED it at mu 0.8 (ROM-limited sway fell 42.2 -> 37.0 mm, so
+    # mu 0.8's 36.6 mm no longer reached it). ⚠️ **M86 UN-inverts it.** The
+    # measured mass distribution moves the leg CoM back toward the hips, the
+    # ROM-limited sway rises to **37.4 mm**, and mu 0.8 is once again the binding
+    # constraint -- ADR-0019 as originally written:
     #
-    #   mu 0.4 -> 14.9 mm   FRICTION binds
-    #   mu 0.6 -> 26.6 mm   FRICTION binds
-    #   mu 0.7 -> 32.5 mm   FRICTION binds
-    #   mu 0.8 -> 37.0 mm   **ROM binds**
+    #   mu 0.4 -> 14.2 mm   FRICTION binds
+    #   mu 0.6 -> 25.4 mm   FRICTION binds
+    #   mu 0.7 -> 31.0 mm   FRICTION binds
+    #   mu 0.8 -> 36.6 mm   FRICTION binds   <- M41 had this as ROM
+    #   mu 0.9 -> 37.4 mm   **ROM binds**
     #
-    # So the mechanism is intact and the crossover moved: friction is the limit
-    # below mu ~0.8 and ROM above it. NFR16's floor of 0.70 sits just inside the
-    # friction-limited region, which is the useful reading.
+    # The mechanism never changed; only where the crossover sits, and it has now
+    # moved twice on the same argument. NFR16's floor of 0.70 stays inside the
+    # friction-limited region either way, which is the reading that matters.
     assert ctl.StepPlant.from_gait(c, floor_mu=0.7).spine < rom_only.spine
-    assert ctl.StepPlant.from_gait(c, floor_mu=0.8).spine == pytest.approx(
-        rom_only.spine, rel=1e-9), "at mu 0.8 the ROM is what binds now"
+    assert ctl.StepPlant.from_gait(c, floor_mu=0.8).spine < rom_only.spine,         "at mu 0.8 friction binds again -- M41's inversion is undone"
+    assert ctl.StepPlant.from_gait(c, floor_mu=0.9).spine == pytest.approx(
+        rom_only.spine, rel=1e-9), "and ROM takes over by mu 0.9"
     assert ctl.StepPlant.from_gait(c, floor_mu=0.4).spine < \
         ctl.StepPlant.from_gait(c, floor_mu=0.7).spine, "and it is monotone in mu"
 

@@ -595,7 +595,8 @@ def leg_tendon_xml(name: str, leg_p, arms, indent: int = 4,
                    ankle_pair: bool = True,
                    ankle_spring: float | None = None,
                    clamped: bool = True,
-                   pulley: bool = True) -> tuple[str, str, str]:
+                   pulley: bool = True,
+                   rotor_armature: bool = False) -> tuple[str, str, str]:
     """One tendon-driven leg. Returns (body_xml, tendon_xml, actuator_xml).
 
     The kinematic chain is the same four links `mjcf.py` builds. What is added:
@@ -612,6 +613,34 @@ def leg_tendon_xml(name: str, leg_p, arms, indent: int = 4,
     m = leg_p.link_mass
     r_hip, r_knee, r_ankle = arms
 
+    # ⚠️ **Rotor inertia, reflected through the tendon -- MEASURED, and OFF.**
+    # Without the explicit drivetrain a joint here has nothing but the links:
+    # `armature` is 0 and the motor might as well not exist. Through a spool of
+    # radius `SPOOL_R` driving a sheave of radius `r` the rotor appears at the
+    # joint as `I_rotor (r/R)^2`:
+    #
+    #   hip   3.20x -> 2.05e-4   = 17 % of the whole leg's swing inertia
+    #   knee  2.86x -> 1.63e-4
+    #   ankle 1.60x -> 5.12e-5   = 72 % of the metatarsus + paw about the ankle
+    #
+    # ⚠️ **The capsule model's 45 % excess (ADR-0087) was standing in for this.**
+    # Correcting the links alone made the plant *less* physical in one respect:
+    # the lowest oscillatory mode stopped oscillating and that metric jumped
+    # 12.6 -> 1365 Hz, which is a contact mode, not a structural one.
+    #
+    # ⚠️ **Default OFF, deliberately.** Two reasons, and neither is that zero is
+    # right -- it is not. (1) `ROTOR_ARMATURE` is `[assumed]`: the vendor does
+    # not publish it, and switching it on trades one set of re-baselined results
+    # for another rather than converging. (2) Most findings here compare the
+    # rigid plant against the spooled one, and adding it to the rigid side alone
+    # moves the comparison, not just a number. Turning it on is a milestone of
+    # its own, with its own re-baseline; this one has a single cause.
+    # Meaningless when `spools` builds real rotor bodies -- they carry it there.
+    def _arm_i(r):
+        return ROTOR_ARMATURE * (float(r) / SPOOL_R) ** 2 if rotor_armature else 0.0
+
+    a_hip, a_knee, a_ankle = (_arm_i(r_hip), _arm_i(r_knee), _arm_i(r_ankle))
+
     # ⚠️ **Bones do not collide; the PAD is the foot.** Every controller here,
     # and ADR-0009's support-polygon argument, treats a foot as a point at the
     # `_foot` site. Before M59 the limb did not: the paw capsule sits 2 mm above
@@ -619,19 +648,28 @@ def leg_tendon_xml(name: str, leg_p, arms, indent: int = 4,
     # both down. Measured, that dragged the fore legs' effective contact **8.3 mm
     # behind the site the controller was using** -- half the margin ADR-0009
     # argues over, on a 210 mm wheelbase, and silently.
+    # ⚠️ **The `<inertial>` is what MuJoCo uses; the capsule only draws.** With
+    # the geom's mass alone MuJoCo derives the tensor from the capsule at uniform
+    # density, which spreads joint hardware down the bone and overstated leg
+    # swing inertia about the hip by **45 %** (ADR-0087). An explicit
+    # `<inertial>` overrides that, so the geom is left massless to avoid the
+    # double count the pulleys already taught this file about.
     def bone(i, tag):
-        ixx = _rod_inertia(m[i], L[i], 0.005)
-        return (f'{pad}  <geom name="{name}_{tag}" type="capsule" '
-                f'fromto="0 0 0 {L[i]:.5f} 0 0" size="0.005" mass="{m[i]:.5f}" '
-                f'contype="0" conaffinity="0"/>\n'
-                f'{pad}  <!-- I = {ixx[0]:.3e} -->\n')
+        c, fi = leg_p.link_com[i], leg_p.link_inertia[i]
+        return (f'{pad}  <inertial pos="{c[0]:.6f} {c[1]:.6f} {c[2]:.6f}" '
+                f'mass="{m[i]:.5f}" fullinertia="'
+                + " ".join(f"{v:.4e}" for v in fi) + '"/>\n'
+                f'{pad}  <geom name="{name}_{tag}" type="capsule" '
+                f'fromto="0 0 0 {L[i]:.5f} 0 0" size="0.005" mass="0" '
+                f'contype="0" conaffinity="0"/>\n')
 
     # ------------------------------------------------------------------ bodies
     b = []
     b.append(f'{pad}<body name="{name}_femur" pos="{mount[0]:.5f} '
              f'{mount[1]:.5f} {mount[2]:.5f}">')
     b.append(f'{pad}  <joint name="{name}_q1" type="hinge" axis="0 -1 0" '
-             f'range="{leg_p.q_min[0]:.4f} {leg_p.q_max[0]:.4f}" damping="0.002"/>')
+             f'range="{leg_p.q_min[0]:.4f} {leg_p.q_max[0]:.4f}" damping="0.002" '
+             f'armature="{a_hip:.4e}"/>')
     # the hip sheave rides on the FEMUR (the distal link of the hip joint)
     b.append(f'{pad}  <geom name="{name}_hip_sheave" type="cylinder" '
              f'size="{r_hip:.5f} {SHEAVE_HALF_W}" pos="0 0.012 0" '
@@ -672,7 +710,8 @@ def leg_tendon_xml(name: str, leg_p, arms, indent: int = 4,
 
     b.append(f'{pad}  <body name="{name}_tibia" pos="{L[0]:.5f} 0 0">')
     b.append(f'{pad}    <joint name="{name}_q2" type="hinge" axis="0 -1 0" '
-             f'range="{leg_p.q_min[1]:.4f} {leg_p.q_max[1]:.4f}" damping="0.002"/>')
+             f'range="{leg_p.q_min[1]:.4f} {leg_p.q_max[1]:.4f}" damping="0.002" '
+             f'armature="{a_knee:.4e}"/>')
     b.append(f'{pad}    <geom name="{name}_knee_sheave" type="cylinder" '
              f'size="{r_knee:.5f} {SHEAVE_HALF_W}" pos="0 0.012 0" '
              f'quat="0.70711 0.70711 0 0" mass="1e-9" '
@@ -708,6 +747,7 @@ def leg_tendon_xml(name: str, leg_p, arms, indent: int = 4,
     b.append(f'{pad}      <joint name="{name}_q3" type="hinge" axis="0 -1 0" '
              f'range="{leg_p.q_min[2]:.4f} {leg_p.q_max[2]:.4f}" '
              f'damping="0.002" stiffness="{_k3:.4f}" '
+             f'armature="{a_ankle:.4e}" '
              f'springref="{_springref:.5f}"/>')
     b.append(f'{pad}      <geom name="{name}_ankle_sheave" type="cylinder" '
              f'size="{r_ankle:.5f} {SHEAVE_HALF_W}" pos="0 0.012 0" '
@@ -781,11 +821,15 @@ def leg_tendon_xml(name: str, leg_p, arms, indent: int = 4,
     # get the sign convention wrong, and the first pass did exactly that.
     b.append(f'{pad}      <body name="{name}_paw" pos="{L[2]:.5f} 0 0" '
              f'euler="0 {-leg_p.paw_angle:.6f} 0">')
-    b.append(f'{pad}        <geom name="{name}_pawlink" type="capsule" '
-             f'fromto="0 0 0 {L[3]:.5f} 0 0" size="0.004" '
-             f'mass="{m[3]:.5f}" contype="0" conaffinity="0"/>')
+    b.append(f'{pad}        ' + bone(3, "pawlink").strip())
+    # ⚠️ The pad geom used to carry 1 g of its own, justified in ADR-0073 as "the
+    # four paw pads, which `link_mass` does not carry". **It does**:
+    # `per_link_mass()` adds the 5.68 g pad to the paw on its own line, so the
+    # 1 g was 1 g of double count, 4 g over the robot. Moot now -- an explicit
+    # `<inertial>` makes MuJoCo ignore geom mass for this body -- but left at 0
+    # so the XML does not still claim it.
     b.append(f'{pad}        <geom name="{name}_pad" type="sphere" size="0.006" '
-             f'pos="{L[3]:.5f} 0 0" mass="0.001" '
+             f'pos="{L[3]:.5f} 0 0" mass="0" '
              f'friction="0.8 0.005 0.0001"/>')
     b.append(f'{pad}        <site name="{name}_foot" pos="{L[3]:.5f} 0 0" '
              f'size="0.002"/>')

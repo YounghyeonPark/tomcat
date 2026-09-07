@@ -23,6 +23,15 @@ COMPLIANT_KP = 80
 STIFF_KP = 500
 
 #: ⚠️ Shared xfail reason for the M41 mass fold-in. See ADR-0046.
+#:
+#: ✅ **M86 (ADR-0088) removed three of the four.** M41 apportioned the leg mass
+#: from a manufacturing MODEL; M86 measured the per-link tensors from the placed
+#: CAD and found the capsule plant was carrying **45 % too much swing inertia**.
+#: With the measured distribution the survival envelope stops being degenerate
+#: and three of these tests pass unaided. Two still fail and keep the mark:
+#: `test_measured_worst_case_is_below_the_reduced_order_prediction` and
+#: `test_the_envelope_is_horizon_limited_and_must_be_converged` -- ADR-0040's
+#: point stands for those, and `measure_envelope(recover=True)` is still owed.
 XFAIL_M41 = (
     "M41 (ADR-0046) folded the measured leg masses into params, and the "
     "SURVIVAL-criterion envelope went degenerate: 37.17 mm at BOTH 120 and 300 "
@@ -198,10 +207,22 @@ def test_the_spine_wants_stiffness_where_the_legs_want_compliance(controller):
     """Two joint groups, opposite tuning — and getting it wrong looks identical.
 
     The lateral spine chain carries the whole forequarters. At the leg's compliant
-    gain it wobbles enough to fell an otherwise-clean baseline in 10 steps; stiffened
-    it is quiet again. A single "servo gain" knob would have hidden this.
+    gain it wobbles enough to fell an otherwise-clean baseline; stiffened it is
+    quiet again. A single "servo gain" knob would have hidden this.
+
+    ⚠️ **M86 moved the boundary, not the mechanism.** On the measured leg inertia
+    (ADR-0088) the forequarters are lighter and the same spine gain carries them
+    better, so the plant survives gains that used to fell it:
+
+    | `spine_kp` | 30 | 60 | 100 | 150 | 250 | 1000 |
+    |---|---|---|---|---|---|---|
+    | fell in 20 steps | yes | yes | **yes** | no | no | no |
+    | mean abs dcm | 29.9 | 31.1 | 24.0 | **12.4** | 2.2 | **2.0 mm** |
+
+    The soft case is therefore 100, where it was 150. Note 150 does not fall but
+    is still **6x** the settled wobble — the cliff is not the whole finding.
     """
-    soft = mjsim.build(controller, mujoco, kp=80, spine=True, spine_kp=150)
+    soft = mjsim.build(controller, mujoco, kp=80, spine=True, spine_kp=100)
     firm = mjsim.build(controller, mujoco, kp=80, spine=True, spine_kp=1000)
     h_soft = mjsim.BalanceHarness(controller, mujoco, soft, use_spine=False)
     h_firm = mjsim.BalanceHarness(controller, mujoco, firm, use_spine=False)
@@ -218,15 +239,11 @@ def test_the_spine_wants_stiffness_where_the_legs_want_compliance(controller):
     assert _mean_dcm(bb, slice(None)) < 0.010
 
 
-@pytest.mark.xfail(reason=(
-    "M41 (ADR-0046) inverted this finding's DIRECTION, not just its magnitude. At "
-    "the measured leg masses the spine-off baseline is 6.69 mm and a 0.2 reactive "
-    "assist gives 5.73 -- the assist now slightly HELPS where ADR-0029 measured a "
-    "5x degradation. Marked rather than retuned: ADR-0029's conclusion (the "
-    "proportional assist is harmful, and M25's planned deployment is what fixes "
-    "it) cannot be asserted from this measurement any more, and re-deriving it is "
-    "M42's job alongside the recovery-criterion re-measurement."
-), strict=True)
+# ✅ **M41 xfailed this; M86 UN-xfailed it.** M41's modelled leg masses inverted
+# the finding's direction -- the 0.2 reactive assist appeared to HELP where
+# ADR-0029 measured a 5x degradation -- so it was marked rather than retuned.
+# ADR-0088 replaced those modelled masses with MEASURED per-link tensors and the
+# finding reproduces on its own. The instrument was wrong, not the conclusion.
 def test_the_proportional_spine_assist_has_unity_loop_gain_and_is_harmful(controller):
     """⚠️ M24, and it retracts M22/M23's "+14 % from the spine".
 
@@ -430,7 +447,7 @@ def test_the_envelope_is_horizon_limited_and_must_be_converged(controller):
     assert long > 0.7 * bound, "the controller should still be within ~30 % of optimal"
 
 
-@pytest.mark.xfail(reason=XFAIL_M41, strict=True)
+# ✅ **M41 xfailed this; M86 UN-xfailed it** -- see `XFAIL_M41`.
 def test_realising_the_load_split_makes_it_worse_not_better(controller):
     """⚠️ M32, and the fourth consecutive result of this shape.
 
@@ -600,7 +617,7 @@ def test_the_noise_floor_RISES_at_a_short_stance(controller):
     )
 
 
-@pytest.mark.xfail(reason=XFAIL_M41, strict=True)
+# ✅ **M41 xfailed this; M86 UN-xfailed it** -- see `XFAIL_M41`.
 def test_the_envelope_measures_SURVIVAL_not_recovery(controller):
     """⚠️ M35, and it re-reads every envelope figure from M21 onward.
 

@@ -118,8 +118,14 @@ def _leg_xml(name: str, track_y: float, leg_p, indent: int) -> str:
     m4 = masses[3]
     pad = " " * (indent + 2 * len(lens) + 2)
     ix, iy, iz = _rod_inertia(m4, l4, LINK_RADIUS)
+    # ⚠️ This read `0.5 * l4` while `mass.leg_link_coms` reads `link_com_frac[3]`
+    # for the same body. The two agreed only because the parameter happened to BE
+    # 0.50; when M86 measured it at **0.874** (the pad is at the paw's tip) the
+    # analytical and simulated centres of mass parted by 0.066 mm and
+    # `test_centre_of_mass_matches_analytical` caught it. A hard-coded copy of a
+    # parameter is not a duplicate, it is a second source of truth.
     out.append(f'{pad}<body name="{name}_paw" pos="{lens[-1]} 0 0" euler="0 {-pa} 0">')
-    out.append(f'{pad}  <inertial pos="{0.5 * l4} 0 0" mass="{m4}" '
+    out.append(f'{pad}  <inertial pos="{fracs[3] * l4} 0 0" mass="{m4}" '
                f'diaginertia="{ix:.9g} {iy:.9g} {iz:.9g}"/>')
     out.append(f'{pad}  <geom name="{name}_tip" type="sphere" pos="{l4} 0 0" '
                f'size="{PAW_RADIUS}" mass="0"/>')
