@@ -257,7 +257,8 @@ def test_spine_segment_coms_track_the_bent_geometry():
     straight = spine_segment_coms(spine.vertebra_positions(STRAIGHT), p.segment_com_frac)
     arched = spine_segment_coms(spine.vertebra_positions(ARCH), p.segment_com_frac)
     assert straight.shape == (p.n_segments, 2)
-    assert np.allclose(straight[:, 1], 0.0)          # straight spine lies on z=0
+    # ⚠️ M92: the straight spine lies on the SPINE AXIS, not on the hip axis.
+    assert np.allclose(straight[:, 1], p.spine_axis_z)
     assert arched[-1, 1] > straight[-1, 1]           # arch lifts the front segment
     with pytest.raises(ValueError):
         spine_segment_coms(np.zeros((2, 2)), p.segment_com_frac)
@@ -303,20 +304,38 @@ def test_point_masses_com_and_combine():
 # 3. Whole-body CoM
 # =====================================================================
 def test_symmetric_body_com_is_exactly_mid_body():
+    """⚠️ M92 raised the vertebral chain, so mid-body is no longer z = 0.
+
+    The girdles still sit ON the hip axis and the segments now sit one
+    `spine_axis_z` above it, so the trunk CoM rises by the chain's mass share of
+    that height -- computed from the parameters here rather than written down,
+    because a number in a test drifts exactly like a number in a document.
+    """
     body = _symmetric_trunk_body(leg_mass=0.0)
+    sp = body.spine.params
     c = body.center_of_mass(np.zeros(3), STAND)
-    assert c.x == pytest.approx(body.spine.params.total_length / 2.0, abs=1e-12)
-    assert c.z == pytest.approx(0.0, abs=1e-12)
+    want_z = sum(sp.segment_mass) * sp.spine_axis_z / sp.trunk_mass
+    assert c.x == pytest.approx(sp.total_length / 2.0, abs=1e-12)
+    assert c.z == pytest.approx(want_z, abs=1e-12)
 
 
 def test_symmetric_body_with_legs_shifts_by_exactly_the_leg_offset():
-    # Adding equal legs to a symmetric trunk moves the CoM by the leg-mass
-    # fraction times the (shared) hip->leg-CoM offset -- an exact hand check.
+    """⚠️ **The old "exact hand check" was only exact while the trunk CoM was
+    at z = 0.** It read `bare.com + frac * offset`, which treats the legs as
+    hanging from the trunk's own CoM. They hang from the HIPS. In x the two
+    coincide by symmetry and in z they coincided only because the vertebral
+    chain used to run along the hip axis -- so M92 raising it turned a passing
+    identity into a 4 mm error. The general form is written out here: legs are
+    added at the mean hip, not at the trunk CoM.
+    """
     body = _symmetric_trunk_body(leg_mass=0.1)
     bare = _symmetric_trunk_body(leg_mass=0.0)
     offset = leg_com(body.fore_leg, STAND).com   # hip -> leg CoM, shared by all 4
-    frac = (4 * 0.1) / body.total_mass
-    expected = bare.center_of_mass(np.zeros(3), STAND).com + frac * offset
+    hips = np.array([body.spine.params.total_length / 2.0, 0.0])  # mean hip
+    m_trunk = bare.total_mass
+    m_legs = 4 * 0.1
+    expected = ((m_trunk * bare.center_of_mass(np.zeros(3), STAND).com
+                 + m_legs * (hips + offset)) / (m_trunk + m_legs))
     assert np.allclose(body.center_of_mass(np.zeros(3), STAND).com, expected)
 
 
@@ -327,8 +346,13 @@ def test_default_com_sits_forward_of_mid_body_because_the_cat_is_front_heavy():
     # Forward of the mid-spine point, but still between the two girdles.
     assert c.x > DEFAULT_SPINE.total_length / 2.0
     assert 0.0 < c.x < DEFAULT_SPINE.total_length
-    # Legs hang below the spine, so the CoM is below the spine line.
-    assert c.z < 0.0
+    # ⚠️ **M92 changed the SIGN of this.** The legs still hang below the hips,
+    # but the trunk's 3.635 kg now sits on a vertebral chain 49.8 mm above them
+    # instead of level with them, and it outweighs the 0.67 kg of leg. The whole
+    # body's CoM is **above** the hip axis for the first time. Everything that
+    # reads a CoM height -- omega, the DCM, every tipping margin -- moved with it.
+    assert c.z > 0.0
+    assert c.z == pytest.approx(0.0167, abs=5e-4)
 
 
 def test_arching_the_spine_moves_the_com_up_and_rearward():

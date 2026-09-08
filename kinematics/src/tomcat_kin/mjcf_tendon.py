@@ -985,9 +985,17 @@ def spine_chain_xml(sp, indent: int, legs_front: str, spool_front: str) -> str:
     so a bend carries them with it.
     """
     n = sp.n_segments
+    # ✅ **The vertebral column is DORSAL.** It ran along z = 0, the hip
+    # axis, which put it under the belly: the CAD had to neck the trunk down
+    # to the underside at every joint and the back notched 52.6 mm three
+    # times. The chain is lifted onto `spine_axis_z` and the front girdle
+    # steps back DOWN to hip height, so both girdles keep their own frames
+    # and only the spine moves.
+    z = sp.spine_axis_z
     pad = " " * (indent + 2 * n)
     chain = "\n".join([
-        f'{pad}<body name="front_girdle" pos="{sp.segment_lengths[-1]:.5f} 0 0">',
+        f'{pad}<body name="front_girdle" '
+        f'pos="{sp.segment_lengths[-1]:.5f} 0 {-z:.5f}">',
         _girdle_xml("front_girdle_g", sp.front_girdle_mass,
                     sp.front_girdle_com, sp.front_girdle_inertia, sp,
                     pad + "  "),
@@ -998,6 +1006,9 @@ def spine_chain_xml(sp, indent: int, legs_front: str, spool_front: str) -> str:
     for i in range(n - 1, -1, -1):
         pad = " " * (indent + 2 * i)
         pos = 0.0 if i == 0 else sp.segment_lengths[i - 1]
+        # only the FIRST segment steps up off the rear girdle; the rest are
+        # already on the raised line.
+        pz = z if i == 0 else 0.0
         ln, mass = sp.segment_lengths[i], sp.segment_mass[i]
         # ⚠️ The MIDDLE segment carries the 7-motor spine and tail bank plus the
         # battery in an 82 x 82 x 100 mm mid-body bay; the 60 x 60 mm cross
@@ -1014,7 +1025,7 @@ def spine_chain_xml(sp, indent: int, legs_front: str, spool_front: str) -> str:
             f'range="{getattr(sp, lo)[i]:.5f} {getattr(sp, hi)[i]:.5f}"/>\n'
             for ax, axis, lo, hi, _ in SPINE_AXES)
         chain = (
-            f'{pad}<body name="spine{i + 1}" pos="{pos:.5f} 0 0">\n'
+            f'{pad}<body name="spine{i + 1}" pos="{pos:.5f} 0 {pz:.5f}">\n'
             f'{joints}'
             f'{pad}  <inertial pos="{sp.segment_com_frac[i] * ln:.5f} 0 0" '
             f'mass="{mass:.5f}" {_inertia}/>\n'

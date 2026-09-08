@@ -7085,11 +7085,25 @@ than a number. It is a milestone of its own. **This one has a single cause.**
 
 ## ADR-0089: The girdle box could not hold its own motors, and three findings rested on it
 
-- **Status:** Accepted — M87
+- **Status:** Accepted — M87, **two conclusions reversed by
+  [ADR-0092](#adr-0092)**
 - **⚠️ NARROWS [ADR-0073](#adr-0073)'s landing alarm into a requirement on the
   spine loop, WITHDRAWS [ADR-0075](#adr-0075)'s compliance penalty and M29's
   NFR15 argument. ✅ Restores M17's LIPM guard
   that [ADR-0088](#adr-0088) had just inverted.**
+- **⚠️ CORRECTION (M92, [ADR-0092](#adr-0092)).** Two of those did not survive
+  the next correction to the same quantity:
+  - ~~M29's NFR15 argument is withdrawn~~ — **restored**. The 67 cm/s envelope
+    read 48.1 (M29), 47.5 (here), **48.440** (M92, once the vertebral chain moved
+    off the belly). The reasoning below is right — M29's margin was inside the
+    error — and the error was larger than this ADR knew. The margin is still
+    only 0.9 %.
+  - ~~ADR-0073's alarm requires a stiff spine loop~~ — **narrower still**. The
+    leg cable saturated at spine gain 0 and 50 here, clearing only at 300; on the
+    dorsal axis gain 50 gives 64.9 N against the 222.9 rating. The requirement is
+    only that the spine not be **limp**.
+  - What stands unchanged: the girdle box could not hold its own motors, and
+    ADR-0075's compliance penalty stays withdrawn.
 - **Context:** ADR-0088 measured the legs and left the girdles as the other half.
   They are **2.02 kg of a 4.30 kg robot** — 47 % of it — drawn as a
   60×60×56 mm box.
@@ -7286,6 +7300,90 @@ and the mass against the budget.
   (ADR-0089 was the coplanar collapse from 37,293 to 509 mm3). The lesson is the
   same one this project keeps paying for: *a number has to be asked what it
   measures*. Here it was asked of `intersect` and `+` themselves.
+
+---
+
+## ADR-0092: the vertebral column was running along the belly
+
+- **Status:** Accepted
+- **Date:** 2026-09-08 (M92)
+
+### Context
+
+`tomcat_trunk.report()` printed *"dorsal line flat at z = 79.8"*. It was
+printing `Z_DORSAL`, the parameter, not the shape. Measured, the back **notches
+52.6 mm at each of three joints** -- 42 % of the 126 mm chest depth -- because
+the spine joint axis sits at z = 0, the hip axis, and each neck has to blend the
+trunk section down to the underside of the body to reach it. The trunk was
+shaped to a requirement, a flat back over a tucked belly, that it never met.
+
+⚠️ This is the standing `[owed]` -- *"the spine axis is ventral, not dorsal, and
+moving it is a kinematics change"* -- arriving as a visible defect.
+
+### Options
+
+1. Keep the axis and hang the joints on pylons under a flat back. CAD-only, no
+   re-baselining -- and the joint ends up on a stalk, loaded in bending.
+2. Move the axis to where a cat's is, and re-baseline the dynamics.
+
+### Decision
+
+**Two.** `SpineParams.spine_axis_z = 0.0498 m`, and it is DERIVED, not chosen:
+in a cat the back you feel is the row of spinous process tips with skin over
+them, and the dorsal cable's moment arm is what sets how far a process stands
+off the axis. One moment arm below the dorsal line puts the tips exactly on it:
+
+    z = Z_DORSAL - joint_moment_arm = 79.8 - 30.0 = 49.8 mm
+
+Four places read that one parameter -- the CAD, `mjcf.py`, `mjcf_tendon.py` and
+`spine.py`'s analytic chain. The analytic model and MuJoCo agree to **0.0000 mm
+under bend**, which is the check that would have caught it had only one moved.
+
+### Consequences
+
+- ✅ **The back is flat where it must be.** The notch falls **52.6 -> 16.0 mm**
+  (42 % -> 13 % of chest depth) and every dorsal process tip lands on 79.8, so
+  the skin has something to lie on at each joint. The assembly is untouched:
+  cables 0.000 mm off their spools, 12 of 12 spools inside their bodies, four
+  feet on one plane.
+- ⚠️ **Raising the axis does NOT fix where the mass is.** Against the CAD's
+  measured trunk CoM of 21.1 mm the model reads **9.3 mm before and 31.4 after**
+  -- the sign flips, the magnitude does not. The cause is that the mass model
+  still describes the two-girdle architecture M88 replaced. `[owed]`
+- ✅ **NFR15 clears again, and ADR-0089's withdrawal is itself withdrawn.**
+  omega falls 7.5985 -> 7.2132, divergence slows, and the 67 cm/s envelope reads
+  **48.440 mm** against 47.510. ADR-0089's *reasoning* was right -- M29's margin
+  was inside the error -- and the error was bigger than it knew. ⚠️ The margin
+  is 0.9 % and has now crossed 48 in both directions on corrections to the same
+  quantity, so it is not settled; what is settled is that neither 48.1 nor 47.5
+  was ever evidence.
+- ⚠️ **The sagittal arch's fore-aft authority was an artefact.** Arching moved
+  the CoM 11.2 mm rearward on the belly-mounted spine and **0.7 mm forward** on
+  the dorsal one: the girdles hang below the chain, so a bend swings their mounts
+  forward and cancels the pull. The LIFT survives and grows, 42.1 -> 47.0 mm. The
+  arch is a vertical actuator. The lateral sway is untouched.
+- ⚠️ **ADR-0073's landing requirement shrank.** The leg cable used to saturate
+  at spine gain 0 AND 50, clearing only at the shipped 300 -- which is what
+  turned the alarm into a requirement for a stiff spine loop. Now gain 50 gives
+  **64.9 N** against the 222.9 rating. The requirement is only that the spine not
+  be LIMP.
+- ⚠️ **The righting got slower and the gap wider.** 2.28 -> 2.59 s, and the
+  precessing bend's roll rate **-52.7 -> -30.2 deg/s**: a factor of five short
+  became a factor of nine. The 25/15 deg command also became illegal, driving
+  the lateral joints to 17.6 deg against a +-15 ROM; 15/15 is both legal and
+  faster and characterises the plant now.
+- ⚠️ **The balance harness has no robust operating point, and seven tests are
+  marked rather than retuned.** The undisturbed baseline goes **1.92 -> 7.32 mm
+  mean, 8.25 -> 89.59 mm peak** -- an 89 mm excursion against a 30 mm
+  disturbance, which is the M17 failure `test_mjsim` exists to prevent. It is not
+  the stale apportionment: at the CAD-measured CoM height it still reads
+  5.60 / 55.17. And it is not a knob -- stiffness and damping sweeps give
+  ISLANDS (kp 130-155 passes, 120 and 160 do not; kv 8 passes, 6 and 12 do not).
+  Choosing kp = 140 would make all seven pass and would be the M35 mistake.
+  The balance loop is owed a design pass at the corrected CoM height. `[owed]`
+- ⚠️ **The quiet baseline was always bought by a CoM 11.8 mm too low.** That is
+  the uncomfortable part: `test_mjsim`'s gate, the thing every closed-loop result
+  in this project rests on, held because the trunk's mass was in the wrong place.
 
 ---
 

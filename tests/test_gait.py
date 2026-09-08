@@ -360,14 +360,31 @@ def test_stability_margin_agrees_between_hip_frame_and_world_frame_controllers()
     assert st.is_statically_stable == st.stability.is_stable
 
 
-def test_arching_the_spine_moves_the_gait_com_rearward():
-    # Spine coupling must show up in the CoM (and therefore in the margin).
+def test_arching_the_spine_LIFTS_the_com_but_no_longer_moves_it_rearward():
+    """⚠️ **M92: the sagittal arch's fore-aft authority was an artefact.**
+
+    This test asserted that arching moves the CoM REARWARD, and it did -- by
+    **11.2 mm** -- while the vertebral chain ran at z = 0, along the belly.
+    Raising it to `spine_axis_z`, where a cat's is, hangs both girdles BELOW the
+    chain, so a dorsiflexion swings their mounts (and the legs on them) FORWARD
+    by z sin(theta), which cancels the chain's rearward pull almost exactly:
+
+        ventral axis   dx -11.19 mm   dz +42.06 mm
+        dorsal axis    dx  +0.73 mm   dz +46.99 mm
+
+    ✅ The LIFT survives and grows. So the arch is a vertical actuator, not a
+    fore-aft one, and any plan that spent 11 mm of rearward CoM shift was
+    spending a number the belly-mounted spine invented. The lateral sway is
+    untouched -- it lives in the x-y plane and does not see this at all.
+    """
     flat = GaitController(params=GaitParams(spine_amplitude=0.0))
     arch = GaitController(params=GaitParams(spine_amplitude=math.radians(15.0)))
     p = 0.25   # sine peak => maximum dorsiflexion
     assert np.abs(arch.state(p).spine_q).max() > 0.0
-    assert arch.state(p).com.x < flat.state(p).com.x
-    assert arch.state(p).com.z > flat.state(p).com.z
+    dx = arch.state(p).com.x - flat.state(p).com.x
+    dz = arch.state(p).com.z - flat.state(p).com.z
+    assert abs(dx) < 0.002, "the arch moved the CoM %.1f mm fore-aft" % (1e3 * dx)
+    assert dz > 0.040
 
 
 def test_unsolvable_legs_still_conserve_mass_and_are_excluded_from_support():

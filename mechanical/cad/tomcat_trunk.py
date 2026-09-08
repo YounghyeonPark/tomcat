@@ -196,6 +196,12 @@ def _sections():
 #: narrower rides up.
 Z_DORSAL = Z0 + 40.5 * ASPECT
 
+#: ✅ **The spine axis, one moment arm below the back.** `SpineParams` owns it
+#: so the CAD and the MJCF cannot drift; the derivation is there. The tip of a
+#: dorsal process therefore lands ON the dorsal line, which is what a cat's back
+#: is made of.
+SPINE_Z = float(SP.spine_axis_z) * MM
+
 
 def _row_hw_at(x):
     """Half-width interpolated over the ROW sections only, ignoring the necks.
@@ -241,7 +247,7 @@ def _zc(x):
     form.
     """
     f = _pinch(x)
-    return (Z_DORSAL - _row_hw_at(x) * ASPECT) * (1.0 - f)
+    return (Z_DORSAL - _row_hw_at(x) * ASPECT) * (1.0 - f) + SPINE_Z * f
 
 
 def _ell(x, hw):
@@ -465,20 +471,21 @@ def yoke(jx: float, distal: bool):
         c = (0.0, s * off, 0.0) if distal else (0.0, 0.0, s * off)
         size = ((reach, YOKE_T, 2 * HUB_R) if distal
                 else (reach, 2 * HUB_R, YOKE_T))
-        arm = Pos(jx + sgn * reach / 2, c[1], c[2]) * Box(*size)
+        arm = Pos(jx + sgn * reach / 2, c[1], SPINE_Z + c[2]) * Box(*size)
         arms.append(arm)
     fork = arms[0] + arms[1]
     axis = (Rot(90, 0, 0) if distal else Rot(0, 0, 0))
-    return fork - (Pos(jx, 0, 0) * (axis * Cylinder(PIN_D / 2, 4 * off)))
+    return fork - (Pos(jx, 0, SPINE_Z) * (axis * Cylinder(PIN_D / 2, 4 * off)))
 
 
 def cross(jx: float):
     """The centre piece: a hub with two orthogonal pins."""
     off = HUB_R + YOKE_T / 2 + 0.4
-    hub = Pos(jx, 0, 0) * Box(2 * HUB_R, 2 * HUB_R, 2 * HUB_R)
-    pin_y = Pos(jx, 0, 0) * (Rot(90, 0, 0) * Cylinder(PIN_D / 2 - 0.05,
-                                                      2 * (off + YOKE_T)))
-    pin_z = Pos(jx, 0, 0) * Cylinder(PIN_D / 2 - 0.05, 2 * (off + YOKE_T))
+    hub = Pos(jx, 0, SPINE_Z) * Box(2 * HUB_R, 2 * HUB_R, 2 * HUB_R)
+    pin_y = Pos(jx, 0, SPINE_Z) * (Rot(90, 0, 0) * Cylinder(PIN_D / 2 - 0.05,
+                                                            2 * (off + YOKE_T)))
+    pin_z = Pos(jx, 0, SPINE_Z) * Cylinder(PIN_D / 2 - 0.05,
+                                           2 * (off + YOKE_T))
     return hub + pin_y + pin_z
 
 
@@ -495,10 +502,12 @@ def processes(jx: float, distal: bool):
     BITE = 4.0
     for (y, z) in ((0.0, DORSAL_ARM), (0.0, -DORSAL_ARM),
                    (LATERAL_ARM, 0.0), (-LATERAL_ARM, 0.0)):
-        stem = Pos(jx + sgn * (JOINT_GAP / 4 + BITE / 2), y * 0.5, z * 0.5) * Box(
+        stem = Pos(jx + sgn * (JOINT_GAP / 4 + BITE / 2), y * 0.5,
+                   SPINE_Z + z * 0.5) * Box(
             JOINT_GAP / 2 + BITE, max(2 * POST_R, abs(y)),
             max(2 * POST_R, abs(z)))
-        post = Pos(x, y, z) * (Rot(90, 0, 0) * Cylinder(POST_R, 2 * POST_R))
+        post = Pos(x, y, SPINE_Z + z) * (Rot(90, 0, 0)
+                                        * Cylinder(POST_R, 2 * POST_R))
         out += [stem, post]
     return out
 
@@ -571,7 +580,7 @@ def process_clearance(body: int):
             x = jx + sgn * (JOINT_GAP / 2 + POST_R)
             for (y, z) in ((0.0, DORSAL_ARM), (0.0, -DORSAL_ARM),
                            (LATERAL_ARM, 0.0), (-LATERAL_ARM, 0.0)):
-                out.append(Pos(x, y, z) * (Rot(90, 0, 0) * Cylinder(
+                out.append(Pos(x, y, SPINE_Z + z) * (Rot(90, 0, 0) * Cylinder(
                     POST_R + POST_CLEAR, 2 * POST_R + 2 * POST_CLEAR)))
     return out
 
@@ -676,21 +685,32 @@ def report():
     env = sum(math.pi * hw_at(x) * hw_at(x) * ASPECT for x in xs) * (hi - lo) / len(xs)
     # ⚠️ **This line used to print `Z_DORSAL` and call it the dorsal line.** It
     # was the parameter, not the shape, so it read "flat at 79.8" no matter what
-    # the trunk did -- and the trunk dips **34 mm at every joint**, because
-    # `_zc` blends the section CENTRE down to the spine axis at each neck and
-    # pulls the roof down with it. A flat back was the requirement. It is
-    # measured here now, and the notch is named.  `[owed]`
+    # the trunk did -- and the trunk notched **52.6 mm at every joint**, 42 % of
+    # the chest depth, because the spine axis was at z = 0 and each neck blended
+    # the section centre down to the belly to reach it.
+    #
+    # ✅ **What makes a cat's back flat is the spinous process, not the barrel.**
+    # The back you feel on an animal is the row of process tips with skin over
+    # them; the body itself necks in between, because that is how it bends. So
+    # the criterion is not "the barrel is flat" -- it never can be -- but **every
+    # joint's dorsal process must reach the dorsal line**. `SpineParams.
+    # spine_axis_z` is derived to make it so, and this is where that is checked.
     dorsal = [_zc(x) + hw_at(x) * ASPECT for x in xs]
     belly = [_zc(x) - hw_at(x) * ASPECT for x in xs]
+    tips = [SPINE_Z + DORSAL_ARM + POST_R for _ in JOINT_X]
     print()
-    if max(dorsal) - min(dorsal) < 1.0:
-        print("  dorsal line      flat at z = %.1f mm above the hip axis" % max(dorsal))
-    else:
-        print("  dorsal line      %.1f mm at the girdles, %.1f at the joint necks"
-              % (max(dorsal), min(dorsal)))
-        print("      *** the back is NOT flat: it notches %.1f mm at each of the "
-              "%d joints" % (max(dorsal) - min(dorsal), len(JOINT_X)))
+    print("  dorsal line      %.1f mm at the girdles, %.1f at the joint necks"
+          % (max(dorsal), min(dorsal)))
+    print("  process tips     %.1f mm -- the dorsal line is %.1f"
+          % (tips[0], Z_DORSAL))
+    if abs(tips[0] - POST_R - Z_DORSAL) > 0.5:
+        print("      *** a dorsal process does not reach the back: the skin "
+              "would have nothing to lie on at the joint")
         ok = False
+    undulation = max(dorsal) - min(dorsal)
+    print("  barrel undulates %.1f mm = %.0f %% of the %.1f mm chest depth"
+          % (undulation, 100 * undulation / (2 * _hw("fore_a") * ASPECT),
+             2 * _hw("fore_a") * ASPECT))
     print("  belly            %.1f mm at the chest -> %.1f at the waist  (tuck-up %.1f)"
           % (min(belly), max(belly), max(belly) - min(belly)))
     print("  motors           %d of 18" % n_mot)

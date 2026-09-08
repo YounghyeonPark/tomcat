@@ -97,12 +97,19 @@ def test_every_rigid_body_is_at_least_its_own_shell():
             % (b, whole / 1e3, shell / 1e3))
 
 
-def test_intersect_is_not_trustworthy_on_the_grazing_post():
-    """⚠️ Asserts the DEFECT, in the library rather than in this repo.
+def test_sampling_and_intersect_agree_on_the_ventral_post():
+    """⚠️ **The M91 pathology was REMOVED, not fixed, and that is worth saying.**
 
-    `intersect` reports the ventral post is entirely inside body 0's shell.
-    Point sampling says under a fifth of it is. The test pins the discrepancy so
-    that a future OCP that fixes it announces itself by failing here.
+    At the ventral spine axis the rear joint's ventral post grazed the 1.2 mm
+    lofted wall, and on that pair `intersect` answered the post's WHOLE volume
+    (169.6 mm3) where point sampling put 9 % of it in the wall -- while `+` on
+    the same pair returned an empty shape and annihilated the body. M92 raised
+    the axis to `spine_axis_z` and the post moved clear of the wall entirely, so
+    the pair no longer exists. Nothing about OCC changed.
+
+    ✅ So this pins the HAZARD rather than the instance: the two measurements
+    must agree. When they diverge the geometry is tangent again and `_fuse` is
+    the only thing between that and a silently destroyed rigid body.
     """
     shell = T.body_shell(0)
     post = T.joint_parts(0)[4]
@@ -125,10 +132,10 @@ def test_intersect_is_not_trustworthy_on_the_grazing_post():
             inside += 1
     sampled = pv * inside / n
 
-    assert claimed == pytest.approx(pv, rel=1e-6), (
-        "intersect no longer claims the whole post (%.1f of %.1f)" % (claimed, pv))
-    assert sampled < 0.2 * pv, (
-        "sampling now agrees with intersect: %.1f of %.1f mm3" % (sampled, pv))
+    assert abs(claimed - sampled) < 0.25 * pv, (
+        "intersect says %.1f mm3 of the post is in the wall, sampling says "
+        "%.1f -- the post is grazing the wall again and the boolean is lying"
+        % (claimed, sampled))
 
 
 def test_the_structure_mass_is_inside_the_budget_the_model_implies():

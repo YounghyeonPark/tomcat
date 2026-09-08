@@ -24,11 +24,19 @@ spine = SpineModel()
 
 # --------------------------------------------------------------------- FK sanity
 def test_zero_angles_straight_spine():
+    """⚠️ **M92 moved the vertebral chain off the hip axis.** It ran at z = 0,
+    the same height as the girdle mounts, which put the vertebral column along
+    the animal's BELLY -- the CAD had to neck the trunk down to reach it and the
+    back notched 52.6 mm at every joint. `vertebra_poses` returns the VERTEBRAL
+    line now, one `spine_axis_z` above the mounts, and `girdle_pose` steps back
+    down; `test_zero_angles_girdles_at_expected_offsets` is the invariant that
+    the girdles did not move.
+    """
     q = np.zeros(DEFAULT_SPINE.n_segments)
     poses = spine.vertebra_poses(q)
-    # All vertebrae on the +x axis, orientation 0.
-    assert np.allclose(poses[:, 1], 0.0)   # z
-    assert np.allclose(poses[:, 2], 0.0)   # theta
+    # All vertebrae on a line parallel to +x, at the spine axis, orientation 0.
+    assert np.allclose(poses[:, 1], DEFAULT_SPINE.spine_axis_z)   # z
+    assert np.allclose(poses[:, 2], 0.0)                          # theta
     # Vertebra x positions are the running sum of segment lengths.
     expected_x = np.concatenate([[0.0], np.cumsum(DEFAULT_SPINE.segment_lengths)])
     assert np.allclose(poses[:, 0], expected_x)
@@ -40,6 +48,10 @@ def test_zero_angles_girdles_at_expected_offsets():
     front = spine.girdle_pose(q, Girdle.FRONT)
     assert np.allclose(rear, [0.0, 0.0, 0.0])
     assert np.allclose(front, [DEFAULT_SPINE.total_length, 0.0, 0.0])
+    # ✅ **This is what must NOT move when the spine axis does.** Raising the
+    # chain to `spine_axis_z` changes where the girdles swing FROM, never where
+    # they sit on a straight spine -- the legs hang at hip height either way.
+    # It held at 0.0498 exactly as it held at 0.
 
 
 def test_segment_lengths_preserved():
@@ -52,8 +64,11 @@ def test_segment_lengths_preserved():
 def test_known_bend_matches_independent_fk():
     q = np.array([0.10, 0.20, -0.05])
     lengths = DEFAULT_SPINE.segment_lengths
-    ang, x, z = 0.0, 0.0, 0.0
-    expected = [(0.0, 0.0, 0.0)]
+    # the chain starts ON the spine axis, not at the girdle mount -- see
+    # test_zero_angles_straight_spine
+    z0 = DEFAULT_SPINE.spine_axis_z
+    ang, x, z = 0.0, 0.0, z0
+    expected = [(0.0, z0, 0.0)]
     for i in range(len(q)):
         ang += q[i]
         x += lengths[i] * math.cos(ang)

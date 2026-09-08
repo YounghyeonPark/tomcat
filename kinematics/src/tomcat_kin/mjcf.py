@@ -224,9 +224,12 @@ def build_mjcf(controller, leg_q: dict, height: float = 0.17,
 
     # --- spine chain, built innermost-out ------------------------------------
     n = sp.n_segments
+    # ✅ The vertebral column is DORSAL -- same lift as `mjcf_tendon`,
+    # from the same parameter, so the rigid and tendon models cannot drift.
+    z = sp.spine_axis_z
     depth = 6 + 2 * n
     chain = "\n".join([
-        f'{" " * depth}<body name="front_girdle" pos="{sp.segment_lengths[-1]} 0 0">',
+        f'{" " * depth}<body name="front_girdle" pos="{sp.segment_lengths[-1]} 0 {-z}">',
         _girdle_block("front_girdle_g", sp.front_girdle_mass,
                       sp.front_girdle_com, sp.front_girdle_inertia, sp,
                       depth + 2),
@@ -236,6 +239,7 @@ def build_mjcf(controller, leg_q: dict, height: float = 0.17,
     for i in range(n - 1, -1, -1):
         pad = " " * (6 + 2 * i)
         pos = 0.0 if i == 0 else sp.segment_lengths[i - 1]
+        pz = z if i == 0 else 0.0
         ln, m = sp.segment_lengths[i], sp.segment_mass[i]
         ix, iy, iz = _box_inertia(m, ln / 2, TRUNK_HALF_W, TRUNK_HALF_H)
         jnt = ""
@@ -243,7 +247,7 @@ def build_mjcf(controller, leg_q: dict, height: float = 0.17,
             jnt = (f'{pad}  <joint name="spine_y{i + 1}" type="hinge" axis="0 0 1" '
                    f'range="{sp.lateral_q_min[i]} {sp.lateral_q_max[i]}"/>\n')
         chain = (
-            f'{pad}<body name="spine{i + 1}" pos="{pos} 0 0">\n'
+            f'{pad}<body name="spine{i + 1}" pos="{pos} 0 {pz}">\n'
             f'{jnt}'
             f'{pad}  <inertial pos="{sp.segment_com_frac[i] * ln} 0 0" mass="{m}" '
             f'diaginertia="{ix:.9g} {iy:.9g} {iz:.9g}"/>\n'

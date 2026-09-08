@@ -492,6 +492,45 @@ class SpineParams:
     girdle_size: tuple[float, float, float] = (0.0820, 0.0865, 0.1082)
     girdle_offset_z: float = 0.0231
 
+    #: Height of the spine joint axis above the hip axis (m).
+    #:
+    #: ⚠️ **This was 0 -- the vertebral column ran along the belly.** Every
+    #: spine body sat at hip height, so each joint neck had to blend the trunk
+    #: section down to the underside of the body, and the back notched **52.6 mm
+    #: at each of three joints**, 42 % of the chest depth. The requirement the
+    #: trunk was shaped to is a flat back over a tucked belly, and it was never
+    #: met; `tomcat_trunk.report()` printed the parameter `Z_DORSAL` and called
+    #: it the dorsal line, so nothing said so.
+    #:
+    #: ✅ **The value is the spinous process, not a guess.** In a cat the back
+    #: you feel IS the row of spinous process tips, with skin over them. The
+    #: dorsal cable's moment arm is what sets how far a process stands off the
+    #: axis, so putting the axis one moment arm below the dorsal line makes the
+    #: tips land exactly on it:
+    #:
+    #:     z = Z_DORSAL - joint_moment_arm = 79.8 - 30.0 = 49.8 mm
+    #:
+    #: The barrel still necks at each joint -- it has to, to bend -- and the gap
+    #: between the process tips is what the skin spans. That is a cat.
+    #: `[derived: cad/tomcat_trunk.py Z_DORSAL, joint_moment_arm]`
+    spine_axis_z: float = 0.0498
+
+    #: ⚠️ **Raising the axis does NOT fix where the trunk's mass is.** It was
+    #: tempting to claim it did; measured, it is a wash:
+    #:
+    #:     CAD, structure + motors, 2729 g drawn   21.1 mm above the hip axis
+    #:     model, ventral axis (was)                9.3 mm   error -11.8
+    #:     model, dorsal axis (now)                31.4 mm   error +10.3
+    #:
+    #: The sign flips and the magnitude does not. The cause is not the axis: it
+    #: is that this mass model still describes the **two-girdle** architecture
+    #: M88 replaced. `segment_mass` is (130, 1354, 127) g -- one heavy middle
+    #: carrying "the 7-motor spine and tail bank" -- while the CAD distributes
+    #: 6/4/2/6 motors along the trunk and measures 582 g on the first middle
+    #: body and 304 g on the second. `mjcf_tendon` still hangs the spine spools
+    #: on the rear girdle as well. Re-apportioning is a milestone of its own and
+    #: it moves every balance result again.  `[owed]`
+
     # Girdle CoM offset (x, z) in the girdle's own frame (m). (0, 0) = the mass
     # acts exactly at the girdle mount vertebra.
     #

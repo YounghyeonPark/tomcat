@@ -124,6 +124,13 @@ class SpineModel:
                 f"spine q has shape {q.shape}; expected ({self.params.n_segments},)"
             )
         x0, z0, th0 = (float(v) for v in self.base_pose)
+        # ✅ **The vertebral chain runs DORSAL to the girdle frames.** It used
+        # to run through them, at hip height, which is where `mjcf_tendon` put it
+        # too -- along the belly. `base_pose` still names the rear girdle's mount;
+        # the chain starts one `spine_axis_z` above it and `girdle_pose` steps
+        # back down. At q = 0 nothing moves; under a BEND the girdles now swing
+        # about an axis 49.8 mm higher, which is what a cat does.
+        z0 = z0 + float(self.params.spine_axis_z)
         lengths = self.params.segment_lengths
 
         poses = [(x0, z0, th0)]
@@ -170,17 +177,28 @@ class SpineModel:
         """(N+1, 2) array of vertebra XY positions, base -> front."""
         return self.vertebra_poses(q)[:, :2]
 
+    def _to_girdle(self, pose) -> np.ndarray:
+        """Step from a VERTEBRA pose down to the girdle mount under it.
+
+        ⚠️ The offset is along the segment's own DOWN, not world down, so it
+        rotates with the bend. Subtracting `spine_axis_z` from z instead would
+        be right only at q = 0 -- and q = 0 is exactly where the two models were
+        compared, which is how a difference like this survives.
+        """
+        x, z, th = (float(v) for v in pose)
+        d = float(self.params.spine_axis_z)
+        return np.array([x + d * math.sin(th), z - d * math.cos(th), th])
+
     def girdle_pose(self, q, girdle: Girdle) -> np.ndarray:
         """World pose (x, z, theta) of a girdle mount frame."""
         poses = self.vertebra_poses(q)
-        if girdle is Girdle.REAR:
-            return poses[0]
-        return poses[-1]
+        return self._to_girdle(poses[0] if girdle is Girdle.REAR else poses[-1])
 
     def girdle_poses(self, q) -> dict[Girdle, np.ndarray]:
         """Both girdle mount poses as {Girdle: (x, z, theta)}."""
         poses = self.vertebra_poses(q)
-        return {Girdle.REAR: poses[0], Girdle.FRONT: poses[-1]}
+        return {Girdle.REAR: self._to_girdle(poses[0]),
+                Girdle.FRONT: self._to_girdle(poses[-1])}
 
     def hip_origin_world(
         self,
