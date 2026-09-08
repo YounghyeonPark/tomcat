@@ -517,14 +517,77 @@ def joint_parts(body: int):
     return out
 
 
+#: Cable clearance left around a process post, mm.
+POST_CLEAR = 1.5
+
+
+def _fuse(g, part, what):
+    """Union, with the one invariant a union cannot break: it cannot SHRINK.
+
+    ⚠️ **This is the check that was missing, and it cost a whole rigid body.**
+    Fusing the rear joint's ventral post into body 0 took it from **114,889 mm3
+    to 0.0 with zero solids** -- the barrel was annihilated -- and OCC raised
+    nothing. Later parts re-fused into one small solid, so `report()`'s
+    "all bodies are one part each" was TRUE of a body that no longer existed,
+    and the published structure mass was computed from the wreckage.
+
+    The trigger is a tangential boolean: the post is a 6 mm cylinder that grazes
+    a 1.2 mm lofted wall, entering it by 9 % of its volume. `intersect` on the
+    same pair is wrong in the other direction -- it answers 169.6 mm3, the WHOLE
+    post, where point sampling says ~15. Neither call fails; both just lie.
+
+    So the volume is checked after every fuse. A shrink is a defect, not a
+    tolerance, and it stops the build.
+    """
+    v0 = sum(s.volume for s in g.solids())
+    out = g + part
+    sol = out.solids()
+    v1 = sum(s.volume for s in sol)
+    if v1 < v0 - 1e-6:
+        raise RuntimeError(
+            "fusing %s DESTROYED volume: %.1f -> %.1f mm3, %d solids. "
+            "A union cannot shrink; the boolean failed silently."
+            % (what, v0, v1, len(sol)))
+    return out
+
+
+def process_clearance(body: int):
+    """The void a spine cable needs to get around each process post.
+
+    ✅ A post is a cable-wrap cylinder standing off the joint; the cable has to
+    pass BETWEEN it and the body, so the wall must be open there. Cutting that
+    clearance before the post is fused also removes the grazing contact that
+    `_fuse` catches -- the post then meets a void, not a tangent wall. The
+    clearance is a design requirement first and a boolean fix second.
+    """
+    x0, x1 = BODIES[body]
+    out = []
+    for jx in JOINT_X:
+        for distal in (False, True):
+            edge = x0 if distal else x1
+            if abs(jx - edge) >= JOINT_GAP:
+                continue
+            sgn = +1.0 if distal else -1.0
+            x = jx + sgn * (JOINT_GAP / 2 + POST_R)
+            for (y, z) in ((0.0, DORSAL_ARM), (0.0, -DORSAL_ARM),
+                           (LATERAL_ARM, 0.0), (-LATERAL_ARM, 0.0)):
+                out.append(Pos(x, y, z) * (Rot(90, 0, 0) * Cylinder(
+                    POST_R + POST_CLEAR, 2 * POST_R + 2 * POST_CLEAR)))
+    return out
+
+
 def rigid_body(body: int):
     g = body_shell(body)
-    for c in bulkheads(body):
-        g += c
-    for h in hip_bosses(body):
-        g += h
-    for j in joint_parts(body):
-        g += j
+    for i, c in enumerate(bulkheads(body)):
+        g = _fuse(g, c, "body %d bulkhead %d" % (body, i))
+    for i, h in enumerate(hip_bosses(body)):
+        g = _fuse(g, h, "body %d hip boss %d" % (body, i))
+    # ⚠️ cut the cable clearance BEFORE the posts go in, or the post arrives
+    # tangent to the wall and the fuse is the one that eats the body.
+    for v in process_clearance(body):
+        g = g - v
+    for i, j in enumerate(joint_parts(body)):
+        g = _fuse(g, j, "body %d joint part %d" % (body, i))
     return g
 
 
@@ -624,8 +687,23 @@ def report():
     print("  envelope         %.0f cm3" % (env / 1000.0))
     print("  motors solid     %.0f cm3 = %.1f %% of the envelope"
           % (n_mot * mot / 1000.0, 100 * n_mot * mot / env))
-    print("  structure        %.0f cm3 -> %.0f g nylon-CF"
-          % (total_v / 1000.0, total_v * 1.2e-3))
+    # ⚠️ **The budget lives here now, not in a sentence.** The trunk mass was
+    # quoted at "221 g against a 200 g budget" in prose; neither number was in
+    # the code. The 221 was measured off a body the boolean had annihilated --
+    # `_fuse` explains -- and the 200 was recalled, not derived. Both are printed
+    # from the model now, so neither can drift from it again.
+    allow = SP.trunk_mass * MM
+    motors_g = 18 * 131.7
+    budget = allow - motors_g - 240.0
+    struct = total_v * 1.2e-3
+    print("  structure        %.0f cm3 -> %.0f g nylon-CF" % (total_v / 1000.0, struct))
+    print("  budget           %.0f g  (%.0f g trunk - %.0f g motors - 240 g head/neck)"
+          % (budget, allow, motors_g))
+    print("  left for the un-drawn %.0f g  -- battery, electronics, cable, spine"
+          % (budget - struct))
+    if struct > budget:
+        print("      *** the printed structure alone is over the trunk budget")
+        ok = False
     print("  %s" % ("all bodies are one part each" if ok else "*** SEE ABOVE ***"))
     return ok
 
@@ -638,13 +716,16 @@ def render_png(g, path, elev=16, azim=-62):
 
     fig = plt.figure(figsize=(12, 6))
     ax = fig.add_subplot(111, projection="3d")
-    # ⚠️ **Some faces are valid and will not mesh.** Bodies 1 and 3 each carry a
-    # planar face of ~120-185 mm2 that OCC refuses to triangulate at any
-    # tolerance, though `is_valid` is True and `clean()` changes nothing. They
-    # come off the boolean where a flat stem meets the curved barrel. Rendering
-    # face by face and COUNTING the skips is honest; tessellating the whole body
-    # raised an AttributeError and drew nothing. The same faces will fail an STL
-    # export.  `[owed]`
+    # ⚠️ **A face is valid and will not mesh.** Body 3 carries one planar face
+    # that OCC refuses to triangulate at any tolerance, though `is_valid` is True
+    # and `clean()` changes nothing; it comes off the boolean where a flat stem
+    # meets the curved barrel. Rendering face by face and COUNTING the skips is
+    # honest; tessellating the whole body raised an AttributeError and drew
+    # nothing. The same face will fail an STL export.  `[owed]`
+    #
+    # It was **three** faces before M91. The other two were on body 0, which the
+    # tangential fuse had annihilated -- so two thirds of a standing `[owed]`
+    # was a symptom of a different defect, not a limit of the mesher. 1 of 656.
     skipped = 0
     for i, s in enumerate(g if isinstance(g, list) else [g]):
         for f in s.faces():

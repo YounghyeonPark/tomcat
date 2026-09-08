@@ -7213,6 +7213,82 @@ non-monotonicity directly, replacing a test that probed one moving corner.
   neck and `front_girdle_com` lumps it in the housing; putting it forward would
   raise the pitch inertia. `[owed]`
 
+## ADR-0091: a union that shrank, and the guard that now forbids it
+
+- **Status:** Accepted
+- **Date:** 2026-09-08 (M91)
+
+### Context
+
+The wiring fix passed every check the assembly had. Reading the volume table
+afterwards, the rear girdle -- `body 0`, 105 mm long, carrying six motors and
+both hind hips -- reported **2.9 cm3**. Its own shell alone is 47.0.
+
+Fusing the parts one at a time located it exactly:
+
+| step | volume mm3 | solids |
+|---|---|---|
+| shell + 4 bulkheads + 4 hip bosses | 110,803.9 | 1 |
+| + joint parts 0..3 | 114,889.3 | 1 |
+| **+ joint part 4** | **0.0** | **0** |
+| + joint parts 5..8 | 2,859.1 | 1 |
+
+Part 4 is the rear joint's ventral process post: a 6 mm cylinder grazing the
+1.2 mm lofted wall. OCC raised nothing. The later parts re-fused into exactly
+one small solid, so `report()`'s guard -- *"all bodies are one part each"* --
+was **true of a body that no longer existed**, and the trunk's published
+structure mass was computed from the wreckage.
+
+⚠️ `intersect` is wrong on the same pair in the OTHER direction: it answers
+**169.6 mm3, the post's whole volume**, where point sampling puts 9 % of it in
+the wall. Two calls, two wrong answers, no error from either.
+
+### Options
+
+1. Move the post clear of the wall -- but its position IS the spine cable's
+   moment arm, from `SpineParams`. Moving it changes the kinematics.
+2. Fuse in a different order, or with a tolerance. Both hide the failure rather
+   than detect it, and the next tangency finds it again.
+3. Remove the tangency, and check the invariant a union cannot break.
+
+### Decision
+
+**Three.** A union cannot shrink, so `_fuse` measures before and after and
+raises on a decrease -- not a warning, a stop. And the clearance a spine cable
+needs to pass between the post and the body is cut BEFORE the post is fused, so
+the post arrives in a void instead of tangent to a wall. That clearance is a
+design requirement first and a boolean fix second.
+
+`tests/test_trunk.py` holds five: the minimal reproduction on the shell alone,
+a stubbed boolean proving the guard actually raises, *every body is at least its
+own shell*, the `intersect` discrepancy pinned so a fixed OCP announces itself,
+and the mass against the budget.
+
+### Consequences
+
+- ✅ **The rear girdle exists again: 2.9 -> 117.0 cm3**, one solid, and no
+  fuse in the trunk shrinks.
+- ⚠️ **The structure mass was wrong, and so was the budget it was judged
+  against.** "221 g against a 200 g budget" was prose -- the 221 came off the
+  annihilated body and the 200 was recalled, not derived. Both are computed now:
+  **357 g against 1024 g** (`trunk_mass` 3635 - 2371 motors - 240 head/neck),
+  leaving **667 g** for the battery, electronics, cable and spine hardware that
+  are not drawn. The structure is comfortably inside; the earlier alarm was mine.
+- ⚠️ **The hind legs' clean interference result was checked, not assumed.**
+  `intersect` had just been caught lying, so leg-vs-trunk overlap was re-measured
+  by point sampling: fore 2-4 of 900 points, hind **0 of 600**. The 83.9 mm3 and
+  0.0 mm3 stand.
+- ✅ **Two thirds of a standing `[owed]` was the same defect.** The trunk
+  carried *"3 valid faces OCC will not mesh, which also breaks STL export"*.
+  Two of the three were on body 0. With the body restored it is **1 of 656**,
+  on body 3. The debt was smaller than it was written down as.
+- ⚠️ **A solid count is not a volume check**, and this is the second time
+  (ADR-0089 was the coplanar collapse from 37,293 to 509 mm3). The lesson is the
+  same one this project keeps paying for: *a number has to be asked what it
+  measures*. Here it was asked of `intersect` and `+` themselves.
+
+---
+
 ---
 
 ### How to add an ADR
