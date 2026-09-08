@@ -330,7 +330,7 @@ def anchor_fitting(centre, y: float = 0.0):
     return Compound([eye, stud])
 
 
-def tendon_drive(q, leg=DEFAULT_LEG):
+def tendon_drive(q, leg=DEFAULT_LEG, spools=None):
     """Every cable, spool and anchor for one leg — five runs, three motors.
 
     Each run gets its own lateral plane so antagonists cannot foul each other,
@@ -345,17 +345,24 @@ def tendon_drive(q, leg=DEFAULT_LEG):
             ("knee", +1, 9.2), ("knee", -1, 15.2),
             ("ankle", +1, 9.2)]
     for tendon, side, y in plan:
-        r = LT.route(q, tendon, side=side)
+        r = LT.route(q, tendon, side=side, spools=spools)
         routes[(tendon, side)] = r
         groups["tendon"].append(cable(r["points"], y=y))
-        st = LT.stations(q, tendon, side)
+        st = LT.stations(q, tendon, side, spools=spools)
         groups["anchor"].append(anchor_fitting(st[-1][0], y=y))
 
-    spool_c = LT.joints(q, leg)[0] + np.array(LT.SPOOL_OFFSET)
-    for k, dz in enumerate((0.0, 26.0, 52.0)):
-        groups["motor"].append(
-            motor_and_spool((spool_c[0] - dz * 0.35, spool_c[1] + dz),
-                            LT.SPOOL_R, y=9.2 + 3.0 * k))
+    # ✅ The motors are drawn where the cables actually end. Given `spools`
+    # they are the trunk's real centres; without them the old diagonal, so a
+    # standalone leg still renders and an assembled one is honest.
+    if spools:
+        seats = [(spools[t][0], spools[t][1], y)
+                 for t, y in (("hip", 9.2), ("knee", 12.2), ("ankle", 15.2))]
+    else:
+        c = LT.joints(q, leg)[0] + np.array(LT.SPOOL_OFFSET)
+        seats = [(c[0] - dz * 0.35, c[1] + dz, 9.2 + 3.0 * k)
+                 for k, dz in enumerate((0.0, 26.0, 52.0))]
+    for (sx, sz, sy) in seats:
+        groups["motor"].append(motor_and_spool((sx, sz), LT.SPOOL_R, y=sy))
     return {k: Compound(v) for k, v in groups.items()}, routes
 
 
@@ -365,7 +372,7 @@ def joint_offset(joint: str) -> float:
     return od / 2 + BOSS_WALL
 
 
-def build(leg=DEFAULT_LEG):
+def build(leg=DEFAULT_LEG, spools=None):
     """One hind leg in the stance pose, as manufacturable parts."""
     lm = LegModel(leg)
     q = lm.inverse((FOOT_X, FOOT_Z, FOOT_PITCH))
@@ -464,7 +471,7 @@ def build(leg=DEFAULT_LEG):
 
     # ⚠️ THE TENDON DRIVE. Without this the model is a linkage with pulleys
     # bolted to it, and P1 — the premise of the whole robot — is undrawn.
-    drive, routes = tendon_drive(q, leg)
+    drive, routes = tendon_drive(q, leg, spools=spools)
     for k, comp in drive.items():
         groups[k].extend(comp.solids())
     report["routes"] = {f"{t}{'+' if s > 0 else '-'}": r

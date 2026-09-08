@@ -34,6 +34,7 @@ if HERE not in sys.path:
     sys.path.insert(0, HERE)
 sys.path.insert(0, os.path.join(os.path.dirname(HERE), "..", "kinematics", "src"))
 
+import leg_tendons as LT                                         # noqa: E402
 import tomcat_leg_detail as LD                                   # noqa: E402
 import tomcat_trunk as TT                                        # noqa: E402
 from tomcat_kin.params import DEFAULT_FORELEG, DEFAULT_HINDLEG   # noqa: E402
@@ -59,7 +60,18 @@ def one_leg(fore: bool, side: float, pose=None):
     the limb plane at +TRACK_Y, so a right leg is the left one mirrored in y.
     """
     leg = DEFAULT_FORELEG if fore else DEFAULT_HINDLEG
-    comps, report, pts = LD.build(leg)
+    # ✅ **The cables go to the motors that exist.** `tomcat_leg_detail`
+    # defaults to `SPOOL_OFFSET`, a single 2-D diagonal from the hip that was
+    # only ever right for the upright two-bank girdle. Measured against the real
+    # centres those runs miss by **20 to 44 mm** -- the wires in the first
+    # assembly render pointed at empty space. The trunk owns the spools, so the
+    # trunk hands them over.
+    role = "fore" if fore else "hind"
+    sp3 = TT.leg_spools(role, side)
+    hx = HIP_X["front" if fore else "rear"]
+    spools = {t: (p3[0] - hx, p3[2])
+              for t, p3 in zip(("hip", "knee", "ankle"), sp3)}
+    comps, report, pts = LD.build(leg, spools=spools)
     parts = []
     for name, comp in comps.items():
         if name in DROP:
@@ -140,6 +152,40 @@ def report():
             ok = False
         print("  %-4s leg/trunk overlap %8.1f mm3%s" % (nm, v, flag))
 
+    # --- ⚠️ every cable must end ON a spool the trunk actually has
+    for i, (fore, side) in enumerate([(True, 1.0), (True, -1.0),
+                                      (False, 1.0), (False, -1.0)]):
+        nm = ["LF", "RF", "LR", "RR"][i]
+        role = "fore" if fore else "hind"
+        hx = HIP_X["front" if fore else "rear"]
+        sp3 = TT.leg_spools(role, side)
+        leg = DEFAULT_FORELEG if fore else DEFAULT_HINDLEG
+        q = LD.LegModel(leg).inverse((LD.FOOT_X, LD.FOOT_Z, LD.FOOT_PITCH))
+        spools = {t: (p3[0] - hx, p3[2])
+                  for t, p3 in zip(("hip", "knee", "ankle"), sp3)}
+        worst = 0.0
+        for t in ("hip", "knee", "ankle"):
+            st = LT.stations(q, t, +1, leg, spools=spools)
+            end = np.asarray(st[0][0], float)
+            worst = max(worst, float(np.hypot(*(end - np.array(spools[t])))))
+        print("  %-4s cable ends off its spool by %.3f mm" % (nm, worst))
+        if worst > 0.05:
+            print("      *** the run does not reach the motor")
+            ok = False
+
+    # --- ✅ every spool must be INSIDE the body that carries it
+    outside = 0
+    for role, body in (("hind", 0), ("fore", 3)):
+        o = TT._outer(body)
+        for sd in (+1.0, -1.0):
+            for sp in TT.leg_spools(role, sd):
+                if not o.is_inside(sp):
+                    outside += 1
+    print("  spools outside their body: %d of 12" % outside)
+    if outside:
+        print("      *** a motor is not in the housing it bolts to")
+        ok = False
+
     # --- feet on one plane
     zs = []
     for l in legs:
@@ -162,14 +208,24 @@ def render_png(path, elev=16, azim=-62):
     bodies, legs = assembly()
     fig = plt.figure(figsize=(13, 7))
     ax = fig.add_subplot(111, projection="3d")
+    # ⚠️ A few faces are valid and will not mesh -- see `tomcat_trunk.render_png`.
+    # Drawn face by face so one bad face costs one face, not the whole robot.
+    skipped = 0
     for col, group in (("#8a9bb0", bodies), ("#d7ac86", legs)):
         for s in group:
-            verts, tris = s.tessellate(0.4)
-            V = np.array([[v.X, v.Y, v.Z] for v in verts])
-            coll = Poly3DCollection(V[np.array(tris)], facecolor=col,
-                                    edgecolor="#3c4a5a", linewidth=0.06)
-            coll.set_zsort("average")
-            ax.add_collection3d(coll)
+            for f in s.faces():
+                try:
+                    verts, tris = f.tessellate(0.4)
+                except Exception:
+                    skipped += 1
+                    continue
+                V = np.array([[v.X, v.Y, v.Z] for v in verts])
+                coll = Poly3DCollection(V[np.array(tris)], facecolor=col,
+                                        edgecolor="#3c4a5a", linewidth=0.06)
+                coll.set_zsort("average")
+                ax.add_collection3d(coll)
+    if skipped:
+        print("  *** " + str(skipped) + " face(s) would not mesh")
     whole = Compound(bodies + legs)
     bb = whole.bounding_box()
     ax.set_xlim(bb.min.X - 5, bb.max.X + 5)

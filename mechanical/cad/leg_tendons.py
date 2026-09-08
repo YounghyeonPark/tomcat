@@ -56,6 +56,13 @@ VIA_R = 8.75
 ANCHOR_R = 1.6
 
 #: Spool position relative to the hip, in the pelvic girdle (P1: motors centralised).
+#:
+#: ⚠️ **A single 2-D offset was only ever right for one motor layout.** It puts
+#: all three spools on one diagonal line from the hip, which is what an upright
+#: two-bank girdle gave. M88 laid the motors fore-aft and distributed them, and
+#: measured against the real spool centres these routes miss by **20 to 44 mm**.
+#: `stations()` takes the true positions now; this stays as the default so the
+#: leg still builds standalone, and it is the fallback, not the truth.
 SPOOL_OFFSET = (-42.0, 34.0)
 
 ARMS = np.asarray(DEFAULT_TENDON.joint_moment_arm) * MM     # 28 / 25 / 14 mm
@@ -67,16 +74,24 @@ def joints(q, leg=DEFAULT_LEG):
     return LegModel(leg).joint_positions(np.asarray(q, float)) * MM
 
 
-def stations(q, tendon: str, side: int = +1, leg=DEFAULT_LEG):
+def stations(q, tendon: str, side: int = +1, leg=DEFAULT_LEG, spools=None):
     """Station list for one tendon run at joint angles `q`.
 
     `side` = +1 flexor, -1 extensor: the antagonist wraps its sheave the other
     way and anchors on the opposite side, which is what makes one motor drive
     both through the ADR-0008 variable-radius pulley.
+
+    `spools` is `{"hip": (x, z), "knee": ..., "ankle": ...}` in the same hip
+    frame -- the real spool centres, which the trunk owns. ✅ Passing them is
+    what connects the cable to a motor that exists; without it the run goes to
+    `SPOOL_OFFSET`, which is where the motors used to be.
     """
     p = joints(q, leg)
     hip, knee, ankle, paw = p[0], p[1], p[2], p[3]
-    spool = hip + np.array(SPOOL_OFFSET)
+    if spools and tendon in spools:
+        spool = np.asarray(spools[tendon], float)
+    else:
+        spool = hip + np.array(SPOOL_OFFSET)
     s = float(side)
 
     if tendon == "hip":
@@ -117,7 +132,8 @@ def _perp(v):
     return np.array([-v[1], v[0]]) / (n if n > 1e-9 else 1.0)
 
 
-def route(q, tendon: str, side: int = +1, leg=DEFAULT_LEG, senses=None):
+def route(q, tendon: str, side: int = +1, leg=DEFAULT_LEG, senses=None,
+          spools=None):
     """Route one tendon, choosing the VIA-pulley wrap senses for minimum wrap.
 
     ⚠️ **The senses are not free-for-all and they are not arbitrary either.** The
@@ -131,7 +147,7 @@ def route(q, tendon: str, side: int = +1, leg=DEFAULT_LEG, senses=None):
     Enumerating the free senses and taking the minimum total wrap is what a
     designer does by eye, and it is cheap: at most 2^3 combinations.
     """
-    st = stations(q, tendon, side, leg)
+    st = stations(q, tendon, side, leg, spools=spools)
     if senses is not None:
         st = [(c, r, sg) for (c, r, _), sg in zip(st, senses)]
         return tr.solve_path(st)

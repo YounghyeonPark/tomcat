@@ -70,9 +70,21 @@ Z0 = SP.girdle_offset_z * MM
 
 #: Solved symmetric layouts: (centres, outer half-width) for a row of N.
 #: `[derived: scratch solver, mirror-symmetric, minimal 1.40-aspect ellipse]`
+#: ⚠️ **A girdle row has to split left/right; a spine row does not.** The
+#: diamond is the tightest four (80.9 x 113.3) but two of its members sit on the
+#: centreline, so it cannot be dealt three-and-three to the two legs it drives.
+#: Girdle rows are mirrored PAIRS instead, which costs 8 % of section:
+#:
+#:     4 diamond          80.9 x 113.3   cannot split
+#:     4 mirrored pairs   87.6 x 122.7   splits 2 + 2
+#:     2 mirrored pair    81.0 x 113.4   splits 1 + 1
+#:     2 over-under       64.8 x  90.7   cannot split -- the waist keeps it
 ROWS = {
-    4: ([(0.0, 35.1), (-20.2, 0.0), (20.2, 0.0), (0.0, -35.1)], 40.5),
-    2: ([(0.0, 20.3), (0.0, -20.3)], 32.4),
+    "diamond4": ([(0.0, 35.1), (-20.2, 0.0), (20.2, 0.0), (0.0, -35.1)], 40.5),
+    "pairs4":   ([(-20.2, 20.2), (20.2, 20.2),
+                  (-20.2, -20.2), (20.2, -20.2)], 43.8),
+    "pair2":    ([(-20.2, 0.0), (20.2, 0.0)], 40.5),
+    "stack2":   ([(0.0, 20.3), (0.0, -20.3)], 32.4),
 }
 
 #: One row per rigid body, chest to tail. The **waist** is the two-motor row --
@@ -101,18 +113,32 @@ NECK_SPAN = 15.0
 #: ⚠️ Rows are CENTRED in their own rigid body. Measuring them from a joint
 #: instead put a 44.1 mm row into a 51 mm body starting 32 mm in, and it hung out
 #: the far end -- `report()` caught it, the render did not.
+#: ⚠️ **A leg's motors must be on the leg's OWN rigid body.** The first
+#: distribution allocated by VOLUME alone -- 4/4/2/8 -- and that is not a drive
+#: train: the hind legs need six motors and their girdle had four, while a leg
+#: cable spooled on any other body crosses a spine joint, so bending the spine
+#: would drive the leg. `report()` checks the roles now.
+#:
+#: 12 leg motors on the two girdle bodies, 6 spine motors beside the joints they
+#: drive: body 1 reaches joints 0 and 1, body 2 reaches joint 2.
 LAYOUT = [
-    # (name, body, x of the row centre, motors in the row)
-    ("front_girdle", 3, 1.00, 4),
-    ("spine3", 3, 0.00, 4),
-    ("spine2", 2, 0.50, 2),
-    ("spine1", 1, 0.50, 4),
-    ("rear_girdle", 0, 0.50, 4),
+    # (name, body, x fraction in that body, layout, role)
+    ("fore_a", 3, 1.00, "pairs4", "fore"),
+    ("fore_b", 3, 0.00, "pair2", "fore"),
+    ("spine_c", 2, 0.50, "stack2", "spine"),
+    ("spine_b", 1, 0.50, "diamond4", "spine"),
+    ("hind_a", 0, 1.00, "pairs4", "hind"),
+    ("hind_b", 0, 0.00, "pair2", "hind"),
 ]
 
 #: Rigid body extent along x. Each end retreats from its joint by half the gap.
+#: ⚠️ The rear girdle now carries TWO rows, so it reaches further behind the
+#: hip than a pelvis should. That is the cost of ADR-0006 rooting the spine
+#: chain at the hip station: everything driving the hind legs has to live behind
+#: x = 0. Moving the first joint forward -- the sacrum-into-the-pelvis fix
+#: already named in `yoke()` -- is what shortens it.  `[owed]`
 BODIES = {
-    0: (-(NECK_SPAN + ROW_L + 2 * _PAD), -JOINT_GAP / 2),
+    0: (-(NECK_SPAN + 2 * ROW_L + 4 * _PAD), -JOINT_GAP / 2),
     1: (JOINT_GAP / 2, 75.0 - JOINT_GAP / 2),
     2: (75.0 + JOINT_GAP / 2, 140.0 - JOINT_GAP / 2),
     3: (140.0 + JOINT_GAP / 2,
@@ -128,11 +154,11 @@ def _row_x(body, frac):
 
 def _rows():
     """(name, body, absolute x, motors) with the fractions resolved."""
-    return [(nm, b, _row_x(b, f), n) for (nm, b, f, n) in LAYOUT]
+    return [(nm, b, _row_x(b, f), n, r) for (nm, b, f, n, r) in LAYOUT]
 
 
 def _hw(name):
-    return ROWS[dict((n, k) for n, _b, _x, k in _rows())[name]][1] + WALL
+    return ROWS[dict((n, k) for n, _b, _x, k, _r in _rows())[name]][1] + WALL
 
 
 def _sections():
@@ -141,7 +167,7 @@ def _sections():
     ✅ A **neck** at every joint. Without it the barrels cannot reach the ROM,
     and with it the waist lands where a cat's waist is.
     """
-    pts = [(x, ROWS[n][1] + WALL) for (_nm, _b, x, n) in _rows()]
+    pts = [(x, ROWS[n][1] + WALL) for (_nm, _b, x, n, _r) in _rows()]
     pts.sort()
     lo, hi = BODIES[0][0], BODIES[3][1]
     pts = [(lo, pts[0][1] * 0.86)] + pts + [(hi, pts[-1][1] * 0.90)]
@@ -179,7 +205,7 @@ def _row_hw_at(x):
     centre, so the belly leapt 62 mm at the waist. The body's mid-line runs
     smoothly through a joint; only its RADIUS pinches.
     """
-    pts = [(x2, ROWS[n][1] + WALL) for (_nm, _b, x2, n) in _rows()]
+    pts = [(x2, ROWS[n][1] + WALL) for (_nm, _b, x2, n, _r) in _rows()]
     pts.sort()
     lo, hi = BODIES[0][0], BODIES[3][1]
     pts = [(lo, pts[0][1] * 0.86)] + pts + [(hi, pts[-1][1] * 0.90)]
@@ -245,7 +271,7 @@ def body_shell(body: int):
 def motors(body: int):
     """(x, y, z, r) of every motor bore assigned to this rigid body."""
     out = []
-    for (name, b, x, n) in _rows():
+    for (name, b, x, n, _r) in _rows():
         if b != body:
             continue
         for (y, z) in ROWS[n][0]:
@@ -272,7 +298,7 @@ def _bulkhead_x(body: int):
     """
     x0, x1 = BODIES[body]
     xs = []
-    for (_name, b, x, n) in _rows():
+    for (_name, b, x, n, _r) in _rows():
         if b != body:
             continue
         for sx in (-1.0, 1.0):
@@ -285,6 +311,35 @@ def _bulkhead_x(body: int):
             continue
         keep.append((xb, n))
     return keep
+
+
+#: Which girdle body drives which pair of legs.
+LEG_BODY = {"hind": 0, "fore": 3}
+
+
+def leg_spools(role: str, side: float):
+    """The three spool centres driving ONE leg, as (x, y, z), hip/knee/ankle.
+
+    ✅ This is what makes the drive train real rather than a volume argument.
+    A girdle row is a set of mirrored PAIRS, so the six motors on a girdle deal
+    three and three to the two legs it carries: `side > 0` takes the +y half.
+
+    Ordered by height, dorsal first. The hip needs the longest cable and the
+    largest arm (28 mm against the ankle's 14), so it takes the topmost spool
+    and the ankle the lowest -- which is also the order the runs cross the leg.
+    """
+    body = LEG_BODY[role]
+    out = []
+    for (_nm, b, x, layout, r) in _rows():
+        if b != body or r != role:
+            continue
+        for (y, z) in ROWS[layout][0]:
+            if y * side > 0.0:
+                out.append((x, y, _zc(x) + z))
+    if len(out) != 3:
+        raise ValueError("%s side %+.0f got %d spools, not 3"
+                         % (role, side, len(out)))
+    return sorted(out, key=lambda p: -p[2])
 
 
 def bulkheads(body: int):
@@ -303,7 +358,7 @@ def bulkheads(body: int):
     for (xb, n) in _bulkhead_x(body):
         slab = Pos(xb, 0, Z_DORSAL) * Box(BULKHEAD_T, 400, 400)
         cap = solid & slab
-        row = [r for (_nm, b, x, r) in _rows()
+        row = [r for (_nm, b, x, r, _ro) in _rows()
                if b == body and abs(x - xb) < ROW_L]
         for k in set(row):
             for (y, z) in ROWS[k][0]:
@@ -317,7 +372,7 @@ def bulkheads(body: int):
 def _unused_bulkheads(body: int):
     x0, x1 = BODIES[body]
     caps = []
-    for (name, b, x, n) in _rows():
+    for (name, b, x, n, _r) in _rows():
         if b != body:
             continue
         for sx in (-1.0, 1.0):
@@ -516,6 +571,33 @@ def report():
                       % (xi, yi, zi, xj, yj, zj))
                 ok = False
 
+    # ⚠️ **The drive-train check, which volume alone cannot make.** A leg's
+    # motors have to sit on the body that leg hangs from; anywhere else the cable
+    # crosses a spine joint, so bending the spine drives the leg. A spine motor
+    # has to be beside the joint it drives, for the same reason.
+    GIRDLE = {"hind": 0, "fore": 3}
+    per_role = {}
+    for (_nm, b, _x, n, role) in _rows():
+        per_role.setdefault(role, []).append((b, n))
+    for role, want_body in GIRDLE.items():
+        got = sum(len(ROWS[n][0]) for (b, n) in per_role.get(role, [])
+                  if b == want_body)
+        stray = sum(len(ROWS[n][0]) for (b, n) in per_role.get(role, [])
+                    if b != want_body)
+        note = "" if got >= 6 else "   *** needs 6, two legs x three"
+        print("  %-5s legs: %d motors on body %d%s" % (role, got, want_body, note))
+        if got < 6 or stray:
+            ok = False
+        if stray:
+            print("      *** %d on another body -- the cable would cross a "
+                  "spine joint" % stray)
+    n_spine = sum(len(ROWS[n][0]) for (_b, n) in per_role.get("spine", []))
+    print("  spine: %d motors on bodies %s"
+          % (n_spine, sorted(b for (b, _n) in per_role.get("spine", []))))
+    if n_spine != 6:
+        print("      *** ADR-0006 needs six, three joints x two DOF")
+        ok = False
+
     n_mot = sum(len(motors(b)) for b in BODIES)
     lo, hi = BODIES[0][0], BODIES[3][1]
     pts = _sections()
@@ -537,8 +619,8 @@ def report():
           % (min(belly), max(belly), max(belly) - min(belly)))
     print("  motors           %d of 18" % n_mot)
     print("  trunk length     %.0f mm   chest %.1f w x %.1f h   waist %.1f x %.1f"
-          % (hi - lo, 2 * _hw("front_girdle"), 2 * _hw("front_girdle") * ASPECT,
-             2 * _hw("spine2"), 2 * _hw("spine2") * ASPECT))
+          % (hi - lo, 2 * _hw("fore_a"), 2 * _hw("fore_a") * ASPECT,
+             2 * _hw("spine_c"), 2 * _hw("spine_c") * ASPECT))
     print("  envelope         %.0f cm3" % (env / 1000.0))
     print("  motors solid     %.0f cm3 = %.1f %% of the envelope"
           % (n_mot * mot / 1000.0, 100 * n_mot * mot / env))
@@ -556,14 +638,30 @@ def render_png(g, path, elev=16, azim=-62):
 
     fig = plt.figure(figsize=(12, 6))
     ax = fig.add_subplot(111, projection="3d")
+    # ⚠️ **Some faces are valid and will not mesh.** Bodies 1 and 3 each carry a
+    # planar face of ~120-185 mm2 that OCC refuses to triangulate at any
+    # tolerance, though `is_valid` is True and `clean()` changes nothing. They
+    # come off the boolean where a flat stem meets the curved barrel. Rendering
+    # face by face and COUNTING the skips is honest; tessellating the whole body
+    # raised an AttributeError and drew nothing. The same faces will fail an STL
+    # export.  `[owed]`
+    skipped = 0
     for i, s in enumerate(g if isinstance(g, list) else [g]):
-        verts, tris = s.tessellate(0.3)
-        V = np.array([[v.X, v.Y, v.Z] for v in verts])
-        coll = Poly3DCollection(V[np.array(tris)],
-                                facecolor=["#8a9bb0", "#9fb0c4"][i % 2],
-                                edgecolor="#3c4a5a", linewidth=0.08)
-        coll.set_zsort("average")
-        ax.add_collection3d(coll)
+        for f in s.faces():
+            try:
+                verts, tris = f.tessellate(0.3)
+            except Exception:
+                skipped += 1
+                continue
+            V = np.array([[v.X, v.Y, v.Z] for v in verts])
+            coll = Poly3DCollection(V[np.array(tris)],
+                                    facecolor=["#8a9bb0", "#9fb0c4"][i % 2],
+                                    edgecolor="#3c4a5a", linewidth=0.08)
+            coll.set_zsort("average")
+            ax.add_collection3d(coll)
+    if skipped:
+        print("  *** " + str(skipped)
+              + " face(s) would not mesh and are missing from the render")
     whole = Compound(g if isinstance(g, list) else [g])
     bb = whole.bounding_box()
     ax.set_xlim(bb.min.X - 5, bb.max.X + 5)
