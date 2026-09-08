@@ -674,10 +674,23 @@ def report():
         return pts[-1][1]
 
     env = sum(math.pi * hw_at(x) * hw_at(x) * ASPECT for x in xs) * (hi - lo) / len(xs)
-    dorsal = [Z_DORSAL for x in xs]
+    # ⚠️ **This line used to print `Z_DORSAL` and call it the dorsal line.** It
+    # was the parameter, not the shape, so it read "flat at 79.8" no matter what
+    # the trunk did -- and the trunk dips **34 mm at every joint**, because
+    # `_zc` blends the section CENTRE down to the spine axis at each neck and
+    # pulls the roof down with it. A flat back was the requirement. It is
+    # measured here now, and the notch is named.  `[owed]`
+    dorsal = [_zc(x) + hw_at(x) * ASPECT for x in xs]
     belly = [_zc(x) - hw_at(x) * ASPECT for x in xs]
     print()
-    print("  dorsal line      flat at z = %.1f mm above the hip axis" % Z_DORSAL)
+    if max(dorsal) - min(dorsal) < 1.0:
+        print("  dorsal line      flat at z = %.1f mm above the hip axis" % max(dorsal))
+    else:
+        print("  dorsal line      %.1f mm at the girdles, %.1f at the joint necks"
+              % (max(dorsal), min(dorsal)))
+        print("      *** the back is NOT flat: it notches %.1f mm at each of the "
+              "%d joints" % (max(dorsal) - min(dorsal), len(JOINT_X)))
+        ok = False
     print("  belly            %.1f mm at the chest -> %.1f at the waist  (tuck-up %.1f)"
           % (min(belly), max(belly), max(belly) - min(belly)))
     print("  motors           %d of 18" % n_mot)
@@ -726,8 +739,15 @@ def render_png(g, path, elev=16, azim=-62):
     # It was **three** faces before M91. The other two were on body 0, which the
     # tangential fuse had annihilated -- so two thirds of a standing `[owed]`
     # was a symptom of a different defect, not a limit of the mesher. 1 of 656.
+    # ⚠️ One collection PER FACE ran the process out of memory -- it died inside
+    # matplotlib's projection unable to allocate 750 KiB, having built thousands
+    # of artists, and the shell still reported exit 0 with no file written. The
+    # triangles are batched into one collection per colour now: same picture,
+    # two artists.
     skipped = 0
+    batch = {}
     for i, s in enumerate(g if isinstance(g, list) else [g]):
+        col = ["#8a9bb0", "#9fb0c4"][i % 2]
         for f in s.faces():
             try:
                 verts, tris = f.tessellate(0.3)
@@ -735,11 +755,12 @@ def render_png(g, path, elev=16, azim=-62):
                 skipped += 1
                 continue
             V = np.array([[v.X, v.Y, v.Z] for v in verts])
-            coll = Poly3DCollection(V[np.array(tris)],
-                                    facecolor=["#8a9bb0", "#9fb0c4"][i % 2],
-                                    edgecolor="#3c4a5a", linewidth=0.08)
-            coll.set_zsort("average")
-            ax.add_collection3d(coll)
+            batch.setdefault(col, []).append(V[np.array(tris)])
+    for col, tri in batch.items():
+        coll = Poly3DCollection(np.concatenate(tri), facecolor=col,
+                                edgecolor="#3c4a5a", linewidth=0.08)
+        coll.set_zsort("average")
+        ax.add_collection3d(coll)
     if skipped:
         print("  *** " + str(skipped)
               + " face(s) would not mesh and are missing from the render")

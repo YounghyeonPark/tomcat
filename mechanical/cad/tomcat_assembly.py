@@ -210,8 +210,12 @@ def render_png(path, elev=16, azim=-62):
     ax = fig.add_subplot(111, projection="3d")
     # ⚠️ A few faces are valid and will not mesh -- see `tomcat_trunk.render_png`.
     # Drawn face by face so one bad face costs one face, not the whole robot.
+    # ⚠️ Batched into one collection per colour. A collection per face built
+    # thousands of artists and the process died of memory exhaustion inside the
+    # 3-D projection -- while the shell reported exit 0 and wrote no file.
     skipped = 0
     for col, group in (("#8a9bb0", bodies), ("#d7ac86", legs)):
+        tri = []
         for s in group:
             for f in s.faces():
                 try:
@@ -220,10 +224,13 @@ def render_png(path, elev=16, azim=-62):
                     skipped += 1
                     continue
                 V = np.array([[v.X, v.Y, v.Z] for v in verts])
-                coll = Poly3DCollection(V[np.array(tris)], facecolor=col,
-                                        edgecolor="#3c4a5a", linewidth=0.06)
-                coll.set_zsort("average")
-                ax.add_collection3d(coll)
+                tri.append(V[np.array(tris)])
+        if not tri:
+            continue
+        coll = Poly3DCollection(np.concatenate(tri), facecolor=col,
+                                edgecolor="#3c4a5a", linewidth=0.06)
+        coll.set_zsort("average")
+        ax.add_collection3d(coll)
     if skipped:
         print("  *** " + str(skipped) + " face(s) would not mesh")
     whole = Compound(bodies + legs)
