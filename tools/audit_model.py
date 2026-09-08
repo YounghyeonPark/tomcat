@@ -23,6 +23,7 @@ ROOT = os.path.dirname(HERE)
 sys.path.insert(0, os.path.join(ROOT, "kinematics", "src"))
 
 from tomcat_kin import mjcf_tendon as MT          # noqa: E402
+from tomcat_kin.params import DEFAULT_SPINE      # noqa: E402
 
 YES, NO, PART = "  yes ", "  NO  ", " part "
 
@@ -65,7 +66,30 @@ def main():
     row(YES if m.nu == 18 else NO, "motors", f"{m.nu} (12 leg + 6 spine)")
     row(NO, "tail motor", "tomcat_packaging places 19; ADR-0071 withdrew G6")
     row(YES if m.neq == 18 else NO, "G3 drivetrain", f"{m.neq} winding equalities")
-    row(YES, "pulley transmission", "ADR-0008, all tendons <fixed>")
+    # ⚠️ This line used to READ "all tendons <fixed>" -- prose I wrote, not a
+    # measurement, and wrong: every one is <spatial>, so a spool's position is on
+    # the cable path. Computed now, like every other row in this file.
+    n_spatial = int((m.tendon_num > 0).sum())
+    row(YES, "pulley transmission",
+        "ADR-0008; %d of %d tendons are <spatial>, so spool placement is physical"
+        % (n_spatial, m.ntendon))
+
+    # ⚠️ The motors live in the girdles (P1) but their spools are drawn outside
+    # the housing -- computed against the shipped girdle box.
+    hx, hy, hz = (0.5 * v for v in DEFAULT_SPINE.girdle_size)
+    oz = DEFAULT_SPINE.girdle_offset_z
+    out = tot = 0
+    for i in range(m.nbody):
+        nm = mujoco.mj_id2name(m, mujoco.mjtObj.mjOBJ_BODY, i)
+        if not nm or not nm.startswith("rotor_"):
+            continue
+        tot += 1
+        q = m.body_pos[i]
+        if not (abs(q[0]) <= hx and abs(q[1]) <= hy and abs(q[2] - oz) <= hz):
+            out += 1
+    row(YES if out == 0 else NO, "spools sit inside the girdle",
+        "%d of %d rotors are outside the housing their motors live in"
+        % (out, tot))
 
     print("\nSENSING  (electronics/BOARD_OUTLINE.md)")
     s = {mujoco.mj_id2name(m, mujoco.mjtObj.mjOBJ_SENSOR, i)
