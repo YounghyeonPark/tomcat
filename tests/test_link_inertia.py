@@ -36,7 +36,13 @@ import tomcat_leg_detail as LD                                   # noqa: E402
 
 #: ADR-0087 corrected: the leg about the hip with **catalogue** bearing mass.
 #: Its published 1.244e-3 used `bearing()`'s fit envelope at steel density.
-I_YY_ABOUT_HIP = 1.1753e-3
+#:
+#: ⚠️ **M93 moved it again, and upward: 1.1753e-3 -> 1.3816e-3, +17.6 %.** The
+#: leg went 167 -> 186.7 g -- via pulleys that did not exist, shafts long enough
+#: to reach them, and tube stock sized to SF 2.5 at the real lateral offsets --
+#: and swing inertia is where that shows up. ADR-0088 measured the capsule plant
+#: carrying 45 % too MUCH swing inertia; this gives a third of that back.
+I_YY_ABOUT_HIP = 1.3816e-3
 
 
 @pytest.fixture(scope="module")
@@ -71,12 +77,22 @@ def test_sheave_mass_lands_on_the_distal_link(cad):
         m, c = MP_props(sd)
         got[LI.assign("sheave", c, joints, bones)] += m
 
-    want = {LI.JOINT_TO_LINK[jn]: sum(
-        s.volume for s in LD.sheave(d["arm"], bore=d["bearing"][0]).solids()
-    ) * LD.AL_RHO for jn, d in report["joints"].items()}
-    # ⚠️ The CAD draws FOUR sheaves for three joints: the fourth is the root
-    # idler, which `per_link_mass()` charges to the femur on its own line.
-    want["femur"] += sum(s.volume for s in LD.idler().solids()) * LD.AL_RHO
+    # ⚠️ **M93: the sheave group is no longer three discs plus an orphan.** It
+    # was `sheave(arm)` per joint plus the "root idler" -- a part 9.6 mm from the
+    # nearest cable that turned nothing and whose 2.9 g was charged to the femur
+    # anyway. The idler is gone; what the group holds now is one MULTI-GROOVE
+    # sheave per joint plus the VIA pulleys the routing always needed and never
+    # had. Built from the layout, so the expectation cannot drift from it.
+    want = {}
+    for jn, d in report["joints"].items():
+        link = LI.JOINT_TO_LINK[jn]
+        _, sh = LD.grooved(d["arm"], d["planes"], bore=d["bearing"][0])
+        want[link] = want.get(link, 0.0) + sum(
+            x.volume for x in sh.solids()) * LD.AL_RHO
+        if d.get("via"):
+            _, vp = LD.grooved(LD.VIA_R, d["via"]["planes"],
+                               bore=d["bearing"][0], lighten=False)
+            want[link] += sum(x.volume for x in vp.solids()) * LD.AL_RHO
 
     for link, w in want.items():
         assert got[link] == pytest.approx(w, rel=1e-9), (

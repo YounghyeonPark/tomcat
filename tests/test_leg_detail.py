@@ -65,18 +65,32 @@ def test_the_shipped_tube_sections_do_NOT_make_SF_2_at_the_live_loads(loads):
     ⚠️ Asserts the defect. Fails when the sections are re-specified.
     """
     land = loads["land"]
+    # ⚠️ The offsets were the literals 12.2 / 12.2 / 9.2 -- a layout that no
+    # longer exists. Read them from the leg that is built, the same way
+    # `size_tubes` now does, or this test grades a different robot.
+    lay = L.plane_layout({"hip": 6.4, "knee": 6.4, "ankle": 4.4},
+                         {j: L.BEARING[j][2] for j in ("hip", "knee", "ankle")})
     got = []
-    for i, (bone, e) in enumerate((("femur", 12.2), ("tibia", 12.2),
-                                   ("meta", 9.2))):
+    for i, (bone, e) in enumerate(
+            (("femur", lay["hip"]["sheave"][0]),
+             ("tibia", lay["knee"]["sheave"][0]),
+             ("meta", lay["ankle"]["sheave"][0]))):
         od, wall = L.TUBE[bone]
         Z = L.section_Z(od, wall)
         sig = land["tau"][i] * 1e3 / Z
         tau_s = land["T"][i] * e / (2 * Z)
         got.append(400.0 / math.sqrt(sig ** 2 + 3 * tau_s ** 2))
 
-    assert got[0] < 2.0, f"femur SF {got[0]:.2f} — spec claims 2.84"
-    assert got[2] < 2.0, f"metatarsus SF {got[2]:.2f} — spec claims 2.87"
-    assert all(g < 2.6 for g in got), "every link is below its published SF"
+    # ✅ **M93 SIZED THE TUBES, so this now asserts the fix.** §3.5's
+    # Ø12/Ø10/Ø8 gave 1.83 / 1.94 / 1.75 at the live loads and the lateral
+    # offsets the routing really produces -- the finding stood for four
+    # milestones. The leg is built to **Ø14 / Ø12 / Ø12** and clears SF 2.5 on
+    # every bone for the first time. The spec text is what is stale now.
+    assert all(g >= 2.5 for g in got), (
+        "SF %s -- if a bone drops under 2.5 the sizing has drifted from the "
+        "layout again" % [round(float(g), 2) for g in got])
+    assert got[0] == pytest.approx(2.62, abs=0.05)
+    assert got[2] == pytest.approx(3.03, abs=0.05)
 
 
 def test_one_step_up_in_stock_tube_restores_the_margin_cheaply():
@@ -85,7 +99,11 @@ def test_one_step_up_in_stock_tube_restores_the_margin_cheaply():
     Ø8→Ø10 recovers SF 2.78/3.16/3.11 for **under 4 g on the whole leg**.
     """
     picks = L.size_tubes(target_sf=2.5)
-    assert [p["od"] for p in picks] == [14.0, 12.0, 10.0]
+    # ⚠️ Ø10 was the answer at the OLD lateral offsets. The metatarsus cable
+    # now runs at 21.7 mm rather than 9.2 -- it has to pass outboard of two via
+    # pulleys -- so the sizer asks for Ø12 there. Read from the layout, not
+    # written down.
+    assert [p["od"] for p in picks] == [14.0, 12.0, 12.0]
     assert all(p["sf"] >= 2.5 for p in picks)
 
     def area(od, wall):
@@ -94,7 +112,7 @@ def test_one_step_up_in_stock_tube_restores_the_margin_cheaply():
     grown = sum(area(p["od"], p["wall"]) for p in picks)
     now = sum(area(*L.TUBE[b]) for b in ("femur", "tibia", "meta"))
     added = (grown - now) * 70.0 * L.CF_RHO          # ~70 mm mean tube run
-    assert added < 4.0, f"the fix should be nearly free, costs {added:.1f} g"
+    assert added < 7.0, f"the fix should stay cheap, costs {added:.1f} g"
 
 
 def test_the_moment_arms_cannot_be_REDUCED_the_motor_peak_binds():
@@ -138,8 +156,13 @@ def test_the_leg_does_not_close_at_its_mass_budget():
     # given, which is the pre-M41 110 g.
     budget = 110.0
 
+    # ⚠️ M93 rebuilt the drive train -- via pulleys that did not exist, shafts
+    # long enough to reach them, tubes sized to SF 2.5 -- and the leg went
+    # **167 -> 186.7 g**. The gap to `link_mass` is not an overrun any more, it
+    # is `params.py` being stale: M86 set `link_mass` FROM this measurement, and
+    # `body_mass_kg` is derived from it in turn.  `[owed]`
     assert total > budget, "if the leg now closes, re-read the ADR and the budget"
-    assert 140.0 < total < 185.0, f"leg hardware {total:.1f} g moved unexpectedly"
+    assert 175.0 < total < 200.0, f"leg hardware {total:.1f} g moved unexpectedly"
     heavy = mass["bearing"] + mass["sheave"] + mass["clevis"]
     assert heavy / total > 0.75, "the joint hardware is the overrun, not the bones"
 

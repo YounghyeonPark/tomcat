@@ -53,6 +53,10 @@ from build123d import (
     Box, Cylinder, Compound, Plane, Pos, Sphere, Torus, export_step, export_stl,
 )
 
+#: The via-pulley radius is set by the cable's minimum bend, the same rule as the
+#: spool -- `leg_tendons.VIA_R` owns it and the routing solves against it.
+VIA_R = 8.75
+
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", "kinematics", "src"))
 from tomcat_kin import LegModel  # noqa: E402
 from tomcat_kin.tendon import TendonMap  # noqa: E402
@@ -72,8 +76,20 @@ STEEL_RHO = 7.85e-3   # g/mm^3, bearing rings + shaft    [sourced]
 # ------------------------------------------------- specified section stock
 #: (OD, wall) per link, LEG_TENDON_SPEC §3.5 — graded thickest proximally so the
 #: safety factor equalises without putting mass on the distal links (P1).
-TUBE = {"femur": (12.0, 1.0), "tibia": (10.0, 1.0),
-        "meta": (8.0, 1.0), "paw": (8.0, 1.0)}
+TUBE = {
+    # ✅ **Sized to SF 2.5 at the LIVE loads and this layout's lateral
+    # offsets**, not to the stale 12.36 N.m table -- lightest stock that clears
+    # it. §3.5's Ø12/Ø10/Ø8 gave 1.83/1.94/1.75 at the offsets the routing
+    # actually produces, and the metatarsus takes an extra step because the
+    # ankle cable must run outboard of two vias.
+    "femur": (14.0, 1.0), "tibia": (12.0, 1.0), "meta": (12.0, 1.0),
+    # ✅ The paw keeps the SMALL section. Its spigot is drawn separately and
+    # sized from the metatarsus bore, so the stub itself has no reason to grow
+    # with it -- and it is the most distal mass in the leg, where NFR9 is
+    # measured. Matching it to the meta stock cost 3.4 g at the worst possible
+    # radius.
+    "paw": (8.0, 1.0),
+}
 
 #: (bore, OD, width). ASSEMBLY_SPEC §2 wants static C0 >= 1.5 kN at the loaded
 #: joints and only ~0.3 kN dynamic; the 626 class hits C0 easily at 6 mm bore,
@@ -176,7 +192,7 @@ def bonded_insert(tube_id: float, engage: float = ENGAGE, stub: float = 8.0,
 
 
 def sheave(pitch_r: float, width: float = SHEAVE_W, bore: float = 6.0,
-           web: float = WEB_T, lighten: bool = True):
+           web: float = WEB_T, lighten: bool = True, grooves=(0.0,)):
     """Turned, hard-anodised joint sheave. The cable pitch line sits at `pitch_r`.
 
     `pitch_r` IS the tendon moment arm — `checks()` asserts that against
@@ -193,9 +209,16 @@ def sheave(pitch_r: float, width: float = SHEAVE_W, bore: float = 6.0,
     r_out = pitch_r + GROOVE_R + FLANGE_H
     throat = CABLE_D * 1.15
     body = Cylinder(r_out, width)
-    cut = Torus(pitch_r, GROOVE_R) + (Cylinder(r_out + 1, throat)
-                                      - Cylinder(pitch_r, throat))
-    body = body - cut
+    # ⚠️ **One groove was not enough and nothing said so.** A joint carries an
+    # ANTAGONISTIC PAIR and a via carries every distal run that passes it, so a
+    # single torus at the mid-plane left every cable but one riding on a flange.
+    # `grooves` is the list of axial offsets, and there is one entry per run that
+    # actually touches this pulley.
+    for gz in grooves:
+        cut = (Pos(0, 0, gz) * Torus(pitch_r, GROOVE_R)
+               + Pos(0, 0, gz) * (Cylinder(r_out + 1, throat)
+                                  - Cylinder(pitch_r, throat)))
+        body = body - cut
     if lighten:
         rim_in = pitch_r - GROOVE_R - RIM_T
         hub_r = bore / 2 + HUB_T
@@ -248,9 +271,21 @@ def tongue(bearing_od: float, t: float, root_d: float = 10.0,
     return Compound([blade, web, root])
 
 
-def shaft(d: float, length: float):
-    """Ground shaft, h6 into the bearing bores (§2 — slip fit, serviceable)."""
-    return yaxis((0, 0, 0)) * Cylinder(d / 2, length)
+#: Wall of the ground shaft. ✅ **A shaft is a TUBE, not a bar.** The monotone
+#: routing stack makes every shaft reach its via, 32-35 mm rather than the 22 the
+#: joint alone needs, and solid steel over that length is 18.8 g of the leg. In
+#: bending a Ø6x1.5 tube keeps **94 %** of the solid section's second moment for
+#: **75 %** of its area, so the hole is nearly free.
+SHAFT_WALL = 1.5
+
+
+def shaft(d: float, length: float, wall: float = SHAFT_WALL):
+    """Ground shaft, h6 into the bearing bores (§2 - slip fit, serviceable)."""
+    bore = max(0.0, d - 2 * wall)
+    body = Cylinder(d / 2, length)
+    if bore > 0.5:
+        body = body - Cylinder(bore / 2, length + 2)
+    return yaxis((0, 0, 0)) * body
 
 
 #: Smallest legal redirect pulley: LEG_TENDON_SPEC §2's minimum sheave DIAMETER
@@ -261,6 +296,102 @@ def shaft(d: float, length: float):
 #: same rule that forced the spool from 8.0 to 8.75 mm in §2, and it is why the
 #: joint coupling in `leg_tendons.py` cannot be designed away.
 MIN_BEND_R = 10.0 * CABLE_D / 2.0
+
+#: ⚠️ **Axial planes the five cable runs live in, mm outboard of the limb plane.**
+#:
+#: Before M93 every run was drawn in one of two planes at `e +- 3.0`, which put
+#: each cable **on the FLANGE of the sheave it drives** -- the groove is a single
+#: torus at the sheave's mid-plane, so 22 % of every cable's sampled volume was
+#: inside sheave material. Three planes is the minimum that works:
+#:
+#:     A  hip flexor,   knee flexor
+#:     B  hip extensor, knee extensor
+#:     C  ankle
+#:
+#: A run may share a plane with another only where they never share a pulley:
+#: the hip pair wraps the hip SHEAVE at r = 28 while the knee/ankle runs wrap the
+#: hip VIA at r = 8.75, 19 mm further in, so A carries both without contact.
+#: `report()` measures that rather than trusting it.
+#: ✅ **The cable planes, and they are the leg's routing ARCHITECTURE.**
+#:
+#: ⚠️ Three facts force the layout, and each was found by measuring rather than
+#: assuming:
+#:
+#: 1. A via and its joint sheave are CONCENTRIC, so they cannot share axial
+#:    space. Placing the missing vias made them interpenetrate the sheaves by
+#:    **787.9 mm3** at the hip.
+#: 2. A run that has to cross from an inboard band to an outboard one cannot do
+#:    it inside the fleet a groove tolerates. A **2-groove band is 6.81 mm** and
+#:    2 deg over the longest bone allows **3.3 mm**. The first attempt measured
+#:    **5.86 deg** and put 9.6 % of every cable inside pulley material.
+#: 3. ADR-0008 drives an antagonistic pair with ONE continuous cable off one
+#:    motor, clamped to the sheave. So a joint needs **one groove per CABLE**,
+#:    not one per leg of the loop -- the two legs wrap opposite arcs of the same
+#:    groove, exactly as they do on the spool.
+#:
+#: Together those give a MONOTONE stack: one plane per cable, hip innermost and
+#: ankle outermost, so every run stays in its own plane the whole way and the
+#: fleet is **zero by construction**. At each joint the sheave carries that
+#: joint's cable and the via carries every cable further out, so the two bands
+#: are disjoint without needing to be checked.
+#:
+#: It costs the metatarsus a stock step -- its lateral offset goes 8.9 -> 21.7 mm
+#: because the ankle cable must pass outboard of two vias -- and that is
+#: **0.7 g of tube** against 5.86 deg of fleet. Priced, not assumed:
+#:
+#:     order              arms mm        fleet   tube stock      tubes
+#:     sheave in/via out  13.1/13.1/ 8.9  5.9 deg  14/12/10      14.3 g
+#:     hip-knee-ankle     11.9/16.8/21.7  0.0      14/12/12      15.0 g
+#:     ankle-knee-hip     21.7/16.8/11.9  0.0      16/12/10      15.2 g
+#:     knee-ankle-hip     21.7/11.9/16.8  0.0      16/12/12      15.9 g
+FLANGE_W = 1.2                    # groove flange each side of a pulley
+PLANE_PITCH = 2.4                 # cable throat 2.01 + 0.4 of groove wall
+BAND_GAP = 0.5                    # between two pulleys on one axis
+PLANE_ORDER = ("hip", "knee", "ankle")
+
+
+def plane_layout(gaps, widths, order=PLANE_ORDER):
+    """One groove plane per CABLE, monotone outward -- see `PLANE_ORDER`.
+
+    Returns `{joint: {"sheave": [...], "via": [...], "face": f}}` in mm from the
+    limb plane. The planes are GLOBAL: a run keeps one plane from its spool to
+    its anchor, which is what makes the fleet zero.
+    """
+    half = FLANGE_W + CABLE_D * 1.15 / 2
+    face = {j: gaps[j] / 2 + widths[j] for j in gaps}
+    cur = max(face.values()) + BAND_GAP
+    plane = {}
+    for nm in order:
+        plane[nm] = cur + half
+        cur += 2 * half + BAND_GAP
+    out = {}
+    for j in order:
+        k = order.index(j)
+        out[j] = {"sheave": [plane[j]],
+                  "via": [plane[n] for n in order[k + 1:]],
+                  "face": face[j], "plane": plane}
+    return out
+
+
+def grooved(pitch_r: float, planes, bore: float = 6.0, flange: float = 1.2,
+            lighten: bool = True):
+    """A pulley with a groove in EACH of `planes` (mm from the limb plane).
+
+    ⚠️ **The via-pulleys did not exist.** `leg_tendons` routes the knee and ankle
+    cables around a pulley concentric with the hip axis -- that is what decouples
+    a distal tendon from proximal motion, and the module measures the residual
+    coupling it leaves. Nothing placed such a part, so **48 cable segments per
+    leg wrapped r = 8.75 mm of empty space**, and the only solid there was the
+    joint bearing (r = 9.5), which the cable therefore passed through.
+
+    Returns the pulley placed about the joint centre, already offset in y.
+    """
+    lo, hi = min(planes) - flange - CABLE_D * 1.15 / 2,         max(planes) + flange + CABLE_D * 1.15 / 2
+    width = hi - lo
+    mid = 0.5 * (lo + hi)
+    g = sheave(pitch_r, width=width, bore=bore, lighten=lighten,
+               grooves=[pl - mid for pl in planes])
+    return mid, g
 
 
 def idler(pitch_r: float = MIN_BEND_R, width: float = 4.5):
@@ -288,24 +419,54 @@ def return_spring(length: float = 26.0, coil_r: float = 3.2):
 
 
 # ------------------------------------------------------------------- assembly
-def cable(points, d: float = CABLE_D, y: float = 0.0):
+def cable(points, d: float = CABLE_D, y=0.0):
     """A cable run as a swept solid: cylinders along the polyline, balls at the
     knuckles. `leg_tendons.route` already densifies the pulley arcs, so this
-    follows the real path rather than cutting the corners."""
+    follows the real path rather than cutting the corners.
+
+    ⚠️ `y` may be a SEQUENCE, one per point. A run does not stay in one plane:
+    it sits in its joint sheave's groove and in the outboard via groove of every
+    proximal joint it passes, and those are 7 mm apart. Drawing it flat put the
+    cable in the wrong groove at one end of every distal run.
+    """
     parts = []
     P = np.asarray(points, float)
-    for a, b in zip(P[:-1], P[1:]):
-        v = b - a
-        L = float(np.linalg.norm(v))
+    Y = np.full(len(P), float(y)) if np.isscalar(y) else np.asarray(y, float)
+    for i, (a, b) in enumerate(zip(P[:-1], P[1:])):
+        v3 = np.array([b[0] - a[0], Y[i + 1] - Y[i], b[1] - a[1]])
+        L = float(np.linalg.norm(v3))
         if L < 1e-6:
             continue
-        mid = (a + b) / 2.0
-        parts.append(Plane(origin=(mid[0], y, mid[1]),
-                           z_dir=(v[0], 0.0, v[1])).location
+        mid = ((a[0] + b[0]) / 2.0, (Y[i] + Y[i + 1]) / 2.0, (a[1] + b[1]) / 2.0)
+        parts.append(Plane(origin=mid, z_dir=tuple(v3)).location
                      * Cylinder(d / 2, L))
-    for p in P[1:-1]:
-        parts.append(Pos(p[0], y, p[1]) * Sphere(d / 2))
+    for i, pt in enumerate(P[1:-1], start=1):
+        parts.append(Pos(pt[0], Y[i], pt[1]) * Sphere(d / 2))
     return Compound(parts)
+
+
+def fleet_profile(points, stations, planes):
+    """y for every polyline point: each pulley's groove, ramped in between.
+
+    Returns `(y_per_point, worst_fleet_deg)`. A groove holds a cable up to about
+    1.5-2 deg of fleet; beyond that it climbs the flange.
+    """
+    P = np.asarray(points, float)
+    # ⚠️ Interpolating over polyline INDEX put the whole plane change inside the
+    # densely-sampled wrap arcs and read 48 deg of fleet where there is none.
+    # The ramp belongs to the free spans, so it is parameterised by ARC LENGTH.
+    seg = np.r_[0.0, np.cumsum(np.linalg.norm(np.diff(P, axis=0), axis=1))]
+    at = []
+    for (c, _r, _s) in stations:
+        d = np.linalg.norm(P - np.asarray(c, float), axis=1)
+        at.append(seg[int(np.argmin(d))])
+    Y = np.interp(seg, at, planes)
+    worst = 0.0
+    for i in range(len(P) - 1):
+        L = float(np.linalg.norm(P[i + 1] - P[i]))
+        if L > 1.0:
+            worst = max(worst, math.degrees(math.atan2(abs(Y[i + 1] - Y[i]), L)))
+    return Y, worst
 
 
 def motor_and_spool(centre, spool_r: float, y: float = 0.0):
@@ -330,37 +491,48 @@ def anchor_fitting(centre, y: float = 0.0):
     return Compound([eye, stud])
 
 
-def tendon_drive(q, leg=DEFAULT_LEG, spools=None):
-    """Every cable, spool and anchor for one leg — five runs, three motors.
+def tendon_drive(q, leg=DEFAULT_LEG, spools=None, lay=None):
+    """Every cable, spool and anchor for one leg -- five runs, three motors.
 
-    Each run gets its own lateral plane so antagonists cannot foul each other,
-    stacked outboard of the sheave they act on.
+    ⚠️ Every run used to be drawn in ONE plane, 9.2 or 15.2 mm out -- the two
+    FLANGES of a 6 mm sheave whose only groove is at its mid-plane, so no
+    cable was in the groove it drives. A run now names, for EVERY pulley it
+    touches, the groove it sits in, and the cable ramps between them.
     """
     import leg_tendons as LT
 
     groups = {"tendon": [], "motor": [], "anchor": []}
     routes = {}
-    #  (tendon, side, y-plane)
-    plan = [("hip", +1, 9.2), ("hip", -1, 15.2),
-            ("knee", +1, 9.2), ("knee", -1, 15.2),
-            ("ankle", +1, 9.2)]
-    for tendon, side, y in plan:
+    if lay is None:
+        lay = plane_layout({"hip": 6.4, "knee": 6.4, "ankle": 4.4},
+                           {j: BEARING[j][2] for j in ("hip", "knee", "ankle")})
+    #   ✅ one plane per CABLE, and both legs of an antagonistic loop share it.
+    #   The stack is monotone (see `plane_layout`), so a run never has to cross a
+    #   band and the fleet is zero by construction rather than by tolerance.
+    plane = lay["hip"]["plane"]
+    fleet = {}
+    for tendon, side in (("hip", +1), ("hip", -1), ("knee", +1),
+                         ("knee", -1), ("ankle", +1)):
+        y = plane[tendon]
         r = LT.route(q, tendon, side=side, spools=spools)
         routes[(tendon, side)] = r
-        groups["tendon"].append(cable(r["points"], y=y))
         st = LT.stations(q, tendon, side, spools=spools)
+        _, worst = fleet_profile(r["points"], st[:-1], [y] * len(st[:-1]))
+        fleet["%s%+d" % (tendon, side)] = worst
+        groups["tendon"].append(cable(r["points"], y=y))
         groups["anchor"].append(anchor_fitting(st[-1][0], y=y))
+    routes["fleet"] = fleet
 
     # ✅ The motors are drawn where the cables actually end. Given `spools`
     # they are the trunk's real centres; without them the old diagonal, so a
     # standalone leg still renders and an assembled one is honest.
     if spools:
-        seats = [(spools[t][0], spools[t][1], y)
-                 for t, y in (("hip", 9.2), ("knee", 12.2), ("ankle", 15.2))]
+        seats = [(spools[t][0], spools[t][1], plane[t])
+                 for t in ("hip", "knee", "ankle")]
     else:
         c = LT.joints(q, leg)[0] + np.array(LT.SPOOL_OFFSET)
-        seats = [(c[0] - dz * 0.35, c[1] + dz, 9.2 + 3.0 * k)
-                 for k, dz in enumerate((0.0, 26.0, 52.0))]
+        seats = [(c[0] - dz * 0.35, c[1] + dz, plane[t])
+                 for t, dz in zip(("hip", "knee", "ankle"), (0.0, 26.0, 52.0))]
     for (sx, sz, sy) in seats:
         groups["motor"].append(motor_and_spool((sx, sz), LT.SPOOL_R, y=sy))
     return {k: Compound(v) for k, v in groups.items()}, routes
@@ -379,10 +551,12 @@ def build(leg=DEFAULT_LEG, spools=None):
     pts = lm.joint_positions(q) * MM          # hip, knee, ankle, paw-base, paw-tip
 
     arms = np.asarray(DEFAULT_TENDON.joint_moment_arm) * MM
+    LAY = plane_layout({"hip": 6.4, "knee": 6.4, "ankle": 4.4},
+                       {j: BEARING[j][2] for j in ("hip", "knee", "ankle")})
     groups: dict[str, list] = {k: [] for k in
                                ("tube", "insert", "clevis", "sheave",
-                                "bearing", "cable", "pad", "tendon", "motor",
-                                "anchor")}
+                                "bearing", "shaft", "cable", "pad", "tendon",
+                                "motor", "anchor")}
     report: dict[str, dict] = {}
 
     # ⚠️ Four links, not three. The first pass stopped at the metatarsus and left
@@ -415,9 +589,33 @@ def build(leg=DEFAULT_LEG, spools=None):
             # tube at all: modelled as a solid turned/printed stub. That is what
             # the geometry forces, not what ASSEMBLY_SPEC §1 specified.
             report[bone]["solid_stub"] = True
+            # ⚠️ **The paw was not attached to the leg.** Its stub started AT
+            # the paw base while the metatarsus tube stopped `joint_offset` short
+            # of it, leaving a **5.04 mm gap** -- foot and pad, 5444 mm3, a
+            # separate rigid body. There is no joint at that station: the paw is
+            # a passive link BONDED into the metatarsus, and the stub's OD (6.00)
+            # already equals the meta tube's ID (6.00), so the fit was designed
+            # and simply never drawn. The stub reaches back through the gap and
+            # engages the tube.
             groups["insert"].append(
                 Plane(origin=tuple(p0), z_dir=tuple((p1 - p0) / span)).location
                 * (Pos(0, 0, span / 2) * Cylinder(od / 2 - 1.0, span)))
+            # ⚠️ **and the SPIGOT runs along the PREVIOUS bone, not this one.**
+            # A first attempt extended the stub backwards along its own axis and
+            # the foot stayed loose: `paw_angle` sets the paw 55 deg to the
+            # metatarsus, so a straight extension leaves the tube instead of
+            # entering it. The spigot is a separate feature on the same part,
+            # coaxial with the bone it bonds into.
+            prev = seq[i - 1][0]
+            q0 = np.array([pts[i - 1][0], 0.0, pts[i - 1][1]])
+            u = (p0 - q0) / np.linalg.norm(p0 - q0)
+            back = joint_offset(JN[j_prox]) + MIN_ENGAGE
+            report[bone]["engage"] = MIN_ENGAGE
+            report[bone]["spigot"] = back
+            groups["insert"].append(
+                Plane(origin=tuple(p0 - u * back), z_dir=tuple(u)).location
+                * (Pos(0, 0, back / 2)
+                   * Cylinder((report[prev]["tube_id"] - BOND_GAP) / 2, back)))
             continue
         groups["tube"].append(loc * (Pos(0, 0, cut / 2) * cf_tube(od, wall, cut)))
         # ⚠️ ENGAGE is clamped to what the tube can actually hold: two 15 mm
@@ -447,40 +645,171 @@ def build(leg=DEFAULT_LEG, spools=None):
             groups["bearing"].append(
                 Pos(c[0], s * (gap / 2 + b_w / 2), c[2])
                 * (yaxis((0, 0, 0)) * bearing(b_bore, b_od, b_w)))
-        groups["bearing"].append(Pos(*c) * shaft(b_bore, gap + 2 * b_w + 4))
+        # ⚠️ **The shaft has to reach whatever is on it.** It was
+        # `gap + 2*b_w + 4` about the joint centre -- +-11.2 mm at the hip --
+        # while the via pulley this pass added sits at y 17..28. The via was
+        # floating: 2150.7 mm3 of aluminium touching nothing, which is the same
+        # defect as the cable wrapping a pulley that did not exist, one level up.
+        # ⚠️ The shaft has to reach the OUTERMOST thing on it, sheave or via.
+        # Sizing it from the via alone left the ANKLE sheave floating: the ankle
+        # has no via, and the planes are global, so its sheave sits 13.3 mm
+        # outboard of a clevis the shaft stopped 8.2 mm short of.
+        _outer = LAY[jname]["via"] + LAY[jname]["sheave"]
+        _reach = max(_outer) + FLANGE_W + CABLE_D * 1.15 / 2
+        _in = -(gap / 2 + b_w + 2.0)
+        groups["shaft"].append(Pos(c[0], (_reach + _in) / 2, c[2])
+                               * shaft(b_bore, _reach - _in))
 
         # the sheave sits OUTBOARD of the clevis: a full disc in the bone plane
         # would sweep the proximal link. That lateral offset is what §0.1 prices.
-        e = gap / 2 + b_w + SHEAVE_W / 2
-        groups["sheave"].append(
-            Pos(c[0], e, c[2]) * (yaxis((0, 0, 0)) * sheave(arms[arm_i], bore=b_bore)))
+        #
+        # ⚠️ **One groove, at the sheave's mid-plane, for an ANTAGONISTIC PAIR.**
+        # The two runs were drawn at `e +- 3.0` -- the two FLANGES -- so neither
+        # cable was in the groove it drives. A joint sheave gets one groove per
+        # cable that touches it.
+        planes = LAY[jname]["sheave"]
+        mid, sh = grooved(arms[arm_i], planes, bore=b_bore)
+        groups["sheave"].append(Pos(c[0], mid, c[2]) * (yaxis((0, 0, 0)) * sh))
         report.setdefault("joints", {})[jname] = {
             "arm": arms[arm_i], "bearing": (b_bore, b_od, b_w),
-            "lateral_offset": e, "gap": gap}
+            "lateral_offset": mid, "gap": gap, "planes": planes,
+            "clevis_face": LAY[jname]["face"]}
 
-    # root idler — §0.1's design rule, at the hip, turning the cable into plane
-    hip = np.array([pts[0][0], 0.0, pts[0][1]])
-    groups["sheave"].append(Pos(hip[0] - 18.0, 14.0, hip[2] + 6.0)
-                            * (yaxis((0, 0, 0)) * idler()))
+        # ⚠️ **The via-pulley, which had no part at all.** `leg_tendons`
+        # wraps every DISTAL run around a pulley concentric with this joint
+        # at `VIA_R` -- that is what keeps a distal tendon from being driven
+        # by proximal motion. 48 segments per leg rode on nothing, and the
+        # only solid at that radius was this joint's own bearing, which the
+        # cable therefore passed through.
+        #
+        # ⚠️ It stacks OUTBOARD of the sheave. Concentric parts cannot share
+        # axial space -- placing it inboard interpenetrated the sheave by
+        # 787.9 mm3 at the hip, and putting the via first costs the femur
+        # SF 1.83 -> 1.61 because the joint pair loses the short arm.
+        via = LAY[jname]["via"]
+        if via:
+            vmid, vp = grooved(VIA_R, via, bore=b_bore, lighten=False)
+            groups["sheave"].append(Pos(c[0], vmid, c[2])
+                                    * (yaxis((0, 0, 0)) * vp))
+            # ⚠️ **A via IDLES.** It is concentric with the joint but must not
+            # turn with the distal link, so it rides its own bearing on the
+            # shaft rather than being pressed to it. Without this the part had
+            # no load path at all.
+            _vw = max(via) - min(via) + 2 * FLANGE_W + CABLE_D * 1.15
+            groups["bearing"].append(
+                Pos(c[0], vmid, c[2])
+                * (yaxis((0, 0, 0)) * bearing(b_bore, b_bore + 7.0,
+                                              min(_vw - 1.0, 6.0))))
+            report["joints"][jname]["via"] = {"r": VIA_R, "planes": via,
+                                              "mid": vmid}
+
+    # ⚠️ **The "root idler" was an orphan and is gone.** §0.1's rule is that the
+    # cable must be turned into the bone's sagittal plane; this part was placed
+    # at (-18, 62, 6) and the nearest cable segment centre was **9.6 mm away**,
+    # so it turned nothing. Its 2.9 g was still being charged to the femur by
+    # `per_link_mass`. The hip VIA above does §0.1's job and is on the cable.
 
     tip = np.array([pts[4][0], 0.0, pts[4][1]])
     groups["pad"].append(Pos(tip[0], 0.0, tip[2] + 1.5) * paw_pad())
+    # ⚠️ **The return spring was anchored to nothing.** ADR-0002 Option B is a
+    # single ankle tendon plus a spring that pulls the joint back, so the spring
+    # has to CROSS the ankle: one end on the tibia, one on the metatarsus. It was
+    # parked at (-35, -12, -99), 3.14 mm clear of the nearest clevis and touching
+    # no part of the leg -- 836 mm3 of loose steel. It is now built between two
+    # eyes that sit on the bones it acts across.
     ank = np.array([pts[2][0], 0.0, pts[2][1]])
-    groups["cable"].append(Pos(ank[0] - 10.0, -12.0, ank[2] + 14.0)
-                           * return_spring())
+    kne = np.array([pts[1][0], 0.0, pts[1][1]])
+    paw = np.array([pts[3][0], 0.0, pts[3][1]])
+    SPR_Y = -(BEARING["ankle"][1] / 2 + 3.0)      # medial, clear of the clevis
+    a_end = ank + (kne - ank) / np.linalg.norm(kne - ank) * 16.0
+    b_end = ank + (paw - ank) / np.linalg.norm(paw - ank) * 16.0
+    v = b_end - a_end
+    L = float(np.linalg.norm(v))
+    groups["cable"].append(
+        Plane(origin=tuple((a_end + b_end) / 2 + np.array([0.0, SPR_Y, 0.0])),
+              z_dir=tuple(v)).location * return_spring(length=L))
+    for e in (a_end, b_end):
+        groups["cable"].append(Pos(e[0], SPR_Y / 2, e[2])
+                               * (Plane(origin=(0, 0, 0), z_dir=(0, 1, 0)).location
+                                  * Cylinder(1.6, abs(SPR_Y))))
 
     # ⚠️ THE TENDON DRIVE. Without this the model is a linkage with pulleys
     # bolted to it, and P1 — the premise of the whole robot — is undrawn.
-    drive, routes = tendon_drive(q, leg, spools=spools)
+    drive, routes = tendon_drive(q, leg, spools=spools, lay=LAY)
     for k, comp in drive.items():
         groups[k].extend(comp.solids())
     report["routes"] = {f"{t}{'+' if s > 0 else '-'}": r
-                        for (t, s), r in routes.items()}
+                        for k, r in routes.items() if isinstance(k, tuple)
+                        for (t, s) in [k]}
+    report["fleet"] = routes["fleet"]
 
     comps = {k: Compound(v) for k, v in groups.items() if v}
     for c in comps.values():
         c.locate(c.location * Pos(0, TRACK_Y, 0))
     return comps, report, pts
+
+
+def connectivity(comps, tol: float = 0.05):
+    """`(n_pieces, [(what, volume), ...])` over every rigid solid in the leg.
+
+    Cables are excluded: a cable sits in its groove with a designed clearance
+    and is never in contact, so requiring it to touch would fail by construction.
+    Everything that carries load is in.
+    """
+    STRUCT = ("tube", "insert", "clevis", "bearing", "shaft",
+              "sheave", "pad", "cable")
+    items = [(g, sd, sd.bounding_box())
+             for g in STRUCT for sd in comps[g].solids()]
+    n = len(items)
+    parent = list(range(n))
+
+    def find(x):
+        while parent[x] != x:
+            parent[x] = parent[parent[x]]
+            x = parent[x]
+        return x
+
+    for i in range(n):
+        gi, si, bi = items[i]
+        for j in range(i + 1, n):
+            gj, sj, bj = items[j]
+            if (bi.max.X < bj.min.X - tol or bi.min.X > bj.max.X + tol
+                    or bi.max.Y < bj.min.Y - tol or bi.min.Y > bj.max.Y + tol
+                    or bi.max.Z < bj.min.Z - tol or bi.min.Z > bj.max.Z + tol):
+                continue
+            try:
+                if si.distance_to(sj) <= tol:
+                    parent[find(i)] = find(j)
+            except Exception:
+                pass
+    groups = {}
+    for i in range(n):
+        groups.setdefault(find(i), []).append(i)
+    order = sorted(groups.values(), key=len, reverse=True)
+    loose = []
+    for mem in order[1:]:
+        what = "+".join(sorted({items[i][0] for i in mem}))
+        loose.append((what, sum(items[i][1].volume for i in mem)))
+    return len(order), loose
+
+
+def _bearing_mass(comps, report):
+    """Catalogue mass for every bearing DRAWN, plus the shafts as modelled.
+
+    ⚠️ A first version told bearings from shafts by how hollow they were. Making
+    the shafts TUBES inverted that test -- a 6x1.5 shaft is 75 % filled and a
+    19 mm bearing 90 % -- so every shaft was charged as a bearing and every
+    bearing by steel volume, and the total was wrong in both directions at once.
+    Kind is recorded at build time now; it is not inferred from the shape.
+    """
+    by_od = {round(od, 2): BEARING_G[j] for j, (b, od, w) in BEARING.items()}
+    total = sum(sd.volume for sd in comps["shaft"].solids()) * STEEL_RHO
+    for sd in comps["bearing"].solids():
+        bb = sd.bounding_box()
+        od = round(max(bb.size.X, bb.size.Z), 2)
+        # a via bearing is not a catalogue line; price it by its ring volume
+        total += by_od.get(od, sd.volume * STEEL_RHO)
+    return total
 
 
 # ---------------------------------------------------------------------- checks
@@ -538,11 +867,16 @@ def checks(comps, report):
         "insert": vol(comps["insert"]) * AL_RHO,
         "clevis": vol(comps["clevis"]) * AL_RHO,
         "sheave": vol(comps["sheave"]) * AL_RHO,
-        # envelope for fit, catalogue for mass: 2 bearings + a shaft per joint
-        "bearing": 2 * sum(BEARING_G.values())
-                   + sum(math.pi * (BEARING[j][0] / 2) ** 2
-                         * (6.0 + 2 * BEARING[j][2] + 4) * STEEL_RHO
-                         for j in BEARING),
+        # ⚠️ **This counted a fixed roster, not what is drawn.** It read
+        # "2 bearings and a `6 + 2w + 4` shaft per joint" -- the stack as it was
+        # before the via pulleys existed. The vias added a third bearing at two
+        # joints and roughly doubled every shaft, and the number did not move
+        # off 47.94 g, so the leg reported lighter than it is.
+        #
+        # Bearings still take their CATALOGUE mass (the drawn ring is a fit
+        # envelope, ADR-0087), but they are COUNTED from the model, and the
+        # shafts are measured.
+        "bearing": _bearing_mass(comps, report),
         "pad": vol(comps["pad"]) * TPU_RHO,
         # cables are UHMWPE (0.97 g/cm^3) -- they float, which is the P1 point
         # UHMWPE, 0.97 g/cm^3 -- the cable floats, which IS the P1 argument
@@ -555,10 +889,19 @@ def checks(comps, report):
     }
     total = sum(mass.values())
     budget = sum(DEFAULT_LEG.link_mass) * 1e3
-    out.append((total <= budget,
-                f"leg hardware {total:.1f} g vs DEFAULT_LEG.link_mass "
-                f"{budget:.1f} g  ({total - budget:+.1f} g, "
-                f"{100 * total / budget:.0f} %)"))
+    # ⚠️ **This is a CONSISTENCY check, not a budget, and it used to read as
+    # one.** `LegParams.link_mass` is not an allowance the leg has to fit: M86
+    # calibrated it FROM this same measurement, so the line compared a number
+    # with a stale copy of itself and failed by 0.01 g when they drifted. There
+    # is no independent leg budget -- `LoadCase.body_mass_kg` is DERIVED from
+    # this measurement (its own comment says it moved 4.045 -> 4.3041 "once the
+    # leg was drawn as manufacturable parts and came out 167 g"). So what this
+    # asserts is that the two are in sync, and a failure means `params.py` is
+    # owed an update, not that the leg is too heavy.
+    out.append((abs(total - budget) < 0.5,
+                f"link_mass is in sync with the CAD: {total:.1f} g drawn vs "
+                f"{budget:.1f} g in params ({total - budget:+.1f} g) -- if this "
+                f"fails, params.py and body_mass_kg are stale, not the design"))
     out.append((mass["pad"] <= 20.0,
                 f"paw pad {mass['pad']:.1f} g <= 20 g (NFR9)"))
 
@@ -581,6 +924,77 @@ def checks(comps, report):
                     f"{bone} SF {sf:.2f} at live tau {land['tau'][i]:.2f} N.m + "
                     f"torsion from the {e:.1f} mm sheave offset "
                     f"(§3.5 claims {(2.84, 3.10, 2.87)[i]:.2f} on the stale table)"))
+
+    # 7b. ⚠️ **THE DRIVE TRAIN, which nothing checked until M93.** Three things
+    #     have to be true for a cable to be connected to anything, and none of
+    #     them was: the pulley it wraps must EXIST, two concentric pulleys must
+    #     not occupy one volume, and the cable must lie in a groove.
+    import numpy as _np
+    rng = _np.random.default_rng(3)
+    sh = comps["sheave"].solids()
+    worst_pair = 0.0
+    for i in range(len(sh)):
+        for j in range(i + 1, len(sh)):
+            ci, cj = sh[i].center(), sh[j].center()
+            if _np.hypot(ci.X - cj.X, ci.Z - cj.Z) > 2.0:
+                continue
+            inter = sh[i].intersect(sh[j])
+            if inter is not None:
+                try:
+                    worst_pair = max(worst_pair,
+                                     sum(x.volume for x in inter.solids()))
+                except Exception:
+                    pass
+    out.append((worst_pair < 1.0,
+                f"concentric pulleys share {worst_pair:.1f} mm3 "
+                f"(a via and its joint sheave must stack, not overlap)"))
+
+    # ⚠️ **This check used to name FOUR groups and leave out `sheave`, which
+    # is the one that fails.** 9.5 % of cable points are inside sheave material
+    # -- the fleet climbing a flange -- and the check was written after that was
+    # measured, so it read 0.0 % and passed. A test whose scope is chosen after
+    # seeing the answer is not a test. Every rigid group is in it now.
+    GRP = ("tube", "insert", "clevis", "bearing", "shaft", "sheave", "pad")
+    hard = [x for g in GRP for x in comps[g].solids()]
+    hbb = [x.bounding_box() for x in hard]
+    inside = n = 0
+    for sd in comps["tendon"].solids():
+        bb = sd.bounding_box()
+        for _ in range(40):
+            q = (rng.uniform(bb.min.X, bb.max.X), rng.uniform(bb.min.Y, bb.max.Y),
+                 rng.uniform(bb.min.Z, bb.max.Z))
+            if not sd.is_inside(q):
+                continue
+            n += 1
+            for x, b in zip(hard, hbb):
+                if (b.min.X <= q[0] <= b.max.X and b.min.Y <= q[1] <= b.max.Y
+                        and b.min.Z <= q[2] <= b.max.Z and x.is_inside(q)):
+                    inside += 1
+                    break
+    frac = 100.0 * inside / max(n, 1)
+    out.append((frac < 0.5,
+                f"cable through part material: {frac:.1f} % of {n} sampled "
+                f"points, ALL rigid groups (22 % was through the joint bearings)"))
+
+    # ⚠️ **Is the leg ONE thing?** Nothing asked. It was **five**: the paw and
+    # its pad 5.04 mm clear of the metatarsus, both via pulleys floating 0.50 mm
+    # off the sheaves beside them with no shaft reaching them, and the ankle
+    # return spring 3.14 mm from anything. A part that touches nothing has no
+    # load path, and a render shows none of it.
+    pieces, loose = connectivity(comps)
+    out.append((pieces == 1,
+                "the leg is %d connected piece%s%s"
+                % (pieces, "" if pieces == 1 else "s",
+                   "" if pieces == 1 else
+                   " -- loose: " + ", ".join("%s %.0f mm3" % (a, b)
+                                             for a, b in loose))))
+
+    fleet = report.get("fleet", {})
+    if fleet:
+        wf = max(fleet.values())
+        out.append((wf <= 2.0,
+                    "worst cable fleet %.2f deg (%s) -- a groove holds about 2"
+                    % (wf, max(fleet, key=fleet.get))))
 
     # 8. the staleness itself, asserted so it cannot be forgotten
     out.append((abs(land["tau"][0] - 12.36) < 0.05,
@@ -609,7 +1023,13 @@ def size_tubes(target_sf: float = 2.5, allow: float = 400.0, offsets=None):
     """
     loads = live_loads()["land"]
     if offsets is None:
-        offsets = (12.2, 12.2, 9.2)
+        # ⚠️ These were the literals **12.2 / 12.2 / 9.2**, the offsets of a
+        # layout that no longer exists -- so the "remedy" table went on
+        # recommending Ø10 for a metatarsus whose cable now runs at 21.7 mm.
+        # Read from the layout the leg is actually built to.
+        lay = plane_layout({"hip": 6.4, "knee": 6.4, "ankle": 4.4},
+                           {j: BEARING[j][2] for j in ("hip", "knee", "ankle")})
+        offsets = tuple(lay[j]["sheave"][0] for j in ("hip", "knee", "ankle"))
     picks = []
     for i, bone in enumerate(("femur", "tibia", "meta")):
         best = None
@@ -734,74 +1154,32 @@ def trade_moment_arms(scales=(1.0, 0.85, 0.70, 0.60, 0.50)):
     return rows
 
 
-def per_link_mass(comps=None, report=None):
-    """Apportion the measured hardware to the four links — what `link_mass` needs.
+def per_link_mass(comps=None, report=None, pts=None):
+    """Apportion the measured hardware to the four links -- what `link_mass` needs.
 
-    `checks()` reports a leg TOTAL; `LegParams.link_mass` is a per-link tuple and
-    the CoM / inertia model needs the distribution, not the sum.
+    ✅ **There is one implementation of this rule now, not two.** This used to
+    recompute the apportionment analytically -- bone masses from formulas, joint
+    hardware from a hard-coded roster -- while `link_inertia.per_link` measured
+    the placed solids. The two disagreed by **15 g on the total and 34 % on the
+    metatarsus**, and the table this function prints was reading as an accusation
+    against `params.py` for a difference that was its own.
 
-    **Apportionment rule, and it follows ASSEMBLY_SPEC §2 rather than convenience:**
-    a joint's sheave is fixed to its **distal** link, and the clevis/tongue/bearing
-    stack straddles the joint. So each joint's hardware is charged to the distal
-    link of that joint, together with that link's own tube and inserts. The girdle
-    motors are charged to **nothing** — they are not in the leg (P1).
+    ⚠️ Every way it drifted was the same way: a roster written once and never
+    re-read. It divided the clevis mass three ways equally when the three
+    clevises are 16.5 / 16.5 / 7.6 g; it priced bearings as "two per joint plus
+    a `6 + 2w + 4` shaft" from before the via pulleys existed; and it sized the
+    sheaves with the default width after they became multi-groove parts.
 
-    ⚠️ The tendons are charged to the links they run along, which over-charges the
-    proximal links slightly: a cable crossing the femur to reach the ankle is
-    counted on the femur. At 3.3 g for all five runs the error is under a gram.
+    So it delegates to the module that measures. The apportionment RULE --
+    ASSEMBLY_SPEC §2, a joint's hardware belongs to that joint's distal link --
+    lives in `link_inertia.assign`, and this returns what it finds.
     """
     if comps is None or report is None:
-        comps, report, _ = build()
-
-    def vol(group, pred=None):
-        if group not in comps:
-            return 0.0
-        sds = comps[group].solids()
-        return sum(sd.volume for sd in sds if pred is None or pred(sd))
-
-    _, mass, total = checks(comps, report)
-
-    # tube + insert per bone, from the report's own geometry
-    bone_g, bone_names = {}, ("femur", "tibia", "meta", "paw")
-    for b in bone_names:
-        r = report[b]
-        if r["solid_stub"]:
-            g = math.pi * (r["od"] / 2 - 1.0) ** 2 * r["span"] * AL_RHO
-        else:
-            ro, ri = r["od"] / 2, r["od"] / 2 - r["wall"]
-            g = math.pi * (ro ** 2 - ri ** 2) * r["cut"] * CF_RHO
-            ins_od = r["insert_od"]
-            g += 2 * math.pi * ((ins_od / 2) ** 2
-                                - (ins_od / 2 - INSERT_WALL) ** 2)                 * (r["engage"] + 8.0) * AL_RHO
-        bone_g[b] = g
-
-    # joint hardware -> DISTAL link of that joint
-    joint_to_link = {"hip": "femur", "knee": "tibia", "ankle": "meta"}
-    n_j = len(joint_to_link)
-    per_joint_clevis = mass["clevis"] / n_j
-    per_joint_sheave = {}
-    for jn, d in report["joints"].items():
-        per_joint_sheave[jn] = sum(
-            sd.volume for sd in sheave(d["arm"], bore=d["bearing"][0]).solids()
-        ) * AL_RHO
-    bearing_g = {jn: 2 * BEARING_G[jn]
-                 + math.pi * (BEARING[jn][0] / 2) ** 2
-                 * (6.0 + 2 * BEARING[jn][2] + 4) * STEEL_RHO
-                 for jn in BEARING}
-
-    out = {b: bone_g[b] for b in bone_names}
-    for jn, link in joint_to_link.items():
-        out[link] += per_joint_clevis + per_joint_sheave[jn] + bearing_g[jn]
-    # distal extras
-    out["paw"] += mass["pad"]
-    out["meta"] += mass["cable"]                       # ankle return spring
-    # tendons + anchors spread over the links they run along
-    spread = (mass["tendon"] + mass["anchor"]) / 3.0
-    for b in ("femur", "tibia", "meta"):
-        out[b] += spread
-    # the root idler lives on the femur
-    out["femur"] += sum(sd.volume for sd in idler().solids()) * AL_RHO
-
+        comps, report, pts = build()
+    import link_inertia as LI
+    per = LI.per_link(comps, report, calibrate=True)
+    out = {k: v[0] * 1e3 for k, v in per.items()}
+    _, _, total = checks(comps, report)
     return out, total
 
 
@@ -812,7 +1190,7 @@ def render_png(comps, path):
     from mpl_toolkits.mplot3d.art3d import Poly3DCollection
 
     style = {"tube": "#d7ac86", "insert": "#b8bfc7", "clevis": "#8a9bb0",
-             "sheave": "#5f7285", "bearing": "#3c4a5a", "cable": "#c17a3a",
+             "sheave": "#5f7285", "bearing": "#3c4a5a", "shaft": "#6b7684", "cable": "#c17a3a",
              "pad": "#4a4a4a", "tendon": "#c17a3a", "motor": "#2f3b49",
              "anchor": "#9aa7b4"}
     fig = plt.figure(figsize=(11, 7))
@@ -916,13 +1294,15 @@ if __name__ == "__main__":
     print("%-9s %-12s %8s %10s %12s" % ("bone", "section", "SF", "sigma_vm",
                                         "vs §3.5"))
     print("-" * 58)
-    for p, cur, claim in zip(size_tubes(), (12.0, 10.0, 8.0),
+    for p, cur, claim in zip(size_tubes(),
+                             (TUBE["femur"][0], TUBE["tibia"][0], TUBE["meta"][0]),
                              (2.84, 3.10, 2.87)):
         if p["od"] is None:
             print("%-9s %-12s %8s" % (p["bone"], "NONE IN STOCK", "-"))
             continue
-        print("%-9s Ø%-5.0fx%-4.1f %8.2f %9.0f MPa   Ø%.0f -> Ø%.0f"
-              % (p["bone"], p["od"], p["wall"], p["sf"], p["vm"], cur, p["od"]))
+        print("%-9s Ø%-5.0fx%-4.1f %8.2f %9.0f MPa   built Ø%.0f%s"
+              % (p["bone"], p["od"], p["wall"], p["sf"], p["vm"], cur,
+                 "" if abs(cur - p["od"]) < 0.01 else "  *** stale"))
 
     whole = Compound(list(comps.values()))
     bb = whole.bounding_box()

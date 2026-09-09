@@ -42,6 +42,15 @@ from tomcat_kin.params import DEFAULT_FORELEG, DEFAULT_HINDLEG   # noqa: E402
 #: Where the hips are, from the trunk model.
 HIP_X = {"rear": 0.0, "front": 195.0}
 
+#: ⚠️ **Groups the TRUNK owns wherever they sit at the hip.** This was the
+#: literal tuple `("clevis", "bearing")`, and when M93 split the shafts into
+#: their own group the hip shaft stopped being recognised -- it is the longest
+#: part at the joint now, reaching out to the via pulley, and it drove the
+#: hind legs' trunk overlap from **0.0 to 118.8 mm3**. Third time a new group
+#: has been missed by a list that enumerates them, so the list is named and
+#: sits beside `DROP` where the next one will be looked for.
+HIP_HARDWARE = ("clevis", "bearing", "shaft")
+
 #: The leg groups that are CONTEXT in `tomcat_leg_detail`, not leg parts.
 #: `motor` is the girdle bank it drew for reference; the trunk owns those now.
 DROP = ("motor",)
@@ -84,7 +93,7 @@ def one_leg(fore: bool, side: float, pose=None):
             # the same space. In an assembly the TRUNK owns the hip, so the
             # leg's copy is dropped -- otherwise the robot carries the joint
             # twice in mass and the interference check never goes quiet.
-            if name in ("clevis", "bearing") and _at_hip(sd):
+            if name in HIP_HARDWARE and _at_hip(sd):
                 continue
             parts.append(sd)
     g = Compound(parts)
@@ -172,6 +181,26 @@ def report():
         if worst > 0.05:
             print("      *** the run does not reach the motor")
             ok = False
+
+    # --- ⚠️ **the limb plane must clear the girdle, and DEPTH is the test.**
+    # An 80 mm3 "leg/trunk overlap" passed a 1500 mm3 threshold for four
+    # milestones. Measured as a depth it is the femur sitting **2.1 mm inside**
+    # the front girdle's flank -- and it is not a leg defect: `TRACK_Y` is 48 mm,
+    # set when the trunk was narrower, and M88 widened the chest 83.4 -> 90.0
+    # without moving the legs out with it. A volume threshold cannot see a
+    # shallow, wide interference; a depth can.
+    import numpy as _np
+    hw = max(TT._hw_at(x) for b in (0, 3)
+             for x in _np.linspace(*TT.BODIES[b], 40))
+    od = LD.TUBE["femur"][0]
+    need = hw + 1.0 + od / 2
+    short = need - LD.TRACK_Y
+    print("  limb plane %.1f mm vs girdle half-width %.1f + ø%.0f femur -> "
+          "needs %.1f" % (LD.TRACK_Y, hw, od, need))
+    if short > 0.05:
+        print("      *** the femur sits %.2f mm inside the girdle flank -- "
+              "TRACK_Y never followed M88's wider trunk" % short)
+        ok = False
 
     # --- ✅ every spool must be INSIDE the body that carries it
     outside = 0

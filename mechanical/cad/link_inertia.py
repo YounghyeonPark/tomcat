@@ -28,6 +28,7 @@ Two independent checks, both in `tests/test_link_inertia.py`:
 
 from __future__ import annotations
 
+import math
 import numpy as np
 
 import mass_properties as MP
@@ -39,8 +40,15 @@ import tomcat_leg_detail as LD
 UHMWPE_RHO = 0.97e-3      # g/mm^3
 
 RHO = {"tube": LD.CF_RHO, "insert": LD.AL_RHO, "clevis": LD.AL_RHO,
-       "sheave": LD.AL_RHO, "bearing": LD.STEEL_RHO, "cable": UHMWPE_RHO,
-       "tendon": UHMWPE_RHO, "pad": LD.TPU_RHO, "anchor": LD.AL_RHO}
+       "sheave": LD.AL_RHO, "bearing": LD.STEEL_RHO, "shaft": LD.STEEL_RHO,
+       "cable": UHMWPE_RHO, "tendon": UHMWPE_RHO, "pad": LD.TPU_RHO,
+       "anchor": LD.AL_RHO}
+
+#: ⚠️ A group missing from this table is silently DROPPED -- `rho is None`
+#: skips it -- so when `shaft` became its own group, **14.67 g of steel stopped
+#: being charged to any link** while `checks()` still counted it. The two totals
+#: disagreed and nothing said which was right. `per_link()` asserts the totals
+#: reconcile now, so a new group cannot go missing quietly again.
 
 LINKS = ("femur", "tibia", "meta", "paw")
 
@@ -113,6 +121,15 @@ def assign(group, com, joints, bones):
     return JOINT_TO_LINK[jn]
 
 
+def _bearing_k(m_drawn, rho):
+    """Per-part catalogue/envelope ratio for one bearing solid."""
+    for j, (bore, od, w) in LD.BEARING.items():
+        env = (math.pi * ((od / 2) ** 2 - (bore / 2) ** 2) * w) * rho * 1e-3
+        if abs(env - m_drawn) < 0.15 * max(env, 1e-9):
+            return 1e-3 * LD.BEARING_G[j] / m_drawn
+    return 1.0
+
+
 def per_link(comps=None, report=None, calibrate=True):
     """Return `{link: (mass_kg, com_m, I_3x3_about_com)}` in the hip frame.
 
@@ -145,8 +162,31 @@ def per_link(comps=None, report=None, calibrate=True):
                 k = 1e-3 * ref_mass[group] / tot
         for (m, c, I) in placed:
             link = assign(group, c, joints, bones)
-            if link is not None:
-                bucket[link].append((m * k, c, I * k))
+            if link is None:
+                continue
+            kk = k
+            if calibrate and group == "bearing":
+                # ⚠️ **One factor for a whole group is wrong when the parts in
+                # it differ.** The bearings' envelope-to-catalogue ratios are
+                # **0.720 / 0.720 / 1.072** -- the ankle's catalogue part is
+                # HEAVIER than the ring drawn for it -- and a single 0.752
+                # scaled them all, under-charging the metatarsus by 1.85 g. Each
+                # bearing takes its own ratio.
+                kk = _bearing_k(m, rho)
+            bucket[link].append((m * kk, c, I * kk))
+
+    # ⚠️ Every gram drawn must land on a link, or the apportionment and the
+    # leg total describe different objects.
+    got = sum(m for parts in bucket.values() for (m, _c, _I) in parts) * 1e3
+    want = sum(v for k, v in ref_mass.items() if k not in EXCLUDE)
+    # only meaningful when calibrating: uncalibrated is the ENVELOPE mass,
+    # which is deliberately heavier than the catalogue and must not be
+    # forced to match it.
+    if calibrate and abs(got - want) > 0.5:
+        missing = [g for g in comps if g not in RHO and g not in EXCLUDE]
+        raise AssertionError(
+            "per_link accounts for %.2f g of a %.2f g leg; groups with no "
+            "density: %s" % (got, want, missing or "none"))
 
     out = {}
     for b, parts in bucket.items():
