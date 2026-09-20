@@ -7627,6 +7627,15 @@ justify it.
 - **Status:** Accepted — M97, **its shape re-derived from a photograph the same
   day (M98)**
 - **Date:** 2026-09-21 (M97)
+- **✅ SUPERSEDED IN METHOD (M99).** The cranium now comes from **two
+  orthogonal public-domain skull plates** -- Figs. 39 and 40 of Reighard &
+  Jennings (1901), which `ANATOMY.md` already named as authoritative -- traced
+  and intersected, so each section takes its height from one view and its width
+  from the other. They ship in `reference/plates/`, so the measurement re-runs
+  from the repo, which the wildcat photograph never could. Traced, the skull is
+  **0.71 as wide as it is long and 0.48 as tall**; the 0.72 previously assumed
+  for width happened to be right. What the photograph still supplies is the
+  POSTURE, because a skull plate cannot say how high the head is carried.
 - **⚠️ CORRECTION (M98).** The form below was built from spheres on a rising
   axis and the proportions were invented. Traced off a side-view cat they are
   wrong in three ways: the head was carried **+35 mm** above the back where a

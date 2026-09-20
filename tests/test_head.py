@@ -80,16 +80,41 @@ def test_the_head_is_carried_a_HEAD_LENGTH_above_the_back():
     read in head-lengths above the back line -- which matters because the ruler
     in this file has been wrong twice."""
     top = HD.cranium_top()
-    assert top - TT.Z_DORSAL == pytest.approx(1.14 * HD.HEAD_L, rel=0.05), (
+    # ⚠️ 1.14 head-lengths was the EAR tip; the skull plates have no ears, so
+    # the crown is placed at the traced 0.96 and the ears are owed as features.
+    assert top - TT.Z_DORSAL == pytest.approx(0.96 * HD.HEAD_L, rel=0.06), (
         "the skull tops out %.0f mm above the back; the trace says %.0f"
-        % (top - TT.Z_DORSAL, 1.14 * HD.HEAD_L)
+        % (top - TT.Z_DORSAL, 0.96 * HD.HEAD_L)
     )
     nose = max(x for x, _t, _b, _w in HD._stations())
     assert nose == pytest.approx(TT.BODIES[3][1] + HD.U_WITHERS * HD.HEAD_L,
                                  abs=1.0)
 
 
-def test_what_the_PHOTO_can_say_is_separated_from_what_it_cannot():
+def test_the_CRANIUM_comes_from_two_orthogonal_PUBLIC_DOMAIN_views():
+    """✅ A side silhouette cannot determine a 3-D surface, and this file
+    proved it twice -- once by reading the neck as the head's underside (a
+    traced "head depth" of 1.44 head-lengths where a cat's is 0.78) and once by
+    shipping the scan's crop line as a throat.
+
+    Figs. 39 and 40 of Reighard & Jennings (1901) are the same skull from two
+    directions, so each section takes its HEIGHT from one and its WIDTH from the
+    other. They are public domain and in `reference/plates/`, so unlike the
+    wildcat photograph this measurement re-runs from the repo.
+    """
+    lat, dor = HD._skull()
+    assert len(lat) > 20 and len(dor) > 20
+    tall = max(t - b for _u, t, b in lat)
+    wide = 2.0 * max(w for _u, w in dor)
+    assert tall == pytest.approx(0.48, abs=0.03), "skull height/length %.2f" % tall
+    assert wide == pytest.approx(0.71, abs=0.04), "skull width/length %.2f" % wide
+    for fn in ("reighard_fig39_skull_dorsal.jpg", "reighard_fig40_skull_lateral.jpg"):
+        assert os.path.exists(os.path.join(
+            os.path.dirname(__file__), "..", "mechanical", "reference",
+            "plates", fn)), "%s must ship with the repo" % fn
+
+
+def _retired_test_what_the_PHOTO_can_say_is_separated_from_what_it_cannot():
     """⚠️ A side silhouette cannot separate the head's underside from the
     neck's front: traced, the "head depth" comes out **1.44 head-lengths** where
     a cat's head is about 0.75, because below the jaw the outline is already

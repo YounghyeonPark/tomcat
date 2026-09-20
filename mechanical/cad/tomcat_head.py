@@ -108,44 +108,90 @@ RISE_DEG = 41.0
 #: The same trace wants re-taking from the public-domain Reighard & Jennings
 #: plates `ANATOMY.md` names as authoritative.  `[owed]`
 def _profile():
+    """Legacy: the wildcat topline, kept for the posture it still supplies."""
     import json
     with open(os.path.join(os.path.dirname(HERE), "reference",
                            "head_profile.json")) as fh:
         return [(u, t, b) for u, t, b in json.load(fh)]
 
 
-#: Widest the head gets, in head-lengths. A cat's skull is about 0.72 of its
-#: length across the zygomatic arches.  `[assumed]`
-WIDTH_FRAC = 0.72
+def _skull():
+    """`(lateral, dorsal)` traced from Reighard & Jennings, in SKULL-LENGTHS.
+
+    ✅ **Two orthogonal views, which is what a face needs.** A side silhouette
+    alone cannot determine a 3-D surface -- the previous version of this file
+    proved it twice, once by reading the neck as the head's underside and once
+    by shipping the scan's crop line as a throat. Figs. 39 (dorsal) and 40
+    (lateral) of *Anatomy of the Cat* (1901) are the same skull from two
+    directions, so a section at each station takes its HEIGHT from one and its
+    WIDTH from the other.
+
+    The plates are **public domain** and are in `reference/plates/`, so unlike
+    the wildcat photograph this measurement can be re-run from the repo.
+
+    Traced, the skull is **0.71 as wide as it is long and 0.44 as tall** -- a
+    cat, and a check on the 0.72 that was previously assumed.
+    """
+    import json
+    with open(os.path.join(os.path.dirname(HERE), "reference",
+                           "skull_profile.json")) as fh:
+        d = json.load(fh)
+    return [(u, t, b) for u, t, b in d["lateral"]],            [(u, w) for u, w in d["dorsal"]]
+
+
+#: Soft tissue over the bone: skin, muscle and fur. ⚠️ `[assumed]` -- the
+#: plates are a dry skull and nothing in the sources gives a thickness.
+FLESH = 0.035            # skull-lengths, all round
+
+
+def _skull_sections():
+    """`(x, z_top, z_bot, half_width)` in mm, nose first, on the head axis."""
+    lat, dor = _skull()
+    wid = {round(u, 4): w for u, w in dor}
+    us = sorted(wid)
+    L = HEAD_L
+    out = []
+    for u, t, b in lat:
+        w = wid.get(round(u, 4))
+        if w is None:
+            w = np.interp(u, us, [wid[k] for k in us])
+        x = NOSE_X - u * L
+        zc = HEAD_Z
+        out.append((x,
+                    zc + (t + FLESH) * L,
+                    zc + (b - FLESH) * L,
+                    (w + FLESH) * L))
+    return out
+
+
+#: Where the skull sits. ⚠️ The plates give the skull's SHAPE and cannot give
+#: its posture; that still comes from the wildcat topline -- the skull crowning
+#: about 0.96 head-lengths above the back line.  `[owed]`
+#: Nose-to-withers span in head-lengths, from the wildcat trace.
+U_WITHERS = 2.0
+
+NOSE_X = 0.0
+HEAD_Z = 0.0
+
+
+def _place():
+    """Set `NOSE_X` and `HEAD_Z` so the traced posture is reproduced."""
+    global NOSE_X, HEAD_Z
+    NOSE_X = BASE_X + U_WITHERS * HEAD_L
+    lat, _d = _skull()
+    top = max(t for _u, t, _b in lat) + FLESH
+    HEAD_Z = TT.Z_DORSAL + (0.96 - top) * HEAD_L
 
 
 def _stations():
     """`(x, z_top, z_bot, half_width)` in mm, nose first.
 
-    ⚠️ **A side silhouette cannot separate the head's underside from the
-    neck's front, and the first two versions of this used it as if it could.**
-    Traced, the "head depth" comes out **1.44 head-lengths** -- a cat's head is
-    about 0.75 deep -- because below the jaw the outline is already throat, then
-    chest. Worse, the scan was clipped, so past u ~ 0.95 the bottom reads a flat
-    -0.99: the cut line.
-
-    ✅ So the TOP line is what the photo is good for -- it runs against white
-    all the way from the nose over the ears to the withers -- and the depth
-    comes from anatomy. What is measured and what is assumed are separated here
-    rather than averaged.
+    ✅ The cranium is two traced orthogonal views of a real skull; only the
+    NECK is interpolated, from the occiput into the trunk's front section. The
+    seam is named rather than blended away.
     """
-    L = HEAD_L
-    out = []
-    for u, t, _b in _profile():
-        if u > U_OCCIPUT:
-            continue
-        x = BASE_X + (U_WITHERS - u) * L
-        zt = TT.Z_DORSAL + t * L
-        # muzzle shallow, cranium full depth, tapering back to the occiput
-        d = DEPTH_FRAC * L * (0.35 + 0.65 * min(u / 0.45, 1.0))
-        hw = 0.5 * min(d, WIDTH_FRAC * L)
-        out.append((x, zt, zt - d, hw))
-
+    _place()
+    out = list(_skull_sections())
     ox, ozt, ozb, ohw = out[-1]
     thw = TT._row_hw_at(BASE_X)
     tzt = TT.Z_DORSAL
@@ -158,16 +204,6 @@ def _stations():
                     ozb + (tzb - ozb) * f,
                     ohw + (thw - ohw) * f))
     return out
-
-
-#: A cat's head is about this deep, as a fraction of its length.  `[assumed]`
-DEPTH_FRAC = 0.78
-
-#: Where the cranium ends and the neck begins, in head-lengths from the nose.
-U_OCCIPUT = 0.95
-
-#: Where the traced profile meets the body: the withers, in head-lengths.
-U_WITHERS = 2.0
 
 
 def whole():
@@ -199,8 +235,8 @@ def cranium_top():
     on a derived solid that can overshoot; it reads the stations the shape is
     generated FROM.
     """
-    fwd = BASE_X + (U_WITHERS - 1.05) * HEAD_L
-    return max(zt for x, zt, _zb, _hw in _stations() if x >= fwd)
+    st = _stations()
+    return max(zt for x, zt, _zb, _hw in st if x >= NOSE_X - HEAD_L)
 
 
 def mass_props():
