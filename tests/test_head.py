@@ -58,8 +58,12 @@ def test_placing_the_240_g_costs_a_THIRD_of_the_pitch_inertia():
     in this project and not a reason to prefer the wrong shape.
     """
     a = HD.account()
-    assert a["frac"] == pytest.approx(0.29, abs=0.02)
-    assert a["dcom"] == pytest.approx(7.5, abs=0.6)
+    # ⚠️ It has moved three times as the shape got closer to a cat, and always
+    # the same way: 24 % (spheres, head low) -> 29 % (skull plates, head up) ->
+    # **40 %** (neck a slim tube, so more of the fixed 240 g rides in the head).
+    # The lever from the body CoM is now **267 mm**, against 81 lumped.
+    assert a["frac"] == pytest.approx(0.40, abs=0.03)
+    assert a["dcom"] == pytest.approx(9.0, abs=0.8)
     assert a["lever_after"] > 2.5 * a["lever_before"], (
         "lever %.0f -> %.0f mm" % (a["lever_before"], a["lever_after"])
     )
@@ -144,3 +148,22 @@ def test_the_mass_is_the_BUDGET_not_a_density_guess():
     m, _com, _I = HD.mass_props()
     assert m == pytest.approx(HD.HEAD_NECK_G)
     assert HD.HEAD_NECK_G == pytest.approx(240.0)
+
+
+def test_the_FACE_is_named_features_because_the_plates_have_none():
+    """⚠️ A skull has no ears, no eyes and no nose, and a face is those.
+
+    The first version drew the ears as the three EDGES of a triangle, which
+    renders as a pair of antennae. An ear is a filled flap. Each feature is a
+    named dimension in skull-lengths so it can be argued with, and all of them
+    are `[assumed]` -- no source in this project gives them.
+    """
+    f = HD.features()
+    sol = f.solids()
+    assert len(sol) == 5, "two ears, two eyes, one nose -- got %d" % len(sol)
+    bb = f.bounding_box()
+    assert bb.max.Z > HD.cranium_top(), "the ears must stand above the crown"
+    assert bb.min.Y < 0 < bb.max.Y, "the pair must straddle the centreline"
+    for nm in ("EAR_BASE", "EAR_H", "EAR_SPLAY", "EYE_R", "NOSE_R"):
+        v = getattr(HD, nm)
+        assert 0.0 < v < 1.0, "%s = %s is not a skull-length fraction" % (nm, v)

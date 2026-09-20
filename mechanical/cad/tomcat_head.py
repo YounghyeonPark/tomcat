@@ -144,24 +144,31 @@ def _skull():
 FLESH = 0.035            # skull-lengths, all round
 
 
+def _smooth(vals, k=5):
+    """Moving average. ⚠️ The raw trace carries the plate's own detail -- the
+    canine tooth, the zygomatic arch springing away from the braincase -- as
+    step changes in section, and lofting through them gave the head a lumpy
+    surface. What is wanted is the skull's ENVELOPE, so the profile is filtered
+    before it becomes geometry."""
+    v = np.asarray(vals, float)
+    pad = np.r_[np.full(k // 2, v[0]), v, np.full(k // 2, v[-1])]
+    return np.convolve(pad, np.ones(k) / k, mode="valid")
+
+
 def _skull_sections():
     """`(x, z_top, z_bot, half_width)` in mm, nose first, on the head axis."""
     lat, dor = _skull()
-    wid = {round(u, 4): w for u, w in dor}
-    us = sorted(wid)
+    us = [u for u, _t, _b in lat]
+    wid = np.interp(us, [u for u, _w in dor], [w for _u, w in dor])
+    top = _smooth([t for _u, t, _b in lat])
+    bot = _smooth([b for _u, _t, b in lat])
+    hw = _smooth(wid)
     L = HEAD_L
-    out = []
-    for u, t, b in lat:
-        w = wid.get(round(u, 4))
-        if w is None:
-            w = np.interp(u, us, [wid[k] for k in us])
-        x = NOSE_X - u * L
-        zc = HEAD_Z
-        out.append((x,
-                    zc + (t + FLESH) * L,
-                    zc + (b - FLESH) * L,
-                    (w + FLESH) * L))
-    return out
+    return [(NOSE_X - u * L,
+             HEAD_Z + (t + FLESH) * L,
+             HEAD_Z + (b - FLESH) * L,
+             (w + FLESH) * L)
+            for u, t, b, w in zip(us, top, bot, hw)]
 
 
 #: Where the skull sits. ⚠️ The plates give the skull's SHAPE and cannot give
@@ -192,18 +199,82 @@ def _stations():
     """
     _place()
     out = list(_skull_sections())
+    # ⚠️ **A neck is a tube, not a plane-to-plane blend.** Interpolating the
+    # occiput's section straight into the trunk's front face gave a flat wedge
+    # -- a fin, not a neck -- because the trunk's section is a tall ellipse and
+    # the skull's is nearly round. The neck follows its own CURVE from the
+    # occiput down into the chest, with a round section that grows toward the
+    # body, and only the last station matches the trunk.
     ox, ozt, ozb, ohw = out[-1]
-    thw = TT._row_hw_at(BASE_X)
-    tzt = TT.Z_DORSAL
-    tzb = TT._zc(BASE_X) - thw * TT.ASPECT
-    n = 6
+    oz = 0.5 * (ozt + ozb)
+    orr = 0.5 * min(ozt - ozb, 2 * ohw)
+    tz = TT.Z_DORSAL - 0.45 * TT._row_hw_at(BASE_X) * TT.ASPECT
+    trr = 0.62 * TT._row_hw_at(BASE_X)
+    n = 10
     for k in range(1, n + 1):
         f = k / n
-        out.append((ox + (BASE_X - ox) * f,
-                    ozt + (tzt - ozt) * f,
-                    ozb + (tzb - ozb) * f,
-                    ohw + (thw - ohw) * f))
+        # ease the centreline so the neck leaves the skull along its own axis
+        e = f * f * (3.0 - 2.0 * f)
+        x = ox + (BASE_X - ox) * f
+        z = oz + (tz - oz) * e
+        r = orr + (trr - orr) * e
+        out.append((x, z + r, z - r, r))
     return out
+
+
+#: ⚠️ **The skull has no ears, no eyes and no nose, and a face is those.**
+#: The plates give bone; these are the soft features that make a head read as a
+#: cat, each a named dimension so it can be argued with. In skull-lengths.
+#: `[assumed]` -- no source in this project gives them.
+EAR_BASE = 0.30          # fore-aft width of the ear's root
+EAR_H = 0.34             # height above the crown
+EAR_SPLAY = 0.22         # half-separation of the ear roots
+EAR_AT = 0.72            # u of the ear root, nose = 0
+EYE_R = 0.085
+EYE_AT = (0.40, 0.17)    # (u, half-separation)
+NOSE_R = 0.055
+
+
+def features():
+    """Ears, eyes and nose as separate solids on the cranium."""
+    L = HEAD_L
+    st = _stations()
+    def at(u):
+        x = NOSE_X - u * L
+        best = min(st, key=lambda r: abs(r[0] - x))
+        return x, best[1], best[2], best[3]
+
+    parts = []
+    # --- ears. ⚠️ A first version drew the three EDGES of a triangle as
+    # cylinders, which renders as a pair of antennae rather than a pair of ears.
+    # An ear is a filled flap: a tapering stack from a long base on the crown to
+    # a point, thin across.
+    from build123d import loft
+    ex, etop, _eb, _ew = at(EAR_AT)
+    for sgn in (-1.0, +1.0):
+        y0 = sgn * EAR_SPLAY * L
+        secs = []
+        n = 6
+        for k in range(n + 1):
+            f = k / n
+            z = etop - 0.03 * L + EAR_H * L * f
+            y = y0 + sgn * 0.09 * L * f          # lean outward
+            x = ex - 0.08 * L * f                # and a touch back
+            hl = 0.5 * EAR_BASE * L * (1.0 - 0.92 * f) + 1.0
+            th = 0.045 * L * (1.0 - 0.6 * f) + 0.6
+            secs.append(Plane(origin=(x, y, z), z_dir=(0, 0, 1))
+                        * Ellipse(hl, th))
+        parts.append(loft(secs))
+    # --- eyes, set into the side of the cranium
+    ux, uy = EYE_AT
+    gx, gt, gb, gw = at(ux)
+    for sgn in (-1.0, +1.0):
+        parts.append(Pos(gx, sgn * uy * L, 0.5 * (gt + gb) + 0.10 * L)
+                     * Sphere(EYE_R * L))
+    # --- nose
+    nx, nt, nb, _nw = at(0.03)
+    parts.append(Pos(nx, 0.0, 0.5 * (nt + nb) + 0.02 * L) * Sphere(NOSE_R * L))
+    return Compound(parts)
 
 
 def whole():
@@ -333,6 +404,7 @@ def render_png(path, elev=8, azim=-90):
     ax = fig.add_subplot(111, projection="3d")
     groups = [("#8a9bb0", 1.0, [TT.rigid_body(b) for b in sorted(TT.BODIES)]),
               ("#c98f6a", 0.95, [whole()]),
+              ("#8a6b52", 1.0, [features()]),
               ("#c98f6a", 0.95, [TL.tail(0.0)])]
     for col, alpha, shapes in groups:
         tri = []
@@ -350,7 +422,7 @@ def render_png(path, elev=8, azim=-90):
                                 edgecolor="#3c4a5a", linewidth=0.04)
         coll.set_zsort("average")
         ax.add_collection3d(coll)
-    allp = Compound([whole(), TL.tail(0.0)] +
+    allp = Compound([whole(), features(), TL.tail(0.0)] +
                     [TT.rigid_body(b) for b in sorted(TT.BODIES)])
     bb = allp.bounding_box()
     ax.set_xlim(bb.min.X - 5, bb.max.X + 5)
