@@ -7463,9 +7463,17 @@ it as a property of the plant. The measurement was right; the CAUSE was assumed.
 
 - ⚠️ **ADR-0073's condition is a gain WINDOW, not a floor.** At a 0.05 m held
   drop the leg cable saturates at kp 0 and again across a band from ~250 to
-  ~600 -- and the SHIPPED gain is 300. kp 25-200 and 800+ are clean, and 0.30 m
-  does not saturate where 0.05 and 0.10 do. Same signature as M87's survival
-  criterion: a single operating point is not evidence. `[owed]`
+  ~600; kp 25-200 and 800+ are clean, and 0.30 m does not saturate where 0.05
+  and 0.10 do. Same signature as M87's survival criterion: a single operating
+  point is not evidence.
+- ⚠️ **Correction to the above, made the same day.** I first wrote that *"the
+  SHIPPED gain is 300"* and it is not. 300 is `_held_drop`'s own PD gain -- the
+  test file calls it "the shipped loop" and nothing ships it. `mjsim.build` uses
+  an MJCF actuator `kp = 1000`, a different quantity in different units, and
+  `_spine_stand` a third law at 8.0. So the band is a property of one test's
+  control law, and what it implies for a real spine controller is unestablished.
+  The `[owed]` is smaller than I stated: the spine loop has no single gain to
+  move, and giving it one is the actual debt.  `[owed]`
 - ⚠️ **ADR-0072's assumption fails.** Compliance left the sway alone at +1 %;
   it now takes **-37 %** (4.60 -> 2.90 mm).
 - ⚠️ **The compliance penalty on righting went negative**: M71's 4.7x, M87's
@@ -7474,6 +7482,66 @@ it as a property of the plant. The measurement was right; the CAUSE was assumed.
   standing tendon came **off** the 222.9 N ceiling to 192.8; M44's clipped-hip
   drift 197 -> 17.3 -> **4.5 deg**, while the ratio it is really about stayed
   at ~450x.
+
+---
+
+## ADR-0094: the skin, and the fibre that does not move
+
+- **Status:** Accepted
+- **Date:** 2026-09-20 (M94)
+
+### Context
+
+*"Finish the skeleton and then make the skin cover"* was the first instruction of
+this whole arc, and the skin has waited through eight milestones for something
+worth covering. It is buildable now: the dorsal line is one the process tips
+actually reach (ADR-0092), four legs are on the trunk, and every rigid body is a
+single piece.
+
+### Decision
+
+**Derive the cover from the strain, not from the silhouette.** A skin fibre at
+height `z` changes length by `(z - spine_axis) * theta` at every joint, so over
+the 75 deg of total pitch ROM:
+
+| skin line | z mm | r from axis | dL mm | strain |
+|---|---|---|---|---|
+| dorsal, over the tips | 84.8 | +35.0 | 45.8 | **12.6 %** |
+| **FLANK, at the spine axis** | **49.8** | **0.0** | **0.0** | **0 %** |
+| belly at the waist | -16.4 | -66.2 | 86.6 | 23.9 % |
+| belly at the chest | -46.5 | -96.3 | 125.9 | **34.7 %** |
+
+✅ There is a **neutral fibre**, it is exact rather than approximate, and it
+lies on the flank at the spine axis. So:
+
+- the cover is **anchored along the flank**, the one line that does not move;
+- the dorsal panel is a **knit** -- 12.6 % is inside what one does;
+- the belly panel is **not a stretch panel at all**. 34.7 % is nearly three times
+  the dorsal figure, so it is **slack, gathered into a fold that pays out** as
+  the spine extends. A cat has exactly that and it has a name, the primordial
+  pouch, which is a good sign for a shape arrived at from a table.
+- each leg leaves through an **aperture with a cuff**, r = 19 mm.
+
+### Consequences
+
+- ✅ One piece, 130 g in knit nylon at 1.0 mm, enclosing the skeleton with at
+  least **2.0 mm** everywhere. That fits: the trunk budget leaves 666 g for what
+  is not drawn.
+- ⚠️ **The first run was pierced at every joint.** Hung from `Z_DORSAL` the
+  cover sat at 81.8 against process tips reaching 82.8 -- **-1.0 mm**. It hangs
+  from the TIPS now. The check caught it on its first execution, which is what
+  the check was for.
+- ⚠️ **And then the check went on reporting the defect after it was fixed**,
+  because it recomputed the cover's top from `Z_DORSAL + CLEAR` instead of
+  reading `outline()`. A check that recomputes what it is checking is checking
+  something else. It reads the geometry now.
+- ⚠️ **"Does it foul the legs" was the wrong question.** The flank clears the
+  femur by **0.5 mm**, which a binary check passes and a deflecting cover does
+  not survive. Measured as a margin it is obviously not clearance, and the legs
+  get apertures.
+- ⚠️ **It is a cover, not a structure.** Nothing here checks that it holds its
+  shape under its own weight, nor what the fold does when the spine yaws rather
+  than pitches -- the table above is the sagittal case only. `[owed]`
 
 ---
 

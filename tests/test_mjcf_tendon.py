@@ -7341,9 +7341,15 @@ def test_ADR0073s_CABLE_MARGIN_was_bought_by_a_RIGID_TRUNK():
         # non-monotone too -- 0.05 and 0.10 m saturate, 0.30 does not.
         #
         # ✅ So the finding is not "a held spine no longer protects the cable".
-        # It is that **the shipped gain is in a bad window** and 150 or 1000
-        # would not be. Same signature as M87's survival criterion and M92's kp
-        # islands: a single operating point is not evidence.  `[owed]`
+        # It is that the band exists at all, and 150 or 1000 would sit outside it.
+        #
+        # ⚠️ **And 300 is THIS HARNESS's gain, not a shipped one.** `_held_drop`
+        # implements its own PD law on the spine tendons and defaults it to 300;
+        # the docstring above calls that "the shipped loop" and nothing ships it.
+        # `mjsim.build` uses an MJCF actuator `kp = 1000` -- a different quantity
+        # in different units -- and `_spine_stand` a third law at 8.0. What the
+        # band means for a real spine controller is therefore not established,
+        # only that this law has one.  `[owed]`
         if h < 0.2:
             assert r["cable"] == pytest.approx(MT.TENSION_MAX, rel=1e-3), (
                 f"at {h} m the shipped gain should be inside the saturation "
