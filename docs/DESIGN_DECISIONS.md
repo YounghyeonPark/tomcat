@@ -7558,6 +7558,70 @@ correction above — so the seam sits a little above it. So:
 
 ---
 
+## ADR-0096: the tail, and what it costs to carry one
+
+- **Status:** Accepted
+- **Date:** 2026-09-21 (M96)
+- **⚠️ Completes [ADR-0007](#adr-0007)'s motor count, five milestones late.**
+
+### Context
+
+Continuing the modelling turned up a part that could not count itself. ADR
+decision F bought **19 motors** -- 12 leg, 3 spine pitch, 3 spine yaw and **1
+tail** -- and `params.py` still budgets a "7-motor spine+tail bank". M88
+redistributed the motors along the trunk and placed **18**. The tail's fell out
+and no check counted it, because the trunk's own motor line read `%d of 18`.
+
+The tail itself had no length, no mass and no section anywhere in the model.
+And `SPINE_TAIL_SPEC` mounts it at `x = 0`, which was the pelvic girdle's rear
+face when the trunk was two boxes; M88's rear girdle runs from -112 to -7 with
+the hip at its FRONT, so the spec now grows a tail **112 mm forward through its
+own body**.
+
+### Decision
+
+Draw it, mount it where the body ends, and **account for it** rather than
+justify it.
+
+- Base at the girdle's rear face on the **spine axis**, because the caudal chain
+  continues the vertebral one.
+- 225 mm, 0.62 of the trunk. `[assumed]` -- ANATOMY.md gives a vertebra count
+  and no proportion.
+- The 19th motor needs **no new row**: body 0 is 104.6 mm and two rows already
+  use 88.2, but a third POSITION fits. On the centreline it must clear the pair
+  by 2R, so |z| >= 28.0, and 28.5 reaches 45.8 against a 56.7 half-height.
+
+### Consequences
+
+- ✅ **19 of 19 placed**, and the roles separate honestly: 6 hind, 6 fore,
+  6 spine, 1 tail.
+- ⚠️ **The drive-train check counted by ROW and a row can hold two roles.** It
+  read `tri3` as seven legs' worth on body 0 for a leg that needs six. Roles are
+  per position now.
+- ⚠️ **THE result, and it is an account rather than a capability:**
+
+  | | share of the body's pitch inertia |
+  |---|---|
+  | what the tail ADDS | **+11.7 %** |
+  | what its curl MODULATES | **+0.8 %** |
+  | cost per unit of use | **14x** |
+
+  Density does not change the ratio -- the tail is all lever, so cost and
+  authority scale together. So it is **not an inertial device**, which agrees
+  with G6 being withdrawn ([ADR-0071](#adr-0071)) and with ADR-0007 calling it
+  coarse. The only design choice left is how light: silicone 56 g / 11.7 %,
+  hollow TPU 17 g / 3.6 %, EVA foam 10 g / **2.0 %**.
+- ⚠️ The righting reflex is already a factor of nine short (ADR-0093). A tail
+  at silicone density makes the body 11.7 % harder to rotate for 0.8 % of
+  authority, so **the material choice is a righting decision**, not a finish
+  one. Foam unless something else argues.  `[owed]`
+- ⚠️ The motor budget moved: 18 x 131.7 -> **19 x 131.7 = 2502 g**, so the
+  trunk's structure allowance falls 1024 -> **893 g** and what is left for the
+  un-drawn battery, electronics and cable falls to **522 g**. `params.py` still
+  says "7-motor spine+tail bank" in the middle segment, which M92 already owed.
+
+---
+
 ---
 
 ### How to add an ADR

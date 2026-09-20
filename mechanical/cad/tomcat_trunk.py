@@ -85,7 +85,22 @@ ROWS = {
                   (-20.2, -20.2), (20.2, -20.2)], 43.8),
     "pair2":    ([(-20.2, 0.0), (20.2, 0.0)], 40.5),
     "stack2":   ([(0.0, 20.3), (0.0, -20.3)], 32.4),
+    # ✅ **The tail's motor, and it needs no new row.** ADR decision F bought
+    # **19** motors -- 12 leg, 3 spine pitch, 3 spine yaw and 1 TAIL -- and M88's
+    # redistribution placed 18: the tail's fell out and nothing counted it back.
+    # Body 0 is 104.6 mm long and two rows already use 88.2, so a third ROW does
+    # not fit; a third POSITION does. On the centreline it must clear the pair by
+    # 2R, so |z| >= 28.0, and at 28.5 it reaches 45.8 against a 56.7 half-height.
+    "tri3":     ([(-20.2, 0.0), (20.2, 0.0), (0.0, 28.5)], 40.5),
 }
+
+#: ⚠️ **A row can hold motors of more than one ROLE, and the check counted
+#: by row.** `tri3` carries two hind-leg motors and the TAIL's, and reading
+#: the row's role for all three made the drive-train check report "7 motors
+#: on body 0" for a leg that needs 6. Position index -> role, where it is not
+#: the row's own.
+POSITION_ROLE = {("tri3", 2): "tail"}
+
 
 #: One row per rigid body, chest to tail. The **waist** is the two-motor row --
 #: a cat is pinched between the ribcage and the pelvis, and that is where the
@@ -128,7 +143,7 @@ LAYOUT = [
     ("spine_c", 2, 0.50, "stack2", "spine"),
     ("spine_b", 1, 0.50, "diamond4", "spine"),
     ("hind_a", 0, 1.00, "pairs4", "hind"),
-    ("hind_b", 0, 0.00, "pair2", "hind"),
+    ("hind_b", 0, 0.00, "tri3", "hind"),
 ]
 
 #: Rigid body extent along x. Each end retreats from its joint by half the gap.
@@ -647,25 +662,28 @@ def report():
     # motors have to sit on the body that leg hangs from; anywhere else the cable
     # crosses a spine joint, so bending the spine drives the leg. A spine motor
     # has to be beside the joint it drives, for the same reason.
-    GIRDLE = {"hind": 0, "fore": 3}
+    GIRDLE = {"hind": 0, "fore": 3, "tail": 0}
+    # ⚠️ Counted per POSITION, not per row: `tri3` carries two hind-leg motors
+    # and the tail's, and counting by row read it as seven legs' worth.
     per_role = {}
     for (_nm, b, _x, n, role) in _rows():
-        per_role.setdefault(role, []).append((b, n))
+        for k in range(len(ROWS[n][0])):
+            per_role.setdefault(POSITION_ROLE.get((n, k), role), []).append(b)
     for role, want_body in GIRDLE.items():
-        got = sum(len(ROWS[n][0]) for (b, n) in per_role.get(role, [])
-                  if b == want_body)
-        stray = sum(len(ROWS[n][0]) for (b, n) in per_role.get(role, [])
-                    if b != want_body)
-        note = "" if got >= 6 else "   *** needs 6, two legs x three"
-        print("  %-5s legs: %d motors on body %d%s" % (role, got, want_body, note))
-        if got < 6 or stray:
+        got = sum(1 for b in per_role.get(role, []) if b == want_body)
+        stray = sum(1 for b in per_role.get(role, []) if b != want_body)
+        need = 1 if role == "tail" else 6
+        note = "" if got >= need else "   *** needs %d" % need
+        print("  %-5s: %d motor%s on body %d%s"
+              % (role, got, "" if got == 1 else "s", want_body, note))
+        if got < need or stray:
             ok = False
         if stray:
             print("      *** %d on another body -- the cable would cross a "
                   "spine joint" % stray)
-    n_spine = sum(len(ROWS[n][0]) for (_b, n) in per_role.get("spine", []))
+    n_spine = len(per_role.get("spine", []))
     print("  spine: %d motors on bodies %s"
-          % (n_spine, sorted(b for (b, _n) in per_role.get("spine", []))))
+          % (n_spine, sorted(set(per_role.get("spine", [])))))
     if n_spine != 6:
         print("      *** ADR-0006 needs six, three joints x two DOF")
         ok = False
@@ -713,7 +731,11 @@ def report():
              2 * _hw("fore_a") * ASPECT))
     print("  belly            %.1f mm at the chest -> %.1f at the waist  (tuck-up %.1f)"
           % (min(belly), max(belly), max(belly) - min(belly)))
-    print("  motors           %d of 18" % n_mot)
+    print("  motors           %d of 19  (12 leg + 3 pitch + 3 yaw + 1 tail)"
+          % n_mot)
+    if n_mot != 19:
+        print("      *** ADR decision F bought 19")
+        ok = False
     print("  trunk length     %.0f mm   chest %.1f w x %.1f h   waist %.1f x %.1f"
           % (hi - lo, 2 * _hw("fore_a"), 2 * _hw("fore_a") * ASPECT,
              2 * _hw("spine_c"), 2 * _hw("spine_c") * ASPECT))
@@ -726,7 +748,7 @@ def report():
     # `_fuse` explains -- and the 200 was recalled, not derived. Both are printed
     # from the model now, so neither can drift from it again.
     allow = SP.trunk_mass * MM
-    motors_g = 18 * 131.7
+    motors_g = 19 * 131.7
     budget = allow - motors_g - 240.0
     struct = total_v * 1.2e-3
     print("  structure        %.0f cm3 -> %.0f g nylon-CF" % (total_v / 1000.0, struct))
