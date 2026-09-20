@@ -7622,6 +7622,54 @@ justify it.
 
 ---
 
+## ADR-0097: the head, and the third of the pitch inertia nobody was carrying
+
+- **Status:** Accepted
+- **Date:** 2026-09-21 (M97)
+
+### Context
+
+`SpineParams.front_girdle_mass` absorbs **240 g of head and neck** and lumps it
+at the girdle mount. `params.py` carried the warning in its own comment --
+*"the head is the weak point and it is not in the box... putting it forward
+would raise the pitch inertia"* -- and nobody had measured by how much.
+
+### Decision
+
+Give the lump a place and a shape, and **size it by the body's MASS**.
+
+⚠️ The first attempt scaled the head off the trunk: 363 mm against a cat's
+~250 gives 1.45x. That is the wrong ruler twice over. This robot is **4.38 kg**,
+which is a cat, so a cat's head is the right head -- and the trunk is long FOR
+that mass because the rear girdle reaches 112 mm behind the hip, a standing
+`[owed]`. Scaling by it copies that defect into the head:
+
+| sizing | head mm | nose x | adds Iyy | % of body |
+|---|---|---|---|---|
+| **by mass, a cat** | **95** | 407 | **1.02e-2** | **24 %** |
+| by trunk length | 138 | 470 | 1.39e-2 | 33 % |
+
+The neck is one rigid lump with the head: ANATOMY.md puts the 7 cervical
+vertebrae explicitly out of scope, which is what the mass model always assumed.
+
+### Consequences
+
+- ⚠️ **Placing it costs 24 % of the body's pitch inertia** (+1.02e-2 on 4.20e-2)
+  and carries the CoM **7.1 mm forward**. The lever from the body CoM goes
+  **81 -> 219 mm**.
+- ⚠️ **With ADR-0096's tail at 11.7 %, the plant has been missing about a third
+  of its own pitch inertia** -- and the righting reflex is already a factor of
+  nine short ([ADR-0093](#adr-0093)). Neither part was invented here; both were
+  in the budget with no position.
+- ✅ Checks pass: the head sits 115 mm up against a dorsal line of 80, which
+  is how a cat carries it, and it does not touch the fore leg.
+- ⚠️ **Nothing is propagated yet.** `front_girdle_com` and
+  `front_girdle_inertia` still lump the 240 g in the housing, so the plant does
+  not yet know. Moving it re-baselines the dynamics a fourth time and wants the
+  tail's material decided first -- the two land in the same account. `[owed]`
+
+---
+
 ---
 
 ### How to add an ADR
