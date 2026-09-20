@@ -7624,8 +7624,16 @@ justify it.
 
 ## ADR-0097: the head, and the third of the pitch inertia nobody was carrying
 
-- **Status:** Accepted
+- **Status:** Accepted — M97, **its shape re-derived from a photograph the same
+  day (M98)**
 - **Date:** 2026-09-21 (M97)
+- **⚠️ CORRECTION (M98).** The form below was built from spheres on a rising
+  axis and the proportions were invented. Traced off a side-view cat they are
+  wrong in three ways: the head was carried **+35 mm** above the back where a
+  cat carries it **+108** (a head-length); its depth-to-length ratio was 0.6
+  where a cat's is about 0.78; and a first re-trace shipped the scan's **crop
+  line** as the neck's underside. Corrected, the cost rises **24 % -> 29 %** --
+  getting the shape right made the account worse.
 
 ### Context
 

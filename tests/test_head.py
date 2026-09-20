@@ -48,11 +48,18 @@ def test_the_head_is_sized_by_MASS_not_by_the_trunks_length():
     )
 
 
-def test_placing_the_240_g_costs_a_QUARTER_of_the_pitch_inertia():
-    """⚠️ THE number, and `params.py` predicted its sign and not its size."""
+def test_placing_the_240_g_costs_a_THIRD_of_the_pitch_inertia():
+    """⚠️ THE number, and `params.py` predicted its sign and not its size.
+
+    It moved once more when the posture came from the photo: carrying the head
+    where a cat carries it -- a head-length above the back rather than the 35 mm
+    first drawn -- lengthens the z lever and takes the cost **24 % -> 29 %**.
+    Getting the shape right made the account worse, which is the usual direction
+    in this project and not a reason to prefer the wrong shape.
+    """
     a = HD.account()
-    assert a["frac"] == pytest.approx(0.24, abs=0.02)
-    assert a["dcom"] == pytest.approx(7.1, abs=0.5)
+    assert a["frac"] == pytest.approx(0.29, abs=0.02)
+    assert a["dcom"] == pytest.approx(7.5, abs=0.6)
     assert a["lever_after"] > 2.5 * a["lever_before"], (
         "lever %.0f -> %.0f mm" % (a["lever_before"], a["lever_after"])
     )
@@ -66,16 +73,43 @@ def test_the_lump_is_where_params_says_it_is_TODAY():
     assert HD.LUMPED_AT[1] == pytest.approx(SP.front_girdle_com[1] * 1e3)
 
 
-def test_the_head_is_carried_ABOVE_the_back_and_off_the_shoulder():
-    top = max(s.bounding_box().max.Z for s in HD.head().solids())
-    assert top > TT.Z_DORSAL + 20.0, (
-        "a cat carries its head above the dorsal line; this is at %.0f vs %.0f"
-        % (top, TT.Z_DORSAL)
+def test_the_head_is_carried_a_HEAD_LENGTH_above_the_back():
+    """⚠️ Measured off a side-view cat, and it was the biggest error in the
+    first version: the head sat **+35 mm** where the photo puts it **+108**, a
+    third of the height a cat carries it. The topline ratios are scale-free --
+    read in head-lengths above the back line -- which matters because the ruler
+    in this file has been wrong twice."""
+    top = HD.cranium_top()
+    assert top - TT.Z_DORSAL == pytest.approx(1.14 * HD.HEAD_L, rel=0.05), (
+        "the skull tops out %.0f mm above the back; the trace says %.0f"
+        % (top - TT.Z_DORSAL, 1.14 * HD.HEAD_L)
     )
-    base = HD._axis()[0]
-    assert base[0] == pytest.approx(TT.BODIES[3][1]), (
-        "the neck leaves from the trunk's front face"
+    nose = max(x for x, _t, _b, _w in HD._stations())
+    assert nose == pytest.approx(TT.BODIES[3][1] + HD.U_WITHERS * HD.HEAD_L,
+                                 abs=1.0)
+
+
+def test_what_the_PHOTO_can_say_is_separated_from_what_it_cannot():
+    """⚠️ A side silhouette cannot separate the head's underside from the
+    neck's front: traced, the "head depth" comes out **1.44 head-lengths** where
+    a cat's head is about 0.75, because below the jaw the outline is already
+    throat and then chest. The scan was clipped as well, so past u ~ 0.95 the
+    bottom reads a flat -0.99 -- the cut line, shipped as a shape in the first
+    two attempts.
+
+    ✅ So the TOP line is taken from the photo and the depth from anatomy, and
+    the two are not averaged together.
+    """
+    prof = HD._profile()
+    clipped = [b for u, _t, b in prof if u > 1.0]
+    assert clipped and min(clipped) == pytest.approx(max(clipped), abs=0.02), (
+        "the bottom past the occiput should be the flat crop line, which is "
+        "exactly why it is not used"
     )
+    assert max(u for u, _t, _b in prof if u <= HD.U_OCCIPUT) < 1.0, (
+        "no station past the crop may reach the stations list"
+    )
+    assert 0.6 < HD.DEPTH_FRAC < 0.9, "the depth is anatomical, not traced"
 
 
 def test_the_mass_is_the_BUDGET_not_a_density_guess():

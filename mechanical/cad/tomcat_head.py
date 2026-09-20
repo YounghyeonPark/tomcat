@@ -24,7 +24,7 @@ import os
 import sys
 
 import numpy as np
-from build123d import Compound, Cylinder, Plane, Pos, Sphere, Sphere as _S
+from build123d import Compound, Cylinder, Ellipse, Plane, Pos, Sphere
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 if HERE not in sys.path:
@@ -56,7 +56,26 @@ HEAD_NECK_G = 240.0
 #: short.  `[derived: mechanical/reference/ANATOMY.md]`
 SCALE = 1.0
 
-NECK_L = 50.0 * SCALE
+#: ✅ **Measured off a side-view cat, not assumed.** The silhouette of a
+#: standing *Felis silvestris* restoration was traced and its landmarks read:
+#: the back runs 455 px from withers to tail base, which is this trunk's 364 mm,
+#: so 1 px = 0.80 mm. From that:
+#:
+#:     landmark                      photo      this model was
+#:     head top above the back line   90 mm      35 mm
+#:     neck length                    68         50
+#:     neck rise from the withers     41 deg     22
+#:     head length                   110         95
+#:
+#: ⚠️ **The head was carried far too low** -- a third of the height a cat
+#: carries it. It is not a cosmetic difference: the head is 240 g and raising it
+#: lengthens its lever about the body CoM.
+#:
+#: ⚠️ The image it came from is `.gitignore`d and its licence was never
+#: established, so **this measurement cannot be re-run from the repo**. The same
+#: landmarks want re-taking from the public-domain Reighard & Jennings plates
+#: that `ANATOMY.md` names as authoritative.  `[owed]`
+NECK_L = 68.0 * SCALE
 HEAD_L = 95.0 * SCALE
 
 #: Where the neck leaves the body, and at what angle. A cat carries its head
@@ -65,52 +84,123 @@ HEAD_L = 95.0 * SCALE
 #: everything in how the animal reads.
 BASE_X = TT.BODIES[3][1]
 BASE_Z = TT.SPINE_Z
-RISE_DEG = 22.0
+RISE_DEG = 41.0
 
 
-def _axis():
-    """`(neck_base, neck_top, head_centre)` in (x, z), rising out of the thorax."""
-    a = math.radians(RISE_DEG)
-    b = np.array([BASE_X, BASE_Z])
-    t = b + NECK_L * np.array([math.cos(a), math.sin(a)])
-    h = t + 0.5 * HEAD_L * np.array([math.cos(a * 0.4), math.sin(a * 0.4)])
-    return b, t, h
+#: ✅ **The outline is TRACED, not invented.** The head and neck were built
+#: from spheres on a rising axis, and a side-view cat says that is not the shape:
+#:
+#:     station                photo, in head-lengths   the sphere model
+#:     nose, above the back        -0.11                rising 41 deg
+#:     ear tip                     +1.14                +0.37 at the top
+#:     occiput                     +0.96
+#:     head depth / length          1.6                  0.6  -- far too flat
+#:
+#: ⚠️ A cat's nose sits slightly BELOW its back line and its skull top a full
+#: head-length above it; the muzzle points forward, not up. Read in head-lengths
+#: the profile is scale-free, which matters because the ruler has been wrong
+#: twice in this file already.
+#:
+#: `reference/head_profile.json` holds `(u, top, bottom)` per station, u measured
+#: in head-lengths back from the nose and heights above the trunk's dorsal line.
+#: ⚠️ It was traced from an image that is `.gitignore`d, whose licence was never
+#: established, and which is a **European wildcat** rather than a domestic one.
+#: The same trace wants re-taking from the public-domain Reighard & Jennings
+#: plates `ANATOMY.md` names as authoritative.  `[owed]`
+def _profile():
+    import json
+    with open(os.path.join(os.path.dirname(HERE), "reference",
+                           "head_profile.json")) as fh:
+        return [(u, t, b) for u, t, b in json.load(fh)]
 
 
-def neck(r0=26.0, r1=21.0):
-    """A tapering column from the girdle's front face."""
-    b, t, _h = _axis()
-    d = np.array([t[0] - b[0], 0.0, t[1] - b[1]])
-    L = float(np.linalg.norm(d))
-    mid = ((b[0] + t[0]) / 2, 0.0, (b[1] + t[1]) / 2)
-    parts = [Plane(origin=mid, z_dir=tuple(d)).location * Cylinder(0.5 * (r0 + r1), L)]
-    parts.append(Pos(b[0], 0.0, b[1]) * Sphere(r0))
-    parts.append(Pos(t[0], 0.0, t[1]) * Sphere(r1))
-    return Compound(parts)
+#: Widest the head gets, in head-lengths. A cat's skull is about 0.72 of its
+#: length across the zygomatic arches.  `[assumed]`
+WIDTH_FRAC = 0.72
 
 
-def head():
-    """The cranium as a tapering form, wider at the cheeks than the muzzle."""
-    _b, t, h = _axis()
-    a = math.radians(RISE_DEG * 0.4)
-    u = np.array([math.cos(a), 0.0, math.sin(a)])
-    parts = []
-    n = 8
-    for i in range(n + 1):
-        f = i / n
-        p = np.array([t[0], 0.0, t[1]]) + u * (HEAD_L * f)
-        # cheeks at 0.35 of the length, muzzle narrow
-        r = 34.0 * (1.0 - 0.55 * abs(f - 0.35) / 0.65) if f > 0.35 else             34.0 * (0.70 + 0.30 * f / 0.35)
-        parts.append(Pos(*p) * Sphere(max(r, 9.0)))
-    # ears
-    for sgn in (-1.0, +1.0):
-        e = np.array([t[0], 0.0, t[1]]) + u * (HEAD_L * 0.22)
-        parts.append(Pos(e[0], sgn * 20.0, e[2] + 30.0) * Sphere(13.0))
-    return Compound(parts)
+def _stations():
+    """`(x, z_top, z_bot, half_width)` in mm, nose first.
+
+    ⚠️ **A side silhouette cannot separate the head's underside from the
+    neck's front, and the first two versions of this used it as if it could.**
+    Traced, the "head depth" comes out **1.44 head-lengths** -- a cat's head is
+    about 0.75 deep -- because below the jaw the outline is already throat, then
+    chest. Worse, the scan was clipped, so past u ~ 0.95 the bottom reads a flat
+    -0.99: the cut line.
+
+    ✅ So the TOP line is what the photo is good for -- it runs against white
+    all the way from the nose over the ears to the withers -- and the depth
+    comes from anatomy. What is measured and what is assumed are separated here
+    rather than averaged.
+    """
+    L = HEAD_L
+    out = []
+    for u, t, _b in _profile():
+        if u > U_OCCIPUT:
+            continue
+        x = BASE_X + (U_WITHERS - u) * L
+        zt = TT.Z_DORSAL + t * L
+        # muzzle shallow, cranium full depth, tapering back to the occiput
+        d = DEPTH_FRAC * L * (0.35 + 0.65 * min(u / 0.45, 1.0))
+        hw = 0.5 * min(d, WIDTH_FRAC * L)
+        out.append((x, zt, zt - d, hw))
+
+    ox, ozt, ozb, ohw = out[-1]
+    thw = TT._row_hw_at(BASE_X)
+    tzt = TT.Z_DORSAL
+    tzb = TT._zc(BASE_X) - thw * TT.ASPECT
+    n = 6
+    for k in range(1, n + 1):
+        f = k / n
+        out.append((ox + (BASE_X - ox) * f,
+                    ozt + (tzt - ozt) * f,
+                    ozb + (tzb - ozb) * f,
+                    ohw + (thw - ohw) * f))
+    return out
+
+
+#: A cat's head is about this deep, as a fraction of its length.  `[assumed]`
+DEPTH_FRAC = 0.78
+
+#: Where the cranium ends and the neck begins, in head-lengths from the nose.
+U_OCCIPUT = 0.95
+
+#: Where the traced profile meets the body: the withers, in head-lengths.
+U_WITHERS = 2.0
 
 
 def whole():
-    return Compound(list(neck().solids()) + list(head().solids()))
+    """Head and neck, as a chain of short lofts through the traced sections.
+
+    ⚠️ One loft through all 27 sections went unstable -- the spline overshot to
+    a bounding box of z -378..1731 on a shape 220 mm long -- because it starts
+    from a near-degenerate nose section and the aspect ratio swings through the
+    cranium. Segment by segment each loft spans two sections and cannot ring.
+    """
+    from build123d import loft
+    st = [x for x in _stations() if (x[1] - x[2]) > 6.0]
+    parts = []
+    for (x0, t0, b0, w0), (x1, t1, b1, w1) in zip(st[:-1], st[1:]):
+        if abs(x1 - x0) < 1e-6:
+            continue
+        a = Plane(origin=(x0, 0, 0.5 * (t0 + b0)), z_dir=(1, 0, 0))             * Ellipse(max(0.5 * (t0 - b0), 1.5), max(w0, 1.5))
+        b = Plane(origin=(x1, 0, 0.5 * (t1 + b1)), z_dir=(1, 0, 0))             * Ellipse(max(0.5 * (t1 - b1), 1.5), max(w1, 1.5))
+        parts.append(loft([b, a]))
+    return Compound(parts)
+
+
+def cranium_top():
+    """Highest point of the head, in mm.
+
+    ⚠️ This was a second loft through the forward stations alone, and it went
+    unstable -- 21 sections with a reversal in them gave a bounding box of
+    z -929..465 where the whole head spans -34..188. A check must not be built
+    on a derived solid that can overshoot; it reads the stations the shape is
+    generated FROM.
+    """
+    fwd = BASE_X + (U_WITHERS - 1.05) * HEAD_L
+    return max(zt for x, zt, _zb, _hw in _stations() if x >= fwd)
 
 
 def mass_props():
@@ -168,14 +258,16 @@ def report():
           % (a["dI"], 100 * a["frac"], BODY_IYY))
     print("  CoM moves       %+.1f mm forward" % a["dcom"])
 
-    # @W@ a cat carries its head ABOVE the back
-    top = max(s.bounding_box().max.Z for s in head().solids())
-    print("\nhead top        %.0f mm vs the dorsal line %.0f" % (top, TT.Z_DORSAL))
-    if top < TT.Z_DORSAL:
-        print("      *** the head is below the back")
+    # ⚠️ a cat carries its head ABOVE the back
+    top = cranium_top()
+    print("\n  head top        %.0f mm, %+.0f above the dorsal line %.0f"
+          % (top, top - TT.Z_DORSAL, TT.Z_DORSAL))
+    if top < TT.Z_DORSAL + 40.0:
+        print("      *** the head is carried too low: a cat holds it about one "
+              "head-length above the back")
         ok = False
 
-    # @W@ and it must not sit on the shoulder
+    # ⚠️ and it must not sit on the shoulder
     import tomcat_assembly as TA
     leg = TA.one_leg(True, +1.0)
     inter = Compound(list(whole().solids())).intersect(leg)
