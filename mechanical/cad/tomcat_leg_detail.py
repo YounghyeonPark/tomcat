@@ -124,7 +124,16 @@ CLEVIS_ARM_T = 3.0                # arm thickness carrying the bearing bore
 TONGUE_CLEAR = 0.2                # per side, tongue to clevis arm
 BOSS_WALL = 2.5                   # metal around a bearing bore
 
-TRACK_Y = 48.0                    # limb plane, ASSEMBLY_SPEC §0.1
+#: Limb plane, ASSEMBLY_SPEC §0.1.
+#:
+#: ⚠️ **48.0 was set when the trunk was narrower and never followed it.** M88
+#: widened the chest 83.4 -> 90.0 mm, so the girdle's half-width is **45.0** and
+#: a Ø12 femur's inner face sat at 42.0 -- **4 mm inside the flank**, which
+#: showed up only as an 80 mm3 "leg/trunk overlap" passing a 1500 mm3 threshold.
+#: ✅ Derived rather than chosen: girdle half-width + 1 mm clearance + the
+#: femur's radius = 45.0 + 1.0 + 7.0. `tomcat_assembly.report()` measures it as a
+#: DEPTH, because a volume cannot see a shallow, wide interference.
+TRACK_Y = 53.0
 FOOT_X, FOOT_Z, FOOT_PITCH = 0.04, -0.17, 0.0
 
 

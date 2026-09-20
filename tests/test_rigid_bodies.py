@@ -259,13 +259,20 @@ def test_the_mjcf_now_swings_like_the_cad_leg():
         f"({I_cad_hip[1, 1]:.3e} vs {I_mj_hip[1, 1]:.3e})"
     )
     # ✅ and against the calibrated CAD number it is exact
-    assert I_mj_hip[1, 1] == pytest.approx(1.1753e-3, rel=0.02), (
-        f"MJCF swing inertia {I_mj_hip[1, 1]:.4e}, CAD says 1.1753e-3"
+    # ⚠️ M93 (ADR-0093) redesigned the leg -- via pulleys, shafts that reach
+    # them, tubes at SF 2.5 -- and the swing inertia went 1.1753e-3 ->
+    # 1.3816e-3. The MJCF and the CAD still AGREE to 1e-4, which is the whole
+    # point of this test; only the literal was stale.
+    assert I_mj_hip[1, 1] == pytest.approx(1.3816e-3, rel=0.02), (
+        f"MJCF swing inertia {I_mj_hip[1, 1]:.4e}, CAD says 1.3816e-3"
     )
 
-    # ⚠️ because 80 % of the leg is joint hardware sitting AT the joints
+    # ⚠️ because most of the leg is joint hardware sitting AT the joints.
+    # M93 added a group: the SHAFTS became their own, and counting only the old
+    # three read 71 % of a leg that had grown. The bones are still the minority
+    # part -- tube, insert and pad are 22 % between them.
     hw = 0.0
-    for group in ("clevis", "sheave", "bearing"):
+    for group in ("clevis", "sheave", "bearing", "shaft"):
         for sd in (s for c in comps[group] for s in c.solids()):
             hw += LI._props(sd, LI.RHO[group])[0]
     assert hw / M_cad > 0.75, f"joint hardware is {100 * hw / M_cad:.0f} % of the leg"

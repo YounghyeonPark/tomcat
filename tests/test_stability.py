@@ -237,13 +237,32 @@ def test_over_swaying_is_WORSE_than_the_optimum():
     # "improving" stability by turning the number up.
     from tomcat_kin import GaitController, GaitParams
     import numpy as np
-    # NOTE the optimum moved 13.5 -> 12.5 -> 11 deg as the mass model and then the
-    # DYNAMICS were corrected; above ~11 deg the ZMP degrades even though the
-    # static margin keeps improving (see test_dynamics.py).
-    best = min(p.margin for p in GaitController().support_polygon_sweep(200))
-    for deg in (8.0, 18.0, 20.0):
+    # ⚠️ **M93: over-swaying is no longer worse STATICALLY, and this test was
+    # asserting the wrong quantity.** The optimum moved 13.5 -> 12.5 -> 11 -> 12.5
+    # deg as the mass model, the dynamics and then the TRACK were corrected. At
+    # the 106 mm track the static margin rises monotonically with sway -- 5.55 mm
+    # at 12.5 deg, 9.42 at 18 -- so a static comparison now says "sway more",
+    # which is exactly the advice this test exists to refuse.
+    #
+    # ✅ What turns over is the DYNAMIC margin, and past 14 deg the gait is not
+    # merely worse but infeasible: a foot would have to PULL.
+    #
+    #     deg    static mm   ZMP mm   feasible
+    #     11.0        2.04     1.93   yes
+    #     12.5        5.55     4.86   yes  <- the optimum, on the ZMP
+    #     13.5        7.83     1.49   yes
+    #     14.0        8.96    -0.16   NO
+    from tomcat_kin import dynamics
+    best = dynamics.sweep(GaitController())["zmp_margin_min"]
+    for deg in (8.0, 13.5):
         worse = GaitController(params=GaitParams(lateral_amplitude=np.radians(deg)))
-        assert min(p.margin for p in worse.support_polygon_sweep(200)) < best
+        assert dynamics.sweep(worse)["zmp_margin_min"] < best, (
+            "%.1f deg should give a worse ZMP margin than the optimum" % deg)
+    for deg in (14.0, 18.0, 20.0):
+        r = dynamics.sweep(GaitController(
+            params=GaitParams(lateral_amplitude=np.radians(deg))))
+        assert not r["feasible"], (
+            "%.1f deg of sway must be INFEASIBLE, not merely worse" % deg)
 
 
 def test_sequencing_is_not_the_lever_for_lateral_stability():

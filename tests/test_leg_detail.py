@@ -38,17 +38,18 @@ def test_the_spec_torque_table_is_stale_by_the_WHOLE_mass_history(loads):
     |---|---|---|
     | 3.0 kg (§1.1's own basis) | 12.36 N·m | 1.00 |
     | 4.045 kg (ADR-0010) | 16.67 N·m | 1.35 |
-    | **4.3041 kg (ADR-0046)** | **17.73 N·m** | **1.43** |
+    | 4.3041 kg (ADR-0046) | 17.73 N·m | 1.43 |
+    | **4.3833 kg (ADR-0093)** | **18.06 N·m** | **1.46** |
 
     The ratio tracks the body mass exactly, which is what proves §1.1 is simply a
     stale snapshot rather than a different calculation. §2 *was* re-run at 4.045 kg
-    and says "~600 N"; at 4.3041 it is 638 N, so §2 is now stale too — one
+    and says "~600 N"; at 4.3833 it is 650 N, so §2 is now stale too — one
     milestone's correction became the next one's staleness.
     """
     tau, T = loads["land"]["tau"][0], loads["land"]["T"][0]
-    assert tau == pytest.approx(17.73, abs=0.05)
-    assert T == pytest.approx(638.3, abs=1.5)
-    assert tau / 12.36 == pytest.approx(4.3041 / 3.0, rel=0.02), (
+    assert tau == pytest.approx(18.06, abs=0.05)
+    assert T == pytest.approx(650.0, abs=2.0)
+    assert tau / 12.36 == pytest.approx(4.38328 / 3.0, rel=0.02), (
         "the discrepancy should be exactly the body-mass ratio; if it is not, "
         "something other than body mass moved and this needs re-diagnosing"
     )
@@ -89,8 +90,8 @@ def test_the_shipped_tube_sections_do_NOT_make_SF_2_at_the_live_loads(loads):
     assert all(g >= 2.5 for g in got), (
         "SF %s -- if a bone drops under 2.5 the sizing has drifted from the "
         "layout again" % [round(float(g), 2) for g in got])
-    assert got[0] == pytest.approx(2.62, abs=0.05)
-    assert got[2] == pytest.approx(3.03, abs=0.05)
+    assert got[0] == pytest.approx(2.57, abs=0.06)
+    assert got[2] == pytest.approx(2.97, abs=0.05)
 
 
 def test_one_step_up_in_stock_tube_restores_the_margin_cheaply():

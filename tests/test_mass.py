@@ -75,7 +75,7 @@ def _symmetric_trunk_body(leg_mass=0.0):
 def test_default_body_totals_the_load_case_body_mass():
     # The apportionment in params.py is built to reproduce the 3.0 kg that every
     # LoadCase / WholeBodyLoadCase already assumed.
-    assert DEFAULT_BODY_MASS_KG == pytest.approx(4.3041, abs=1e-9)   # ADR-0046
+    assert DEFAULT_BODY_MASS_KG == pytest.approx(4.38328, abs=1e-9)  # ADR-0093
     assert _body().total_mass == pytest.approx(LoadCase("x").body_mass_kg, abs=1e-9)
 
 
@@ -104,8 +104,8 @@ def test_the_fore_hind_leg_ASYMMETRY_has_vanished():
     Design review F2 settled the fore/hind weight split using the old asymmetry and
     is re-checked in `test_fore_hind_split_...` below.
     """
-    assert DEFAULT_HINDLEG.mass == pytest.approx(0.1672, abs=5e-4)
-    assert DEFAULT_FORELEG.mass == pytest.approx(0.1674, abs=5e-4)
+    assert DEFAULT_HINDLEG.mass == pytest.approx(0.18665, abs=5e-4)
+    assert DEFAULT_FORELEG.mass == pytest.approx(0.18749, abs=5e-4)
     assert abs(DEFAULT_HINDLEG.mass - DEFAULT_FORELEG.mass) < 0.001, (
         "the legs are equal now; if a real asymmetry returns, re-derive F2's split"
     )
@@ -152,7 +152,7 @@ def test_fore_hind_split_is_near_balanced_not_sixty_forty():
     # change was symmetric — which is itself the point: the split is set by the
     # girdles and the head, not by the limbs.
     q = _body().mass_budget()
-    assert q.total == pytest.approx(4.3041, abs=1e-9)
+    assert q.total == pytest.approx(4.38328, abs=1e-9)
     assert q.fore + q.hind == pytest.approx(q.total, abs=1e-12)
     assert q.fore_fraction == pytest.approx(0.543, abs=0.02)
     assert q.hind_fraction == pytest.approx(0.457, abs=0.02)
@@ -342,7 +342,7 @@ def test_symmetric_body_with_legs_shifts_by_exactly_the_leg_offset():
 def test_default_com_sits_forward_of_mid_body_because_the_cat_is_front_heavy():
     body = _body()
     c = body.center_of_mass(STRAIGHT, STAND)
-    assert c.mass == pytest.approx(4.3041)
+    assert c.mass == pytest.approx(4.38328)
     # Forward of the mid-spine point, but still between the two girdles.
     assert c.x > DEFAULT_SPINE.total_length / 2.0
     assert 0.0 < c.x < DEFAULT_SPINE.total_length
@@ -352,7 +352,10 @@ def test_default_com_sits_forward_of_mid_body_because_the_cat_is_front_heavy():
     # body's CoM is **above** the hip axis for the first time. Everything that
     # reads a CoM height -- omega, the DCM, every tipping margin -- moved with it.
     assert c.z > 0.0
-    assert c.z == pytest.approx(0.0167, abs=5e-4)
+    # ⚠️ M92 put the CoM above the hip axis (0.0167). M93's heavier legs pull it
+    # back down to **0.0149** -- they hang below the hips, so 20 g per leg at
+    # radius counts twice here. Still above the axis, which is the claim.
+    assert c.z == pytest.approx(0.0149, abs=5e-4)
 
 
 def test_arching_the_spine_moves_the_com_up_and_rearward():
@@ -475,4 +478,4 @@ def test_total_matches_the_revised_NFR5_target():
     # target, and 19 of them do not fit inside 3 kg. See the motor-reality-check
     # note. A domestic cat is 4-5 kg, so the new figure is if anything more
     # biomimetic -- but it was forced by hardware, not chosen.
-    assert _body().mass_budget().total == pytest.approx(4.3041, abs=1e-9)
+    assert _body().mass_budget().total == pytest.approx(4.38328, abs=1e-9)

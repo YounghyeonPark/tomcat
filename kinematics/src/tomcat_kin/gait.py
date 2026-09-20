@@ -329,7 +329,31 @@ class GaitParams:
     # It sits well inside the +/-15 deg
     # per-segment ROM, so the ROM is adequate but has ~1 deg to spare -- the
     # lateral DOF is sized almost exactly right, with no slack for error.
-    lateral_amplitude: float = math.radians(11.0)
+    #
+    # ⚠️ **M93 re-tuned this: 11.0 -> 12.5 deg, because the TRACK moved.** The
+    # sway is what puts the CoM inside a 3-foot triangle, so it is tuned against
+    # the stance width -- and M93 found the legs 5 mm too far in (the girdle's
+    # half-width is 45.0 and `TRACK_Y` was 48), moving the track 96 -> 106 mm.
+    # At the old amplitude the walk's worst polygon margin fell **4.66 -> 2.04
+    # mm**, and separating the two causes says it is the track, not the 20 g per
+    # leg the redesign added:
+    #
+    #     M92 baseline            4.66 mm
+    #     wider track alone       2.13
+    #     heavier legs alone      4.58
+    #     both                    2.04
+    #
+    # ✅ Re-tuned, both margins are better than they have ever been. The DYNAMIC
+    # margin is what picks 12.5, not the static one -- the static keeps rising
+    # while the ZMP turns over, which is the friction limit this comment already
+    # named:
+    #
+    #     deg    static mm   ZMP mm   feasible
+    #     11.0        2.04     1.93   yes   <- the old default
+    #     12.5        5.55     4.86   yes   <- optimum, and the documented one
+    #     13.5        7.83     1.49   yes
+    #     14.0        8.96    -0.16   NO -- a foot would have to pull
+    lateral_amplitude: float = math.radians(12.5)
     # Swing-return profile: "matched" (default, C1/C2 -- end velocities equal the
     # stance sweep so the foot lands without scuffing and the transition carries
     # no acceleration impulse) or "cycloid" (the legacy M2 profile, C0 only).

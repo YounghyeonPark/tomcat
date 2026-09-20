@@ -193,7 +193,10 @@ def test_the_two_diagonals_topple_along_different_axes():
     assert abs(pb[0]) == pytest.approx(pl.projection, rel=1e-3)
 
     angle = math.degrees(math.acos(abs(float(pa @ pb))))
-    assert angle == pytest.approx(52.4, abs=0.5)
+    # ⚠️ M93: the track went 96 -> 106 mm, so the two diagonals swing apart --
+    # **52.4 -> 57.1 deg**. A wider stance makes the two topple axes less
+    # alike, which is the geometry this test names.
+    assert angle == pytest.approx(57.1, abs=0.5)
 
 
 def test_lateral_spine_sway_matches_the_analytical_model(rig):

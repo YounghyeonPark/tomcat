@@ -250,7 +250,8 @@ class LegMount:
 # Default four-leg layout: shoulder pair on the front girdle, pelvic pair on the
 # rear girdle. Hip offsets are (0, 0) placeholders (hips at the girdle mounts).
 # Half-track 0.048 m matches the 96 mm leg track used by the CAD.  ❓ TBD
-TRACK_HALF = 0.048
+#: See `mjcf_tendon.TRACK_HALF` -- M93 moved it 0.048 -> 0.053.
+TRACK_HALF = 0.053
 
 DEFAULT_MOUNTS: tuple[LegMount, ...] = (
     LegMount("LF", Girdle.FRONT, track_y=+TRACK_HALF),

@@ -7305,8 +7305,16 @@ and the mass against the budget.
 
 ## ADR-0092: the vertebral column was running along the belly
 
-- **Status:** Accepted
+- **Status:** Accepted — M92, **the balance-harness diagnosis reversed by
+  [ADR-0093](#adr-0093)**
 - **Date:** 2026-09-08 (M92)
+- **⚠️ CORRECTION (M93).** ~~The harness has no robust operating point at the
+  corrected CoM~~ — it was the TRACK, not the CoM height. The legs sat 5 mm
+  inside the front girdle's flank because `TRACK_Y` never followed M88's wider
+  trunk; with it corrected the baseline reads **0.69 mm mean / 3.08 peak at the
+  shipped gain** and five of the seven tests marked here pass untouched. Two
+  things were wrong at once and this ADR corrected one, then read the wreckage
+  as a property of the plant. Everything else below stands.
 
 ### Context
 
@@ -7384,6 +7392,88 @@ under bend**, which is the check that would have caught it had only one moved.
 - ⚠️ **The quiet baseline was always bought by a CoM 11.8 mm too low.** That is
   the uncomfortable part: `test_mjsim`'s gate, the thing every closed-loop result
   in this project rests on, held because the trunk's mass was in the wrong place.
+
+---
+
+## ADR-0093: the leg, and the 5 mm that was hiding under a volume threshold
+
+- **Status:** Accepted
+- **Date:** 2026-09-20 (M93)
+- **⚠️ REVERSES [ADR-0092](#adr-0092)'s diagnosis of the balance harness.**
+
+### Context
+
+*"There are parts of the leg design that are not connected -- how can this be
+called done?"* It could not. I had measured 9.5 % of every cable inside sheave
+material and then written a check over four groups that left `sheave` out; it
+printed 0.0 % and passed. Asked instead what each part attaches to, the leg was
+**five pieces**: the paw and its pad 5.04 mm clear of the metatarsus, both via
+pulleys floating with no shaft reaching them, and the return spring anchored to
+nothing.
+
+### Decision
+
+Redesign rather than patch, and derive the routing instead of adjusting it.
+
+A 2-groove band is 6.81 mm and 2 deg of fleet over the longest bone allows 3.3,
+so **no layout where a run crosses bands can work**. With ADR-0008's continuous
+cable a joint needs one groove per CABLE, which leaves a **monotone stack**: one
+plane per cable, hip innermost, ankle outermost, fleet zero by construction. All
+six orders were priced; hip-knee-ankle costs 0.7 g of tube against 5.86 deg.
+
+Tubes sized to SF 2.5 at the offsets the routing actually produces: **Ø14 /
+Ø12 / Ø12**, against §3.5's Ø12/Ø10/Ø8 which measured 1.83 / 1.94 / 1.75.
+
+### Consequences
+
+- ✅ Cable inside part material **22 % -> 0.0** (all rigid groups), fleet
+  **5.86 -> 0.00 deg**, concentric pulleys sharing space **787.9 -> 0 mm3**,
+  connected pieces **5 -> 1**, SF **2.62 / 2.78 / 3.03**, mass unassigned to any
+  link **14.67 -> 0.00 g**.
+- ⚠️ **An 80 mm3 leg/trunk overlap had passed a 1500 mm3 threshold for four
+  milestones.** As a DEPTH it is the femur **5.0 mm inside the front girdle's
+  flank**: the girdle's half-width is 45.0 and `TRACK_Y` was 48, set before M88
+  widened the chest 83.4 -> 90.0. A volume threshold cannot see a shallow, wide
+  interference. Track **96 -> 106 mm**, derived as 45.0 + 1.0 + the femur radius.
+- ⚠️ Leg **167.2 -> 186.7 g**, body **4.3041 -> 4.38328 kg**; runtime
+  19.53 -> **18.81 min** against NFR6's 30, and NFR5 exceeded by 8.4 %.
+- ✅ **Lateral sway re-tuned 11.0 -> 12.5 deg.** The sway is tuned against the
+  stance width, and at the old amplitude the wider track cost the walk
+  **4.66 -> 2.04 mm** of margin. Separating the causes: track alone 2.13, heavier
+  legs alone 4.58. The DYNAMIC margin picks 12.5, not the static one -- static
+  keeps rising while the ZMP turns over and 14 deg is infeasible.
+- ✅ **NFR15 is met from mu 0.5 at both speeds** (50.80 and 49.13 mm). M92
+  recorded that guard as 22 microns from flipping.
+
+### ⚠️ The correction to ADR-0092, and it is the important part
+
+ADR-0092 measured the balance baseline at **7.32 mm mean / 89.59 peak**, found
+stiffness and damping sweeps giving isolated islands, concluded *"the harness has
+no robust operating point at the corrected CoM"*, and marked seven tests.
+
+**Five of the seven pass now and nothing about the balance loop changed.** With
+the track corrected the baseline reads **0.69 mm mean / 3.08 peak at the shipped
+`kp = 80`** -- better than it has ever been, and better than the ventral-spine
+baseline that was itself bought by a CoM in the wrong place.
+
+Two things were wrong at once. I corrected one, measured the wreckage, and read
+it as a property of the plant. The measurement was right; the CAUSE was assumed.
+
+### Other reversals, recorded rather than smoothed
+
+- ⚠️ **ADR-0073's condition is a gain WINDOW, not a floor.** At a 0.05 m held
+  drop the leg cable saturates at kp 0 and again across a band from ~250 to
+  ~600 -- and the SHIPPED gain is 300. kp 25-200 and 800+ are clean, and 0.30 m
+  does not saturate where 0.05 and 0.10 do. Same signature as M87's survival
+  criterion: a single operating point is not evidence. `[owed]`
+- ⚠️ **ADR-0072's assumption fails.** Compliance left the sway alone at +1 %;
+  it now takes **-37 %** (4.60 -> 2.90 mm).
+- ⚠️ **The compliance penalty on righting went negative**: M71's 4.7x, M87's
+  3 %, and now **7 % FASTER** than rigid.
+- ⚠️ The bare cable no longer inverts the robot, it falls to 48 deg; the worst
+  standing tendon came **off** the 222.9 N ceiling to 192.8; M44's clipped-hip
+  drift 197 -> 17.3 -> **4.5 deg**, while the ratio it is really about stayed
+  at ~450x.
 
 ---
 

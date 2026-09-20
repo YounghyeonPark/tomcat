@@ -923,7 +923,12 @@ def leg_tendon_xml(name: str, leg_p, arms, indent: int = 4,
 
 
 #: Lateral half-track (m) — where the limb planes sit. ASSEMBLY_SPEC §0.1.
-TRACK_HALF = 0.048
+#: ⚠️ **0.048 was set when the trunk was narrower.** M88 widened the chest
+#: 83.4 -> 90.0 mm, so the girdle's half-width is 45.0 and a femur's inner
+#: face sat 4-5 mm INSIDE it -- visible only as an 80 mm3 leg/trunk overlap
+#: passing a 1500 mm3 threshold. Derived: 45.0 + 1.0 clearance + 7.0 femur
+#: radius. `tomcat_leg_detail.TRACK_Y` is the same number in mm.
+TRACK_HALF = 0.053
 
 #: Where each girdle sits along x, from the trunk centre (m). `[assumed]` to match
 #: the packaging study's two clusters.

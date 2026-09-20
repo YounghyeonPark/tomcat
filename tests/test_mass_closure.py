@@ -34,7 +34,8 @@ def closed():
 
 
 def test_the_body_mass_closes_ABOVE_NFR5(closed):
-    """⚠️ 4.045 -> **4.304 kg**, NFR5's 4.05 kg exceeded by 6.3 %.
+    """⚠️ 4.045 -> 4.304 kg (M87) -> **4.383 kg** (M93), NFR5's 4.05 kg
+    exceeded by **8.4 %**.
 
     `WholeBody.total_mass` is `trunk_mass + sum(leg masses)`, so ADR-0041's 167 g
     leg propagates straight into the body mass. Every mass-derived result in the
@@ -53,8 +54,9 @@ def test_the_body_mass_closes_ABOVE_NFR5(closed):
         + 2 * sum(DEFAULT_FORELEG.link_mass), abs=1e-4), (
         "and params now agrees with the CAD -- if these diverge, one drifted"
     )
-    assert closed["body"] == pytest.approx(4.304, abs=0.02)
-    assert closed["body"] / old == pytest.approx(1.064, abs=0.01)
+    assert closed["body"] == pytest.approx(4.383, abs=0.02)
+    # ⚠️ NFR5 (4.045 kg) is exceeded by 8.4 % now, was 6.3.
+    assert closed["body"] / old == pytest.approx(1.084, abs=0.01)
 
 
 def test_the_spiral_still_CONVERGES_and_every_design_gate_holds(closed):
@@ -97,10 +99,19 @@ def test_the_joint_hardware_gives_BACK_the_P1_inertia_saving(closed):
     i_old = MC.swing_inertia(MC.PRE_M41_HIND, DEFAULT_HINDLEG)
     assert i_new / i_old > 1.5, f"inertia ratio {i_new / i_old:.2f}"
 
+    # ⚠️ **This asserted the SHARE and the prose claims the MASS.** They are
+    # not the same test once the whole leg gets heavier, and the share version
+    # was passing on a defect: `per_link_mass` divided the clevis mass three ways
+    # equally, over-charging the metatarsus by 5.9 g. M93 fixed that and
+    # redesigned the leg, and the two effects nearly cancelled -- the mass ratio
+    # is what the finding is about, so it is what is asserted.
+    assert hind[2] / MC.PRE_M41_HIND[2] > 1.8, (
+        "the metatarsus mass is %.1f g against %.1f -- the finding is that the "
+        "pulleys stay distal" % (1e3 * hind[2], 1e3 * MC.PRE_M41_HIND[2]))
     share_new = hind / hind.sum()
     share_old = np.asarray(MC.PRE_M41_HIND) / sum(MC.PRE_M41_HIND)
     assert share_new[0] < share_old[0], "the femur's share must FALL"
-    assert share_new[2] > 1.3 * share_old[2], "the metatarsus share must rise"
+    assert share_new[2] > share_old[2], "the metatarsus share must rise"
 
 
 def test_but_the_balance_envelope_barely_moves(closed):

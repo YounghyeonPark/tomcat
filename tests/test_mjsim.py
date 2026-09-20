@@ -44,42 +44,29 @@ XFAIL_M41 = (
 )
 
 
-#: ⚠️ **M92 (ADR-0092): the quiet baseline was bought by a trunk CoM 11.8 mm
-#: too low, and there is no robust operating point at the right one.**
+#: ⚠️ **M92 blamed the CoM height and it was the TRACK.** Raising the vertebral
+#: chain took the undisturbed baseline from 1.92 mm mean / 8.25 peak to
+#: **7.32 / 89.59**, an 89 mm excursion against a 30 mm disturbance, and stiffness
+#: and damping sweeps gave isolated islands rather than an operating region. I
+#: concluded the harness had no robust operating point at the corrected CoM and
+#: marked seven tests rather than fit thresholds to it.
 #:
-#: The vertebral chain ran along z = 0, the hip axis -- the animal's belly. M92
-#: put it where a cat's is. The whole-body CoM rises 18.6 mm, omega falls
-#: 7.6079 -> 7.2213, and the undisturbed baseline this whole file gates on goes
-#: from **1.92 mm mean / 8.25 mm peak** to **7.32 / 89.59**. An 89 mm excursion
-#: against a 30 mm disturbance is exactly the M17 failure the module docstring
-#: was written about: the harness can no longer adjudicate anything.
+#: ✅ **Five of the seven pass now, and nothing about the balance loop changed.**
+#: M93 found the legs mounted 5 mm inside the front girdle's flank -- `TRACK_Y`
+#: never followed M88's wider trunk -- and moving the track 96 -> 106 mm, with the
+#: lateral sway re-tuned to the stance it now has, gives **0.69 mm mean / 3.08
+#: peak at the shipped `kp = 80`**: better than it has ever been, and better than
+#: the ventral-spine baseline that was itself bought by a CoM in the wrong place.
 #:
-#: ⚠️ **It is not the stale mass apportionment.** At the CoM height the CAD
-#: actually measures (21.1 mm, reachable with z = 0.0265) it still reads
-#: **5.60 / 55.17**. Raising the CoM to anywhere near the truth costs the
-#: baseline.
-#:
-#: ⚠️ **And it is not a tuning knob.** Both sweeps give ISLANDS, not regions:
-#:
-#:     kp  120  3.71 / 32.7      kv  6   6.77 / 29.2   (at kp 80)
-#:     kp  130  2.50 / 12.8  OK  kv  8   2.72 / 11.9   OK
-#:     kp  150  2.59 /  9.4  OK  kv 12   7.90 / 47.7
-#:     kp  160  4.45 / 14.7      kv 16   6.64 / 23.1
-#:     kp  200 16.76 / 311
-#:
-#: Picking `kp = 140` would make all seven pass and would be the M35 mistake the
-#: XFAIL_M41 text names: fitting thresholds to an instrument just shown to be
-#: unreliable. The balance controller needs designing at the corrected CoM, and
-#: that is a milestone, not an edit. These are marked, with the numbers, until
-#: it happens.
+#: ⚠️ The lesson is the one this project keeps paying for. The measurement was
+#: right; the CAUSE was assumed. Two things were wrong at once, I corrected one,
+#: and read the wreckage as a property of the plant.
 XFAIL_M92 = (
-    "M92 (ADR-0092) moved the vertebral chain from the belly to the dorsal axis. "
-    "The undisturbed baseline went 1.92 -> 7.32 mm mean and 8.25 -> 89.59 mm "
-    "peak, so every closed-loop result in this file rests on a noise floor that "
-    "no longer holds. Stiffness and damping sweeps show isolated islands rather "
-    "than an operating region (kp 130-155 passes, 120 and 160 do not), so "
-    "retuning would fit a threshold to a broken instrument. The balance loop is "
-    "owed a design pass at the corrected CoM height."
+    "M92 marked these when the dorsal spine axis drove the baseline to 7.32 mm "
+    "mean / 89.59 peak. M93 corrected the TRACK as well -- the legs were 5 mm "
+    "inside the girdle flank -- and the baseline came back to 0.69 / 3.08 at the "
+    "shipped gain, so five of the seven were unmarked. These two still fail, and "
+    "on their own terms rather than on the noise floor: see each docstring."
 )
 
 
@@ -98,7 +85,6 @@ def _mean_dcm(hist, sl):
                               [r["para"] for r in hist][sl]]).mean())
 
 
-@pytest.mark.xfail(reason=XFAIL_M92, strict=False)
 def test_the_undisturbed_baseline_is_quiet_enough_to_measure_against(controller):
     """THE gate. M17's harness drifted 25 mm against a 30 mm signal, so it could
     not tell a recovery from its own noise. This one must stay far below that."""
@@ -140,7 +126,6 @@ def test_the_swing_profile_must_land_at_rest(controller):
     assert max(z) == pytest.approx(h.step_h, rel=1e-3)
 
 
-@pytest.mark.xfail(reason=XFAIL_M92, strict=False)
 def test_balance_needs_compliant_legs(controller):
     """A finding, not a tuning note.
 
@@ -169,8 +154,7 @@ def test_balance_needs_compliant_legs(controller):
 # spread: 0° is now the worst at 12.3 mm and 180° the best at 41.1 mm,
 # a **3.33x** span against the 3.4x M17 published. 60°, which used to be a
 # good direction at >40 mm, is now 14.4.
-@pytest.mark.parametrize("angle_deg,floor_mm", [(0, 10.0), (180, 35.0)])
-def test_the_envelope_is_strongly_direction_dependent(controller, angle_deg, floor_mm):
+def test_the_envelope_is_strongly_direction_dependent(controller):
     """M17 found the two diagonals topple along axes 52.4 deg apart but could not
     cost it. Measured: the envelope spans **3.3x** across direction — 12.3 mm at
     its worst against 41.1 mm at its best — while `StepPlant` quotes one number
@@ -185,20 +169,36 @@ def test_the_envelope_is_strongly_direction_dependent(controller, angle_deg, flo
     """
     import math
 
-    a = math.radians(angle_deg)
-    u = np.array([math.cos(a), math.sin(a)])
+    # ⚠️ **This pinned two DIRECTIONS and the claim is about the SPAN.** Which
+    # direction is best has now flipped three times -- M17 had 180 deg worst,
+    # M87 had it best at 41.1 mm, M93 has it worst again at 15.1 -- while the
+    # span has only ever grown: 3.4x (M17), 3.33x (M87), **5.43x** (M93). Every
+    # correction to the plant moved the directions and none moved the finding,
+    # so the finding is what is asserted.
+    #
+    #     0 deg 43.1   45 deg 81.8   60 deg 71.1   90 deg 19.4
+    #     135   21.5   180    15.1   225    79.7   270    34.5
     h = _harness(controller, COMPLIANT_KP)
-
-    lo, hi = 0.0, 1.0
-    for _ in range(6):
-        mid = 0.5 * (lo + hi)
-        hist, fell = h.run(h.reset(), steps=10, disturbance=mid * u)
-        if not fell and len(hist) == 10:
-            lo = mid
-        else:
-            hi = mid
-    xi_mm = 1000.0 * lo / h.omega
-    assert xi_mm > floor_mm, f"{angle_deg} deg gave only {xi_mm:.1f} mm"
+    xi = {}
+    for angle_deg in (0, 45, 90, 180):
+        a = math.radians(angle_deg)
+        u = np.array([math.cos(a), math.sin(a)])
+        lo, hi = 0.0, 1.0
+        for _ in range(6):
+            mid = 0.5 * (lo + hi)
+            hist, fell = h.run(h.reset(), steps=10, disturbance=mid * u)
+            if not fell and len(hist) == 10:
+                lo = mid
+            else:
+                hi = mid
+        xi[angle_deg] = 1000.0 * lo / h.omega
+    span = max(xi.values()) / min(xi.values())
+    assert span > 3.0, (
+        "the envelope spans only %.2fx across direction: %s -- if it has become "
+        "isotropic, `StepPlant`'s single number is finally defensible"
+        % (span, {k: round(v, 1) for k, v in xi.items()}))
+    assert min(xi.values()) > 10.0, (
+        "the worst direction is %.1f mm" % min(xi.values()))
 
 
 def test_the_envelope_must_be_measured_on_a_settled_cycle(controller):
@@ -293,7 +293,6 @@ def test_the_spine_wants_stiffness_where_the_legs_want_compliance(controller):
 # ADR-0029 measured a 5x degradation -- so it was marked rather than retuned.
 # ADR-0088 replaced those modelled masses with MEASURED per-link tensors and the
 # finding reproduces on its own. The instrument was wrong, not the conclusion.
-@pytest.mark.xfail(reason=XFAIL_M92, strict=False)
 def test_the_proportional_spine_assist_has_unity_loop_gain_and_is_harmful(controller):
     """⚠️ M24, and it retracts M22/M23's "+14 % from the spine".
 
@@ -378,7 +377,6 @@ def test_the_spines_realisable_authority_is_NOT_established(controller):
     )
 
 
-@pytest.mark.xfail(reason=XFAIL_M92, strict=False)
 def test_measuring_friction_demand_needs_a_PAIRED_design(controller):
     """⚠️ M30, recorded because five measurement designs failed before one worked.
 
@@ -631,7 +629,6 @@ def test_the_planned_stance_time_is_the_closed_form_and_saturates_both_ways(cont
     assert floor >= h.swing_time_floor(h.nom_x), "the leg must be able to swing it"
 
 
-@pytest.mark.xfail(reason=XFAIL_M92, strict=False)
 def test_the_noise_floor_RISES_at_a_short_stance(controller):
     """⚠️ M34, and it voids short-stance envelope measurement in this harness.
 
