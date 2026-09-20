@@ -7487,8 +7487,18 @@ it as a property of the plant. The measurement was right; the CAUSE was assumed.
 
 ## ADR-0094: the skin, and the fibre that does not move
 
-- **Status:** Accepted
+- **Status:** Accepted — M94, **the anchor's justification corrected the next
+  day (M95)**
 - **Date:** 2026-09-20 (M94)
+- **⚠️ CORRECTION (M95).** ~~The flank at the spine axis is the one line that
+  does not move~~ — it is the one line that does not move **in PITCH**. The
+  strain table below is the sagittal case only, which this ADR said in its own
+  `[owed]` and then reasoned past. Yaw turns about the vertical, so its neutral
+  line is the mid-sagittal plane and the flank is the furthest thing from it:
+  the flank takes **9.8 %** in yaw. There is **no fibre neutral in both**.
+  The seam moves to the upper flank where the worst of the two is least —
+  **6.6 %**, pitch and yaw balanced, a third better than the flank. The design
+  survives the correction; the argument for it did not.
 
 ### Context
 
@@ -7511,10 +7521,13 @@ the 75 deg of total pitch ROM:
 | belly at the waist | -16.4 | -66.2 | 86.6 | 23.9 % |
 | belly at the chest | -46.5 | -96.3 | 125.9 | **34.7 %** |
 
-✅ There is a **neutral fibre**, it is exact rather than approximate, and it
-lies on the flank at the spine axis. So:
+✅ There is a neutral fibre **in pitch**, exact rather than approximate, on
+the flank at the spine axis. ⚠️ M95 found there is none in yaw there — see the
+correction above — so the seam sits a little above it. So:
 
-- the cover is **anchored along the flank**, the one line that does not move;
+- the cover is **seamed along the upper flank**, where the worst of pitch and
+  yaw is least (6.6 %), and the seam is elastic rather than bonded because
+  nothing on the cover is stationary in both DOFs;
 - the dorsal panel is a **knit** -- 12.6 % is inside what one does;
 - the belly panel is **not a stretch panel at all**. 34.7 % is nearly three times
   the dorsal figure, so it is **slack, gathered into a fold that pays out** as

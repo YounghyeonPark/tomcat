@@ -85,6 +85,47 @@ def outline(x):
     return hw, top, zc - TT._row_hw_at(x) * TT.ASPECT - CLEAR
 
 
+#: Total ROM about each axis, summed over the three joints.
+PITCH_ROM = float(np.asarray(SP.q_max).sum())
+YAW_ROM = float(np.asarray(SP.lateral_q_max).sum())
+
+
+def fibre_strain(y, z, span):
+    """`(pitch, yaw)` strain of a skin fibre at `(y, z)` over the full ROM.
+
+    Pitch turns about the y axis AT the spine axis, so its lever is `z - axis`;
+    yaw turns about the vertical through the centreline, so its lever is `y`.
+    """
+    return (abs(z - NEUTRAL_Z) * PITCH_ROM / span, abs(y) * YAW_ROM / span)
+
+
+def anchor_at(x, span=None):
+    """Where the cover is seamed at station x: `(y, z, strain)`.
+
+    @W@ **There is no point neutral in BOTH, and the first version of this module
+    assumed there was.** The flank at the spine axis takes zero in pitch -- which
+    is why it was chosen -- and **9.8 %** in yaw, because yaw turns about the
+    vertical and the flank is the furthest thing from it. The two neutral lines
+    are perpendicular: pitch's is the flank, yaw's is the mid-sagittal plane,
+    and the mid-sagittal line takes 12.6-34.7 % in pitch.
+
+    @OK@ So the seam goes where the WORST of the two is least, and that is
+    neither: the upper flank, **6.6 %** with pitch and yaw balanced, a third
+    better than the flank it replaces.
+    """
+    if span is None:
+        span = TT.BODIES[3][1] - TT.BODIES[0][0]
+    hw, top, belly = outline(x)
+    hh, zc = 0.5 * (top - belly), 0.5 * (top + belly)
+    best = (9e9, 0.0, 0.0)
+    for a in np.linspace(0.0, 0.5 * math.pi, 361):     # one quadrant; symmetric
+        y, z = hw * math.cos(a), zc + hh * math.sin(a)
+        w = max(fibre_strain(y, z, span))
+        if w < best[0]:
+            best = (w, y, z)
+    return best[1], best[2], best[0]
+
+
 def _sections():
     """The x stations the skin is lofted through: the ROW stations plus the ends."""
     xs = sorted({x for (_n, _b, x, _r, _ro) in TT._rows()})
@@ -160,6 +201,22 @@ def report():
     print("%-24s %8s %10s %8s %9s" % ("line", "z mm", "r", "dL mm", "strain"))
     for name, z, r, dL, e in rows:
         print("%-24s %8.1f %10.1f %8.1f %8.1f %%" % (name, z, r, dL, 100 * e))
+
+    print("\nthe seam, where the WORST of pitch and yaw is least")
+    print("%-12s %9s %9s %9s %9s" % ("x", "y", "z", "pitch %", "yaw %"))
+    worst_seam = 0.0
+    for x in _sections():
+        y, z, w = anchor_at(x)
+        ep, ey = fibre_strain(y, z, span)
+        worst_seam = max(worst_seam, w)
+        print("%-12s %9.1f %9.1f %8.1f %% %8.1f %%"
+              % ("x = %.0f" % x, y, z, 100 * ep, 100 * ey))
+    flank_yaw = fibre_strain(outline(0.0)[0], NEUTRAL_Z, span)[1]
+    print("  seam worst %.1f %% -- the flank at the spine axis would be %.1f %%"
+          % (100 * worst_seam, 100 * flank_yaw))
+    if worst_seam > flank_yaw:
+        print("      *** the seam is worse than the plain flank")
+        ok = False
 
     sk = skin()
     sol = sk.solids()

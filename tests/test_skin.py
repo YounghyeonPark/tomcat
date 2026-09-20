@@ -31,20 +31,54 @@ import tomcat_trunk as TT  # noqa: E402
 import tomcat_leg_detail as LD  # noqa: E402
 
 
-def test_the_flank_at_the_spine_axis_is_the_NEUTRAL_FIBRE():
-    """✅ The one line on the cover that does not change length when the spine
-    bends, and therefore the only place it can be anchored rigidly.
+def test_NO_fibre_is_neutral_in_BOTH_pitch_and_yaw():
+    """⚠️ **The first version of this module assumed one was.** The flank at the
+    spine axis takes exactly zero in pitch, which is why it was chosen -- and
+    **9.8 %** in yaw, because yaw turns about the vertical and the flank is the
+    furthest thing from it. The two neutral lines are perpendicular:
 
-    This is exact, not approximate: the fibre is ON the axis, so its radius is
-    zero and so is its length change, whatever the ROM.
+        point on the cover        pitch    yaw    worst
+        dorsal midline            12.6 %   0.0 %  12.6 %
+        flank at the spine axis    0.0 %   9.8 %   9.8 %
+        belly midline             34.7 %   0.0 %  34.7 %
+
+    So "the one line that does not move" was true of one DOF and the cover has
+    two. Asserting the absence keeps the claim from coming back.
     """
-    rows, q, span = SK.strain_table()
-    flank = [r for r in rows if "ANCHOR" in r[0]]
-    assert len(flank) == 1
-    _name, z, r, dL, strain = flank[0]
-    assert z == pytest.approx(SK.NEUTRAL_Z)
-    assert r == pytest.approx(0.0, abs=1e-9)
-    assert dL == pytest.approx(0.0, abs=1e-9)
+    span = TT.BODIES[3][1] - TT.BODIES[0][0]
+    hw = SK.outline(0.0)[0]
+    pitch0 = SK.fibre_strain(hw, SK.NEUTRAL_Z, span)
+    assert pitch0[0] == pytest.approx(0.0, abs=1e-12)
+    assert pitch0[1] == pytest.approx(0.098, abs=0.005)
+    yaw0 = SK.fibre_strain(0.0, SK.outline(0.0)[1], span)
+    assert yaw0[1] == pytest.approx(0.0, abs=1e-12)
+    assert yaw0[0] == pytest.approx(0.126, abs=0.005)
+
+
+def test_the_SEAM_goes_where_the_WORST_of_the_two_is_least():
+    """✅ Neither neutral line, but the upper flank between them -- pitch and
+    yaw balanced at **6.6 %**, a third better than the 9.8 % the flank alone
+    would take. Scanned over the section rather than argued.
+    """
+    span = TT.BODIES[3][1] - TT.BODIES[0][0]
+    flank_only = SK.fibre_strain(SK.outline(0.0)[0], SK.NEUTRAL_Z, span)[1]
+    worst = 0.0
+    for x in SK._sections():
+        y, z, w = SK.anchor_at(x)
+        ep, ey = SK.fibre_strain(y, z, span)
+        # the optimum balances the two; if it did not, one could be traded down
+        assert ep == pytest.approx(ey, abs=0.004), (
+            "seam at x=%.0f is %.1f %% pitch against %.1f %% yaw"
+            % (x, 100 * ep, 100 * ey)
+        )
+        assert 0.0 < y < SK.outline(x)[0], "the seam is on the upper flank"
+        assert z > SK.NEUTRAL_Z, "above the spine axis, not on it"
+        worst = max(worst, w)
+    assert worst < flank_only, (
+        "the seam is %.1f %% where the plain flank is %.1f %%"
+        % (100 * worst, 100 * flank_only)
+    )
+    assert worst == pytest.approx(0.067, abs=0.005)
 
 
 def test_the_BELLY_cannot_be_a_stretch_panel():
