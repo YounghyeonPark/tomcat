@@ -56,6 +56,27 @@ HIP_HARDWARE = ("clevis", "bearing", "shaft")
 DROP = ("motor",)
 
 
+def motor_can():
+    """The GIM3505-9 can as `tomcat_leg_detail` draws it -- the template a
+    duplicate is recognised BY, taken from the part that draws it rather than
+    written down here."""
+    return max(LD.motor_and_spool((0.0, 0.0), 10.0).solids(),
+               key=lambda sd: sd.volume)
+
+
+def is_motor_can(sd, ref=None):
+    """⚠️ **Volume alone is not an identity.** The first version of this
+    matched anything within 2 % of 33,747 mm3 and flagged **trunk body 2**,
+    which is 34,200 -- a whole rigid body called a motor. A can is Ø34.5 x
+    36.1, so its box is as particular as its volume; both have to agree."""
+    ref = motor_can() if ref is None else ref
+    rb, sb = ref.bounding_box(), sd.bounding_box()
+    r = sorted((rb.size.X, rb.size.Y, rb.size.Z))
+    t = sorted((sb.size.X, sb.size.Y, sb.size.Z))
+    return (abs(sd.volume - ref.volume) < 0.02 * ref.volume
+            and all(abs(a - b) < 0.5 for a, b in zip(r, t)))
+
+
 def _at_hip(solid, radius=26.0):
     """Is this solid part of the HIP joint, which the trunk owns?"""
     c = solid.center()
@@ -107,14 +128,41 @@ def one_leg(fore: bool, side: float, pose=None):
     return Pos(HIP_X["front" if fore else "rear"], 0, 0) * g
 
 
-def assembly():
+def soft_parts():
+    """Head, tail and skin -- the parts that are neither trunk nor leg.
+
+    ⚠️ **`assembly()` was named "the whole robot" and knew about none of
+    them.** The head (M97-M100), the tail (M96) and the skin (M94) were each
+    drawn and each checked against the trunk inside their own module, and not
+    one of them was ever in the thing this file calls the assembly. So the
+    first render of the complete robot had to reach PAST this file to collect
+    them -- and reaching past it is exactly what drew 12 motors the trunk
+    already owns, routed every cable to the default `SPOOL_OFFSET` the assembly
+    exists to override, and doubled the hip. A picture assembled by its viewer
+    is not a picture of the assembly.
+    """
+    import tomcat_head as HD
+    import tomcat_skin as SK
+    import tomcat_tail as TL
+    # ⚠️ **`features()` is a separate solid and this list shipped without
+    # it.** `tomcat_head.render_png` draws `whole()` AND `features()`; the first
+    # repo-side render of the robot had the cranium and no ears, no eyes and no
+    # nose. Fourth time a list that enumerates parts has missed a new one --
+    # after `link_inertia.RHO` dropped 14.67 g, after the hip filter missed
+    # `shaft` twice.
+    return [("head", HD.whole()), ("face", HD.features()),
+            ("tail", TL.tail()), ("skin", SK.skin())]
+
+
+def assembly(soft: bool = True):
+    """`(bodies, legs, soft)` -- every part of the robot that has been drawn."""
     bodies = [TT.rigid_body(b) for b in sorted(TT.BODIES)]
     legs = [one_leg(f, s) for f in (True, False) for s in (+1.0, -1.0)]
-    return bodies, legs
+    return bodies, legs, (soft_parts() if soft else [])
 
 
 def report():
-    bodies, legs = assembly()
+    bodies, legs, soft = assembly()
     print("%-16s %8s %9s" % ("part", "solids", "vol cm3"))
     tv = 0.0
     for i, b in enumerate(bodies):
@@ -126,6 +174,10 @@ def report():
         tv += v
         nm = ["LF", "RF", "LR", "RR"][i]
         print("%-16s %8d %9.1f" % ("leg %s" % nm, len(l.solids()), v / 1000))
+    for nm, g in soft:
+        v = sum(s.volume for s in g.solids())
+        tv += v
+        print("%-16s %8d %9.1f" % (nm, len(g.solids()), v / 1000))
     print("%-16s %8s %9.1f" % ("TOTAL", "", tv / 1000))
 
     ok = True
@@ -224,29 +276,76 @@ def report():
     if max(zs) - min(zs) > 3.0:
         print("      *** the four feet are not on one plane")
         ok = False
+    # --- ⚠️ **no physical part may be contributed by two modules.**
+    # `DROP` and `HIP_HARDWARE` above exist because the leg draws a motor bank
+    # and a hip tongue that the trunk owns -- and nothing ever COUNTED the
+    # result, so the rule held only for callers who read the source. The first
+    # whole-robot render did not: it called `LD.build()` directly and put 12
+    # reference motors on the machine, reaching to y = 79 mm where the girdle
+    # flank is 43. The trunk represents its 19 motors as BORES, so the number
+    # of motor cans standing in the finished assembly is zero, and the volume
+    # is taken from the part that draws them rather than written down here.
+    ref = motor_can()
+    drawn = sum(1 for g in (list(bodies) + list(legs) + [x[1] for x in soft])
+                for sd in g.solids() if is_motor_can(sd, ref))
+    bores = sum(len(TT.motors(b)) for b in sorted(TT.BODIES))
+    print("  motor cans drawn %d, bores placed %d of 19" % (drawn, bores))
+    if drawn or bores != 19:
+        print("      *** a motor is drawn twice, or is not placed at all")
+        ok = False
+
+    # --- ⚠️ **the skin has to clear the leg, not just the femur.**
+    # `APERTURE_R` is sized from the femur tube plus ROM plus a cuff, and the
+    # femur is the SLIMMEST thing at the hip: the groove-plane stack, its
+    # bearings and the via shaft reach 23.9 mm outboard of the bone plane. The
+    # skin was checked against the head and the tail and never against a leg.
+    skin = dict(soft).get("skin")
+    if skin is not None:
+        for i, l in enumerate(legs):
+            nm = ["LF", "RF", "LR", "RR"][i]
+            inter = skin.intersect(l)
+            v = 0.0
+            if inter is not None:
+                try:
+                    v = sum(sd.volume for sd in inter.solids())
+                except Exception:
+                    v = 0.0
+            print("  %-4s skin/leg overlap  %8.1f mm3%s"
+                  % (nm, v, "" if v < 50.0 else "  *** the cover cuts the leg"))
+            if v >= 50.0:
+                ok = False
+
+    whole = Compound([s for g in bodies for s in g.solids()]
+                     + [s for g in legs for s in g.solids()]
+                     + [s for _n, g in soft for s in g.solids()])
+    bb = whole.bounding_box()
+    print("  envelope %.0f x %.0f x %.0f mm   (L x W x H)"
+          % (bb.size.X, bb.size.Y, bb.size.Z))
     print("  %s" % ("assembly checks pass" if ok else "*** SEE ABOVE ***"))
     return ok
 
 
-def render_png(path, elev=16, azim=-62):
-    import matplotlib
-    matplotlib.use("Agg")
-    import matplotlib.pyplot as plt
-    from mpl_toolkits.mplot3d.art3d import Poly3DCollection
+#: One colour per contributor, so a part that comes from the wrong module is
+#: visible as the wrong colour rather than as extra clutter.
+COLOUR = {"trunk": "#8a9bb0", "leg": "#d7ac86", "head": "#c98f6a",
+          "face": "#8a6b52", "tail": "#c98f6a", "skin": "#7f96ae"}
 
-    bodies, legs = assembly()
-    fig = plt.figure(figsize=(13, 7))
-    ax = fig.add_subplot(111, projection="3d")
-    # ⚠️ A few faces are valid and will not mesh -- see `tomcat_trunk.render_png`.
-    # Drawn face by face so one bad face costs one face, not the whole robot.
-    # ⚠️ Batched into one collection per colour. A collection per face built
-    # thousands of artists and the process died of memory exhaustion inside the
-    # 3-D projection -- while the shell reported exit 0 and wrote no file.
-    skipped = 0
-    for col, group in (("#8a9bb0", bodies), ("#d7ac86", legs)):
+
+def _mesh(groups):
+    """Tessellate and add one collection per colour.
+
+    ⚠️ A few faces are valid and will not mesh -- see
+    `tomcat_trunk.render_png`. Drawn face by face so one bad face costs one
+    face, not the whole robot; and batched into ONE collection per colour,
+    because a collection per face built thousands of artists and the process
+    died of memory exhaustion inside the 3-D projection -- while the shell
+    reported exit 0 and wrote no file.
+    """
+    skipped, out = 0, []
+    for col, alpha, solids in groups:
         tri = []
-        for s in group:
-            for f in s.faces():
+        for sd in solids:
+            for f in sd.faces():
                 try:
                     verts, tris = f.tessellate(0.4)
                 except Exception:
@@ -254,29 +353,101 @@ def render_png(path, elev=16, azim=-62):
                     continue
                 V = np.array([[v.X, v.Y, v.Z] for v in verts])
                 tri.append(V[np.array(tris)])
-        if not tri:
-            continue
-        coll = Poly3DCollection(np.concatenate(tri), facecolor=col,
+        if tri:
+            out.append((col, alpha, np.concatenate(tri)))
+    return out, skipped
+
+
+def _paint(ax, mesh):
+    """A collection per colour. Each axes needs its OWN artists, so the
+    triangles are shared and the collections are not."""
+    for col, alpha, tri in mesh:
+        coll = Poly3DCollection(tri, facecolor=col, alpha=alpha,
                                 edgecolor="#3c4a5a", linewidth=0.06)
         coll.set_zsort("average")
         ax.add_collection3d(coll)
-    if skipped:
-        print("  *** " + str(skipped) + " face(s) would not mesh")
-    whole = Compound(bodies + legs)
-    bb = whole.bounding_box()
-    ax.set_xlim(bb.min.X - 5, bb.max.X + 5)
-    ax.set_ylim(bb.min.Y - 5, bb.max.Y + 5)
-    ax.set_zlim(bb.min.Z - 5, bb.max.Z + 5)
-    ax.set_box_aspect((bb.size.X, bb.size.Y, bb.size.Z))
+
+
+def _groups(bodies, legs, soft):
+    out = [(COLOUR["trunk"], 1.0, [s for g in bodies for s in g.solids()]),
+           (COLOUR["leg"], 1.0, [s for g in legs for s in g.solids()])]
+    for nm, g in soft:
+        out.append((COLOUR.get(nm, "#c98a63"),
+                    0.35 if nm == "skin" else 1.0, list(g.solids())))
+    return out
+
+
+def _frame(ax, mesh, elev, azim):
+    pts = np.concatenate([tri.reshape(-1, 3) for _c, _a, tri in mesh])
+    lo, hi = pts.min(axis=0) - 5, pts.max(axis=0) + 5
+    ax.set_xlim(lo[0], hi[0])
+    ax.set_ylim(lo[1], hi[1])
+    ax.set_zlim(lo[2], hi[2])
+    ax.set_box_aspect(tuple(hi - lo))
     ax.view_init(elev=elev, azim=azim)
     ax.set_axis_off()
+    return hi - lo
+
+
+def render_png(path, elev=16, azim=-62, soft=True):
+    """One view of the whole robot."""
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+    global Poly3DCollection
+    from mpl_toolkits.mplot3d.art3d import Poly3DCollection
+
+    mesh, skipped = _mesh(_groups(*assembly(soft=soft)))
+    fig = plt.figure(figsize=(13, 7))
+    ax = fig.add_subplot(111, projection="3d")
+    _paint(ax, mesh)
+    if skipped:
+        print("  *** %d face(s) would not mesh" % skipped)
+    _frame(ax, mesh, elev, azim)
     fig.tight_layout()
     fig.savefig(path, dpi=140, bbox_inches="tight", facecolor="white")
     plt.close(fig)
     print("wrote", path)
 
 
+#: Side, three-quarter and top. ⚠️ **The first whole-robot picture was
+#: built by a throwaway script outside the repo**, which is why it showed parts
+#: `DROP` exists to remove. The picture of the assembly is produced BY the
+#: assembly now, from one build, so it cannot disagree with the checks above.
+VIEWS = (("side", 2, -90), ("3/4", 16, -62), ("top", 88, -90))
+
+
+def render_views(path, soft=True):
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+    global Poly3DCollection
+    from mpl_toolkits.mplot3d.art3d import Poly3DCollection
+
+    mesh, skipped = _mesh(_groups(*assembly(soft=soft)))
+    if skipped:
+        print("  *** %d face(s) would not mesh" % skipped)
+    fig = plt.figure(figsize=(19, 6.5))
+    span = None
+    for k, (name, elev, azim) in enumerate(VIEWS):
+        ax = fig.add_subplot(1, len(VIEWS), k + 1, projection="3d")
+        _paint(ax, mesh)
+        span = _frame(ax, mesh, elev, azim)
+        ax.set_title(name)
+    fig.tight_layout()
+    fig.savefig(path, dpi=110, bbox_inches="tight", facecolor="white")
+    plt.close(fig)
+    print("wrote %s   overall %.0f x %.0f x %.0f mm"
+          % (path, span[0] - 10, span[1] - 10, span[2] - 10))
+
+
 if __name__ == "__main__":
-    report()
-    render_png(os.path.join(HERE, "tomcat_assembly.png"))
-    render_png(os.path.join(HERE, "tomcat_assembly_side.png"), elev=2, azim=-90)
+    import argparse
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--render", action="store_true")
+    ap.add_argument("--no-soft", action="store_true")
+    a = ap.parse_args()
+    if a.render:
+        render_views(os.path.join(HERE, "tomcat_whole.png"), soft=not a.no_soft)
+    else:
+        report()

@@ -50,6 +50,9 @@ HEAD_NECK_G = 240.0
 #:
 #:     sizing              head mm   nose x   adds Iyy   % of body
 #:     by mass (a cat)          95      407   1.02e-02      24 %
+#: ⚠️ That 24 % is the M97 shape. Traced off the plates and carried where a
+#: cat carries it the cost went to 29 %, then 40 % while the neck was a stalk,
+#: and **36 %** once the neck became a neck (M101). See `NECK_AT`.
 #:     by trunk length         138      470   1.39e-02      33 %
 #:
 #: Nine points of pitch inertia on a righting reflex already a factor of nine
@@ -143,6 +146,23 @@ def _skull():
 #: plates are a dry skull and nothing in the sources gives a thickness.
 FLESH = 0.035            # skull-lengths, all round
 
+#: ⚠️ **The neck was the skull's outline running out.** `_stations()` started
+#: the neck tube at the LAST traced skull section, and at the occiput a traced
+#: outline is the nuchal crest closing to a point -- half-width **8.2 mm**,
+#: depth 11.7. So the neck left the head as a **13 mm rod carrying 240 g**, and
+#: at its narrowest it was **0.15 of the chest** where a cat is about 0.6. The
+#: render showed a stalk and the numbers agreed with it.
+#:
+#: A skull is not a head. The part of a cat's neck that has any size is the
+#: muscle wrapped round the braincase, and the plates do not draw muscle. So
+#: the neck leaves the head at the BRAINCASE -- which the plates do draw, and
+#: which is still 20 mm half-width there -- and the crest behind it is inside
+#: the neck, as it is in the animal.
+NECK_AT = 0.86           # skull-lengths from the nose  [assumed]
+#: Muscle over the braincase. `[assumed]` -- ANATOMY.md puts the 7 cervical
+#: vertebrae explicitly out of scope, so this project has no source for a neck.
+NECK_FLESH = 0.05        # skull-lengths
+
 
 def _smooth(vals, k=5):
     """Moving average. ⚠️ The raw trace carries the plate's own detail -- the
@@ -198,7 +218,11 @@ def _stations():
     seam is named rather than blended away.
     """
     _place()
-    out = list(_skull_sections())
+    # ⚠️ Sections BEHIND the braincase are dropped, not blended: they are
+    # the nuchal crest, and in the animal they sit inside the neck. Keeping
+    # them and starting the tube after them made the loft run backwards in x.
+    cut = NOSE_X - NECK_AT * HEAD_L
+    out = [r for r in _skull_sections() if r[0] >= cut - 1e-9]
     # ⚠️ **A neck is a tube, not a plane-to-plane blend.** Interpolating the
     # occiput's section straight into the trunk's front face gave a flat wedge
     # -- a fin, not a neck -- because the trunk's section is a tall ellipse and
@@ -207,7 +231,7 @@ def _stations():
     # body, and only the last station matches the trunk.
     ox, ozt, ozb, ohw = out[-1]
     oz = 0.5 * (ozt + ozb)
-    orr = 0.5 * min(ozt - ozb, 2 * ohw)
+    orr = 0.5 * min(ozt - ozb, 2 * ohw) + NECK_FLESH * HEAD_L
     tz = TT.Z_DORSAL - 0.45 * TT._row_hw_at(BASE_X) * TT.ASPECT
     trr = 0.62 * TT._row_hw_at(BASE_X)
     n = 10

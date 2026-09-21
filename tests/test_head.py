@@ -48,6 +48,27 @@ def test_the_head_is_sized_by_MASS_not_by_the_trunks_length():
     )
 
 
+def test_the_neck_is_a_neck_and_not_the_skull_outline_running_out():
+    """⚠️ The render showed a stalk and the numbers agreed with it.
+
+    `_stations()` started the neck tube at the LAST traced skull section, and
+    at the occiput a traced outline is the nuchal crest closing to a point:
+    half-width **8.2 mm**, depth 11.7. The neck left the head as a 13 mm rod
+    carrying 240 g -- **0.15 of the chest** where a cat is about 0.6.
+    """
+    import tomcat_trunk as _TT
+    st = HD._stations()
+    cut = HD.NOSE_X - HD.NECK_AT * HD.HEAD_L
+    neck = [r for r in st if r[0] < cut]
+    assert neck, "no neck stations"
+    narrow = min(w for _x, _t, _b, w in neck)
+    chest = max(_TT._hw_at(x) for x in
+                (_TT.BODIES[3][0], _TT.BODIES[3][1], 0.5 * sum(_TT.BODIES[3])))
+    assert narrow / chest > 0.45, (
+        "the neck is %.1f mm half-width against a %.1f mm chest -- %.2f, and "
+        "the defect measured 0.15" % (narrow, chest, narrow / chest))
+
+
 def test_placing_the_240_g_costs_a_THIRD_of_the_pitch_inertia():
     """⚠️ THE number, and `params.py` predicted its sign and not its size.
 
@@ -58,12 +79,16 @@ def test_placing_the_240_g_costs_a_THIRD_of_the_pitch_inertia():
     in this project and not a reason to prefer the wrong shape.
     """
     a = HD.account()
-    # ⚠️ It has moved three times as the shape got closer to a cat, and always
-    # the same way: 24 % (spheres, head low) -> 29 % (skull plates, head up) ->
-    # **40 %** (neck a slim tube, so more of the fixed 240 g rides in the head).
-    # The lever from the body CoM is now **267 mm**, against 81 lumped.
-    assert a["frac"] == pytest.approx(0.40, abs=0.03)
-    assert a["dcom"] == pytest.approx(9.0, abs=0.8)
+    # ⚠️ It has moved four times as the shape got closer to a cat:
+    # 24 % (spheres, head low) -> 29 % (skull plates, head up) -> 40 % (neck a
+    # slim tube) -> **36 %** (neck a neck). The third step was a DEFECT and
+    # this comment named its cause -- "more of the fixed 240 g rides in the
+    # head" -- while treating it as a result. The neck was the skull's traced
+    # outline running out at the occiput, 13 mm across; fattening it to a
+    # braincase plus muscle moves mass back toward the body and shortens the
+    # lever from **267 to 255 mm**, against 81 lumped.
+    assert a["frac"] == pytest.approx(0.36, abs=0.03)
+    assert a["dcom"] == pytest.approx(8.4, abs=0.8)
     assert a["lever_after"] > 2.5 * a["lever_before"], (
         "lever %.0f -> %.0f mm" % (a["lever_before"], a["lever_after"])
     )

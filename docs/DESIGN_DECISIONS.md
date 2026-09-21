@@ -7636,6 +7636,22 @@ justify it.
   **0.71 as wide as it is long and 0.48 as tall**; the 0.72 previously assumed
   for width happened to be right. What the photograph still supplies is the
   POSTURE, because a skull plate cannot say how high the head is carried.
+- **⚠️ CORRECTION (M101). The neck was the skull's outline running out.**
+  `_stations()` started the neck tube at the LAST traced skull section, and at
+  the occiput a traced outline is the nuchal crest closing to a point --
+  half-width **8.2 mm**, depth 11.7. So the neck left the head as a **13 mm rod
+  carrying 240 g**, 0.15 of the chest where a cat is about 0.6. The first
+  whole-robot render showed a stalk, and `test_head.py` had already written
+  down the mechanism -- *"neck a slim tube, so more of the fixed 240 g rides in
+  the head"* -- while treating it as the result rather than the cause. A skull
+  is not a head: the part of a cat's neck that has any size is muscle round the
+  braincase, and the plates do not draw muscle. The neck now leaves the head at
+  the braincase (`NECK_AT = 0.86`, still 20 mm half-width there) with a named
+  `NECK_FLESH`; the crest behind it sits inside the neck, as it does in the
+  animal. Corrected, **0.15 -> 0.57 of the chest**, and the cost falls
+  **40 % -> 36 %** because fattening the neck moves mass back toward the body
+  (lever 267 -> **255 mm**). The FOURTH move of this number, and the first
+  downward.
 - **⚠️ CORRECTION (M98).** The form below was built from spheres on a rising
   axis and the proportions were invented. Traced off a side-view cat they are
   wrong in three ways: the head was carried **+35 mm** above the back where a
@@ -7673,10 +7689,13 @@ vertebrae explicitly out of scope, which is what the mass model always assumed.
 
 - ⚠️ **Placing it costs 24 % of the body's pitch inertia** (+1.02e-2 on 4.20e-2)
   and carries the CoM **7.1 mm forward**. The lever from the body CoM goes
-  **81 -> 219 mm**.
+  **81 -> 219 mm**. ⚠️ Superseded: with the traced shape, the cat's posture
+  and a neck that is a neck, it is **36 %** (+1.496e-2), the CoM moves
+  **+8.4 mm**, and the lever goes **81 -> 255 mm**.
 - ⚠️ **With ADR-0096's tail at 11.7 %, the plant has been missing about a third
-  of its own pitch inertia** -- and the righting reflex is already a factor of
-  nine short ([ADR-0093](#adr-0093)). Neither part was invented here; both were
+  of its own pitch inertia** -- **48 %** at the corrected head, so nearly half
+  -- and the righting reflex is already a factor of nine short
+  ([ADR-0093](#adr-0093)). Neither part was invented here; both were
   in the budget with no position.
 - ✅ Checks pass: the head sits 115 mm up against a dorsal line of 80, which
   is how a cat carries it, and it does not touch the fore leg.
@@ -7684,6 +7703,112 @@ vertebrae explicitly out of scope, which is what the mass model always assumed.
   `front_girdle_inertia` still lump the 240 g in the housing, so the plant does
   not yet know. Moving it re-baselines the dynamics a fourth time and wants the
   tail's material decided first -- the two land in the same account. `[owed]`
+
+---
+
+## ADR-0098: the whole robot, and a picture assembled by its viewer
+
+- **Status:** Accepted
+- **Date:** 2026-09-21 (M101)
+- **⚠️ Corrects the first render of the complete machine, and the check
+  written to catch it.**
+
+### Context
+
+M96 drew the tail, M97-M100 the head, M94 the skin. Each was checked against
+the trunk inside its own module. **Nothing had ever drawn the whole machine**,
+so the obvious next step was a picture of it -- and the picture was built by a
+throwaway script outside the repo that called `tomcat_leg_detail.build()`
+directly.
+
+`tomcat_assembly` exists precisely to stop that. It drops the leg module's
+`motor` group (`DROP`) because the trunk owns those motors, drops the leg's
+duplicate hip tongue (`HIP_HARDWARE`), and hands each leg the trunk's REAL
+spool centres, because the leg's default `SPOOL_OFFSET` misses them by 20 to
+44 mm. The script did none of it: it put **12 reference motors** on the robot
+and pointed every cable at empty space.
+
+Those rules were comments. `tomcat_assembly.py` had **no pytest at all**, so
+nothing enforced them on a caller who did not read the source -- and the
+caller who did not read the source was me.
+
+⚠️ And `assembly()`, the function named *the whole robot*, returned four
+trunk bodies and four legs. It knew about the head, the tail and the skin not
+at all.
+
+### Decision
+
+**The assembly draws its own picture**, from the same build its checks run on.
+
+- `assembly()` returns `(bodies, legs, soft)`; `soft_parts()` places the head,
+  the tail and the skin.
+- `render_views()` lives in `tomcat_assembly.py` and writes `tomcat_whole.png`.
+  The mesh is tessellated ONCE and shared across the three views, because a
+  collection per subplot pays the CAD mesh three times.
+- `tests/test_assembly.py` asserts the ownership rules, in both directions: a
+  leg in the assembly carries no motor, **and** the leg module still draws
+  three -- otherwise the first test would pass for the wrong reason forever.
+
+### Consequences
+
+- ✅ **What it measures that nothing measured before:**
+
+  | | |
+  |---|---|
+  | skin / leg overlap, four legs | **0.0 mm3** |
+  | cable end off its spool | 0.000 mm |
+  | four feet on one plane | 0.00 mm spread |
+  | envelope, L x W x H | **776 x 154 x 348 mm** |
+  | drawn volume | 934.5 cm3 |
+
+  The skin figure answers a question nobody had asked. `APERTURE_R` is sized
+  from the femur tube plus ROM plus a cuff, and the femur is the **slimmest**
+  thing at the hip -- the groove-plane stack, its bearings and the via shaft
+  reach 23.9 mm outboard of the bone plane. It clears, but it cleared by
+  accident, and now it is checked.
+
+- ⚠️ **THE CORRECTION, and it is to the new check.** The motor-duplicate
+  test matched a can by VOLUME, within 2 % of 33,747 mm3. It flagged **trunk
+  body 2**, which is 34,202 -- a whole rigid body reported as a duplicated
+  motor, and the assembly failed for a reason that was not true. A volume is
+  not an identity. A can is Ø34.5 x 36.1 and its BOX is as particular as
+  its volume; `is_motor_can` now requires both, and a test asserts that no
+  trunk body matches.
+
+- ⚠️ **The 154 mm width is not the motors.** Measured on the standalone
+  leg, the `motor` group reaches y = 79.2 and it was tempting to call it the
+  cause. With the bank dropped the leg bbox is still `y[+42, +77]`: the width
+  is the monotone groove-plane stack that ADR-0093 chose to get zero fleet
+  angle, 23.9 mm of pulleys bolted to the outer face of every bone. The
+  phantom motors were clutter INSIDE the envelope, not the envelope.
+
+- ⚠️ **The fore legs have no clearance at all.** `leg/trunk overlap` is
+  73.2 mm3 on LF and RF against 0.0 on the hind pair, and the depth check reads
+  *limb plane 53.0 mm ... needs 53.0*. M93 set `TRACK_Y` to exactly the
+  requirement, so the front girdle's widest section touches the femur. It
+  passes and it has nowhere to go; the next millimetre the chest gains is an
+  interference.  `[owed]`
+
+- ⚠️ **The picture found a defect the numbers had already described.** The
+  neck came out a 13 mm stalk, because `_stations()` began it at the last
+  traced skull section -- and `test_head.py` had written down that exact
+  mechanism as the reason the head's cost rose to 40 %, treating it as a
+  result. Corrected in [ADR-0097](#adr-0097): the neck leaves the head at the
+  braincase, **0.15 -> 0.57 of the chest**, and the cost falls **40 % -> 36 %**.
+  Rendering the whole machine is how it was seen. That is the point of the
+  picture, and the reason it now belongs to the assembly.
+- ⚠️ **`soft_parts()` shipped without the face.** `tomcat_head` draws
+  `whole()` and `features()`; the first repo-side render had the cranium and no
+  ears, no eyes, no nose. **Fourth time** a list that enumerates parts has
+  missed a new one, after `link_inertia.RHO` dropped 14.67 g and the hip filter
+  missed `shaft`. The test now names every solid each module draws and compares
+  the volume that reached the assembly.
+- ⚠️ Unchanged and still owed: the head and the tail are **not** in
+  `params.py`. `front_girdle_com` and `front_girdle_inertia` lump 240 g of head
+  in the housing and there is no tail at all, so the plant is missing about a
+  third of its own pitch inertia ([ADR-0096](#adr-0096),
+  [ADR-0097](#adr-0097)). This milestone made the picture honest, not the
+  model.
 
 ---
 
