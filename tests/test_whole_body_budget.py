@@ -206,7 +206,14 @@ def test_near_balanced_body_barely_loads_the_base_joint_in_quiet_stand():
     # assumed 0.095 / 0.110), so the cantilever the base joint carries grew. F2's
     # direction still holds -- it is well under the tuned model's 0.57 -- but the
     # walk-back this comment already records has walked back further.
-    assert real < 0.40          # N.m -- was 0.29 pre-M41, still under 0.57
+    # ⚠️ **M102 walked it back again: 0.354 -> 0.498 N.m.** This is the one
+    # number the head made WORSE, and it is the one it should: 240 g placed
+    # 149 mm ahead of the front girdle's mount and 118 above it cantilevers the
+    # base spine joint, which is exactly what "the head is the weak point"
+    # meant. Still under the tuned model's 0.57, and the direction of the
+    # original claim -- the real clusters load the base joint far less than the
+    # tuned model -- survives with less room than it had.
+    assert real < 0.52          # N.m -- 0.29 pre-M41, 0.354 pre-M102, cap 0.57
 
 
 def test_asymmetric_land_still_makes_the_base_joint_the_worst():

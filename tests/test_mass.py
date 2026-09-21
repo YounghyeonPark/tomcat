@@ -355,7 +355,14 @@ def test_default_com_sits_forward_of_mid_body_because_the_cat_is_front_heavy():
     # ⚠️ M92 put the CoM above the hip axis (0.0167). M93's heavier legs pull it
     # back down to **0.0149** -- they hang below the hips, so 20 g per leg at
     # radius counts twice here. Still above the axis, which is the claim.
-    assert c.z == pytest.approx(0.0149, abs=5e-4)
+    # ⚠️ **M102 raised it again, and this is the number the whole milestone
+    # is about.** The head's 240 g had never been anywhere: it was spread
+    # through the girdle housing at z = 23 mm. Drawn, its CoM is **118.3 mm
+    # above the hip axis**, and placing it there lifts the whole body's CoM
+    # **14.9 -> 20.1 mm**. That 5.2 mm is what took the default walk from
+    # +5.30 mm of ZMP margin to -0.14, and forced the lateral re-tune in
+    # `gait.py`.
+    assert c.z == pytest.approx(0.0201, abs=5e-4)
 
 
 def test_arching_the_spine_moves_the_com_up_and_rearward():
@@ -463,13 +470,26 @@ def test_actuation_mass_matches_the_downselected_motor_and_count():
     from tomcat_kin.params import DEFAULT_SPINE as sp
     unit = 0.132          # SteadyWin GIM3505-9: 120 g motor + integrated driver
     assert sp.front_girdle_mass == pytest.approx(6 * unit + 0.240 + 0.090, abs=1e-9)
-    assert sp.rear_girdle_mass == pytest.approx(6 * unit + 0.110, abs=1e-9)
+    # ⚠️ **Seven, not six.** M102 put the 19th motor on this girdle -- the one
+    # ADR-0096 bought for the tail and placed on trunk body 0, which this model
+    # had never heard of -- plus the 9.8 g tail it drives. Both come out of the
+    # structure allowance, so the body total does not move.
+    assert sp.rear_girdle_mass == pytest.approx(7 * unit + 0.110 + 0.0098,
+                                                abs=1e-9)
     # The pelvis is now the LIGHTER girdle: the spine/tail bank left it for the
     # mid-body bay, which is where the CAD packaging actually puts those motors.
     assert sp.rear_girdle_mass < sp.front_girdle_mass
     # ...and that bank shows up in the MIDDLE spine segment, with the battery.
     assert sp.segment_mass[1] > sp.segment_mass[0] + sp.segment_mass[2]
-    assert sp.segment_mass[1] == pytest.approx(0.130 + 0.300 + 7 * unit, abs=1e-9)
+    # ⚠️ **SIX, not seven -- the "7-motor spine+tail bank" never existed.**
+    # That phrase describes the pre-M88 architecture: ADR-0007 bought 3
+    # dorsoventral + 3 lateral + 1 tail, and M88 put the tail's motor on trunk
+    # body 0 with the hind leg bank, where ADR-0096 found it. M102 moved it to
+    # the rear girdle, which is where body 0 maps. What stays here is the
+    # battery, the structure allowance and the six SPINE motors -- less the
+    # 9.8 g of tail foam, which the same structure allowance pays for.
+    assert sp.segment_mass[1] == pytest.approx(
+        0.130 - 0.0098 + 0.300 + 6 * unit, abs=1e-9)
 
 
 def test_total_matches_the_revised_NFR5_target():

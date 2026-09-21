@@ -251,7 +251,12 @@ def test_spine_is_ROM_limited_not_RATE_limited():
     # ⚠️ M93: **6.0 % -> 6.6 %**, the redesigned leg putting mass back out
     # at the metatarsus (25.1 -> 32.5 g). Three corrections, one mechanism,
     # and the finding is unchanged through all of them.
-    assert (naive - full) / naive == pytest.approx(0.066, abs=0.006)
+    # ⚠️ M102: **6.6 % -> 6.0 %**, and this one is DILUTION, not a moved
+    # lever. The correction's numerator is the fore legs' offset; its
+    # denominator is the whole body, and placing the head put 240 g into that
+    # denominator that the legs' term does not see. Fourth correction, same
+    # mechanism, finding unchanged: `naive > full`, and by a real margin.
+    assert (naive - full) / naive == pytest.approx(0.060, abs=0.006)
 
 
 def test_envelope_in_physical_units_is_a_real_shove():
@@ -465,10 +470,24 @@ def test_spine_authority_is_ALSO_friction_limited():
     # matters and has survived every move.
     assert ctl.StepPlant.from_gait(c, floor_mu=0.7).spine < rom_only.spine, (
         "NFR16's floor must stay friction-limited")
-    assert ctl.StepPlant.from_gait(c, floor_mu=0.8).spine == pytest.approx(
-        rom_only.spine, rel=1e-6), "mu 0.8 is the crossover now, not below it"
-    assert ctl.StepPlant.from_gait(c, floor_mu=0.9).spine == pytest.approx(
-        rom_only.spine, rel=1e-9), "and ROM takes over by mu 0.9"
+    # ⚠️ **M102 moved it back up, to mu 0.8725** -- where M87 had it, before
+    # M93's wider track pulled it down to 0.8. Placing the head raised the
+    # ROM-limited shift itself **36.6 -> 39.82 mm**, because the yaw swings a
+    # mass that is now high and forward; a bigger shift costs more friction, so
+    # friction binds over a wider range:
+    #
+    #     mu 0.70 -> 30.38 mm   FRICTION binds
+    #     mu 0.80 -> 35.85 mm   FRICTION binds   <- M93 had this as the crossover
+    #     mu 0.85 -> 38.59 mm   FRICTION binds
+    #     mu 0.88 -> 39.82 mm   ROM binds
+    #
+    # Fourth move of this crossover on the same argument, and the reading that
+    # matters is untouched: NFR16's floor of 0.70 is still comfortably inside
+    # the friction-limited region.
+    assert ctl.StepPlant.from_gait(c, floor_mu=0.8).spine < rom_only.spine, (
+        "mu 0.8 is friction-limited again; the crossover is 0.8725")
+    assert ctl.StepPlant.from_gait(c, floor_mu=0.88).spine == pytest.approx(
+        rom_only.spine, rel=1e-9), "and ROM takes over by mu 0.88"
     assert ctl.StepPlant.from_gait(c, floor_mu=0.4).spine < \
         ctl.StepPlant.from_gait(c, floor_mu=0.7).spine, "and it is monotone in mu"
 

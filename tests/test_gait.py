@@ -383,7 +383,23 @@ def test_arching_the_spine_LIFTS_the_com_but_no_longer_moves_it_rearward():
     assert np.abs(arch.state(p).spine_q).max() > 0.0
     dx = arch.state(p).com.x - flat.state(p).com.x
     dz = arch.state(p).com.z - flat.state(p).com.z
-    assert abs(dx) < 0.002, "the arch moved the CoM %.1f mm fore-aft" % (1e3 * dx)
+    # ⚠️ **M102 brought the fore-aft coupling BACK, and ADR-0092 measured its
+    # absence on a plant with no head.** With the 240 g placed where it is
+    # drawn -- 149 mm ahead of the front girdle's mount and 118 above it --
+    # arching swings that mass up and back:
+    #
+    #     ventral axis, no head     dx -11.19 mm   dz +42.06 mm
+    #     dorsal axis, no head      dx  +0.73 mm   dz +46.99 mm
+    #     dorsal axis, head placed  dx  -4.52 mm   dz +50.39 mm
+    #
+    # So "no longer moves it rearward" was true of a HEADLESS robot. The lift
+    # grew too, and still dominates 11:1, so the arch is STILL mostly a
+    # vertical actuator -- but a plan may now count on about 4.5 mm of rearward
+    # shift, not zero, and not the 11.2 the belly-mounted spine invented.
+    assert abs(dx) < 0.006, "the arch moved the CoM %.1f mm fore-aft" % (1e3 * dx)
+    assert abs(dz) > 8.0 * abs(dx), (
+        "the arch is no longer mostly vertical: dz %.1f vs dx %.1f mm"
+        % (1e3 * dz, 1e3 * dx))
     assert dz > 0.040
 
 

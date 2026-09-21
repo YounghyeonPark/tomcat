@@ -48,13 +48,22 @@ biology (limbs ~24% of body mass) and then TUNED the girdle masses to hit a
    (47.5 / 30 / 15 / 7.5 %) because tendon drive centralises mass.
 3. GIRDLES carry their real contents -- motors + one driver board each:
        front  = 6 leg motors x 132 g + head/neck 0.240 + structure 0.090 = **1.122 kg**
-       rear   = 6 leg motors x 132 g + structure 0.110                   = **0.902 kg**
+       rear   = 7 motors x 132 g + structure 0.110 + tail 0.0098         = **1.0438 kg**
+   ⚠️ The rear girdle's SEVENTH motor is the tail's (M102); the head in the
+   front girdle is no longer lumped at the mount but placed where it is drawn.
    where 132 g = the SURVEYED REAL PART (SteadyWin GIM3505-9: 120 g motor +
    integrated driver = 131.7 g), NOT the 72 g class target it replaced.
-4. SPINE segments = 1.611 kg: 0.130 / 1.354 / 0.127 kg rear->front.
+4. SPINE segments = 1.469 kg: 0.130 / 1.2122 / 0.127 kg rear->front.
    The MIDDLE segment dominates because it carries both the ~0.300 kg battery
-   AND the 7-motor spine+tail bank (3 dorsoventral + 3 lateral + 1 tail), which
-   the CAD packaging puts in the mid-body bay between the girdles.
+   AND the SIX spine motors (3 dorsoventral + 3 lateral), which the CAD
+   packaging puts in the mid-body bay between the girdles.
+
+   ⚠️ **This said "the 7-motor spine+tail bank" for nine milestones and the
+   seventh was the TAIL's.** ADR-0007 bought it; M88 placed it on trunk body 0
+   beside the hind leg bank; ADR-0096 found that the trunk's own check counted
+   `%d of 18` and could not see it. M102 moved it to the rear girdle, where
+   body 0 maps, with the 9.8 g tail it drives -- 141.8 g out of this segment
+   and onto that girdle, so the body total does not move.
 5. The fore/hind split is a RESULT, not a target. See ``mass.quarter_masses``.
 
    ⚠️ CORRECTED (ADR-0009 follow-up). The previous apportionment was wrong twice,
@@ -463,7 +472,13 @@ class SpineParams:
     # both the ~0.300 kg battery and the 7-motor spine+tail bank, which the CAD
     # packaging places in the mid-body bay between the girdles (NOT in the rear
     # girdle, as the pre-ADR-0009 apportionment assumed).
-    segment_mass: tuple[float, ...] = (0.130, 1.354, 0.127)
+    #
+    # ⚠️ **141.8 g left the middle segment in M102** -- the 19th motor (131.7 g)
+    # (132.0 g) and the tail it drives (9.8 g of EVA foam). Both were bought:
+    # ADR-0096 pays for them out of the structure allowance, which is what this
+    # segment carries, so the body total does not move. They now sit on the
+    # REAR girdle, where `tomcat_trunk` actually places them.
+    segment_mass: tuple[float, ...] = (0.130, 1.2122, 0.127)
 
     # Fraction along each segment (from its INBOARD/rear vertebra) at which that
     # segment's mass acts. 0.5 = uniform rod.  ❓ TBD
@@ -479,8 +494,13 @@ class SpineParams:
     # which is what the values below are built from -- this comment said 77 g
     # (the superseded 72 g class + 5 g board) until M57 checked the arithmetic.
     # The rear girdle is the LIGHTER one: the spine/tail bank moved to the mid-body.
+    #
+    # ⚠️ **The REAR girdle grew 141.8 g in M102.** It holds the tail's motor --
+    # the 19th, which ADR-0096 placed on trunk body 0 and this model had never
+    # heard of -- and the tail itself. The front girdle's mass does not move:
+    # the head was always inside it, just never anywhere in particular.
     front_girdle_mass: float = 1.122
-    rear_girdle_mass: float = 0.902
+    rear_girdle_mass: float = 1.0438
 
     #: Girdle housing, full extents (m), and the height of its centre above the
     #: girdle mount vertebra.
@@ -537,6 +557,14 @@ class SpineParams:
     #: body and 304 g on the second. `mjcf_tendon` still hangs the spine spools
     #: on the rear girdle as well. Re-apportioning is a milestone of its own and
     #: it moves every balance result again.  `[owed]`
+    #:
+    #: ✅ **M102 did the part that could be done without restructuring.** The
+    #: head and the tail are placed, the 19th motor is on the girdle body 0
+    #: maps to, and the phrase "the 7-motor spine+tail bank" is gone -- the
+    #: seventh was the tail's. What remains owed is the ARCHITECTURE: four CAD
+    #: bodies against three model segments plus two girdles, and `mjcf_tendon`
+    #: still hanging the spine spools on the rear girdle. See
+    #: [ADR-0099](../../../docs/DESIGN_DECISIONS.md#adr-0099).
 
     # Girdle CoM offset (x, z) in the girdle's own frame (m). (0, 0) = the mass
     # acts exactly at the girdle mount vertebra.
@@ -550,8 +578,15 @@ class SpineParams:
     # with this parameter only because the parameter was (0, 0). The same shape
     # of defect as the paw's `0.5 * l4`, found the same way -- by giving the
     # parameter a real value.  `[derived: cad/tomcat_packaging.py]`
-    front_girdle_com: tuple[float, float] = (-0.00461, 0.01739)
-    rear_girdle_com: tuple[float, float] = (-0.00574, 0.01600)
+    #
+    # ⚠️ **M102 put the head and the tail where they are.** The head's 240 g
+    # sat at the housing centre because nothing had ever placed it; its CoM is
+    # **149.5 mm ahead of the hip and 118.3 above it**, and moving it there
+    # carries the whole front girdle **+32.0 mm forward and +20.4 up**. The
+    # rear girdle moves **-12.0 and +4.5** under the tail and its motor.
+    # `[derived: cad/girdle_inertia.py]`
+    front_girdle_com: tuple[float, float] = (0.02738, 0.03775)
+    rear_girdle_com: tuple[float, float] = (-0.01771, 0.02055)
 
     #: MJCF `fullinertia` about each girdle's CoM, in its own frame
     #: (ixx iyy izz ixy ixz iyz, kg m²).
@@ -561,15 +596,28 @@ class SpineParams:
     #: packs them and spread the remainder (structure, and the head+neck the
     #: front girdle absorbs) through the housing.
     #:
-    #: ⚠️ **The head is the weak point and it is not in the box.** The front
-    #: girdle "deliberately ABSORBS the HEAD + NECK" -- 240 g of its 1122 -- and
-    #: nobody has placed it. Lumped in the housing here, as the old model lumped
-    #: it at the origin. Putting it forward would raise the pitch inertia.
-    #: `[derived: cad/tomcat_packaging.py]`
+    #: ✅ **M102 placed the head, and "would raise the pitch inertia" was the
+    #: understatement.** This comment used to read *"the head is the weak point
+    #: and it is not in the box... lumped in the housing here... putting it
+    #: forward would raise the pitch inertia"* -- a defect correctly described
+    #: and left in place for nine milestones. Measured, the front girdle's
+    #: **Iyy goes 1.1412e-03 -> 8.2412e-03, a factor of 7.2**, and `Ixz`
+    #: changes SIGN (+1.4855e-04 -> -3.2340e-03) because the head is high and
+    #: forward where the motor bank is low and behind.
+    #:
+    #: The rear girdle gains the tail and the 19th motor: **Iyy x2.5**.
+    #:
+    #: ⚠️ The tag used to say `[derived: cad/tomcat_packaging.py]` and that
+    #: module does not produce these -- it packs motors and sizes housings and
+    #: never prints a tensor. `girdle_inertia.py` is the missing derivation,
+    #: and it RE-DERIVES the published numbers before replacing them: strip the
+    #: head-as-housing-lump out of the old front girdle and what is left is the
+    #: rear girdle plus 20 g of structure, agreeing to 0.5 % on Ixz.
+    #: `[derived: cad/girdle_inertia.py]`
     front_girdle_inertia: tuple[float, ...] = (
-        1.2577e-03, 1.1412e-03, 9.8045e-04, 0.0, 1.4855e-04, -1.7442e-05)
+        3.1965e-03, 8.2412e-03, 5.9389e-03, 0.0, -3.2340e-03, -1.7442e-05)
     rear_girdle_inertia: tuple[float, ...] = (
-        8.9693e-04, 7.8852e-04, 7.1418e-04, 0.0, 1.5575e-04, -1.7442e-05)
+        1.0596e-03, 2.0030e-03, 1.7949e-03, 0.0, 5.0784e-04, -1.7442e-05)
 
     #: Per-segment `fullinertia`, or `None` to derive it from the segment box.
     #:
@@ -578,9 +626,13 @@ class SpineParams:
     #: 60 x 60 mm cross-section the others assume understates by **1.6x**. The
     #: outer two are bone and structure and remain `[assumed]`.
     #: `[derived: cad/tomcat_packaging.py]`
+    #:
+    #: ⚠️ Scaled by **0.89527** in M102, the fraction of the middle segment's
+    #: mass that stays after the 19th motor and the tail leave it. The bay's
+    #: geometry did not change, so the tensor scales with the mass it holds.
     segment_inertia: tuple[tuple[float, ...] | None, ...] = (
         None,
-        (1.4110e-03, 1.4110e-03, 1.1042e-03, 5.3457e-05, 6.3457e-05, 6.3457e-05),
+        (1.2632e-03, 1.2632e-03, 9.8856e-04, 4.7859e-05, 5.6811e-05, 5.6811e-05),
         None,
     )
 

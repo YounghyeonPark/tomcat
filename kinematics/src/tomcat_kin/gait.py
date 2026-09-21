@@ -353,7 +353,32 @@ class GaitParams:
     #     12.5        5.55     4.86   yes   <- optimum, and the documented one
     #     13.5        7.83     1.49   yes
     #     14.0        8.96    -0.16   NO -- a foot would have to pull
-    lateral_amplitude: float = math.radians(12.5)
+    #
+    # ⚠️ **M102 re-tuned it BACK: 12.5 -> 11.0 deg, because the HEAD
+    # arrived.** Placing the 240 g of head and neck where it is drawn -- 118 mm
+    # above the hip axis, not spread through the girdle housing -- raises the
+    # whole body's CoM **14.9 -> 20.1 mm**, and a higher CoM throws the ZMP
+    # further sideways for the same sway. At 12.5 deg the default walk went
+    # **+5.30 mm of ZMP margin to -0.14**: infeasible, a foot pulling 57 mN.
+    #
+    # ✅ It is not the reach that does it, it is the HEIGHT. Moving the feet
+    # forward does nothing (`nominal_foot` x 0.050 -> 0.070 moves the margin
+    # -0.141 -> -0.145 mm); the whole ZMP-vs-amplitude curve simply shifted
+    # down by about 5 mm and the optimum went with it:
+    #
+    #     deg    static mm   ZMP mm   peak mu   feasible
+    #     10.0        3.53     3.31     0.224   yes
+    #     11.0        6.17     5.60     0.414   yes   <- the new optimum
+    #     11.5        7.46     3.66     0.432   yes
+    #     12.0        8.75     1.74     0.351   yes
+    #     12.5       10.02    -0.14     0.241   NO -- the M93 default
+    #     13.0       10.60    -2.00     0.304   NO
+    #
+    # The corrected plant is not WORSE: 5.60 mm at the new optimum beats the
+    # 4.86 M93 could reach. The static margin still climbs past the turnover,
+    # which is the same friction limit this comment named in M93 -- so the
+    # DYNAMIC number picks the amplitude, as it did then.
+    lateral_amplitude: float = math.radians(11.0)
     # Swing-return profile: "matched" (default, C1/C2 -- end velocities equal the
     # stance sweep so the foot lands without scuffing and the transition carries
     # no acceleration impulse) or "cycloid" (the legacy M2 profile, C0 only).

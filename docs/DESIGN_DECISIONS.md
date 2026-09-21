@@ -7812,6 +7812,227 @@ at all.
 
 ---
 
+## ADR-0099: the head and the tail reach the plant, and the walk has to be re-tuned
+
+- **Status:** Accepted
+- **Date:** 2026-09-21 (M102)
+- **✅ Pays the `[owed]` that [ADR-0096](#adr-0096) and [ADR-0097](#adr-0097)
+  both ended on**, and corrects three claims that were measured on a plant with
+  no head in it.
+
+### Context
+
+`SpineParams.front_girdle_mass` absorbed **240 g of head and neck** and
+`front_girdle_inertia` spread it uniformly through the girdle housing.
+`params.py` said so in its own comment -- *"the head is the weak point and it
+is not in the box... putting it forward would raise the pitch inertia"* -- and
+left it there for nine milestones. The tail and the 19th motor that drives it
+were not in the model at all.
+
+⚠️ And the tag on those numbers read `[derived: cad/tomcat_packaging.py]`.
+That module packs motors and sizes housings; **it never prints a mass, a CoM or
+an inertia tensor**. The girdle figures came from a script that did not survive.
+
+### Decision
+
+Settle the tail's material, derive the girdles reproducibly, and put both
+appendages where they are drawn.
+
+- **EVA foam for the tail.** ADR-0096 priced it -- silicone 11.7 % of the
+  body's pitch inertia for 0.8 % of authority, foam 2.0 % -- and wrote *"foam
+  unless something else argues"*. Nothing argued, and the righting reflex is
+  still a factor of nine short ([ADR-0093](#adr-0093)), so the cheap tail wins.
+  **9.8 g** at 0.20 g/cm3.
+- **`cad/girdle_inertia.py`** is the missing derivation. It re-derives the
+  PUBLISHED numbers before replacing them: strip the head-as-housing-lump out
+  of the old front girdle and what is left must be the rear girdle plus 20 g of
+  structure. It is -- **0.5 % on Ixz**, exact on Iyz.
+- The 19th motor and the tail move **141.8 g** from `segment_mass[1]` to the
+  rear girdle. The budget already paid for both out of the structure
+  allowance, so the body total does not move: **3.635 kg**, unchanged.
+
+### Consequences
+
+- ⚠️ **The head's placement is worth 7.2x the front girdle's pitch inertia**
+  and flips the sign of its `Ixz`:
+
+  | | was | now |
+  |---|---|---|
+  | front girdle CoM | (-4.6, +17.4) mm | **(+27.4, +37.8)** |
+  | front girdle Iyy | 1.1412e-03 | **8.2412e-03** |
+  | front girdle Ixz | +1.4855e-04 | **-3.2340e-03** |
+  | rear girdle mass | 0.902 kg | **1.0438** |
+  | rear girdle Iyy | 7.8852e-04 | **2.0030e-03** |
+  | whole-body CoM height | 14.9 mm | **20.1 mm** |
+
+- ⚠️ **THE consequence: the default walk stopped being feasible.** The ZMP
+  margin went **+5.30 mm -> -0.14**, with a foot pulling 57 mN. And it is not
+  the head's REACH that does it, it is its HEIGHT -- moving the feet forward
+  changes nothing (`nominal_foot` x 0.050 -> 0.070 moves the margin -0.141 ->
+  -0.145 mm). A CoM 5.2 mm higher throws the ZMP further sideways for the same
+  sway, so the whole ZMP-vs-amplitude curve dropped about 5 mm and took its
+  optimum with it.
+- ✅ **Re-tuned by the method [ADR-0092](#adr-0092) used when the track moved:
+  `lateral_amplitude` 12.5 -> 11.0 deg**, which is where it was before M93
+  raised it. The corrected plant is not worse -- **5.60 mm** at the new optimum
+  beats the 4.86 M93 could reach.
+- ⚠️ **Three results were measured on a headless robot and change:**
+  - arching the spine **moves the CoM rearward again**. ADR-0092 concluded the
+    arch is a vertical actuator and not a fore-aft one; with the head placed it
+    is `dx -4.52 mm, dz +50.39` against `+0.73 / +46.99`. Still mostly vertical
+    (11:1) and no longer zero.
+  - the base spine joint in quiet stand: **0.354 -> 0.498 N.m**, the one number
+    the head made worse and the one it should -- 240 g cantilevered 149 mm
+    ahead of the mount is what *"the head is the weak point"* meant. Under the
+    tuned model's 0.57, with less room than it had.
+  - the 1-D viable reduction under-claims by **9.2 %**, up from 4.0. It has
+    widened at every step that made the body more real, always in the
+    conservative direction: a projection loses more as the true set stops being
+    axis-aligned.
+- ✅ Two got BETTER: the exact viable worst case **33.77 -> 34.85 mm**, and the
+  spine's NFR15 authority **65.2 -> 66.4 mm** against a requirement of 48.
+- ⚠️ **A derivation that reads its own output is not a derivation.** The
+  first `girdle_inertia.py` took its baseline from the live `params.py`. Run
+  once it was right; run again, after `params.py` had been updated, it placed
+  the head twice and sent the front girdle's Iyy to 1.2e-02. The
+  reconstruction check caught it -- `Ixz` off by **713 %** -- and the fix is
+  not to notice better: the M101 baseline is frozen in the file.
+- ⚠️ **The repo carries two masses for the same motor**: `params.py` builds
+  both girdles from 0.132 kg, while ADR-0096, `mass_closure` and `thermal` use
+  131.7 g. 0.3 g is nothing to the physics and everything to whether the
+  accounting closes. Not reconciled here.  `[owed]`
+- ⚠️ **Still the two-girdle architecture M88 replaced.** The model is rear
+  girdle + 3 segments + front girdle; the CAD is four rigid bodies with motors
+  spread 6/4/2/6. Mapping body 3 -> front girdle and body 0 -> rear girdle is
+  faithful for the leg motors and for these two appendages, and it is not the
+  re-apportionment owed since M92. What this milestone did remove is the
+  phrase *"the 7-motor spine+tail bank"*: the seventh was the tail's, M88 put
+  it on body 0, and it is on the rear girdle now.  `[owed]`
+- ⚠️ The tail is a rigid lump on the rear girdle. **Its joint is not
+  modelled**, so the 19th motor drives nothing in the plant -- which matches
+  ADR-0096's finding that the tail is not an inertial device, and is still a
+  DOF the CAD has and the simulator does not.  `[owed]`
+
+### What the SIMULATOR said, which is not what the analytic model said
+
+The MuJoCo harness moved four numbers, and three of them moved the good way.
+
+- ✅ **The spine's stiffness cliff became a pure cliff.** The lateral chain
+  carries the forequarters, and the head is now 240 g of pitch inertia sitting
+  on them:
+
+  | `spine_kp` | 30 | 60 | 100 | 150 | 250 | 1000 |
+  |---|---|---|---|---|---|---|
+  | fell in 20 steps | yes | **yes** | no | no | no | no |
+  | mean abs dcm | 50.4 | 33.2 | **0.9** | 0.9 | 0.9 | 1.0 mm |
+
+  M86 read 150 -> 12.4 mm and 1000 -> 2.0, and the finding's closing line was
+  that *"the cliff is not the whole finding"* -- there was a gradient above it.
+  There is none now: 100 and 1000 are the same number, and the settled wobble
+  fell **2 to 13x**. The mass that made the walk harder makes the spine quieter.
+
+- ✅ **[ADR-0046](#adr-0046)'s degenerate survival envelope is no longer
+  degenerate**, and one of its four xfails is lifted. M41 measured **37.17 mm
+  at BOTH 120 and 300 deg**, above the 29.15 mm exact viable bound -- a number
+  no controller can reach. Placing the head moved both ends toward each other:
+  the bound GREW to **34.85 mm** and the 120 deg envelope FELL to **31.11**
+  (89 %), with 300 deg at 34.39 (99 %). ⚠️ And the test could not have seen
+  that degeneracy -- it measured 120 deg alone, so *"equal at both angles"* was
+  invisible to it. It measures both now.
+
+- ✅ **M30's paired design has its own evidence again.** The phase-to-phase
+  spread the corrected mass model had flattened below 1.0 mm is back at
+  **1.8 mm**, and the test had asked in its own message to be told if it
+  returned.
+
+- ⚠️ **And one test was measuring the wrong thing.** The baseline's wind-up
+  guard read *last 10 steps < 2x first 10*, and the first ten steps are the
+  quietest the run will ever be, because the harness resets to rest. Over 60
+  steps the baseline is not drifting at all -- it converges:
+
+      steps  0- 9   0.709 mm   <- the reset transient, not a baseline
+      steps 20-29   1.650
+      steps 40-49   1.751
+      steps 50-59   1.762      <- asymptote, worst excursion 3.47 mm
+
+  The old form passed only while the plant settled inside twice its own
+  start-up, and the head pushed it to 2.3x. Wind-up is a property of the TAIL,
+  so the guard compares the last two windows to each other -- and the run had
+  to grow **30 -> 50 steps**, because at 30 the baseline is still 22 % from
+  its asymptote. The gate that exists to establish the harness's noise floor
+  **had never once observed its own steady state.**
+
+- ✅⚠️ **[ADR-0073](#adr-0073)'s landing alarm resolved and got worse, in
+  two different cables.** Dropping the held quadruped and re-sweeping the spine
+  gain at 0.05 m:
+
+  | `spine_kp` | 0 | 100 | 300 | 600 | 1000 |
+  |---|---|---|---|---|---|
+  | leg cable, M93 | **222.9 SAT** | 70.2 | **222.9 SAT** | **222.9 SAT** | 78.2 |
+  | leg cable, M102 | **81.4** | 67.6 | **46.8** | 49.2 | 48.2 |
+  | spine's own, M102 | 5743 | 5337 | **3492** | 3940 | 5178 |
+
+  ✅ **The saturation BAND is gone at every gain**, and the leg cable never
+  reaches its rating -- 46-81 N against 222.9, where the LIMP case used to
+  saturate. The mechanism is the one ADR-0073 named and then mis-attributed to
+  the articulation: the leg PD saturates when it has to chase a hip that moves,
+  and a trunk carrying 250 g at its two ends moves less. So that margin stops
+  being conditional on a spine gain nobody has room to tune.
+
+  ⚠️ **And the spine's OWN cables got worse where the drop is SHALLOW, and
+  not at all where it is deep.** At the same gain:
+
+  | drop | leg cable | spine's own | M93's spine |
+  |---|---|---|---|
+  | 0.05 m | 46.8 N | **3492 N, 15.7x** | 1096 N |
+  | 0.10 | 50.7 | 2960, 13.3x | 1457 |
+  | 0.30 | 74.5 | 1798, **8.1x** | 1720 |
+
+  3.2x at 0.05 m and +5 % at 0.30 -- the mass that protects the leg cable is
+  mass the spine must arrest, and a shallow drop gives it the least time. The
+  spine's own cables remain what ADR-0073 called *"the larger number"*, at
+  8-16x their rating, and nothing here addresses them.  `[owed]`
+
+  ⚠️ **A first draft of this entry said 15.7-25.8x**, by quoting the LIMP
+  case's 5.7 kN as if it were the held one and by reading a single drop height
+  as the range. The numbers above are at the same gain across all three
+  heights.
+
+- ✅ **The righting got faster, and that is the biggest single number here.**
+  Closed-loop righting from fully inverted: **2.81 -> 1.35 s**. Three
+  independent measurements agree and none of them depends on the gait re-tune:
+
+  | | M93 | M102 |
+  |---|---|---|
+  | spine only, open loop | 74.1 deg/s | **109.8** |
+  | + anti-phase leg tuck | 95.6 | **115.2** |
+  | closed loop | 64 | **133** |
+  | equivalent fall | 38.7 m | **8.9** |
+
+  ⚠️ **And the leg tuck's contribution collapsed, +29 % -> +5 %.** That is
+  the finding, not a side note: a righting manoeuvre is the spine reacting
+  against the body's own ends, and until now the model had no ends. Placing the
+  head and the tail gives the spine alone nearly everything the tuck used to
+  supply -- which is what a falling cat does, and why ADR-0088's *"how much the
+  legs still had to give"* kept shrinking. [ADR-0093](#adr-0093)'s factor of
+  nine is not closed; about a third of it is.
+
+- ✅ **The compliance penalty on the righting came back, and a two-sided bound
+  is what caught it.** M71 measured compliance costing the righting 4.7x, M87
+  had it at 3 %, and M93 measured it **NEGATIVE** -- 7 % faster -- and left a
+  comment saying *"the bound is two-sided so a return to a real penalty fails
+  here."* It returned: **1.49x** (2.015 s against 1.35 rigid). Placing the head
+  made the rigid plant much faster and the compliant one only somewhat, so the
+  springs give back a smaller share of a bigger manoeuvre. Between 4.7x, 3 %,
+  -7 % and 1.49x, what that number measures is the plant it was measured on.
+
+- The trot's copper loss and the runtime that follows moved with the plant:
+  **7.4126 -> 7.4702 W** per motor, **18.81 -> 18.69 min**, total
+  **133.9987 -> 134.8254 W**. A quiet stand is untouched -- it carries the same
+  weight either way; it is the trot that pays.
+
+---
+
 ---
 
 ### How to add an ADR

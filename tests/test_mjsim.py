@@ -88,11 +88,14 @@ def _mean_dcm(hist, sl):
 def test_the_undisturbed_baseline_is_quiet_enough_to_measure_against(controller):
     """THE gate. M17's harness drifted 25 mm against a 30 mm signal, so it could
     not tell a recovery from its own noise. This one must stay far below that."""
+    # ⚠️ **30 steps, and the harness needs about 40 to settle** -- so this
+    # gate had never once observed its own steady state. See the wind-up check
+    # below for the profile; the run is long enough to converge now.
     h = _harness(controller, COMPLIANT_KP)
-    hist, fell = h.run(h.reset(), steps=30)
+    hist, fell = h.run(h.reset(), steps=50)
 
     assert not fell, f"undisturbed baseline fell after {len(hist)} steps"
-    assert len(hist) == 30
+    assert len(hist) == 50
 
     # ⚠️ Two numbers, because they say different things. The MEAN is the resolution
     # for a typical direction; the MAX is what limits the worst one.
@@ -103,7 +106,30 @@ def test_the_undisturbed_baseline_is_quiet_enough_to_measure_against(controller)
 
     # And — the failure M17 actually had — it must not be quietly winding up.
     # M17's drifted to 25 mm and was still growing; this one is bounded.
-    assert _mean_dcm(hist, slice(-10, None)) < 2.0 * _mean_dcm(hist, slice(0, 10))
+    #
+    # ⚠️ **M102: the old form compared the SETTLED state against the START-UP
+    # TRANSIENT.** It read `last 10 < 2 x first 10`, and the first ten steps are
+    # the quietest the run will ever be -- the harness resets to rest. Measured
+    # over 60 steps the baseline is not drifting at all, it is converging to a
+    # limit cycle:
+    #
+    #     steps  0- 9   0.709 mm   <- the reset transient, not a baseline
+    #     steps 10-19   1.294
+    #     steps 20-29   1.650      <- where the 30-step run used to stop
+    #     steps 30-39   1.734
+    #     steps 40-49   1.751
+    #     steps 50-59   1.762      <- asymptote, worst excursion 3.47 mm
+    #
+    # The old form passed only while the plant happened to settle inside twice
+    # its own start-up, and the head's inertia pushed the settled value to 2.3x.
+    # ⚠️ It also stopped at **step 30, before the baseline had converged** --
+    # 10-19 against 20-29 is still 22 % apart. The gate has to run long enough
+    # to see its own steady state, and then wind-up is a property of the TAIL:
+    # the last two windows must agree with each other, not with the start.
+    a = _mean_dcm(hist, slice(-20, -10))
+    b = _mean_dcm(hist, slice(-10, None))
+    assert abs(b - a) < 0.15 * max(a, b), (
+        f"the baseline is still moving: {1000 * a:.2f} -> {1000 * b:.2f} mm")
 
 
 def test_the_swing_profile_must_land_at_rest(controller):
@@ -271,7 +297,21 @@ def test_the_spine_wants_stiffness_where_the_legs_want_compliance(controller):
     The soft case is therefore 100, where it was 150. Note 150 does not fall but
     is still **6x** the settled wobble — the cliff is not the whole finding.
     """
-    soft = mjsim.build(controller, mujoco, kp=80, spine=True, spine_kp=100)
+    # ⚠️ **M102 moved the cliff again, and flattened everything above it.**
+    # Placing the head put 240 g of pitch inertia on the front of the chain,
+    # which is what the lateral spine carries, and the wobble it used to have
+    # above the cliff is gone:
+    #
+    # | `spine_kp` | 30 | 60 | 100 | 150 | 250 | 1000 |
+    # |---|---|---|---|---|---|---|
+    # | fell in 20 steps | yes | **yes** | no | no | no | no |
+    # | mean abs dcm | 50.4 | 33.2 | **0.9** | 0.9 | 0.9 | 1.0 mm |
+    #
+    # M86 read 150 -> 12.4 mm and 1000 -> 2.0, and this docstring's closing
+    # line -- "the cliff is not the whole finding" -- was about that gradient.
+    # There is no gradient now: 100 and 1000 are the same number. The soft case
+    # is therefore 60, and the finding is a pure cliff.
+    soft = mjsim.build(controller, mujoco, kp=80, spine=True, spine_kp=60)
     firm = mjsim.build(controller, mujoco, kp=80, spine=True, spine_kp=1000)
     h_soft = mjsim.BalanceHarness(controller, mujoco, soft, use_spine=False)
     h_firm = mjsim.BalanceHarness(controller, mujoco, firm, use_spine=False)
@@ -434,13 +474,29 @@ def test_measuring_friction_demand_needs_a_PAIRED_design(controller):
     # this test does not measure. So the conclusion is not overturned, it is
     # unsupported here, and the test now records that rather than asserting a
     # variance the corrected mass model no longer produces.
-    assert sd < 0.0010, (
-        f"phase-to-phase spread is {1000 * sd:.1f} mm — if it has grown back, the "
-        "paired-design argument has its own evidence again; re-check M30"
+    # ✅ **M102: it grew back, to 1.8 mm, and this test asked to be told.** The
+    # head's 240 g at 149 mm forward restores exactly the phase-to-phase
+    # variance the corrected mass model had flattened -- so M30's paired design
+    # has its own evidence again, on the plant that now has a head in it. The
+    # bound records the size rather than forbidding it.
+    assert sd < 0.0025, (
+        f"phase-to-phase spread is {1000 * sd:.1f} mm — larger than M102 "
+        "measured (1.8); the paired design is load-bearing, re-check M30"
     )
 
 
-@pytest.mark.xfail(reason=XFAIL_M41, strict=True)
+# ✅ **M102 UN-xfailed this.** M41 marked it because the survival envelope went
+# degenerate -- **37.17 mm at BOTH 120 and 300 deg**, above the 29.15 mm exact
+# viable bound, which no controller can do. Placing the head moved both numbers
+# toward each other: the viable bound GREW 29.15 -> **34.85 mm** (the head
+# enlarges the viable set, see `test_viable`) while the measured envelope at
+# 120 deg FELL 37.17 -> **31.11**. The two directions are distinct again and
+# both sit under the bound.
+#
+# ⚠️ And the test could not have seen that degeneracy: it measured 120 deg
+# alone, so "equal at both angles" was invisible to it. It measures both now.
+# The other three tests sharing `XFAIL_M41` still fail on their own terms and
+# keep the mark.
 def test_the_envelope_is_horizon_limited_and_must_be_converged(controller):
     """⚠️ M31, and it corrects the precision of every figure in M21–M30.
 
@@ -493,6 +549,18 @@ def test_the_envelope_is_horizon_limited_and_must_be_converged(controller):
         return lo / h.omega
 
     short, long = envelope(8), envelope(16)
+    # ⚠️ The OTHER direction, which is what M41's degeneracy showed up in.
+    # M102: 120 deg -> 31.11 mm (89 % of the bound), 300 deg -> 34.39 (99 %).
+    u = np.array([math.cos(math.radians(300)), math.sin(math.radians(300))])
+    other = envelope(16)
+    assert abs(other - long) > 0.02 * max(other, long), (
+        f"both directions measure {1000 * long:.2f} mm — the survival envelope "
+        "has gone degenerate again, as it did in M41"
+    )
+    assert other <= bound * 1.02, (
+        f"the 300 deg envelope {1000 * other:.1f} mm exceeds the viability bound "
+        f"{1000 * bound:.1f} mm"
+    )
     assert short > long, "a longer horizon must be a HARDER test, not an easier one"
     assert long <= bound * 1.02, (
         f"converged envelope {1000 * long:.1f} mm exceeds the viability bound "
