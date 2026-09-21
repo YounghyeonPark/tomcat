@@ -224,6 +224,182 @@ cat-sized, biomimetic **elastic cable-driven quadruped**
 
 ---
 
+## Q7 — Tendon ROUTING as a synthesis problem: structure matrix, redundancy class, decoupling ◐⚠️
+
+*(M103. Search-result synthesis plus one fetched article summary. **Not**
+adversarially verified, and two primary sources could not be read: Lee & Tsai
+1991 returned HTTP 403, the D3-ARM PDF would not extract. Treat the framework as
+reliable and every NUMBER below as this project's own, not the literature's.)*
+
+Q1 answered how to *control* an antagonistic pair. It never asked how to *lay
+the cables out*, and that is the question the leg has been failing at
+empirically — [ADR-0042](DESIGN_DECISIONS.md#adr-0042) (the map is coupled where
+the model says it is diagonal), [ADR-0049](DESIGN_DECISIONS.md#adr-0049) (a
+moment arm reverses inside its own ROM), [ADR-0053](DESIGN_DECISIONS.md#adr-0053)
+(the fore leg's routing was never mirrored). Those were found one at a time, by
+measurement, after the fact. There is a synthesis literature that starts from
+the other end.
+
+### The object being designed is a matrix
+
+Every tendon-driven mechanism is summarised by a **structure matrix** `B`
+mapping tendon tensions `f` to joint torques: `τ = B f`. `B` carries *both* the
+routing topology (which tendon crosses which joint, and on which side) and the
+physical pulley radii — sign and magnitude in one place. A tension solution is
+
+    f = B⁺ τ + N η
+
+where `N` spans the **null space** of `B`: internal tensions that produce no
+joint torque. Design is the choice of `B`
+([Robotica CBTF](https://www.cambridge.org/core/journals/robotica/article/design-method-for-tendondriven-serial-manipulators-using-controllable-block-triangular-form-of-structure-null-space-matrix/24DA2770903C8C2E28E4DE20A87FEDEE);
+[Lee & Tsai, IJRR 1991](https://journals.sagepub.com/doi/10.1177/027836499101000306)).
+
+**Force closure**, for cables that can only pull, is the requirement that a `η`
+exists making every element of `f` strictly positive. That is the formal version
+of "a cable cannot push" ([ADR-0002](DESIGN_DECISIONS.md#adr-0002)).
+
+### Three redundancy classes, and they are not a preference
+
+For `n` joints the literature recognises `n`-type, `(n+1)`-type and `2n`-type by
+the number of **driving tendons** — actuators, not strands:
+
+| class | actuators | null space | buys | costs |
+|---|---|---|---|---|
+| `n` | n | **none** | fewest motors | needs a CLOSED loop per joint; no tension freedom at all |
+| `n+1` | n+1 | 1-D | force closure with open-ended tendons; one bias tension | one extra motor |
+| `2n` | 2n | n-D | independent stiffness at every joint | double the motors |
+
+⚠️ **T.O.M.C.A.T.'s leg is `n`-type and the ADR log never says so.**
+[ADR-0008](DESIGN_DECISIONS.md#adr-0008)/[ADR-0058](DESIGN_DECISIONS.md#adr-0058)
+put **one bidirectional spool per antagonistic pair**, so a pair is a single
+closed tendon loop and there are **three actuators for three joints**. That is
+the `n`-type row, and every property in it follows without further argument:
+
+- ✅ Force closure is structural — the loop pulls both ways, so no positive null
+  vector is needed. This is why the architecture works at all.
+- ⚠️ **The null space is empty**, so there is no co-contraction coordinate.
+  ADR-0058 discovered this empirically and wrote *"true of the joint angles,
+  false of the stiffness — that is what was traded away."* It is the defining
+  property of the class, not a surprise.
+- ⚠️ **And it is why ADR-0042's coupling hurts.** With no null space there is no
+  tension redistribution: whatever off-diagonal `B` has appears directly as
+  joint torque error. A `2n` design could partly allocate it away; an `n`-type
+  design **must model it or wear it**. `resolve()` puts it at zero.
+
+### ⚠️ And the built leg is not even that: the ankle is still Option B
+
+`tomcat_leg_detail.tendon_drive()` routes **five** strands, not six --
+`hip±`, `knee±`, and **`ankle+` alone** with a torsion return spring still
+drawn beside it. That is [ADR-0002](DESIGN_DECISIONS.md#adr-0002)'s Option B,
+which [ADR-0050](DESIGN_DECISIONS.md#adr-0050) **rejected in M45 on kinematic
+reach** and which nothing has re-opened since ("its argument was kinematic").
+`mjcf_tendon` defaults `ankle_pair=True`. **The mechanical model and the
+simulated plant have disagreed about the ankle's actuation for some fifty
+milestones**, and the routing module supports `("ankle", -1)` -- it returns a
+315.5 mm route -- so the build loop simply never calls it.
+
+✅ **The theory says this is the interesting half of the leg, not a loose
+end.** A spring-return joint is not `n`-type with one fewer motor; it is a joint
+whose force closure depends on the spring reaching every configuration the gait
+commands. The synthesis literature's controllability condition is exactly the
+question of whether a positive tension solution exists **throughout the
+workspace** -- and the project's two empirical ankle findings are that condition
+failing:
+
+- [ADR-0047](DESIGN_DECISIONS.md#adr-0047): a lone-tendon joint has **no
+  restoring stiffness**.
+- [ADR-0049](DESIGN_DECISIONS.md#adr-0049): its **moment arm reverses sign
+  inside its own ROM**, so the one direction it can pull is not a fixed
+  direction in joint space -- a row of `B` that changes sign mid-workspace.
+
+Both were found by measurement, four milestones apart. A structure-matrix check
+over the ROM would have predicted them from the routing alone.
+
+### The design rule the project does not use: isotropy
+
+Lee & Tsai's synthesis does not stop at "is it controllable". It asks for
+**isotropic transmission** — `B Bᵀ = c² I`, equal actuator effort per unit joint
+torque in every direction — and derives design equations for structure matrices
+that satisfy it
+([ASME JMD 1996](https://asmedigitalcollection.asme.org/mechanicaldesign/article-abstract/118/3/360/417633/Isotropic-Design-of-Tendon-Driven-Manipulators);
+[ASME JMD 1993](https://asmedigitalcollection.asme.org/mechanicaldesign/article-abstract/115/4/884/417841/Kinematic-Synthesis-of-Tendon-Driven-Manipulators)).
+The modern CBTF method adds two more objectives that read like a checklist for
+this leg: **minimal tendon connectivity** (each route starts at the base with no
+gaps), and **minimised pulley-size variation along a route**.
+
+Measured against that, ADR-0042's matrix is the counter-example (mm/rad):
+
+| | hip | knee | ankle |
+|---|---|---|---|
+| hip tendon | **28.00** | 0 | 0 |
+| knee tendon | 8.75 | **25.00** | 0 |
+| ankle tendon | −8.75 | −8.75 | **14.00** |
+
+- The diagonal spans **2:1** (28 → 14). Isotropy wants it flat.
+- The off-diagonal is **8.75 mm everywhere** — the cable's minimum bend radius,
+  the one number in the matrix that is *not* a design choice.
+- So the coupling FRACTION is set by `r_via / r_joint`: **35 %** at the knee and
+  **62.5 % twice** at the ankle. The ankle is worst precisely because its own
+  moment arm is smallest.
+
+✅ **That is the design equation the leg has been missing.** The off-diagonal
+cannot shrink — it is `10 × Ø1.75` of UHMWPE. The RATIO can, by raising the
+distal moment arms, and it is bought with spool travel and sheave envelope, not
+with motors.
+
+### Full decoupling is a mechanism, and ADR-0042 said it was impossible
+
+⚠️ **[ADR-0042](DESIGN_DECISIONS.md#adr-0042) concluded the coupling "cannot be
+designed away… a property of routing a tendon past a joint at all." The
+transmission literature says otherwise, and names the price.**
+
+A via-pulley concentric with the proximal axis kills the *tangent* term but not
+the *arc* term, because the cable wraps ONE pulley whose wrap changes by exactly
+the joint angle. The standard fix is an **input/output idler PAIR**: a second
+coaxial idler on the *distal* link, same radius, wrapped in the opposite sense.
+A proximal rotation `θ` then adds `r θ` of wrap on one and removes `r θ` on the
+other, and the passing cable's length is invariant. The surgical-manipulator
+patent literature states the two constraints explicitly — matched input/output
+pulley diameter ratio, and the passing cable must follow the same path and share
+the same instantaneous centre of rotation as the driving cable
+([US 6,969,385](https://image-ppubs.uspto.gov/dirsearch-public/print/downloadPdf/6969385);
+[US 5,710,870](https://image-ppubs.uspto.gov/dirsearch-public/print/downloadPdf/5710870)).
+D3-ARM reports the same conclusion from the robot-arm side: decoupling needed
+**dedicated 1-DOF mechanisms** — a cable aligner and a rolling pair — not clever
+routing alone, and a pretension mechanism besides
+([Zhang et al., arXiv:2502.12963](https://arxiv.org/abs/2502.12963)).
+
+⚠️ **The price is wrap, and this project already knows what wrap costs.** An
+idler pair roughly doubles the wrapped arc at every joint a tendon passes, and
+capstan friction is `e^(μβ)` in that arc —
+[ADR-0055](DESIGN_DECISIONS.md#adr-0055) measured the working window and the
+project's own retraction found the extensor at **1.985×**. So the honest trade
+for the ankle tendon, which passes two joints, is:
+
+> **63 % torque coupling with one wrap per joint, or ~0 % coupling with two.**
+
+Neither side of that has been costed on this geometry. `[owed]`
+
+### What this changes for the leg redesign
+
+1. **Close the ankle first, because the class is not even decided in hardware.**
+   ADR-0050 chose the pair in M45; the CAD still builds the spring. Until that
+   is settled the leg has no single structure matrix to design against. Note it
+   is not a patch: M93's groove stack allots **one plane per cable** and there
+   is no plane for the ankle antagonist.
+2. **Name the class.** With the ankle paired the leg is `n`-type. Write it in
+   the ADR log, because every downstream surprise about stiffness and coupling
+   follows from it.
+3. **Design `B`, then draw the parts.** M93's redesign fixed manufacturability —
+   monotone groove planes, zero fleet, SF 2.5 — and never wrote down the matrix
+   it was producing. The matrix is the specification; the sheaves are the
+   implementation.
+4. **Decide the coupling explicitly**, with the two options above priced against
+   each other on this geometry, rather than declaring it unavoidable.
+5. **If the coupling stays, model it.** An `n`-type plant has no allocation
+   freedom, so a lower-triangular `B` must appear in `TendonMap` and in
+   `resolve()`. Today both are diagonal.
+
 ## Recommendations for the open decisions
 
 | Decision | Recommendation (evidence) | Confidence |
@@ -395,6 +571,13 @@ sensing; use as a scale check, not an absolute limit. Informs **ADR-0002**.
    tomcat-kinematics.
 2. **Leg actuator trade study:** quantitative tendon-vs-direct-drive comparison at
    the leg using IMF, torque density, reflected inertia, and control complexity.
+2b. **Tendon routing synthesis (Q7), and it is the live one.** The leg's
+   structure matrix has never been designed -- only measured after the fact. Two
+   things are owed: the **coupling trade** (63 % torque coupling with one wrap
+   per passed joint, or ~0 % with a coaxial idler pair and roughly double the
+   capstan arc), costed on this geometry; and the **isotropy** of the diagonal,
+   which currently spans 2:1 with the ankle -- the joint with the worst coupling
+   fraction -- at the small end.
 3. **RoboCat mechanics:** its actuation/spine numbers come from a design paper;
    the vision paper adds nothing mechanical — find companion RoboCat papers for
    more tension/stiffness detail if deeper benchmarking is needed.
