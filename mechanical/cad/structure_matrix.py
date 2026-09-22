@@ -85,6 +85,89 @@ def real_spools(role: str = "hind", side: float = +1.0):
             for t, p in zip(JOINTS, sp3)}
 
 
+#: ✅ **THE ROUTING RULE, verified strand by strand (M105).**
+#:
+#:     B[strand, passed_joint] == (wrap sense at that via) * VIA_R
+#:
+#: The off-diagonal is not a measurement, it is the sense the cable is threaded
+#: with. So the condition for an antagonistic pair to be free of COMMON MODE --
+#: a length change the single bidirectional spool cannot absorb, which
+#: [ADR-0058](../../docs/DESIGN_DECISIONS.md#adr-0058) priced at 1716-3090 N
+#: against a 638 N cable -- is just:
+#:
+#:     the two strands must wrap every SHARED via in OPPOSITE senses.
+#:
+#: That is checkable by eye on a drawing. It is also what `route()` does not
+#: know: it minimises ONE strand's total wrap, so the pair's property is an
+#: accident of a per-strand objective. The knee pair happens to satisfy it; the
+#: ankle pair does not.
+COMMON_MODE_RULE = "opposite wrap sense at every shared via"
+
+
+def pair_options(q, tendon, spool_xz, spools=None, leg=DEFAULT_HINDLEG):
+    """Every admissible `(senses, total_wrap)` for both strands of one pair.
+
+    Enumerates the free senses rather than taking `route()`'s minimum, because
+    the minimum is a per-STRAND answer and the pair is the object being designed.
+    """
+    sp = dict(real_spools() if spools is None else spools)
+    sp[tendon] = tuple(spool_xz)
+    n = len(LT.stations(q, tendon, +1, leg, spools=sp))
+    free = [i for i in range(n) if i != LT._SHEAVE_IDX[tendon]]
+    out = {}
+    for side in (+1, -1):
+        got = []
+        for bits in range(1 << len(free)):
+            sen = [float(side)] * n
+            for k, i in enumerate(free):
+                sen[i] = +1.0 if (bits >> k) & 1 else -1.0
+            try:
+                r = LT.route(q, tendon, side=side, leg=leg, senses=sen, spools=sp)
+            except tr.NoTangent:
+                continue
+            got.append((sen, float(r["total_wrap"])))
+        out[side] = got
+    return out
+
+
+def pair_best(q, tendon, spool_xz, spools=None, leg=DEFAULT_HINDLEG):
+    """The cheapest COMMON-MODE-FREE routing of a pair: `(worst_wrap, s+, s-)`.
+
+    `None` if no sense combination satisfies `COMMON_MODE_RULE` at this spool.
+    """
+    opt = pair_options(q, tendon, spool_xz, spools=spools, leg=leg)
+    best = None
+    for sa, wa in opt[+1]:
+        for sb, wb in opt[-1]:
+            if any(sa[k] == sb[k] for k in VIA_IDX[tendon]):
+                continue
+            w = max(wa, wb)
+            if best is None or w < best[0]:
+                best = (w, sa, sb)
+    return best
+
+
+def spool_search(tendon, q=None, xs=range(-110, -4, 10), zs=range(-20, 61, 10),
+                 leg=DEFAULT_HINDLEG):
+    """Sweep spool positions for the cheapest common-mode-free pair routing.
+
+    ⚠️ **Geometry only.** The spools are motor centres the trunk owns and packs
+    in rows; this sweep does not know about packing, collision, or whether a
+    position is inside the girdle at all. It says where the ROUTING wants the
+    motor, which is an input to that packing and not a substitute for it.
+    """
+    if q is None:
+        import tomcat_leg_detail as LD
+        q = LD.LegModel(leg).inverse((LD.FOOT_X, LD.FOOT_Z, LD.FOOT_PITCH))
+    best = None
+    for x in xs:
+        for z in zs:
+            b = pair_best(q, tendon, (float(x), float(z)), leg=leg)
+            if b is not None and (best is None or b[0] < best[0]):
+                best = (b[0], (float(x), float(z)), b[1], b[2])
+    return best
+
+
 def _q_grid(n: int, leg=DEFAULT_HINDLEG):
     """`n` samples per joint across the ROM, as a list of joint vectors."""
     lo = np.asarray(leg.q_min, float)
