@@ -326,6 +326,40 @@ def trade(q=None, spools="real", leg=DEFAULT_HINDLEG):
     return out
 
 
+def friction_budget(arms=None, caps=None, leg=DEFAULT_HINDLEG):
+    """The trot actuator budget WITH capstan friction, which it has never had.
+
+    ⚠️ `tendon.py` implements `T_motor = T_joint * exp(mu * theta_wrap)` and
+    says so at length; `TendonParams.wrap_angle` is **0.0** and the docstring
+    calls it *"inert pending a per-joint-wrap extension"*. ADR-0083 (M78) was
+    that extension -- it solved every wrap and put them in `pair_wrap` -- and
+    **nothing consumes `pair_wrap`**. One test guards it against drift and calls
+    the router the same way the parameter was recorded, without `spools=`, so
+    the guard reproduces the defect it exists to prevent.
+
+    So the motor has been sized frictionless on a routing whose measured wraps
+    cost 1.1x to 2.0x.
+    """
+    import tomcat_leg_detail as LD
+    from tomcat_kin import mjcf_tendon as MT
+    if arms is None:
+        arms = np.asarray(DEFAULT_TENDON.joint_moment_arm) * 1000.0
+    trot = LD.live_loads()["trot"]
+    out = {}
+    for i, j in enumerate(JOINTS):
+        base = float(trot["motor"][i])                  # N.m, frictionless
+        scale = (np.asarray(DEFAULT_TENDON.joint_moment_arm)[i] * 1000.0
+                 / float(arms[i]))                      # torque falls as 1/r
+        for side, cap in zip((+1, -1), caps[j]):
+            out[(j, side)] = {
+                "frictionless": base * scale,
+                "with_friction": base * scale * cap,
+                "capstan": cap,
+                "frac": base * scale * cap / MT.MOTOR_PEAK_NM,
+            }
+    return out
+
+
 def report(n: int = 4):
     import tomcat_leg_detail as LD
     leg = DEFAULT_HINDLEG
