@@ -39,7 +39,21 @@ from tomcat_kin.params import (  # noqa: E402
 )
 
 #: GIM3505-9 peak joint-side torque, N.m `[sourced: motor-reality-check]`
-MOTOR_PEAK = 1.95
+#:
+#: ⚠️ **M107 demoted this from a GATE to a PROXY.** The mechanism is the
+#: primary design now and the motor is a placeholder: its torque is an OUTPUT to
+#: source or design against, not a limit the linkage has to fit under. What the
+#: proxy still supplies, and what the rest of this file really uses, is the
+#: **envelope** (Ø34.5 x 36.1 mm, which the trunk packs 19 of) and the **mass**
+#: (131.7 g, which is half the body). Those stay; the torque ceiling goes.
+#:
+#: ⚠️ `[owed]` -- whether a motor delivering the requirement below fits in
+#: **that** envelope at **that** mass is exactly the question deferred. If it
+#: does not, the mass budget moves again.
+PROXY_PEAK = 1.95
+
+#: Its continuous rating, same proxy status.
+PROXY_RATED = 0.71
 
 #: Ø1.75 UHMWPE breaking strength, N `[owed: confirm against a real datasheet]`
 CABLE_BREAK = 3000.0
@@ -114,13 +128,45 @@ def close(iters: int = 6, grid: int = 21):
             "body": body}
 
 
+def motor_requirement(b):
+    """The torque the MECHANISM demands -- a specification, not a limit.
+
+    ⚠️ **This used to be a gate and it failed.** M106 turned capstan friction
+    on (ADR-0083 had solved every wrap in M78 and nothing read them), and the
+    trot went 1.71 -> **2.20 N.m** against the GIM3505-9's 1.95 peak. The
+    honest reading is not that the leg is wrong: it is that the motor was
+    chosen on frictionless numbers and the linkage is the thing being designed.
+    So the number is published rather than clipped.
+
+    Returns `{"peak": N.m, "continuous": N.m, "per_joint": {...}}`; `peak` is
+    the trot, which ADR-0008 fixed as the actuator sizing case, and the land
+    transient is deliberately NOT in it -- ADR-0008 puts the x2.5 single-leg
+    landing outside the actuator envelope and sizes cable, pulley and bearing
+    from it instead.
+    """
+    trot, stand = b["trot"], b["stand"]
+    names = ("hip", "knee", "ankle")
+    return {
+        "peak": float(trot["motor"].max()),
+        "continuous": float(stand["motor"].max()),
+        "per_joint": {n: (float(stand["motor"][i]), float(trot["motor"][i]),
+                          float(b["land"]["motor"][i]))
+                      for i, n in enumerate(names)},
+        "proxy_peak": PROXY_PEAK,
+        "proxy_rated": PROXY_RATED,
+    }
+
+
 def gate(b):
-    """Every design limit the new load case has to clear."""
+    """Every design limit the new load case has to clear.
+
+    ⚠️ **The motor peak is NOT here any more** -- see `motor_requirement`.
+    What remains are limits set by parts that have actually been chosen: the
+    cable's breaking strength and the bearing's static rating. A proxy cannot
+    gate a design; a sourced part can.
+    """
     land, trot = b["land"], b["trot"]
     out = []
-    out.append(("motor peak (trot, the ACTUATOR case)",
-                float(trot["motor"].max()), MOTOR_PEAK,
-                float(trot["motor"].max()) <= MOTOR_PEAK))
     sf = CABLE_BREAK / float(land["T"].max())
     out.append(("cable SF on the land transient", sf, SF_TARGET, sf >= SF_TARGET))
     c0 = 2.0 * float(land["T"].max())
@@ -249,6 +295,21 @@ def main():
     for case in ("stand", "trot", "land"):
         print("%-8s %26s %26s"
               % (case, np.round(b[case]["tau"], 2), np.round(b[case]["T"], 1)))
+
+    req = motor_requirement(b)
+    print("\nMOTOR REQUIREMENT the mechanism emits (joint-side, N.m):")
+    print("   %-7s %9s %9s %9s" % ("joint", "stand", "trot", "land"))
+    for nm, (st, tr, ld) in req["per_joint"].items():
+        print("   %-7s %9.3f %9.3f %9.3f" % (nm, st, tr, ld))
+    print("   peak (trot, the ACTUATOR case)  %.3f N.m   <- the SPEC"
+          % req["peak"])
+    print("   continuous (stand)              %.3f N.m" % req["continuous"])
+    print("   proxy peak %.2f / rated %.2f -> short by %.0f %% / %.0f %%"
+          % (req["proxy_peak"], req["proxy_rated"],
+             100 * (req["peak"] / req["proxy_peak"] - 1.0),
+             100 * (req["continuous"] / req["proxy_rated"] - 1.0)))
+    print("   the proxy still supplies the ENVELOPE and the MASS; whether a "
+          "part meeting the spec fits them is [owed].")
 
     print("\ndesign gates at the new mass:")
     for name, got, limit, ok in gate(b):

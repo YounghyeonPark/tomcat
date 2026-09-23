@@ -178,18 +178,40 @@ class TendonMap:
         return self._r * q / self.params.motor_spool_radius
 
     # ------------------------------------------------------- friction (capstan)
-    def capstan_factor(self, *, paying_out: bool = False) -> float:
-        """Capstan tension ratio T_motor / T_joint over the routing (dimensionless).
+    def capstan_factor(self, *, paying_out: bool = False, side: int = +1):
+        """Capstan tension ratio T_motor / T_joint, PER JOINT (dimensionless).
 
         `exp(+mu*theta_wrap)` when the motor PULLS against the load (default, the
         worst case for sizing); `exp(-mu*theta_wrap)` when PAYING OUT. Returns 1.0
         when friction is off (mu = 0 or wrap = 0). See the module docstring for the
         sign/direction convention.
+
+        ⚠️ **M106: this used to read the SCALAR `wrap_angle`, which is 0.0, so
+        the factor was 1.0 and the motor has never been sized against friction.**
+        `wrap_angle`'s own comment called it *"inert pending a per-joint-wrap
+        extension"*; ADR-0083 (M78) WAS that extension and put every wrap in
+        `pair_wrap`, and nothing read it. The wraps differ by a factor of two
+        between the two cables of one pair -- the hip is 135.6 deg flexing and
+        239.4 extending -- so a scalar could not have carried them anyway.
+
+        ⚠️ **`wrap_angle` OVERRIDES, it does not fall back.** A first version
+        of this preferred `pair_wrap` whenever it was present, which broke the
+        contract this module's docstring states -- *"mu = 0 OR wrap = 0 gives
+        factor 1"* -- because a caller asking for `wrap_angle=0` still got
+        friction. `wrap_angle` defaults to `None` meaning *"use the routed
+        wraps"*; set it to a number, including 0.0, and that number wins.
         """
         mu = float(self.params.friction_coeff)
-        wrap = float(self.params.wrap_angle)
         sign = -1.0 if paying_out else 1.0
-        return float(np.exp(sign * mu * wrap))
+        wa = getattr(self.params, "wrap_angle", None)
+        if wa is not None:
+            return float(np.exp(sign * mu * float(wa)))
+        pw = getattr(self.params, "pair_wrap", None)
+        if pw is None:
+            return 1.0
+        k = 0 if side >= 0 else 1
+        wrap = np.array([float(row[k]) for row in pw], dtype=float)
+        return np.exp(sign * mu * wrap)
 
     # -------------------------------------------------------- stretch (compliance)
     def cable_stretch(self, tension) -> np.ndarray:
@@ -265,9 +287,10 @@ class TendonMap:
         realized = self._r * (t_flex - t_ext)  # independent of bias
         # Capstan: the motor pulls the loaded cable in against friction, so the
         # motor-side tension is the joint-side tension amplified by exp(+mu*wrap).
-        factor = self.capstan_factor()
-        m_flex = t_flex * factor
-        m_ext = t_ext * factor
+        # ⚠️ The two cables of a pair carry DIFFERENT wraps -- the hip's are
+        # 135.6 and 239.4 deg -- so they take different factors.
+        m_flex = t_flex * self.capstan_factor(side=+1)
+        m_ext = t_ext * self.capstan_factor(side=-1)
         # In antagonistic mode the driven motor is whichever tendon is pulling
         # hardest; size the motor torque from the (motor-side) peak tension.
         peak_motor = np.maximum(m_flex, m_ext)
@@ -289,8 +312,7 @@ class TendonMap:
         # A cable cannot push: clamp to the pretension floor.
         t_flex = np.maximum(t_flex, self.params.pretension)
         realized = self._r * t_flex - spring_torque
-        factor = self.capstan_factor()
-        m_flex = t_flex * factor
+        m_flex = t_flex * self.capstan_factor(side=+1)
         return TendonSolution(
             tension_flexor=t_flex,
             tension_extensor=np.zeros_like(t_flex),

@@ -320,7 +320,14 @@ class TendonParams:
     # is left 0 (inert) pending a per-joint-wrap extension; set mu here so it's
     # ready, and use the sensitivity tool with explicit wrap to explore the effect.
     friction_coeff: float = 0.10
-    wrap_angle: float = 0.0
+    # ⚠️ **M106: this was 0.0 and that is why the motor has never been sized
+    # against friction.** Its own comment called it "inert pending a
+    # per-joint-wrap extension"; ADR-0083 was that extension and nothing read
+    # it. `None` now means "use the routed `pair_wrap`", which is per joint AND
+    # per side -- the hip's two cables are 135.6 and 239.4 deg, so a scalar
+    # could never have carried them. Set it to a number, including 0.0, to
+    # override and get the old frictionless behaviour back exactly.
+    wrap_angle: float | None = None
 
     # ✅ M78: the per-joint-wrap extension the comment above was waiting for,
     # SOLVED from station geometry by `mechanical/cad/leg_tendons.route()`
@@ -332,9 +339,32 @@ class TendonParams:
     # ankle at ~108 deg / 1.21x, which is `side=+1`; nothing in this project had
     # ever called `route(side=-1)`. The extensor solves to **392.9 deg / 1.985x**,
     # back at the 1.87x ADR-0042 called an over-estimate.
-    pair_wrap: tuple = ((2.1305, 0.1378),     # hip   122.1 /   7.9 deg
-                        (2.7681, 2.1765),     # knee  158.6 / 124.7 deg
-                        (1.8781, 6.8570))     # ankle 107.6 / 392.9 deg
+    #
+    # ⚠️ **M106: EVERY ONE OF THOSE NUMBERS WAS FOR A CABLE THAT RUNS TO
+    # WHERE THE MOTORS USED TO BE.** `leg_tendons.route()` falls back to
+    # `SPOOL_OFFSET`, a single 2-D diagonal that only ever suited the pre-M88
+    # upright girdle, and `tomcat_assembly` overrides it precisely because the
+    # defaults miss the real motors by 20 to 44 mm. `route(spools=)` and
+    # `tomcat_trunk.leg_spools` both arrived in **M91**; ADR-0083 is **M78**, so
+    # the table was solved thirteen milestones before the cables were connected
+    # and nobody re-ran it. Re-solved on the spools the trunk actually has:
+    #
+    #     pair     flexor  was -> now        extensor  was -> now
+    #     hip      122.1 -> 135.6 deg          7.9 -> 239.4 deg
+    #     knee     158.6 -> 141.0              124.7 -> 150.0
+    #     ankle    107.6 -> 152.8              392.9 -> 239.2
+    #
+    # ⚠️ **ADR-0083's headline inverts.** The worst case is not the ankle
+    # extensor at 1.985x; it is the hip and ankle extensors tied at ~1.52 -- and
+    # the hip extensor is the one ADR-0083 recorded as essentially frictionless
+    # at **1.014x**. This parameter understated that cable by 50 %.
+    #
+    # ⚠️ The guard named above could not see it: it re-derived from the
+    # router **with the same missing `spools=`**, so it reproduced the defect it
+    # exists to prevent while asserting the values "cannot drift".
+    pair_wrap: tuple = ((2.3664, 4.1779),     # hip   135.6 / 239.4 deg
+                        (2.4614, 2.6174),     # knee  141.0 / 150.0 deg
+                        (2.6669, 4.1753))     # ankle 152.8 / 239.2 deg
 
     # Series cable compliance: model the tendon as a linear spring of stiffness
     # k_cable (N/m). Under tension T it stretches dL = T / k_cable, so the motor

@@ -18,10 +18,26 @@ def _trot():
 
 
 def test_standing_costs_most_of_what_moving_costs_for_zero_work():
-    # THE M16 FINDING, and the quantified case for the ADR-0003 power-off brake.
+    """THE M16 FINDING, and the quantified case for the ADR-0003 power-off brake.
+
+    ✅ **M107: it survives friction, and it nearly did not survive my reading
+    of it.** With M106's capstan live the fraction first measured **1.49** --
+    standing costing MORE than trotting -- and that is a result worth having if
+    it is true. It was not. `gait_power` built the motor torque straight from
+    `tau / arm * spool` and never went through `TendonMap`, while
+    `standing_power` goes through `torque_budget.evaluate` and does. So the
+    trot was frictionless and the stand was not, and the RATIO between them --
+    which is the whole finding -- was an artefact of that.
+
+    Applied to both, the fraction is **0.924**: friction costs the trot 71 %
+    and the stand 64 %, so the finding's shape is untouched and only its margin
+    narrows. A ratio between two numbers is only as good as the worse-computed
+    one.
+    """
     r = power.runtime(_trot())
     assert 0.5 < r["standing_fraction_of_trot"] < 1.0
-    assert r["stand_w"] > 50.0                      # ~67 W including electronics
+    assert r["standing_fraction_of_trot"] == pytest.approx(0.924, abs=0.05)
+    assert r["stand_w"] > 50.0                      # electronics included
 
 
 def test_the_power_off_brake_multiplies_standing_endurance():
@@ -40,26 +56,62 @@ def test_copper_loss_dominates_so_the_drive_is_inefficient():
 
     Copper is now 2.4x the mechanical work, not 1.6x — which sharpens ADR-0021's
     own point that this is a property of the transmission, not of the gait.
+
+    ⚠️ **M107 sharpens it again: 29.6 % -> 20.6 %.** Capstan friction is a
+    tension multiplier, so it lands entirely on the copper and not at all on
+    the useful work -- copper goes up 71 % and the mechanical term does not
+    move. Every earlier efficiency figure in this project was computed with the
+    wraps solved and unread.
     """
     g = power.gait_power(_trot())
-    assert g["copper_w"] > 2.0 * g["mechanical_w"]   # ~63 W vs ~27 W
-    assert 0.25 < g["efficiency"] < 0.33             # ~29.6 %
+    assert g["copper_w"] > 3.0 * g["mechanical_w"]
+    assert 0.17 < g["efficiency"] < 0.25             # ~20.6 %
 
 
-def test_currents_stay_inside_the_driver_rating():
+def test_the_DRIVER_CURRENT_joins_the_motor_SPEC():
+    """⚠️ **M107: the peak no longer fits the proxy's driver, and that is a
+    specification rather than a failure.**
+
+    With M106's capstan live the trot draws **4.34 A peak** against the
+    GIM3505-9 driver's 4.19 A rating. RMS is 1.38 A, still inside the 1.60
+    continuous. The mechanism is the primary design and the motor -- driver
+    included -- is a placeholder, so the current joins the torque as something
+    to source or design to.
+
+    ⚠️ `[owed]` -- 4.34 A is at a Kt of 0.44. On the vendor's own 0.35 the
+    same torque needs 1.26x the current, and nothing here has chosen between
+    them.
+    """
     g = power.gait_power(_trot())
-    assert g["peak_current_a"] < 4.19               # the part's peak rating
+    assert g["peak_current_a"] == pytest.approx(4.34, abs=0.15)
+    assert g["peak_current_a"] > 4.19, (
+        "the peak is back inside the proxy's driver -- has friction gone off?"
+    )
     assert g["rms_current_a"] < 1.60                # its RATED (continuous) current
 
 
-def test_NFR6_has_an_answer_at_last():
+def test_NFR6_has_an_answer_and_it_is_now_BELOW_ITS_OWN_RANGE():
+    """⚠️ **M107: 18.81 -> 12.13 min, under the 14-20 NFR6 was re-stated to.**
+
+    The history of this number is the history of the corrections: ~30
+    published -> 25.2 (mass + spool) -> 19.6 (the three-phase copper formula)
+    -> 18.85 -> 19.39 (the leg's measured inertia) -> 18.81 (M93's redesign)
+    -> **12.13** (capstan friction, which ADR-0083 solved in M78 and nothing
+    read until M106).
+
+    Friction is a tension multiplier and copper loss goes as current squared,
+    so it lands on the battery harder than anywhere else. NFR6 now fails at
+    BOTH Kt corners -- 12.13 optimistic, 8.50 pessimistic -- where before only
+    the pessimistic one was marginal.
+    """
     r = power.runtime(_trot())
-    # ⚠️ M41 (ADR-0046): ~30 min -> **18.85 min**. Three corrections stacked --
-    # the three-phase copper-loss formula (ADR-0045), ADR-0043's 4.304 kg body, and
-    # LEG_TENDON_SPEC §2's 8.75 mm spool. NFR6 is re-stated as a range because the
-    # vendor's Kt is still ambiguous (ADR-0044); this is the optimistic branch.
-    assert 17.0 < r["trot_minutes"] < 21.0          # ~18.85 min
-    assert 480.0 < r["trot_range_m"] < 700.0        # ~565 m, was ~900
+    assert r["trot_minutes"] == pytest.approx(12.13, abs=0.4)
+    assert r["trot_minutes"] < 14.0, (
+        "the runtime is back inside NFR6's range -- has friction gone off?"
+    )
+    # ⚠️ range falls with runtime: 565 -> **364 m**, under NFR6's 420-600.
+    assert r["trot_range_m"] == pytest.approx(364.0, abs=12.0)
+    assert r["trot_range_m"] < 420.0, "back inside NFR6's range band"
     assert r["battery_wh"] == pytest.approx(
         power.BATTERY_KG * power.BATTERY_WH_PER_KG * power.BATTERY_USABLE)
 

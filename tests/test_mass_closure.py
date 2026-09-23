@@ -60,21 +60,62 @@ def test_the_body_mass_closes_ABOVE_NFR5(closed):
 
 
 def test_the_spiral_still_CONVERGES_and_every_design_gate_holds(closed):
-    """The good news, and it is ADR-0010's argument holding up.
+    """The gates that are set by SOURCED PARTS, and they hold.
 
-    ADR-0010 warned the mass spiral converges *only* because the chosen motor has
-    headroom. At 4.304 kg it still does: the trot case sits at **80 %** of the
-    GIM3505-9's 1.95 N·m peak, the cable keeps **SF 4.70** against a target of 4,
-    and the bearing needs **1277 N** of static C0 against the 1500 N specified.
+    ADR-0010 warned the mass spiral converges *only* because the chosen motor
+    has headroom. At 4.304 kg the cable keeps **SF 4.70** against a target of 4
+    and the bearing needs **1277 N** of static C0 against the 1500 specified.
 
-    So the mass overrun costs margin, not viability.
+    ⚠️ **M107 took the motor out of this list, because it is a PROXY.** M106
+    turned capstan friction on -- ADR-0083 had solved every wrap in M78 and
+    nothing read them -- and the trot went 1.71 -> **2.20 N.m** against the
+    GIM3505-9's 1.95 peak, so the gate failed. The mechanism is the primary
+    design here and the motor is a placeholder whose torque is an OUTPUT; a
+    proxy cannot gate a design, a sourced part can. What remains are the cable
+    and the bearing, which really were chosen. See
+    `test_the_MECHANISM_emits_a_MOTOR_SPEC_rather_than_fitting_one`.
     """
     b = closed["rows"][-1]
     gates = MC.gate(b)
+    assert gates, "the gate list must not be empty"
     for name, got, limit, ok in gates:
         assert ok, f"{name}: {got:.2f} against {limit:.2f}"
-    motor = float(b["trot"]["motor"].max())
-    assert 0.7 < motor / MC.MOTOR_PEAK < 0.9, f"motor at {motor:.2f} N.m"
+    assert not any("motor" in name for name, *_ in gates), (
+        "the motor is a proxy; it must not gate the mechanism"
+    )
+
+
+def test_the_MECHANISM_emits_a_MOTOR_SPEC_rather_than_fitting_one(closed):
+    """✅ **M107: the requirement is published, not clipped.**
+
+    The linkage is what is being designed; the actuator is sourced or designed
+    to suit it afterwards. So the number this records is a specification.
+
+        peak (trot, the ACTUATOR case)   2.20 N.m
+        continuous (stand)               0.77 N.m
+
+    ADR-0008 fixes the trot as the actuator sizing case and puts the x2.5
+    single-leg landing explicitly OUTSIDE that envelope, so the 7.21 N.m land
+    transient is not in the spec -- it sizes cable, pulley and bearing instead.
+
+    ⚠️ The GIM3505-9 proxy is short by **13 % on peak and 9 % on
+    continuous**, which is a slightly larger part rather than a different
+    class. ⚠️ What is NOT settled is whether such a part keeps the proxy's
+    Ø34.5 x 36.1 mm envelope and 131.7 g -- 19 of those are half the body, so
+    if it cannot, the mass budget moves again.  `[owed]`
+    """
+    req = MC.motor_requirement(closed["rows"][-1])
+    assert req["peak"] == pytest.approx(2.20, abs=0.05)
+    assert req["continuous"] == pytest.approx(0.77, abs=0.03)
+    # the hip is the sizing joint, and it is the one whose wrap is avoidable
+    peak_joint = max(req["per_joint"], key=lambda k: req["per_joint"][k][1])
+    assert peak_joint == "hip", f"the trot is sized by {peak_joint}"
+    # ⚠️ and it exceeds the proxy -- if this ever passes silently again, the
+    # friction has been switched back off.
+    assert req["peak"] > req["proxy_peak"], (
+        f"the requirement {req['peak']:.2f} no longer exceeds the proxy "
+        f"{req['proxy_peak']:.2f} -- has the capstan gone back to 1.0?"
+    )
 
 
 def test_the_joint_hardware_gives_BACK_the_P1_inertia_saving(closed):

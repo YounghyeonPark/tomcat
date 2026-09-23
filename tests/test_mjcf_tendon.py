@@ -8191,12 +8191,26 @@ def test_the_EXTENSOR_SIDE_was_never_solved_and_ADR0042s_RETRACTION_is_half():
     import leg_tendons as LT
     import tendon_route as TR
 
+    # ⚠️ **M106: this guard could not see the drift it exists to catch.** It
+    # called `route()` with no `spools=`, which falls back to `SPOOL_OFFSET` --
+    # exactly the geometry `pair_wrap` had been solved on in M78, and exactly
+    # the one `tomcat_assembly` overrides because it misses the real motors by
+    # 20 to 44 mm. A guard that re-derives a number the same way the number was
+    # recorded cannot disagree with it. The spools come from the TRUNK now,
+    # which is where the assembly gets them.
+    pytest.importorskip("build123d", reason="the trunk's spool centres need CAD")
+    import tomcat_trunk as TT
+
+    sp3 = TT.leg_spools("hind", +1.0)
+    spools = {t: (p[0], p[2])
+              for t, p in zip(("hip", "knee", "ankle"), sp3)}
+
     q = np.asarray(LegModel(DEFAULT_HINDLEG).inverse((0.04, -0.17, 0.0)), float)
     solved = {}
     for name in ("hip", "knee", "ankle"):
         for side in (+1, -1):
             solved[(name, side)] = LT.route(q, name, side=side,
-                                            leg=DEFAULT_HINDLEG)
+                                            leg=DEFAULT_HINDLEG, spools=spools)
 
     # ✅ params carries what the router solves, to 0.1 deg
     for i, name in enumerate(("hip", "knee", "ankle")):
@@ -8208,20 +8222,39 @@ def test_the_EXTENSOR_SIDE_was_never_solved_and_ADR0042s_RETRACTION_is_half():
                 f"router {math.degrees(got):.1f}"
             )
 
-    # ⚠️ the ankle extensor is 3.7x the flexor's wrap and back near 1.87x
+    # ⚠️ **M106: the FINDING survives and every NUMBER supporting it was the
+    # default spool's.** "The extensor side was never solved" is still true and
+    # the extensor is still the worse half -- but on the spools the trunk
+    # actually has it is 1.57x the flexor's wrap, not 3.7x, and 1.518x not
+    # 1.985. What the old figures described is a cable running to where the
+    # motors were before M88.
     flex = solved[("ankle", +1)]
     ext = solved[("ankle", -1)]
-    assert math.degrees(flex["total_wrap"]) == pytest.approx(107.6, abs=1.0)
-    assert math.degrees(ext["total_wrap"]) == pytest.approx(392.9, abs=1.0)
-    assert ext["capstan"] > 1.9, (
-        f"the extensor penalty ADR-0042 never saw: {ext['capstan']:.3f}x"
+    assert math.degrees(flex["total_wrap"]) == pytest.approx(152.8, abs=1.0)
+    assert math.degrees(ext["total_wrap"]) == pytest.approx(239.2, abs=1.0)
+    assert ext["capstan"] > flex["capstan"], (
+        f"the extensor is still the worse half: {ext['capstan']:.3f}x against "
+        f"{flex['capstan']:.3f}"
     )
-    assert ext["total_wrap"] > 3.0 * flex["total_wrap"]
 
-    # ⚠️ and it is a REDIRECT carrying it -- LEG_TENDON_SPEC 3.4 budgets 30-45
+    # ⚠️ **And the worst extensor is the HIP's, which ADR-0083 recorded as
+    # essentially frictionless.** 7.9 deg / 1.014x there; 239.4 / 1.519 here,
+    # tied with the ankle for the worst cable in the leg. The hip tendon passes
+    # no joint at all, so none of that wrap is coupling it has to carry -- it is
+    # avoidable routing, and it is what saturates the trot in M106's budget.
+    hip_ext = solved[("hip", -1)]
+    assert math.degrees(hip_ext["total_wrap"]) == pytest.approx(239.4, abs=1.0)
+    assert hip_ext["capstan"] > 1.5, (
+        f"the hip extensor ADR-0083 read as 1.014x: {hip_ext['capstan']:.3f}x"
+    )
+
+    # ⚠️ a REDIRECT carries it -- LEG_TENDON_SPEC 3.4 budgets 30-45 deg -- and
+    # M106 moves that complaint from the ankle to the KNEE. The ankle extensor
+    # now puts 44 deg on the hip via, inside the budget; the knee flexor puts
+    # 123 on the same pulley.
     ankle_via_hip = math.degrees(ext["wraps"][1])
     knee_via_hip = math.degrees(solved[("knee", +1)]["wraps"][1])
-    assert ankle_via_hip > 150.0, (
+    assert ankle_via_hip < 45.0, (
         f"ankle extensor puts {ankle_via_hip:.0f} deg on the hip via"
     )
     assert knee_via_hip > 100.0, (

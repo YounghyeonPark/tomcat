@@ -111,7 +111,20 @@ def gait_power(controller, n: int = 96) -> dict:
                 tau[i, j] = dyn.swing_joint_torque(controller, nm, i / n, n)
 
     qd = (np.roll(q, -1, axis=0) - np.roll(q, 1, axis=0)) / (2.0 * dt)
-    mot_tau = np.abs(tau) / arms * spool
+    # ⚠️ **This bypassed the capstan and `standing_power` did not.** It builds
+    # the motor torque straight from `tau / arm * spool` instead of going
+    # through `TendonMap`, so when M106 made friction live the STAND picked it
+    # up and the TROT did not -- and the ratio between them, which is the M16
+    # finding, became an artefact of the inconsistency rather than physics.
+    # The factor is per joint AND per side: the loaded cable is the flexor
+    # where `tau >= 0` and the extensor below it, and the two sides of one pair
+    # carry different wraps (the hip's are 135.6 and 239.4 deg).
+    from . import TendonMap
+    tmap = TendonMap(DEFAULT_TENDON)
+    cap = np.where(tau >= 0.0,
+                   np.asarray(tmap.capstan_factor(side=+1), dtype=float),
+                   np.asarray(tmap.capstan_factor(side=-1), dtype=float))
+    mot_tau = np.abs(tau) / arms * spool * cap
     mot_w = np.abs(qd) * arms / spool
     current = mot_tau / KT
 

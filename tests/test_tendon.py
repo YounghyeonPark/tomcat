@@ -157,12 +157,26 @@ def test_spring_return_uses_single_motor_and_clamps():
 
 # ------------------------------------------------------- capstan friction (ADR-0003)
 def test_frictionless_default_motor_equals_joint_tension():
-    # mu=0 (default): motor-side tension == joint-side tension, factor == 1.
-    tmap = TendonMap(mode=ActuationMode.ANTAGONISTIC)
+    # ⚠️ **M106 INVERTED THIS TEST'S PREMISE, and that is the milestone.**
+    # The default used to be frictionless because `wrap_angle` was 0.0 -- a
+    # value its own comment called "inert pending a per-joint-wrap extension",
+    # while ADR-0083 had already solved every wrap into `pair_wrap` and nothing
+    # read it. The motor was sized frictionless for eighty milestones. The
+    # default is the ROUTED wraps now, so frictionless is something you ask
+    # for, by overriding `wrap_angle`.
+    tmap = TendonMap(mode=ActuationMode.ANTAGONISTIC,
+                     params=TendonParams(wrap_angle=0.0))
     assert tmap.capstan_factor() == pytest.approx(1.0)
     sol = tmap.resolve([0.4, -0.6, 0.1])
     assert np.allclose(sol.motor_tension_flexor, sol.tension_flexor)
     assert np.allclose(sol.motor_tension_extensor, sol.tension_extensor)
+
+    # ✅ and the shipped default is NOT frictionless -- if it ever is again,
+    # the routed wraps have stopped reaching the plant.
+    live = TendonMap(mode=ActuationMode.ANTAGONISTIC).resolve([0.4, -0.6, 0.1])
+    assert np.all(live.motor_tension_flexor > live.tension_flexor), (
+        "the default lost its friction: capstan is back to 1.0"
+    )
 
 
 def test_zero_wrap_reduces_to_frictionless():
@@ -171,7 +185,10 @@ def test_zero_wrap_reduces_to_frictionless():
     b = TendonMap(params=TendonParams(friction_coeff=0.0, wrap_angle=np.pi))
     assert a.capstan_factor() == pytest.approx(1.0)
     assert b.capstan_factor() == pytest.approx(1.0)
-    base = TendonMap(mode=ActuationMode.ANTAGONISTIC).resolve([0.3, -0.2, 0.05])
+    # ⚠️ the baseline must ASK for frictionless now; the default is routed.
+    base = TendonMap(mode=ActuationMode.ANTAGONISTIC,
+                     params=TendonParams(wrap_angle=0.0)).resolve(
+                         [0.3, -0.2, 0.05])
     for tmap in (a, b):
         sol = tmap.resolve([0.3, -0.2, 0.05])
         assert np.allclose(sol.motor_tension_flexor, base.tension_flexor)

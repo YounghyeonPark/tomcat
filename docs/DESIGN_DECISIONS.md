@@ -8031,6 +8031,128 @@ The MuJoCo harness moved four numbers, and three of them moved the good way.
   **133.9987 -> 134.8254 W**. A quiet stand is untouched -- it carries the same
   weight either way; it is the trot that pays.
 
+## ADR-0100: the motor is a proxy, and the mechanism emits its specification
+- **Status:** Accepted
+- **Context:** M106 turned capstan friction on and everything downstream moved.
+
+  ADR-0003 specified the capstan model. `tendon.py` implemented it, at length,
+  with the sign convention written out. `TendonParams.wrap_angle` was **0.0**,
+  and its own comment called it *"inert pending a per-joint-wrap extension"*.
+  [ADR-0083](#adr-0083) (M78) **was** that extension: it solved every wrap in
+  the leg and recorded them in `pair_wrap`. Nothing consumed `pair_wrap`.
+
+  So the capstan factor has been exactly 1.0 for the whole project, and every
+  actuator, power and thermal number was computed frictionless.
+
+  ⚠️ **Two things were wrong at once, and the second hid the first.** The
+  recorded wraps were pre-M91 — `leg_tendons.route()` falls back to
+  `SPOOL_OFFSET`, a diagonal that suited the pre-M88 upright girdle, while
+  `tomcat_assembly` overrides it because the defaults miss the real motors by
+  20–44 mm. `route(spools=)` and `tomcat_trunk.leg_spools` both arrived in M91;
+  ADR-0083 is M78. The table was solved thirteen milestones before the cables
+  were connected.
+
+  ⚠️ **And the guard could not see it.** `test_the_EXTENSOR_SIDE_was_never_solved`
+  re-derives `pair_wrap` from the router — with the same missing `spools=`. A
+  check that reproduces its subject's mistake agrees with it forever. Its
+  docstring said the values *"cannot drift from the CAD"*.
+
+  Re-solved on the spools the trunk actually has:
+
+  | pair | flexor, was → now | extensor, was → now |
+  |---|---|---|
+  | hip | 122.1 → **135.6°** | 7.9 → **239.4°** |
+  | knee | 158.6 → 141.0 | 124.7 → 150.0 |
+  | ankle | 107.6 → 152.8 | 392.9 → 239.2 |
+
+  ⚠️ ADR-0083's headline inverts. The worst cable is not the ankle extensor at
+  1.985×; it is the hip and ankle extensors tied at ~1.52 — and the hip
+  extensor is the one ADR-0083 recorded as essentially frictionless at 1.014×.
+
+- **Options:**
+  1. Leave friction off. Rejected: the data existed and the mechanism existed;
+     only the wiring was missing.
+  2. Turn it on and shrink the design until the GIM3505-9 fits again.
+  3. Turn it on and treat the motor as a placeholder whose specification is an
+     **output** of the mechanism, to be sourced or designed against later.
+
+- **Decision:** **Option 3.** The linkage is the primary design. The motor
+  supplies an envelope and a mass to package and to weigh; it no longer supplies
+  a torque ceiling the mechanism must fit under. `MOTOR_PEAK` left
+  `mass_closure.gate()` and became `PROXY_PEAK`; `motor_requirement()` publishes
+  what the mechanism demands. `wrap_angle` now defaults to `None`, meaning *use
+  the routed wraps*, and an explicit number — including `0.0` — overrides it, so
+  the frictionless plant is one parameter away.
+
+- **Consequences:**
+
+  ⚠️ **The specification the mechanism emits, at the trot ADR-0008 fixes as the
+  actuator sizing case:**
+
+  | | required | proxy | short by |
+  |---|---|---|---|
+  | peak torque | **2.20 N·m** | 1.95 | 13 % |
+  | continuous torque | **0.77 N·m** | 0.71 | 9 % |
+  | peak current | **4.34 A** | 4.19 | 4 % |
+
+  A slightly larger part, not a different class. The hip is the sizing joint,
+  and its tendon passes no joint at all — none of its 239° of wrap is coupling
+  it has to carry, so it is avoidable routing rather than a fact about the leg.
+
+  ⚠️ **Nothing in the catalogue meets it.** The GIM3505-8 already failed; the -9
+  now fails too. What is left is the GIM4305-10 at 3.00 N·m — and it is Ø53
+  against Ø34.5, where `tomcat_packaging` sized the girdle around nineteen Ø34.5
+  cans and `tomcat_trunk` placed every one. The escape hatch is real and it is
+  not free.  `[owed]`
+
+  ⚠️ **`[owed]` — the proxy still supplies the envelope and the mass.** Ø34.5 ×
+  36.1 mm and 131.7 g, nineteen of which are half the body. Whether a part
+  meeting the spec keeps those is exactly the question deferred; if it does not,
+  the mass budget moves again.
+
+  ⚠️ **NFR6 falls below its own re-stated range, at both Kt corners.** Runtime
+  **18.81 → 12.13 min** optimistic and **13.58 → 8.50** pessimistic, against the
+  14–20 min ADR-0044 re-stated it to; range **565 → 364 m** against 420–600.
+  Friction is a tension multiplier and copper loss goes as current squared, so
+  it lands on the battery harder than anywhere else.
+
+  ⚠️ **ADR-0044's unresolved Kt stops being an accounting question.** RMS current
+  is **1.380 A** at Kt 0.44 and **1.735 A** at 0.35, and the continuous rating is
+  1.60 — the two readings now fall either side of it. Which Kt is true decides
+  whether the motor runs cool, not merely how long it runs.
+
+  ⚠️ **`power.py` was measuring the two gaits differently and the error was in
+  the ratio, not the numbers.** `gait_power` built motor torque straight from
+  `tau / arm * spool` and never went through `TendonMap`, while `standing_power`
+  goes through `torque_budget.evaluate` and does. With friction live the stand
+  picked it up and the trot did not, and standing appeared to cost **1.49×** a
+  trot — which would have been M16's finding inverted and was an artefact.
+  Applied to both, the fraction is **0.924** and M16 stands: friction costs the
+  trot 71 % and the stand 64 %. A ratio is only as good as its worse-computed
+  half.
+
+  - Drive efficiency **29.6 % → 20.6 %**: friction lands entirely on the copper
+    and not at all on the useful work. Per motor, trot **7.4702 → 12.7551 W**,
+    stand **9.0405 → 14.8428 W**, total **134.8 → 207.7 W**.
+
+  - ✅ [ADR-0050](#adr-0050)'s ankle pair does not close at the 14 mm arm the leg
+    has — 138 % of the proxy's peak at the current spool, 117 % at the best one
+    M105 found. The minimum for a sound pair is ~19–20 mm. That the CAD builds a
+    spring return instead may be less of an oversight than M103 called it.
+    Raising the arm to 25 mm takes the ankle to 68 % and its coupling fraction
+    from 62.5 % to 35 %, matching the knee, for 8.44 g of sheave on a 33 g
+    metatarsus. Not adopted here; it is a design change and this entry is about
+    the plant.  `[owed]`
+
+  - ✅ Ground clearance, spool travel and link interference were all checked as
+    candidate limits on that arm and none of them binds: the ankle sits 57.3 mm
+    above the stance foot, 25 mm of arm is 2.51 turns on a 9 mm spool, and the
+    sheaves are laterally offset from the bone plane.
+
+  - The guard now derives from `tomcat_trunk.leg_spools`, the same source the
+    assembly uses, and `test_tendon.py` gained a check that fails if the shipped
+    default ever goes frictionless again.
+
 ---
 
 ---
