@@ -29,14 +29,19 @@ def test_standing_costs_most_of_what_moving_costs_for_zero_work():
     trot was frictionless and the stand was not, and the RATIO between them --
     which is the whole finding -- was an artefact of that.
 
-    Applied to both, the fraction is **0.924**: friction costs the trot 71 %
+    Applied to both, the fraction is **0.972**: friction costs the trot 71 %
     and the stand 64 %, so the finding's shape is untouched and only its margin
     narrows. A ratio between two numbers is only as good as the worse-computed
     one.
+
+    ⚠️ **M108 corrected this from 0.924.** The first fix multiplied the
+    motor torque by the capstan once, before splitting it, so `p_mech` carried
+    the factor too and friction was booked as useful work. See
+    `test_copper_loss_dominates_so_the_drive_is_inefficient`.
     """
     r = power.runtime(_trot())
     assert 0.5 < r["standing_fraction_of_trot"] < 1.0
-    assert r["standing_fraction_of_trot"] == pytest.approx(0.924, abs=0.05)
+    assert r["standing_fraction_of_trot"] == pytest.approx(0.972, abs=0.05)
     assert r["stand_w"] > 50.0                      # electronics included
 
 
@@ -57,15 +62,24 @@ def test_copper_loss_dominates_so_the_drive_is_inefficient():
     Copper is now 2.4x the mechanical work, not 1.6x — which sharpens ADR-0021's
     own point that this is a property of the transmission, not of the gait.
 
-    ⚠️ **M107 sharpens it again: 29.6 % -> 20.6 %.** Capstan friction is a
+    ⚠️ **M107 sharpens it again: 29.6 % -> 16.5 %.** Capstan friction is a
     tension multiplier, so it lands entirely on the copper and not at all on
     the useful work -- copper goes up 71 % and the mechanical term does not
     move. Every earlier efficiency figure in this project was computed with the
     wraps solved and unread.
+
+    ⚠️ **M107 published 20.6 % and that was still too kind.** The first fix
+    multiplied `mot_tau` by the capstan once, before splitting it into the
+    current path and the work path, so `p_mech` carried the factor as well --
+    friction booked as useful output. The tell was efficiency FALLING when
+    copper fell, on the hip-spool study: copper goes as the square of the
+    factor and the mechanical term as its first power, so inflating both moves
+    the ratio the wrong way. A joint's useful output is `tau * qd` whatever the
+    routing costs to deliver it. Copper is now **5.07x** the mechanical work.
     """
     g = power.gait_power(_trot())
-    assert g["copper_w"] > 3.0 * g["mechanical_w"]
-    assert 0.17 < g["efficiency"] < 0.25             # ~20.6 %
+    assert g["copper_w"] > 4.0 * g["mechanical_w"]
+    assert 0.14 < g["efficiency"] < 0.19             # ~16.5 %
 
 
 def test_the_DRIVER_CURRENT_joins_the_motor_SPEC():
@@ -96,8 +110,9 @@ def test_NFR6_has_an_answer_and_it_is_now_BELOW_ITS_OWN_RANGE():
     The history of this number is the history of the corrections: ~30
     published -> 25.2 (mass + spool) -> 19.6 (the three-phase copper formula)
     -> 18.85 -> 19.39 (the leg's measured inertia) -> 18.81 (M93's redesign)
-    -> **12.13** (capstan friction, which ADR-0083 solved in M78 and nothing
-    read until M106).
+    -> **12.71** (capstan friction, which ADR-0083 solved in M78 and nothing
+    read until M106; 12.13 in M107, before M108 took the capstan back off the
+    mechanical term).
 
     Friction is a tension multiplier and copper loss goes as current squared,
     so it lands on the battery harder than anywhere else. NFR6 now fails at
@@ -105,12 +120,12 @@ def test_NFR6_has_an_answer_and_it_is_now_BELOW_ITS_OWN_RANGE():
     the pessimistic one was marginal.
     """
     r = power.runtime(_trot())
-    assert r["trot_minutes"] == pytest.approx(12.13, abs=0.4)
+    assert r["trot_minutes"] == pytest.approx(12.71, abs=0.4)
     assert r["trot_minutes"] < 14.0, (
         "the runtime is back inside NFR6's range -- has friction gone off?"
     )
-    # ⚠️ range falls with runtime: 565 -> **364 m**, under NFR6's 420-600.
-    assert r["trot_range_m"] == pytest.approx(364.0, abs=12.0)
+    # ⚠️ range falls with runtime: 565 -> **381 m**, under NFR6's 420-600.
+    assert r["trot_range_m"] == pytest.approx(381.0, abs=12.0)
     assert r["trot_range_m"] < 420.0, "back inside NFR6's range band"
     assert r["battery_wh"] == pytest.approx(
         power.BATTERY_KG * power.BATTERY_WH_PER_KG * power.BATTERY_USABLE)

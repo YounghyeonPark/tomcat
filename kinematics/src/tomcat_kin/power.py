@@ -124,9 +124,17 @@ def gait_power(controller, n: int = 96) -> dict:
     cap = np.where(tau >= 0.0,
                    np.asarray(tmap.capstan_factor(side=+1), dtype=float),
                    np.asarray(tmap.capstan_factor(side=-1), dtype=float))
-    mot_tau = np.abs(tau) / arms * spool * cap
+    # ⚠️ **The capstan belongs on the CURRENT path only.** A first version of
+    # this multiplied `mot_tau` once, before splitting, so `p_mech` carried the
+    # factor too -- friction booked as useful work. It shows up as efficiency
+    # FALLING when copper falls, because copper goes as the square and the
+    # mechanical term as the first power. The joint's useful output is
+    # `tau * qd` whatever the routing costs to deliver it; the motor's extra is
+    # loss, and loss is what the copper term is for.
+    mot_tau = np.abs(tau) / arms * spool          # joint-side, for the work
+    mot_drive = mot_tau * cap                     # motor-side, for the current
     mot_w = np.abs(qd) * arms / spool
-    current = mot_tau / KT
+    current = mot_drive / KT
 
     p_cu = PHASE_FACTOR * (current ** 2) * R_PHASE_PHASE
     p_mech = np.abs(mot_tau * mot_w)

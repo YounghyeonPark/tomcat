@@ -8111,10 +8111,16 @@ The MuJoCo harness moved four numbers, and three of them moved the good way.
   the mass budget moves again.
 
   ⚠️ **NFR6 falls below its own re-stated range, at both Kt corners.** Runtime
-  **18.81 → 12.13 min** optimistic and **13.58 → 8.50** pessimistic, against the
-  14–20 min ADR-0044 re-stated it to; range **565 → 364 m** against 420–600.
+  **18.81 → 12.71 min** optimistic and **13.58 → 8.78** pessimistic, against the
+  14–20 min ADR-0044 re-stated it to; range **565 → 381 m** against 420–600.
   Friction is a tension multiplier and copper loss goes as current squared, so
   it lands on the battery harder than anywhere else.
+
+  ⚠️ **Corrected by [ADR-0101](#adr-0101) from 12.13 / 8.50 / 364 m.** The first
+  wiring multiplied the motor torque by the capstan once, before splitting it,
+  so the mechanical term carried the factor too — friction booked as useful
+  work. Copper and current were right; total power, runtime, range and
+  efficiency were not.
 
   ⚠️ **ADR-0044's unresolved Kt stops being an accounting question.** RMS current
   is **1.380 A** at Kt 0.44 and **1.735 A** at 0.35, and the continuous rating is
@@ -8131,9 +8137,10 @@ The MuJoCo harness moved four numbers, and three of them moved the good way.
   trot 71 % and the stand 64 %. A ratio is only as good as its worse-computed
   half.
 
-  - Drive efficiency **29.6 % → 20.6 %**: friction lands entirely on the copper
+  - Drive efficiency **29.6 % → 16.5 %**: friction lands entirely on the copper
     and not at all on the useful work. Per motor, trot **7.4702 → 12.7551 W**,
-    stand **9.0405 → 14.8428 W**, total **134.8 → 207.7 W**.
+    stand **9.0405 → 14.8428 W**, total **134.8 → 198.2 W**. (⚠️ published as
+    20.6 % and 207.7 W; corrected by [ADR-0101](#adr-0101).)
 
   - ✅ [ADR-0050](#adr-0050)'s ankle pair does not close at the 14 mm arm the leg
     has — 138 % of the proxy's peak at the current spool, 117 % at the best one
@@ -8152,6 +8159,81 @@ The MuJoCo harness moved four numbers, and three of them moved the good way.
   - The guard now derives from `tomcat_trunk.leg_spools`, the same source the
     assembly uses, and `test_tendon.py` gained a check that fails if the shipped
     default ever goes frictionless again.
+
+## ADR-0101: the hip's wrap is routing, and one spool position pays for the motor
+- **Status:** Accepted
+- **Context:** [ADR-0100](#adr-0100) left the mechanism asking for **2.20 N·m**
+  against a 1.95 N·m proxy and named the hip as the joint responsible — its
+  tendon passes no joint, so none of its 239.4° of wrap is coupling it has to
+  carry. That claim was worth testing rather than asserting, because the hip's
+  wrap lands **entirely on its own sheave** (stations 0 and 2 are zero), and a
+  sheave wrap can be the ROM the sheave must span rather than a routing choice.
+  239.4° against a 240° hip ROM is close enough to be suspicious.
+
+- **Options:** measure it. Hold the pose and the other two spools fixed, move
+  the hip spool, and see whether the wrap moves with it.
+
+- **Decision:** ⚠️ **It is routing.** The hip extensor goes **239.4° → 10.7°**
+  on a spool move alone. Sweeping the hip spool in z at its own x:
+
+  | z (mm) | flexor | extensor | trot peak | vs the 1.95 proxy |
+  |---|---|---|---|---|
+  | **+37.0** (today) | 135.6° | 239.4° | 2.201 | over 13 % |
+  | −3.4 (its row's lower slot) | 93.9 | 28.2 | 2.046 | over 5 % |
+  | **−20.0** | 60.9 | 3.5 | **1.932** | **inside** |
+  | −30.0 | 44.7 | 77.3 | 1.878 | inside |
+
+  ✅ **So the motor shortfall is a routing defect, not a physical one.** At
+  z = −20 the trot peak is 1.932 N·m and standing 0.677 against the 0.71
+  continuous — both back inside the proxy, with no change of part.
+
+- **Consequences:**
+
+  ⚠️ **The cheap version does not work, and the reason is worth keeping.** The
+  hip sits in a `pairs4` row at x = −31.2 whose two slots are z = +37.0 and
+  −3.4, holding the hip and the **ankle**. Swapping them costs nothing — no new
+  row, no envelope change — and it makes the leg *worse*: the hip improves to
+  2.046 but the ankle's wrap goes 152.8/239.2° → 297.9/384.3° and its motor
+  2.282, so the peak rises 2.201 → **2.282**. Both cables want the lower slot
+  and there is one.
+
+  ⚠️ **What the routing actually asks for is 16.6 mm below that lower slot.**
+  The hip spool wants z ≈ −20 where the row offers −3.4. That is a girdle
+  question, not a routing one, and `spool_search` says so in its own docstring:
+  it knows where the routing wants the motor and nothing about packing.  `[owed]`
+
+  ⚠️ **The placement rule that put the hip on top is a drawing rule.**
+  `leg_spools` says the hip *"needs the longest cable and the largest arm, so it
+  takes the topmost spool and the ankle the lowest"*. Nothing in that follows
+  from the routing, and the routing wants the opposite. This is the same shape
+  as [ADR-0099](#adr-0099)'s finding about the common-mode rule.
+
+  ⚠️ **AND THE STUDY CAUGHT A DEFECT IN ADR-0100'S OWN WIRING.** Moving the hip
+  spool lowered the copper loss and the efficiency fell with it, which cannot
+  happen: `p_cu` goes as the square of the capstan factor and the mechanical
+  term as its first power, so inflating both moves the ratio the wrong way.
+  `gait_power` had multiplied `mot_tau` by the factor **once, before splitting
+  it** into the current path and the work path, so friction was booked as useful
+  output. A joint's useful output is `tau · qd` whatever the routing costs to
+  deliver it. Corrected:
+
+  | | ADR-0100 published | corrected |
+  |---|---|---|
+  | copper, currents, RMS | — | **unchanged** |
+  | total | 207.7 W | **198.2 W** |
+  | trot runtime | 12.13 min | **12.71** |
+  | range | 364 m | **381** |
+  | efficiency | 20.6 % | **16.5 %** |
+  | standing / trot | 0.924 | **0.972** |
+
+  Both of ADR-0100's conclusions survive: NFR6 still fails at both corners, and
+  M16's *"standing costs most of what moving costs"* still holds. Copper is now
+  **5.07×** the mechanical work.
+
+  ⚠️ **`[owed]` — `pair_wrap` is one tuple and the wraps are pose-dependent.**
+  The budget sweeps a workspace and applies a capstan measured at the stance
+  pose. That approximation was free while the factor was 1.0; it costs
+  something now, and nothing here has priced it.
 
 ---
 

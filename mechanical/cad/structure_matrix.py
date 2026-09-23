@@ -360,6 +360,50 @@ def friction_budget(arms=None, caps=None, leg=DEFAULT_HINDLEG):
     return out
 
 
+def hip_spool_sweep(zs=(37.0, 25, 15, 5, -3.4, -10, -15, -20, -25, -30),
+                    leg=DEFAULT_HINDLEG):
+    """What the HIP's wrap costs as a function of where its motor sits.
+
+    ✅ **The hip's wrap is ROUTING, not the ROM its sheave must span.** All of
+    it lands on station 1 -- the hip's own sheave -- and 239.4 deg against a
+    240 deg hip ROM looks like structure. It is not: moving the spool alone
+    takes the extensor to **10.7 deg**. ADR-0100's claim that the hip's wrap is
+    avoidable was worth testing rather than asserting, and it survives.
+
+    ⚠️ At z = -20 the trot peak is **1.932 N.m**, inside the 1.95 proxy, so
+    the motor shortfall ADR-0100 published is a routing defect. ⚠️ But the
+    hip's row offers -3.4 at best, which reaches only 2.046, and swapping the
+    hip with the ankle that shares the row makes the leg WORSE (2.282) because
+    both cables want the lower slot. The 16.6 mm is a girdle question.
+
+    Geometry only -- see `spool_search` on what this does not know.
+    """
+    import dataclasses
+    import leg_tendons as LT
+    import tendon_route as TR
+    from tomcat_kin import LegModel, TendonMap
+    from tomcat_kin.torque_budget import evaluate as budget
+    from tomcat_kin.params import DEFAULT_LOADS
+    real = real_spools()
+    q = np.asarray(LegModel(leg).inverse((0.04, -0.17, 0.0)), float)
+    trot = [lc for lc in DEFAULT_LOADS if lc.name.startswith("trot")][0]
+    out = []
+    for z in zs:
+        sp = dict(real)
+        sp["hip"] = (real["hip"][0], float(z))
+        try:
+            pw = tuple((LT.route(q, n, side=+1, leg=leg, spools=sp)["total_wrap"],
+                        LT.route(q, n, side=-1, leg=leg, spools=sp)["total_wrap"])
+                       for n in JOINTS)
+        except (TR.NoTangent, ValueError):
+            continue
+        tm = TendonMap(dataclasses.replace(DEFAULT_TENDON, pair_wrap=pw))
+        mt = np.asarray(budget(LegModel(leg), tm, trot).peak_motor_torque)
+        out.append({"z": float(z), "wrap": pw[0], "peak": float(mt.max()),
+                    "per_joint": mt})
+    return out
+
+
 def report(n: int = 4):
     import tomcat_leg_detail as LD
     leg = DEFAULT_HINDLEG

@@ -180,9 +180,9 @@ def test_NFR6s_runtime_does_NOT_survive(duty):
 
     # ⚠️ M93: the leg went 167 -> 187 g, the body 4.3041 -> 4.3833 kg, and
     # the runtime with it -- 19.53 -> **18.81 min**. NFR6 wanted 30.
-    # ⚠️ M107: 18.81 -> 12.13 min with capstan friction counted.
-    assert t_opt == pytest.approx(12.13, abs=0.4)
-    assert t_pess == pytest.approx(8.50, abs=0.4)
+    # ⚠️ M107: 18.81 -> 12.71 min with capstan friction counted.
+    assert t_opt == pytest.approx(12.71, abs=0.4)
+    assert t_pess == pytest.approx(8.78, abs=0.4)
     assert t_opt < 30.0, "if this clears 30 min again, NFR6 was re-derived"
     assert t_pess / t_opt < 0.80, "the Kt question alone is worth >20 % of runtime"
 
@@ -354,10 +354,10 @@ def test_the_runtime_bracket_is_FOURTEEN_to_NINETEEN_minutes():
     t_hi = 60.0 * wh / hi["total_w"]
     t_lo = 60.0 * wh / lo["total_w"]
 
-    # ⚠️ **M107: the bracket is 8.5-12.1 min, not 14-19.** Capstan friction
+    # ⚠️ **M107: the bracket is 8.8-12.7 min, not 14-19.** Capstan friction
     # (ADR-0083's wraps, solved in M78 and unread until M106) costs 71 percent
     # of the copper, and both corners now fall under NFR6's re-stated 14-20.
-    assert t_hi == pytest.approx(12.13, abs=0.4)
-    assert t_lo == pytest.approx(8.50, abs=0.4)
+    assert t_hi == pytest.approx(12.71, abs=0.4)
+    assert t_lo == pytest.approx(8.78, abs=0.4)
     assert t_hi < 14.0, "both corners are under NFR6's re-stated range"
     assert t_lo > 7.0, "and the pessimistic corner is not a collapse"
