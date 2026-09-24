@@ -173,21 +173,21 @@ pub mod from_power_py {
     //        into params.py at last
 
     /// Copper loss per leg motor at the 50 cm/s trot, W. (`copper_w / 12`)
-    pub const TROT_W: f64 = 12.7551;
+    pub const TROT_W: f64 = 5.8506;
     /// Per-motor draw HOLDING a stance, W. Higher than trotting — a cable can only
     /// pull, so posture costs current. (`legs_w / 12`)
-    pub const STAND_W: f64 = 14.8428;
+    pub const STAND_W: f64 = 8.8228;
     /// Minutes of trotting on the 300 g pack.
-    pub const TROT_RUNTIME_MIN: f64 = 12.7116;
+    pub const TROT_RUNTIME_MIN: f64 = 21.6567;
     /// Minutes standing on the pack, brake OFF.
-    pub const STAND_RUNTIME_MIN: f64 = 13.0493;
+    pub const STAND_RUNTIME_MIN: f64 = 20.8483;
     /// Whole-robot electrical draw at the trot, W. (`gait_power()["total_w"]`)
     ///
     /// ⚠️ M40: this lived as a bare `const TOTAL_W` inside two functions and was
     /// therefore **outside** the pytest guard, so it could go stale silently — which
     /// it did: it still read 83.5607 after the copper-loss correction, and only the
     /// emergent-runtime cross-check caught it. Guarded now.
-    pub const TOTAL_W: f64 = 198.2439;
+    pub const TOTAL_W: f64 = 116.3614;
 }
 
 /// Room air. Everything is quoted as a rise, so this only sets the absolute scale.
@@ -501,14 +501,21 @@ mod tests {
         // The bound this test carried after M40 was `< 110 C`, written by me, and it
         // is exceeded. Recorded rather than widened silently.
         let g = Part::girdle();
+        //
+        // ✅ M111 took it back DOWN, 119.0 -> 102.8 C. ADR-0103's 36/34/22 moment arms
+        // carry the same torque on less cable, so per-motor copper fell 7.47 -> 5.85 W
+        // even after M107 counted capstan friction. Still 23 K over the 80 C line, so
+        // the finding stands: anodising alone is not enough.
         let anodised = AMBIENT_C + g.equilibrium(EMIS_ANODISED, STILL_AIR_H, 6.0 * TROT_W);
-        assert!(anodised > 110.0, "anodised settled at {anodised} C");
+        assert!(anodised > 95.0, "anodised settled at {anodised} C");
 
-        // h = 15 no longer recovers it; h = 25 does. Forced air is not just
-        // required, it has to be REAL airflow rather than a gentle draught.
+        // ✅ M111: h = 15 recovers it again -- 90.1 C at M41, 77.7 C now. M41 wrote
+        // "forced air has to be REAL airflow rather than a gentle draught"; ADR-0103's
+        // arms put the gentle draught back in range. Forced air is still required.
         let h15 = AMBIENT_C + g.equilibrium(EMIS_ANODISED, 15.0, 6.0 * TROT_W);
         let h25 = AMBIENT_C + g.equilibrium(EMIS_ANODISED, 25.0, 6.0 * TROT_W);
-        assert!(h15 > 80.0, "h=15 used to be enough; it is not, got {h15}");
+        assert!(h15 < 80.0, "h=15 is enough again since M111, got {h15}");
+        assert!(h15 > 70.0, "but only just, got {h15}");
         assert!(h25 < 80.0, "h=25 must still recover it, got {h25}");
     }
 

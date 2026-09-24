@@ -39,7 +39,8 @@ def test_the_spec_torque_table_is_stale_by_the_WHOLE_mass_history(loads):
     | 3.0 kg (§1.1's own basis) | 12.36 N·m | 1.00 |
     | 4.045 kg (ADR-0010) | 16.67 N·m | 1.35 |
     | 4.3041 kg (ADR-0046) | 17.73 N·m | 1.43 |
-    | **4.3833 kg (ADR-0093)** | **18.06 N·m** | **1.46** |
+    | 4.3833 kg (ADR-0093) | 18.06 N·m | 1.46 |
+    | **4.4684 kg (ADR-0103, M111)** | **18.41 N·m** | **1.49** |
 
     The ratio tracks the body mass exactly, which is what proves §1.1 is simply a
     stale snapshot rather than a different calculation. §2 *was* re-run at 4.045 kg
@@ -47,9 +48,12 @@ def test_the_spec_torque_table_is_stale_by_the_WHOLE_mass_history(loads):
     milestone's correction became the next one's staleness.
     """
     tau, T = loads["land"]["tau"][0], loads["land"]["T"][0]
-    assert tau == pytest.approx(18.06, abs=0.05)
-    assert T == pytest.approx(650.0, abs=2.0)
-    assert tau / 12.36 == pytest.approx(4.38328 / 3.0, rel=0.02), (
+    assert tau == pytest.approx(18.41, abs=0.05)
+    # ⚠️ M111: the tension FELL while the torque rose, 650 -> 516 N -- the
+    # 36 mm hip arm carries the same torque on less cable. Torque tracks mass;
+    # tension tracks mass over arm, so it is no longer a pure mass snapshot.
+    assert T == pytest.approx(516.4, abs=2.0)
+    assert tau / 12.36 == pytest.approx(4.4684 / 3.0, rel=0.02), (
         "the discrepancy should be exactly the body-mass ratio; if it is not, "
         "something other than body mass moved and this needs re-diagnosing"
     )
@@ -90,8 +94,11 @@ def test_the_shipped_tube_sections_do_NOT_make_SF_2_at_the_live_loads(loads):
     assert all(g >= 2.5 for g in got), (
         "SF %s -- if a bone drops under 2.5 the sizing has drifted from the "
         "layout again" % [round(float(g), 2) for g in got])
-    assert got[0] == pytest.approx(2.57, abs=0.06)
-    assert got[2] == pytest.approx(2.97, abs=0.05)
+    # ⚠️ M111: the metatarsus 2.97 -> 3.72. Bending grew with the body, but
+    # the 22 mm ankle arm cut the cable tension -- and with it the torsion the
+    # sheave's lateral offset puts into the tube -- by more.
+    assert got[0] == pytest.approx(2.59, abs=0.06)
+    assert got[2] == pytest.approx(3.72, abs=0.05)
 
 
 def test_one_step_up_in_stock_tube_restores_the_margin_cheaply():
@@ -129,11 +136,13 @@ def test_the_moment_arms_cannot_be_REDUCED_the_motor_peak_binds():
     mass overrun has to be found elsewhere or the budget has to move.
     """
     rows = {r["k"]: r for r in L.trade_moment_arms((1.0, 0.85, 0.70))}
-    # ⚠️ M41: 0.81 -> 0.88. `params.py` now carries §2's 8.75 mm spool, so this
-    # reads the spec configuration directly instead of the pre-M41 8.0 mm one.
-    # `tau_motor = T * r_spool`, so the 9.4 % spool increase is the whole move.
-    assert rows[1.0]["mot_frac"] == pytest.approx(0.88, abs=0.04), (
-        "the shipped arms at the SPEC spool sit at ~88 % of motor peak"
+    # ⚠️ M41: 0.81 -> 0.88 (the 8.75 mm spool). ⚠️ M111: the arms went
+    # 28/25/14 -> 36/34/22 and this function gained the capstan it had missed
+    # since M106 -- it read 65 % frictionless. With the hip flexor's factor it
+    # is **0.85**, and one step down still crosses peak, so the finding stands
+    # at the new arms: they are pinned from below by the motor.
+    assert rows[1.0]["mot_frac"] == pytest.approx(0.85, abs=0.04), (
+        "the shipped arms sit at ~85 % of motor peak in this re-sized-cable what-if"
     )
     assert rows[0.85]["mot_frac"] > 1.0, "0.85x must already exceed motor peak"
     assert rows[0.70]["sheave_g"] < rows[1.0]["sheave_g"], "smaller arms are lighter"
@@ -163,7 +172,9 @@ def test_the_leg_does_not_close_at_its_mass_budget():
     # is `params.py` being stale: M86 set `link_mass` FROM this measurement, and
     # `body_mass_kg` is derived from it in turn.  `[owed]`
     assert total > budget, "if the leg now closes, re-read the ADR and the budget"
-    assert 175.0 < total < 200.0, f"leg hardware {total:.1f} g moved unexpectedly"
+    # ⚠️ M111: 186.7 -> **208.1 g**, the 36/34/22 sheaves ADR-0103 needed for
+    # the fore leg's load. Folded into `link_mass` in the same milestone.
+    assert 200.0 < total < 215.0, f"leg hardware {total:.1f} g moved unexpectedly"
     heavy = mass["bearing"] + mass["sheave"] + mass["clevis"]
     assert heavy / total > 0.75, "the joint hardware is the overrun, not the bones"
 

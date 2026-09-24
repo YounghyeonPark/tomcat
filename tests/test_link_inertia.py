@@ -42,7 +42,12 @@ import tomcat_leg_detail as LD                                   # noqa: E402
 #: to reach them, and tube stock sized to SF 2.5 at the real lateral offsets --
 #: and swing inertia is where that shows up. ADR-0088 measured the capsule plant
 #: carrying 45 % too MUCH swing inertia; this gives a third of that back.
-I_YY_ABOUT_HIP = 1.3816e-3
+#:
+#: ⚠️ **M111: 1.3816e-3 -> 1.5398e-3, +11.4 %, and this is the price ADR-0103
+#: left `[owed]`.** The 36/34/22 arms that bring the fore leg inside the motor
+#: proxy put 21 g of sheave on each leg, 15 g of it at the knee and ankle --
+#: exactly the distal mass P1 exists to avoid. Swing inertia is where it lands.
+I_YY_ABOUT_HIP = 1.5398e-3
 
 
 @pytest.fixture(scope="module")

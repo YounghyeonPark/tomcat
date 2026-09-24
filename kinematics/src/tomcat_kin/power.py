@@ -151,6 +151,81 @@ def gait_power(controller, n: int = 96) -> dict:
     }
 
 
+#: The proxy's no-load output speed at 24 V. `[sourced: motor-downselect.md]`
+#: Under load it is lower, so every speed check against it is optimistic.
+NO_LOAD_RPM = 380.0
+#: The proxy's peak output torque, N.m -- the other end of the same line.
+PEAK_NM = 1.95
+
+
+def gait_envelope(controller, n: int = 400, arms=None,
+                  peak_nm: float = PEAK_NM, no_load_rpm: float = NO_LOAD_RPM) -> dict:
+    """The walked trajectory against a motor's torque-speed LINE, per joint.
+
+    ⚠️ **M111: the trot has never fitted the proxy's speed, and nothing
+    looked.** `tools/motor_spec_review.speed_check` sums the three joints' foot
+    speeds as if they aligned (~6 m/s) and compares that with a 0.5 m/s body --
+    the wrong scope, because the constraint is each joint's SWING speed. At the
+    28/25/14 arms the hip and knee already swung 26-27 % faster than the no-load
+    ceiling; the 36/34/22 arms of ADR-0103 make that 64-72 %.
+
+    ✅ Separate peaks overstate it -- a swing is fast and light, a stance slow
+    and heavy -- so this checks each instant against the linear DC line
+    `T/T_peak + w/w_noload <= 1`, with the capstan on the torque exactly as
+    `gait_power` puts it.
+
+    Returns per joint: the worst envelope ratio (<= 1 reachable), the peak motor
+    torque and speed the trajectory actually asks, and `need_rpm` -- the no-load
+    speed a motor with `peak_nm` would need for the whole trot to fit.
+    """
+    from . import dynamics as dyn
+    from . import TendonMap
+    from .params import DEFAULT_TENDON
+
+    arms = np.asarray(DEFAULT_TENDON.joint_moment_arm if arms is None else arms,
+                      dtype=float)
+    spool = DEFAULT_TENDON.motor_spool_radius
+    legs = ("LF", "RF", "LR", "RR")
+    dt = controller.params.period / n
+    cyc = dyn.cycle(controller, n)
+    q = np.zeros((n, 4, 3))
+    tau = np.zeros((n, 4, 3))
+    for i in range(n):
+        st = controller.state(i / n)
+        sol = dyn.contact_forces(controller, i / n, n, cyc=cyc)
+        for j, nm in enumerate(legs):
+            qq = st.legs[nm].q
+            if qq is None:
+                continue
+            q[i, j] = qq
+            if nm in sol.forces:
+                f = sol.forces[nm]
+                tau[i, j] = controller.body.leg_model_for(nm).jacobian(qq).T @                     np.array([f[0], f[2], 0.0])
+            else:
+                tau[i, j] = dyn.swing_joint_torque(controller, nm, i / n, n)
+    qd = (np.roll(q, -1, axis=0) - np.roll(q, 1, axis=0)) / (2.0 * dt)
+    tmap = TendonMap(DEFAULT_TENDON)
+    cap = np.where(tau >= 0.0,
+                   np.asarray(tmap.capstan_factor(side=+1), dtype=float),
+                   np.asarray(tmap.capstan_factor(side=-1), dtype=float))
+    t_mot = np.abs(tau) / arms * spool * cap
+    w_mot = np.abs(qd) * arms / spool
+    w_nl = no_load_rpm * 2.0 * np.pi / 60.0
+    ratio = t_mot / peak_nm + w_mot / w_nl
+    need = np.full(3, np.inf)
+    for j in range(3):
+        tj, wj = t_mot[:, :, j], w_mot[:, :, j]
+        if np.all(tj < peak_nm):
+            need[j] = float((wj / (1.0 - tj / peak_nm)).max() * 60.0 / (2.0 * np.pi))
+    return {
+        "worst": ratio.max(axis=(0, 1)),
+        "peak_torque": t_mot.max(axis=(0, 1)),
+        "peak_speed_rpm": w_mot.max(axis=(0, 1)) * 60.0 / (2.0 * np.pi),
+        "need_rpm": need,
+        "fits": bool(np.all(ratio <= 1.0)),
+    }
+
+
 def standing_power(n_legs: int = 4) -> dict:
     """Electrical power (W) to HOLD a stance — pure `I^2 R`, no work done.
 

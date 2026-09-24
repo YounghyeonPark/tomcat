@@ -263,8 +263,9 @@ def test_the_mjcf_now_swings_like_the_cad_leg():
     # them, tubes at SF 2.5 -- and the swing inertia went 1.1753e-3 ->
     # 1.3816e-3. The MJCF and the CAD still AGREE to 1e-4, which is the whole
     # point of this test; only the literal was stale.
-    assert I_mj_hip[1, 1] == pytest.approx(1.3816e-3, rel=0.02), (
-        f"MJCF swing inertia {I_mj_hip[1, 1]:.4e}, CAD says 1.3816e-3"
+    # ⚠️ M111's 36/34/22 sheaves: 1.3816e-3 -> 1.5398e-3 (+11.4 %). Still agree.
+    assert I_mj_hip[1, 1] == pytest.approx(1.5398e-3, rel=0.02), (
+        f"MJCF swing inertia {I_mj_hip[1, 1]:.4e}, CAD says 1.5398e-3"
     )
 
     # ⚠️ because most of the leg is joint hardware sitting AT the joints.

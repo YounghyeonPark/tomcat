@@ -8317,7 +8317,7 @@ The MuJoCo harness moved four numbers, and three of them moved the good way.
     same 28/25/14 has never been asked.
 
 ## ADR-0103: the fore leg's overrun is load, and the moment arm is the lever that reaches it
-- **Status:** Proposed
+- **Status:** Accepted — adopted in M111, see [ADR-0104](#adr-0104)
 - **Context:** [ADR-0102](#adr-0102) found the actuator budget had only ever
   seen the hind leg, and that the **fore** leg binds: its knee needs 2.421 N·m
   against the 1.95 proxy, 24 % over. Neither re-routing nor re-assignment moves
@@ -8375,6 +8375,99 @@ The MuJoCo harness moved four numbers, and three of them moved the good way.
     it in millimetres.
   - Not adopted. Changing `joint_moment_arm` moves every sheave in the CAD, the
     MJCF plant, the tendon map and most of the budget tests.
+
+## ADR-0104: the arms are adopted, the motor spec gains a speed axis, and the trot never fitted it
+- **Status:** Accepted
+- **Context:** [ADR-0103](#adr-0103) proposed shared moment arms **36/34/22 mm**
+  (from 28/25/14) to bring the fore leg's actuator demand inside the motor proxy.
+  It was adopted. The recommendation had been made on torque alone; the speed
+  axis was measured only after the decision, and it is recorded here with the
+  rest of what the adoption moved.
+
+- **Decision:** keep 36/34/22, fold the heavier leg into the plant, and add
+  **speed** to the motor specification the mechanism emits (ADR-0100). Under
+  "mechanism first, motor is a proxy" the arms choose where the motor sits on its
+  torque-speed curve; the spec states what that point demands.
+
+- **Consequences:**
+
+  ✅ **The specification, both legs, spiral closed** (`mass_closure.motor_requirement`):
+
+  | | required | proxy |
+  |---|---|---|
+  | peak torque (fore knee, trot) | **1.825 N·m** | 1.95 — inside, 6.4 % |
+  | continuous (stand) | **0.646 N·m** | 0.71 — inside, 9 % |
+  | no-load speed (fore knee, trot) | **~665 rpm** | 380 — **1.75x short** |
+
+  ✅ **NFR6 is met at both Kt corners**, for the first time since it was
+  re-stated: **21.7 / 16.0 min, 650 m** against 14–20 min, 420–600 m. The arms
+  are a reduction; copper goes as current squared and halves. Efficiency
+  16.5 % → **30.7 %**, RMS current 1.38 → **0.94 A**, peak 4.34 → **2.79 A** —
+  every electrical figure M107 put outside the proxy is back inside it.
+
+  ⚠️ **THE TROT HAS NEVER FITTED THE PROXY ON SPEED, AT ANY ARMS THIS PROJECT HAS
+  HAD.** `motor_spec_review.speed_check` sums three joints' foot speeds as if
+  they aligned (~6 m/s) and compares that with a 0.5 m/s body. The constraint
+  is each joint's **swing** speed. Checked against the motor's torque-speed line
+  along the walked trajectory (`power.gait_envelope`), a 1.95 N·m motor needs
+  **487 / 492 / 3563 rpm** at 28/25/14 and **624 / 665 / 474 rpm** at 36/34/22.
+  Both exceed 380. The arms trade torque for speed; the proxy has too little of
+  their product at any ratio. ⚠️ And the trajectory torque is far below the
+  workspace-worst figure ADR-0008 sizes on (hip 0.74 against 2.20 N·m at
+  28 mm), so the two sizing criteria pull the arms in opposite directions —
+  static wants them large, the walked trot wants the hip and knee near 17 mm.
+  This decision keeps the static case binding.
+
+  - **Body 4.383 → 4.468 kg**, leg 187 → 208 g, both legs re-measured into
+    `link_mass`, `link_com`, `link_inertia`. NFR5 exceeded by 10.5 %.
+  - **Swing inertia about the hip +11.4 %** (1.3816e-3 → 1.5398e-3) — the price
+    ADR-0103 left `[owed]`, now paid in the plant.
+  - Cable land tension 650 → 516 N, cable SF 4.94 → 6.13, bearing C0 needed
+    1277 → 1033 N. The worst coupled cable moves from the knee to the hip, so
+    ADR-0042's free wrap-sense lever still cuts the knee 40 % but no longer
+    moves the system's margin.
+  - The MJCF drivetrain stiffens as `r^2`: shipped lowest mode 32 → 43 Hz,
+    usable joint gain 100 → **200** (M86's halving undone). The hind ankle,
+    the one pair over its continuous rating since M56, goes **1.19 → 0.79x** —
+    `test_the_VARIABLE_RADIUS_PROFILE_CANNOT_BUY_what_ADR0002_wanted` had named
+    this exact fix, a constant arm of 16.6 mm. NFR12's latency edge moves
+    **15–20 → 30–40 ms**.
+
+  ⚠️ **G3's series spring should move 175 → ~100 kN/m, and this decision does
+  NOT move it.** A spring in line with a cable appears at the joint as `k r^2`,
+  so ADR-0026's 80–150 N·m/rad window is now met at **80–125 kN/m**; the shipped
+  1.5e5 reads 171/154 N·m/rad. A first attempt re-scaled every spring in the
+  project by 0.57 to hold joint compliance — and broke the shipped spool plant's
+  servo-in-series tests, which had passed at 1.5e5 on the new arms, while not
+  helping the plant it was aimed at. It was reverted. The shipped plant stands at
+  1.5e5; re-speccing G3 is a mechanical decision with its own re-baseline.  `[owed]`
+
+  ⚠️ **The LEGACY plant no longer stands on foot-force allocation.** It
+  collapses 176 → 38 mm. The cause is M48's documented defect, not the arms: its
+  fore-leg routing was never mirrored, so the fore hip pair does not oppose
+  (+6.1 / +30.2 mm/rad at 28 mm, +9.4 / +36.4 at 36). At 28 mm the allocator
+  worked round it; at 36 it cannot. The **shipped** transmission, whose fore map
+  equals the hind's, stands — the 18-DOF spine quadruped holds under 0.05° of
+  tilt. Three legacy tests are marked `XFAIL_M111_LEGACY` rather than retuned.
+
+  ⚠️ **Two more checks were comparing the wrong scope.** `speed_check`, above.
+  And `test_the_envelope_is_horizon_limited_and_must_be_converged` compared
+  ONE direction's survival envelope with the viable set's minimum over ALL
+  directions; it held only while the measured directions sat under a third
+  direction's bound. Measured in the viable set's own tightest direction (240°),
+  the simulated robot survives **147 %** of the bound at 28 mm and **190 %** at
+  36 — ADR-0040's point that survival detaches from recovery, found where
+  nobody had looked. Asserted as a defect.  `[owed]`
+
+  - Thermal (`thermal/`): the anodised girdle's continuous equilibrium falls
+    **119 → 102.8 °C** — still 23 K over the 80 °C line, so anodising alone is
+    still not enough — and a gentle forced draught (h = 15) recovers it again,
+    77.7 °C, which M41 had ruled out.
+  - `[owed]`: the legs-plus-spine compliant righting slowed 2.02 → 2.62 s
+    (penalty 1.49 → 1.94x) while rigid and legs-only did not move; not isolated.
+  - `[owed]`: `standing_power` prices the workspace-worst pose with pretension
+    and `gait_power` the walked trajectory without, so M16's stand/trot ratio
+    (now 1.04) compares two different bases.
 
 ---
 

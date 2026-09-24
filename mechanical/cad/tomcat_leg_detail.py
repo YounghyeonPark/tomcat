@@ -1140,6 +1140,12 @@ def trade_moment_arms(scales=(1.0, 0.85, 0.70, 0.60, 0.50)):
     loads = live_loads()
     tau_land = float(loads["land"]["tau"][0])       # structural case
     tau_trot = float(loads["trot"]["tau"][0])       # actuator case
+    # ⚠️ M111: this predated M106 and was FRICTIONLESS -- it read 65 % of peak
+    # at the 36/34/22 arms where the live, friction-counted budget reads 92 %.
+    # The trot loads the hip FLEXOR, so its capstan goes on the motor torque.
+    # Held at the shipped arm's wrap: a smaller sheave shifts it slightly, and
+    # the direction of that shift does not rescue a smaller arm.
+    cap = float(np.asarray(TendonMap(DEFAULT_TENDON).capstan_factor(side=+1))[0])
     rows = []
     for k in scales:
         arms = base * k
@@ -1159,7 +1165,7 @@ def trade_moment_arms(scales=(1.0, 0.85, 0.70, 0.60, 0.50)):
                      # bearing only. A first pass here compared the land case to
                      # the motor peak and read 162 %, which is the conflation
                      # ADR-0008 exists to prevent.
-                     "mot_frac": T_trot * r_spool / MM / 1.95})
+                     "mot_frac": T_trot * cap * r_spool / MM / 1.95})
     return rows
 
 

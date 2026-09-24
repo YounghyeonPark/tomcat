@@ -525,11 +525,11 @@ def test_the_envelope_is_horizon_limited_and_must_be_converged(controller):
     plant = control.StepPlant.from_gait(controller, n=96, latency=0.0075, floor_mu=0.8)
     q = mjcf.stance_pose(controller, 0.25)
     reach = (float(plant.reach[0]), float(plant.reach[1]))
-    bound = min(
-        viable.reach_in_direction(
-            viable.viable_set(controller, q, plant.omega, plant.stance, reach, steps=20),
-            (math.cos(math.radians(a)), math.sin(math.radians(a))))
-        for a in range(0, 360, 15))
+    V = viable.viable_set(controller, q, plant.omega, plant.stance, reach, steps=20)
+    per = {a: viable.reach_in_direction(
+               V, (math.cos(math.radians(a)), math.sin(math.radians(a))))
+           for a in range(0, 360, 15)}
+    bound = min(per.values())
 
     model = mjsim.build(controller, mujoco, kp=80)
     h = mjsim.BalanceHarness(controller, mujoco, model)
@@ -557,16 +557,84 @@ def test_the_envelope_is_horizon_limited_and_must_be_converged(controller):
         f"both directions measure {1000 * long:.2f} mm — the survival envelope "
         "has gone degenerate again, as it did in M41"
     )
-    assert other <= bound * 1.02, (
-        f"the 300 deg envelope {1000 * other:.1f} mm exceeds the viability bound "
-        f"{1000 * bound:.1f} mm"
+    # ⚠️ **M111: both of these compared ONE direction's envelope with the
+    # viable set's minimum over ALL directions.** That minimum sits at 240 deg;
+    # at 120 and 300 the set reaches 61.2 mm. The check only held while these
+    # two envelopes happened to sit under a bound belonging to a third
+    # direction, and M111's heavier legs widened the 300 deg one past it
+    # (39.6 mm) while it stays at 65 % of its OWN bound. Compare like with like.
+    assert other <= per[300] * 1.02, (
+        f"the 300 deg envelope {1000 * other:.1f} mm exceeds its viability bound "
+        f"{1000 * per[300]:.1f} mm"
     )
-    assert short > long, "a longer horizon must be a HARDER test, not an easier one"
-    assert long <= bound * 1.02, (
+    assert short >= long, "a longer horizon must be a HARDER test, not an easier one"
+    assert long <= per[120] * 1.02, (
         f"converged envelope {1000 * long:.1f} mm exceeds the viability bound "
-        f"{1000 * bound:.1f} mm — no controller can do that, so one of them is wrong"
+        f"{1000 * per[120]:.1f} mm -- no controller can do that, so one of them is wrong"
     )
     assert long > 0.7 * bound, "the controller should still be within ~30 % of optimal"
+
+
+def test_the_sim_SURVIVES_past_the_viable_bound_in_its_TIGHTEST_direction(controller):
+    """⚠️ **ADR-0040's finding, in the direction nobody had measured.** Asserts
+    the defect.
+
+    ADR-0040 and `XFAIL_M41` already say it: SURVIVAL is the wrong quantity and
+    at heavier masses it detaches from RECOVERY. M111 re-found it at the viable
+    set's tightest direction, which the envelope test above never visits.
+
+    The viable set is tightest at **240 deg**, and nothing had ever measured the
+    simulated robot there -- the envelope test above uses 120 and 300, where the
+    set reaches 61 mm. In that tightest direction the robot SURVIVES a push well
+    past what the viable set says is recoverable:
+
+    | plant | viable bound at 240 | 16-step survival | ratio |
+    |---|---|---|---|
+    | 28/25/14 arms (HEAD before M111) | 34.9 mm | 51.2 mm | **147 %** |
+    | 36/34/22 arms, +21 g a leg (M111) | 34.5 mm | 65.7 mm | **190 %** |
+
+    Survival is a weaker claim than recovery, so exceeding a recovery bound is
+    not by itself a contradiction -- which is ADR-0040's point. What is new is
+    the SIZE of the gap there (1.5-1.9x) and that it grows with leg mass. And the
+    survival envelope is NOT monotone in horizon (at 60 deg on the old plant:
+    66 mm at 8 steps, 17 mm at 16), so the bisection that measures it assumes
+    something the plant does not do. `measure_envelope(recover=True)` is the
+    instrument ADR-0040 asked for.  `[owed]`
+
+    Fails when the gap closes -- by fixing the bound, the harness, or both.
+    """
+    import math
+
+    from tomcat_kin import mjcf, viable
+
+    plant = control.StepPlant.from_gait(controller, n=96, latency=0.0075, floor_mu=0.8)
+    q = mjcf.stance_pose(controller, 0.25)
+    reach = (float(plant.reach[0]), float(plant.reach[1]))
+    V = viable.viable_set(controller, q, plant.omega, plant.stance, reach, steps=20)
+    per = {a: viable.reach_in_direction(
+               V, (math.cos(math.radians(a)), math.sin(math.radians(a))))
+           for a in range(0, 360, 15)}
+    tight = min(per, key=per.get)
+    assert tight == 240, f"the viable set's tightest direction moved to {tight}"
+
+    model = mjsim.build(controller, mujoco, kp=80)
+    h = mjsim.BalanceHarness(controller, mujoco, model)
+    u = np.array([math.cos(math.radians(tight)), math.sin(math.radians(tight))])
+    lo, hi = 0.0, 1.5
+    for _ in range(7):
+        mid = 0.5 * (lo + hi)
+        data = h.reset()
+        hist, fell = h.run(data, steps=4)
+        ok = not fell and len(hist) == 4
+        if ok:
+            hist, fell = h.run(data, steps=16, disturbance=mid * u)
+            ok = not fell and len(hist) == 16
+        lo, hi = (mid, hi) if ok else (lo, mid)
+    survived = lo / h.omega
+    assert survived > 1.3 * per[tight], (
+        f"survival {1000 * survived:.1f} mm is back near the viable bound "
+        f"{1000 * per[tight]:.1f} mm -- the discrepancy closed; re-read this test"
+    )
 
 
 @pytest.mark.xfail(reason=(

@@ -54,9 +54,10 @@ def test_the_body_mass_closes_ABOVE_NFR5(closed):
         + 2 * sum(DEFAULT_FORELEG.link_mass), abs=1e-4), (
         "and params now agrees with the CAD -- if these diverge, one drifted"
     )
-    assert closed["body"] == pytest.approx(4.383, abs=0.02)
-    # ⚠️ NFR5 (4.045 kg) is exceeded by 8.4 % now, was 6.3.
-    assert closed["body"] / old == pytest.approx(1.084, abs=0.01)
+    # ⚠️ M111: 4.383 -> **4.468 kg**, the 36/34/22 sheaves (+21 g a leg).
+    assert closed["body"] == pytest.approx(4.468, abs=0.02)
+    # ⚠️ NFR5 (4.045 kg) is exceeded by 10.5 % now, was 8.4.
+    assert closed["body"] / old == pytest.approx(1.105, abs=0.01)
 
 
 def test_the_spiral_still_CONVERGES_and_every_design_gate_holds(closed):
@@ -85,37 +86,35 @@ def test_the_spiral_still_CONVERGES_and_every_design_gate_holds(closed):
     )
 
 
+
 def test_the_MECHANISM_emits_a_MOTOR_SPEC_rather_than_fitting_one(closed):
-    """✅ **M107: the requirement is published, not clipped.**
+    """✅ **The requirement is published, not clipped** (M107), and since M111 it
+    covers both legs and has a speed axis.
 
-    The linkage is what is being designed; the actuator is sourced or designed
-    to suit it afterwards. So the number this records is a specification.
+    | milestone | peak | continuous | speed | binding |
+    |---|---|---|---|---|
+    | M107, friction on | 2.20 N·m | 0.77 | -- | hind hip |
+    | M109, the fore leg found | 2.42 | 0.845 | -- | FORE knee |
+    | **M111, 36/34/22 arms** | **1.825** | **0.646** | **665 rpm** | fore knee |
 
-        peak (trot, the ACTUATOR case)   2.20 N.m
-        continuous (stand)               0.77 N.m
+    ✅ Inside the GIM3505-9 proxy on torque, with 6.4 % and 9 % margin.
+    ⚠️ Not on speed: the walked trot needs ~665 rpm no-load at the spool
+    against the proxy's 380. The arms bought torque with speed, and the proxy
+    has too little of their product at any ratio (`power.gait_envelope`).
 
-    ADR-0008 fixes the trot as the actuator sizing case and puts the x2.5
-    single-leg landing explicitly OUTSIDE that envelope, so the 7.21 N.m land
-    transient is not in the spec -- it sizes cable, pulley and bearing instead.
-
-    ⚠️ The GIM3505-9 proxy is short by **13 % on peak and 9 % on
-    continuous**, which is a slightly larger part rather than a different
-    class. ⚠️ What is NOT settled is whether such a part keeps the proxy's
-    Ø34.5 x 36.1 mm envelope and 131.7 g -- 19 of those are half the body, so
-    if it cannot, the mass budget moves again.  `[owed]`
+    ⚠️ `[owed]` -- whether a part meeting 1.83 N·m / 665 rpm keeps the proxy's
+    Ø34.5 x 36.1 mm and 131.7 g.
     """
     req = MC.motor_requirement(closed["rows"][-1])
-    assert req["peak"] == pytest.approx(2.20, abs=0.05)
-    assert req["continuous"] == pytest.approx(0.77, abs=0.03)
-    # the hip is the sizing joint, and it is the one whose wrap is avoidable
-    peak_joint = max(req["per_joint"], key=lambda k: req["per_joint"][k][1])
-    assert peak_joint == "hip", f"the trot is sized by {peak_joint}"
-    # ⚠️ and it exceeds the proxy -- if this ever passes silently again, the
-    # friction has been switched back off.
-    assert req["peak"] > req["proxy_peak"], (
-        f"the requirement {req['peak']:.2f} no longer exceeds the proxy "
-        f"{req['proxy_peak']:.2f} -- has the capstan gone back to 1.0?"
-    )
+    assert req["peak"] == pytest.approx(1.825, abs=0.03)
+    assert req["continuous"] == pytest.approx(0.646, abs=0.02)
+    assert req["binding_leg"] == "fore", "the fore leg sets the spec"
+    fore_peak = max(req["fore_per_joint"], key=lambda k: req["fore_per_joint"][k][1])
+    assert fore_peak == "knee", f"the fore trot is sized by {fore_peak}"
+    assert req["peak"] < req["proxy_peak"] and req["continuous"] < req["proxy_rated"]
+    # ⚠️ and the axis the proxy fails on now
+    assert req["need_rpm"] == pytest.approx(665.0, rel=0.03)
+    assert req["need_rpm"] > 1.5 * req["proxy_rpm"]
 
 
 def test_the_joint_hardware_gives_BACK_the_P1_inertia_saving(closed):
@@ -189,22 +188,23 @@ def test_the_fore_hind_leg_ASYMMETRY_essentially_disappears(closed):
     assert sp["hind_g"] / sp["fore_g"] == pytest.approx(1.0, abs=0.03)
 
 
-def test_the_coupled_map_raises_the_KNEE_tension_by_forty_percent(closed):
+
+def test_the_coupled_map_raises_the_KNEE_tension(closed):
     """ADR-0042's coupling, priced. `tau = J^T T` with `J` lower-triangular makes
     `J^T` upper-triangular, so distal tendons load proximal joints:
 
-    | tendon | diagonal model | coupled | delta |
+    | tendon | diagonal | coupled | delta, M93 -> **M111** |
     |---|---|---|---|
-    | hip | 633 N | 597 N | −5.7 % |
-    | **knee** | 435 N | **607 N** | **+39.5 %** |
-    | ankle | 491 N | 491 N | 0 |
+    | hip | 511 N | 489 N | -5.7 % -> **-4.3 %** |
+    | knee | 332 N | **416 N** | +39.5 % -> **+25.1 %** |
+    | ankle | 325 N | 325 N | 0 |
 
-    SF on the worst coupled tension is **4.94**, so §2's target of 4 still clears —
-    the coupling costs margin, not the design.
+    ⚠️ M111's 36/34/22 arms shrank the coupling's share: the off-diagonals are
+    the fixed via radius and the diagonals grew. Worst coupled SF 4.94 -> 6.13.
     """
     b = closed["rows"][-1]
     ct = MC.coupled_tensions(b["land"]["tau"])
-    assert ct["coupled"][1] / ct["diagonal"][1] > 1.3, "knee must rise sharply"
+    assert ct["coupled"][1] / ct["diagonal"][1] == pytest.approx(1.251, abs=0.02)
     assert ct["coupled"][0] < ct["diagonal"][0], "hip falls slightly"
     assert ct["coupled"][2] == pytest.approx(ct["diagonal"][2], rel=1e-6), (
         "the ankle is distal-most, so nothing couples into it"
@@ -213,21 +213,30 @@ def test_the_coupled_map_raises_the_KNEE_tension_by_forty_percent(closed):
     assert MC.CABLE_BREAK / worst > MC.SF_TARGET, f"SF {MC.CABLE_BREAK / worst:.2f}"
 
 
+
 def test_the_wrap_SENSES_are_a_load_lever_not_just_a_wrap_lever(closed):
-    """⚠️ The actionable half of ADR-0042, and it is free margin.
+    """The actionable half of ADR-0042 -- and M111 moved WHICH cable it is for.
 
-    The off-diagonal **signs** come from the wrap senses, which `route()` currently
-    picks for minimum *wrap*. Choosing them for minimum *load* instead moves the
-    worst tension **607 -> 562 N**, i.e. cable SF **4.94 -> 5.34** — 8 % of margin
-    for a routing decision that costs nothing.
+    The off-diagonal signs come from the wrap senses, which `route()` picks for
+    minimum wrap. Flipped for minimum load, the knee's coupled tension falls
+    **416 -> 249 N, -40 %**. Before M111 that was the WORST cable, so the flip
+    bought the whole system 8 % of cable margin for free.
 
-    So the routing objective should be the load, or a trade against wrap, rather
-    than wrap alone.
+    ⚠️ **At the 36/34/22 arms the worst cable is the HIP (489 N), which the
+    flip does not reach -- it is proximal-most, nothing couples into its
+    own row.** So the lever is still real and still free at the knee, and no
+    longer moves the system's SF. It becomes a knee-cable and bearing-life
+    choice rather than a margin one.
     """
     b = closed["rows"][-1]
     ct = MC.coupled_tensions(b["land"]["tau"])
+    knee_now, knee_alt = float(ct["coupled"][1]), float(ct["sign_flipped"][1])
+    assert (knee_now - knee_alt) / knee_now > 0.35, "the knee lever is still large"
     worst_now = float(max(ct["coupled"]))
     worst_alt = float(max(ct["sign_flipped"]))
-    assert worst_alt < worst_now, "if the flip no longer helps, re-derive the senses"
-    assert MC.CABLE_BREAK / worst_alt > MC.CABLE_BREAK / worst_now
-    assert (worst_now - worst_alt) / worst_now > 0.05, "worth at least 5 %"
+    assert int(np.argmax(ct["coupled"])) == 0, "the hip is the worst cable now"
+    assert abs(worst_alt - worst_now) / worst_now < 0.02, (
+        "and the flip no longer moves the worst tension"
+    )
+
+

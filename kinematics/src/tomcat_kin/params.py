@@ -206,7 +206,8 @@ class LegParams:
     # produces (Ø14/Ø12/Ø12 against §3.5's Ø12/Ø10/Ø8, which measured
     # 1.83/1.94/1.75). The metatarsus grows most, 25.1 -> 32.5 g, because its
     # cable has to pass outboard of two vias.
-    link_mass: tuple[float, float, float, float] = (0.07905, 0.06748, 0.03253,
+    # ⚠️ M111: re-measured at the 36/34/22 sheaves (ADR-0103), +21 g per leg.
+    link_mass: tuple[float, float, float, float] = (0.08732, 0.07572, 0.03748,
                                                     0.00759)
 
     # Fraction of each link's LENGTH, measured from that link's PROXIMAL joint,
@@ -218,16 +219,16 @@ class LegParams:
     # at 6-8 %**: the mass is joint hardware sitting ON the proximal joint, not
     # a belly part-way down a bone. The paw is the opposite (87 %) because the
     # pad is at its tip.  `[derived: cad/link_inertia.py]`
-    link_com_frac: tuple[float, float, float, float] = (0.0774, 0.0823,
-                                                        0.2084, 0.8743)
+    link_com_frac: tuple[float, float, float, float] = (0.0708, 0.0734,
+                                                        0.1810, 0.8743)
 
     #: Centre of mass in the link's OWN body frame (m), +x along the link from
     #: its proximal joint. The full vector `link_com_frac` cannot carry: the
     #: sheaves stand ~4 mm off the limb plane in +y.  `[derived: cad/link_inertia.py]`
     link_com: tuple[tuple[float, float, float], ...] = (
-        (0.006965, 0.006277, -0.000473),      # femur
-        (0.007817, 0.006053, 0.000468),       # tibia
-        (0.014591, 0.003854, 0.000300),       # meta
+        (0.006376, 0.006810, -0.000418),      # femur
+        (0.006970, 0.007226, 0.000532),       # tibia
+        (0.012668, 0.006215, 0.000262),       # meta
         (0.021858, 0.000000, -0.002353),      # paw
     )
 
@@ -240,9 +241,9 @@ class LegParams:
     #: joint hardware sitting at its joints; a capsule spreads it down the bone.
     #: `[derived: cad/link_inertia.py]`
     link_inertia: tuple[tuple[float, ...], ...] = (
-        (1.3375e-05, 3.8959e-05, 3.8401e-05, 2.2492e-06, 3.5460e-07, 2.1918e-07),
-        (1.0965e-05, 3.6438e-05, 3.8591e-05, 1.7470e-06, -4.3526e-07, -1.6827e-07),
-        (3.6285e-06, 1.7970e-05, 1.9972e-05, 1.9298e-06, 1.9673e-07, 1.2964e-07),
+        (2.0196e-05, 5.0919e-05, 4.4026e-05, 2.5490e-06, 6.0844e-07, 2.1075e-07),
+        (1.7153e-05, 4.6595e-05, 4.4275e-05, 2.3859e-06, -7.8452e-07, -2.2938e-07),
+        (6.2706e-06, 2.1415e-05, 2.3529e-05, 3.0478e-06, 1.7710e-07, 1.5168e-07),
         (3.0802e-07, 7.2523e-07, 9.1886e-07, 0.0, 5.6145e-08, 0.0),
     )
 
@@ -285,8 +286,20 @@ class TendonParams:
     # Joint pulley radii / moment arms (m) — converts tension to joint torque.
     # Sized in mechanical/LEG_TENDON_SPEC.md (hip/knee/ankle): largest packageable
     # pulley at each joint to cut cable tension (T = tau/r).  Roughly halves the
-    # land-case peak vs. the original (0.015,0.012,0.010).  Still ❓ TBD.
-    joint_moment_arm: tuple[float, ...] = (0.028, 0.025, 0.014)
+    # land-case peak vs. the original (0.015,0.012,0.010).
+    #
+    # ⚠️ **M111 (ADR-0103): 28/25/14 -> 36/34/22, and the FORE leg is why.**
+    # The actuator budget had only ever been run on the hind leg -- `DEFAULT_LEG`
+    # equals `DEFAULT_HINDLEG` -- and with capstan friction live the fore knee
+    # needed 2.421 N.m against the 1.95 proxy, 24 % over, and 0.845 standing
+    # against 0.71. That overrun is LOAD, not routing: re-routing and spool
+    # re-assignment move it only 24 % -> 22 %. Motor torque goes as 1/r at
+    # fixed joint torque, so the arm is the lever that reaches it. At 36/34/22
+    # both legs sit inside peak and continuous with the mass spiral closed --
+    # 6.3 % and 9.0 % margin -- for 23.7 g of sheave per leg.
+    # ⚠️ The cost is distal mass: +9.2 g per knee, +5.8 g per ankle on moving
+    # links, and the swing-inertia price is `[owed]`.
+    joint_moment_arm: tuple[float, ...] = (0.036, 0.034, 0.022)
 
     # Motor spool radius (m) — converts motor torque to cable tension.
     #
@@ -362,9 +375,14 @@ class TendonParams:
     # ⚠️ The guard named above could not see it: it re-derived from the
     # router **with the same missing `spools=`**, so it reproduced the defect it
     # exists to prevent while asserting the values "cannot drift".
-    pair_wrap: tuple = ((2.3664, 4.1779),     # hip   135.6 / 239.4 deg
-                        (2.4614, 2.6174),     # knee  141.0 / 150.0 deg
-                        (2.6669, 4.1753))     # ankle 152.8 / 239.2 deg
+    #
+    # ⚠️ **M111: re-solved at the 36/34/22 arms.** A bigger sheave changes the
+    # tangent points, so the wraps move with the arm: hip 135.6/239.4 ->
+    # 148.3/255.6, ankle 152.8/239.2 -> 147.0/243.9. ADR-0103's 1.827 N.m was
+    # computed on these, not on the 28/25/14 ones.
+    pair_wrap: tuple = ((2.5878, 4.4606),     # hip   148.3 / 255.6 deg
+                        (2.5026, 2.5707),     # knee  143.4 / 147.3 deg
+                        (2.5663, 4.2560))     # ankle 147.0 / 243.9 deg
 
     # Series cable compliance: model the tendon as a linear spring of stiffness
     # k_cable (N/m). Under tension T it stretches dL = T / k_cable, so the motor
@@ -710,8 +728,10 @@ class LoadCase:
      # drawn as manufacturable parts and came out 167 g rather than 110)
      # -> **4.3833** (ADR-0093/M93, once the leg was drawn with the via pulleys
      # its own routing needs, shafts that reach them, and tubes that make SF 2.5
-     # -- 186.7 g). Kept in sync with DEFAULT_BODY_MASS_KG by test_mass.py.
-    body_mass_kg: float = 4.38328
+     # -- 186.7 g) -> **4.4684** (ADR-0103/M111, the 36/34/22 sheaves the
+     # fore leg's load needed: +21 g per leg, 208 g). Kept in sync with
+     # DEFAULT_BODY_MASS_KG by test_mass.py.
+    body_mass_kg: float = 4.4684
     n_stance_legs: int = 2             # legs sharing the load (e.g. trot => 2).
     dynamic_factor: float = 1.5        # peak/static impact multiplier.  ❓ TBD
 
@@ -805,20 +825,21 @@ DEFAULT_FORELEG = LegParams(
     # joint hardware dominates and it is the SAME hardware on both, so the shorter
     # fore links barely register.  Design review F2 settled the fore/hind weight
     # split using the assumed asymmetry and needs re-checking (ADR-0043).
-    link_mass=(0.07964, 0.06664, 0.03362, 0.00759),
+    # ⚠️ M111: re-measured at the 36/34/22 sheaves (ADR-0103), +21 g per leg.
+    link_mass=(0.08747, 0.07490, 0.03863, 0.00759),
     # ⚠️ Re-derived at the FORE link lengths, not copied from the hind leg:
     # the same hardware on shorter links moves the fractions.
-    link_com_frac=(0.0838, 0.0747, 0.1956, 0.8743),
+    link_com_frac=(0.0764, 0.0672, 0.1720, 0.8743),
     link_com=(
-        (0.008376, 0.006222, -0.000019),      # humerus
-        (0.006721, 0.005941, -0.000308),      # radius
-        (0.012713, 0.004028, 0.000490),       # metacarpus
+        (0.007639, 0.006730, 0.000012),       # humerus
+        (0.006049, 0.007141, -0.000369),      # radius
+        (0.011181, 0.006323, 0.000539),       # metacarpus
         (0.021858, 0.000000, -0.002353),      # paw
     ),
     link_inertia=(
-        (1.3807e-05, 4.6699e-05, 4.5793e-05, 2.4082e-06, -3.7253e-07, 1.7152e-07),
-        (1.0430e-05, 2.9876e-05, 3.2238e-05, 2.2588e-06, 1.8634e-07, 1.0687e-07),
-        (4.2735e-06, 1.6049e-05, 1.8029e-05, 1.5017e-06, 1.5573e-07, -2.2715e-07),
+        (2.0370e-05, 5.8488e-05, 5.1486e-05, 2.7774e-06, -4.4825e-07, 1.3684e-07),
+        (1.6562e-05, 4.0481e-05, 3.8461e-05, 2.7467e-06, 3.6554e-07, 1.5587e-07),
+        (7.2060e-06, 1.9626e-05, 2.1414e-05, 2.4135e-06, 2.0409e-08, -2.5660e-07),
         (3.0802e-07, 7.2523e-07, 9.1886e-07, 0.0, 5.6145e-08, 0.0),
     ),
 )

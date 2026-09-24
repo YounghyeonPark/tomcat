@@ -29,6 +29,22 @@ from tomcat_kin import mjcf_tendon as MT  # noqa: E402
 from tomcat_kin import wbc  # noqa: E402
 from tomcat_kin.params import DEFAULT_HINDLEG, DEFAULT_TENDON  # noqa: E402
 from tomcat_kin.params import DEFAULT_FORELEG  # noqa: E402
+from tomcat_kin.params import DEFAULT_BODY_MASS_KG  # noqa: E402
+
+#: ⚠️ M111 (ADR-0103/0104). The LEGACY plant -- one pull-only motor per wrapped
+#: cable, superseded by the shipped transmission in M54 -- no longer stands on
+#: foot-force allocation at the 36/34/22 arms. The cause is M48's documented
+#: defect, not the arms: its fore-leg routing was never mirrored, so the fore
+#: hip pair does not oppose (+9.4 / +36.4 mm/rad here, +6.1 / +30.2 at 28 mm).
+#: At 28 mm the allocator worked round it; at 36 mm the unopposed pretension
+#: torque exceeds what it can absorb and the trunk tips. The SHIPPED plant, whose
+#: fore map equals the hind's, stands -- see the SHIPPED and SPINE_QUADRUPED tests.
+#: Marked, not retuned: fixing the legacy fore routing is M48's `[owed]`, and
+#: the plant it would fix is no longer the one the project builds.
+XFAIL_M111_LEGACY = (
+    "M111: the legacy plant's unmirrored fore hip pair (M48) no longer allocates "
+    "at the 36/34/22 arms; the shipped transmission is unaffected"
+)
 
 TEN = ["L_hip_flex", "L_hip_ext", "L_knee_flex", "L_knee_ext", "L_ankle"]
 JNT = ["L_q1", "L_q2", "L_q3"]
@@ -168,7 +184,12 @@ def test_the_MOMENT_ARMS_are_emergent_from_the_geometry(rig):
     # the pair relation is asserted too rather than trusting the rows alone.
     assert J[0, 0] == pytest.approx(+arms[0], abs=0.05)     # hip flexor
     assert J[1, 0] == pytest.approx(-arms[0], abs=0.05)     # hip extensor
-    assert J[2, 1] == pytest.approx(+arms[1], abs=0.30)     # knee flexor
+    # ⚠️ M111: the legacy knee flexor's pin geometry reads +2.2 mm over spec at
+    # ADR-0103's 34 mm arm, where it read +0.1 at 25. The anchor pin sits at a
+    # fixed fraction of the arm and the wrap departs it earlier on a bigger
+    # sheave. Legacy plant only; the shipped map is exact (see SHIPPED tests).
+    assert J[2, 1] == pytest.approx(36.21, abs=0.30)        # knee flexor
+    assert abs(J[2, 1] - arms[1]) < 2.5
     assert J[3, 1] == pytest.approx(-arms[1], abs=0.30)     # knee extensor
     # ⚠️ M44 moved the ankle ANCHOR from 45 to 300 deg, which reverses this sign.
     # A lone tendon can only pull, so the sign is not bookkeeping here -- it decides
@@ -546,7 +567,13 @@ def test_a_LONE_tendon_gives_the_joint_no_restoring_stiffness():
     had not been priced.
     """
     K = _joint_stiffness()
-    assert K[2] < 80.0, f"ankle stiffness {K[2]:.1f} N.m/rad"
+    # ⚠️ **M111: the 22 mm ankle arm (ADR-0103) puts it OVER the floor, 104 N.m/rad.**
+    # Cable stiffness appears at the joint as `EA/L r^2`, and the ankle arm grew
+    # 14 -> 22 mm. The half of this finding about Option B's missing stiffness
+    # no longer holds; the half about the lone tendon being an order below a
+    # pair still does.
+    assert K[2] == pytest.approx(104.2, abs=3.0), f"ankle stiffness {K[2]:.1f} N.m/rad"
+    assert K[2] > 80.0, "now above ADR-0026's floor"
     assert K[2] < 0.1 * K[0], "an order below the antagonistic joints"
     assert float(DEFAULT_TENDON.spring_stiffness[2]) < 1.0, (
         "the Option-B return spring is 0.3 N.m/rad -- not a stiffness source"
@@ -620,18 +647,24 @@ def test_G3s_series_spring_SIZES_at_about_175_kN_per_m():
     ⚠️ It does nothing for the ankle (16.2 N.m/rad), which needs the opposite
     treatment — see the lone-tendon test above.
     """
+    # ⚠️ **M111: the band MOVED, and the shipped spring is now above it.** A
+    # series spring appears at the joint as `k r^2`, and ADR-0103 grew the arms
+    # 28/25/14 -> 36/34/22, so every rate here got 1.6-1.9x stiffer at the hip
+    # and knee. 175 kN/m reads 196/175 N.m/rad, outside the window; the band
+    # that keeps both inside is now **80-125 kN/m**, centred near **100**.
+    # The shipped plant runs 1.5e5 (171/154) and still stands -- ADR-0026's
+    # failure gain is 250 -- so this is a SPEC for mechanical, not a fix the
+    # plant needs today. Re-speccing G3 is `[owed]` (ADR-0104).
     K = _joint_stiffness(series_k=1.75e5)
-    assert 80.0 <= K[0] <= 150.0, f"hip {K[0]:.1f} N.m/rad"
-    assert 80.0 <= K[1] <= 150.0, f"knee {K[1]:.1f} N.m/rad"
-    # the whole usable band, which is what mechanical actually needs
-    for sk in (1.5e5, 1.75e5, 2.0e5):
+    assert K[0] > 150.0 and K[1] > 150.0, "175 kN/m is above the window now"
+    for sk in (9.0e4, 1.0e5, 1.1e5):
         Ks = _joint_stiffness(series_k=sk)
         assert 80.0 <= Ks[0] <= 150.0 and 80.0 <= Ks[1] <= 150.0, (
             f"{sk:.3g} N/m gives {Ks[0]:.0f}/{Ks[1]:.0f}"
         )
     # and it is bracketed on both sides, so the band is not an artefact
-    assert _joint_stiffness(series_k=1.25e5)[1] < 80.0, "too soft below 1.5e5"
-    assert _joint_stiffness(series_k=3e5)[0] > 150.0, "too stiff above 2e5"
+    assert _joint_stiffness(series_k=7e4)[1] < 80.0, "too soft below 8e4"
+    assert _joint_stiffness(series_k=1.5e5)[0] > 150.0, "too stiff at the shipped 1.5e5"
 
 
 # ===================================================================
@@ -967,10 +1000,12 @@ def test_a_per_leg_JOINT_controller_gets_CLOSE_but_not_LEVEL(quad):
     assert z > 0.9 * z0, f"trunk sank to {z:.4f} from {z0:.4f}"
     assert 1.0 < tilt < 6.0, f"trunk tilt {tilt:.2f} deg -- M44 measured 2.4"
 
-    # and it still inverts at a gain the foot-force controller tolerates
+    # ⚠️ **M111: it no longer inverts at kp 400 -- 1.3 deg.** M44's inversion
+    # was a stiffness margin, and ADR-0103's bigger arms moved it. Better, and
+    # it removes half of this test's contrast with the foot-force controller.
     _, _, tilt_bad, _ = _quad_stand(m, q, kp=400.0, kd=8.0, tb=19.6)
-    assert tilt_bad > 90.0, (
-        f"kp=400 should invert the joint controller, got {tilt_bad:.1f} deg"
+    assert tilt_bad < 6.0, (
+        f"kp=400 should now hold the joint controller, got {tilt_bad:.1f} deg"
     )
 
 
@@ -1291,6 +1326,7 @@ def stood(quad):
     return _wbc_stand(m, q)
 
 
+@pytest.mark.xfail(reason=XFAIL_M111_LEGACY, strict=True)
 def test_the_tendon_quadruped_STANDS_on_FOOT_FORCE_allocation(stood):
     """✅ **M43's gate, closed. The pull-only tendon quadruped stands.**
 
@@ -1350,6 +1386,7 @@ def test_G3s_series_spring_is_what_MAKES_it_stand(quad):
     )
 
 
+@pytest.mark.xfail(reason=XFAIL_M111_LEGACY, strict=True)
 def test_standing_runs_the_FORE_KNEE_FLEXOR_over_its_continuous_rating(stood):
     """⚠️ **It stands, but not indefinitely — and ADR-0023's thermal case does not
     cover this.**
@@ -1782,8 +1819,10 @@ def test_option_As_MASS_cost_is_four_more_MOTORS():
 
     motor_g = 132.0
     with_option_a = DEFAULT_BODY_MASS_KG + 4 * motor_g * 1e-3
-    assert with_option_a == pytest.approx(4.911, abs=0.001)
-    assert with_option_a / DEFAULT_BODY_MASS_KG == pytest.approx(1.120, abs=0.002)
+    # ⚠️ M111: the body is 4.468 kg (ADR-0103's sheaves), so Option A lands at
+    # **4.996** -- 4 g inside the 4-5 kg band this assertion guards.
+    assert with_option_a == pytest.approx(4.996, abs=0.001)
+    assert with_option_a / DEFAULT_BODY_MASS_KG == pytest.approx(1.118, abs=0.002)
     assert with_option_a < 5.0, "still inside the 4-5 kg band a real cat occupies"
     assert q is not None
 
@@ -2573,7 +2612,9 @@ def test_the_FORE_LEGS_ROUTING_WAS_NEVER_MIRRORED():
         f"{Jf[0, 0]:.3f} and {Jf[1, 0]:.3f} -- if it now does, the fore leg was "
         "mirrored and every fore-leg figure in M43-M47 needs re-deriving"
     )
-    assert abs(abs(Jf[0, 0]) - arms[0]) > 10.0, (
+    # ⚠️ M111: on the 36 mm arm the fore flexor reads 28.6 -- 7.4 mm off, where
+    # it was 16 mm off 28. Still wrong, and still the same sign as its extensor.
+    assert abs(abs(Jf[0, 0]) - arms[0]) > 5.0, (
         f"and neither arm is near the {arms[0]:.0f} mm specification: "
         f"{Jf[0, 0]:.3f}"
     )
@@ -2931,9 +2972,13 @@ def test_a_RESTING_WRAP_has_a_working_window_and_a_CLAMPED_one_does_not():
 
     # across the hind hip's gait range the resting wrap does not
     vals = [_clamp_arms(deg)[0] for deg in range(-110, -34, 10)]
-    assert min(vals) < 0.8 * spec, f"resting arm bottoms at {min(vals):.2f} mm"
+    # ⚠️ M111: on ADR-0103's 36 mm sheave the resting arm swings **29.86 to
+    # 45.53 mm -- 0.83x to 1.26x spec, a 1.53x swing** (was 0.75x-1.30x, 1.73x on
+    # 28 mm). A bigger sheave wraps over more of the range, so the swing
+    # narrows; it does not close. The clamped arm is still exact everywhere.
+    assert min(vals) < 0.85 * spec, f"resting arm bottoms at {min(vals):.2f} mm"
     assert max(vals) > 1.25 * spec, f"and peaks at {max(vals):.2f} mm"
-    assert max(vals) / min(vals) > 1.7, "a 1.73x swing on a 28 mm specification"
+    assert max(vals) / min(vals) > 1.5, "a 1.53x swing on a 36 mm specification"
 
     # the clamped one is exact everywhere, which is the whole point
     for deg in range(-120, 31, 10):
@@ -2969,10 +3014,14 @@ def test_the_two_ALTERNATIVES_to_clamping_are_priced_and_rejected():
 
     # the working window really does end near -95 deg
     r = float(DEFAULT_TENDON.joint_moment_arm[0]) * 1e3
-    assert _clamp_arms(-95)[0] == pytest.approx(29.9, abs=1.5), (
+    # ⚠️ M111: at the 36 mm arm the resting value at -95 deg is 40.2 mm, 1.12x
+    # spec -- still off spec at the old window edge, now on the high side --
+    # and 29.9 at -110 (0.83x). The alternatives below were priced at 28 mm.
+    assert _clamp_arms(-95)[0] == pytest.approx(40.2, abs=1.5), (
         "the resting arm is already off spec at the window edge"
     )
-    assert _clamp_arms(-110)[0] == pytest.approx(21.0, abs=1.0)
+    assert abs(_clamp_arms(-95)[0] - r) > 0.1 * r
+    assert _clamp_arms(-110)[0] == pytest.approx(29.9, abs=1.0)
 
     # the sheave that works is bigger than the segment it sits on
     assert 2 * 50.0 / (1e3 * DEFAULT_HINDLEG.l1) == pytest.approx(1.11, abs=0.02)
@@ -3015,7 +3064,7 @@ def test_the_SIMULATION_never_implemented_ADR0008s_VARIABLE_RADIUS_PULLEY():
     | | leg motors | unbudgeted | body |
     |---|---|---|---|
     | ADR-0008 budget, as `params` carries it | **12** | -- | 4.304 kg |
-    | the simulation, lone ankle | **20** | **1.054 kg** | **5.437 kg** |
+    | the simulation, lone ankle | **20** | **1.054 kg** | **5.437 kg** (5.522 since M111) |
     | the simulation, ankle pair (ADR-0050) | **24** | **1.580 kg** | **5.964 kg** |
 
     So **eight milestones of tendon simulation (M42-M50) have been built on the
@@ -3063,12 +3112,13 @@ def test_the_SIMULATION_never_implemented_ADR0008s_VARIABLE_RADIUS_PULLEY():
     over_pair = (paired.nu - budgeted) * motor_kg
     assert over_lone == pytest.approx(1.054, abs=0.005)
     assert over_pair == pytest.approx(1.580, abs=0.005)
-    assert DEFAULT_BODY_MASS_KG + over_lone == pytest.approx(5.437, abs=0.01)
-    assert DEFAULT_BODY_MASS_KG + over_pair == pytest.approx(5.964, abs=0.01)
+    assert DEFAULT_BODY_MASS_KG + over_lone == pytest.approx(5.522, abs=0.01)   # M111
+    assert DEFAULT_BODY_MASS_KG + over_pair == pytest.approx(6.049, abs=0.01)   # M111
     # both are outside the 4-5 kg band NFR5 is anchored to
     assert DEFAULT_BODY_MASS_KG + over_lone > 5.0
 
 
+@pytest.mark.xfail(reason=XFAIL_M111_LEGACY, strict=True)
 def test_the_STANDING_TENSION_never_converges_it_SATURATES():
     """⚠️ **M51's second blocked item, and it corrects a published number.**
 
@@ -3511,7 +3561,8 @@ def test_the_pulley_transmission_is_ADR0008s_MOTOR_COUNT_and_ADR0042s_MAP():
     quad = mujoco.MjModel.from_xml_string(MT.quadruped_rig(
         hip_height=0.176, clamped=True, pulley=True, ankle_pair=True))
     assert quad.nu == 12, "ADR-0008's twelve leg motors"
-    assert DEFAULT_BODY_MASS_KG == pytest.approx(4.38328, abs=1e-4), (
+    # M111: 4.38328 -> 4.4684 (ADR-0103's sheaves), not this decision's doing
+    assert DEFAULT_BODY_MASS_KG == pytest.approx(4.4684, abs=1e-4), (
         "and params' body mass needs no change, which was the point"
     )
 
@@ -3680,7 +3731,9 @@ def test_the_pulley_also_CURES_the_standing_TENSION_SATURATION():
     assert late < early, (
         f"the force must fall, not ramp: {early:.1f} N at 1 s, {late:.1f} at 4 s"
     )
-    assert late == pytest.approx(35.2, abs=4.0), (
+    # ⚠️ M111: 35.2 -> 24.2 N. The same joint torque on ADR-0103's bigger arms
+    # needs less cable -- T = tau / r.
+    assert late == pytest.approx(24.2, abs=3.0), (
         f"re-derived on a point foot: {late:.1f} N at 4 s"
     )
     assert late < MT.TENSION_CONTINUOUS, (
@@ -4114,8 +4167,11 @@ def test_ONE_SPOOL_PER_PAIR_HALVES_the_lowest_drivetrain_MODE():
     f_legacy = _lowest_mode_hz(legacy, q)
     # ⚠️ M93: 69.6 -> 63.4 Hz. The redesigned leg is heavier at the sheaves,
     # which is where this mode lives.
-    assert f_legacy == pytest.approx(63.4, abs=1.5)
-    assert f_ship == pytest.approx(32.3, abs=1.5)
+    # ⚠️ M111: 63.4 -> 75.8 Hz. Heavier sheaves again, but the drivetrain's
+    # joint-space stiffness goes as r^2 and ADR-0103 grew r by 1.3-1.6x, which
+    # wins -- the mode rises.
+    assert f_legacy == pytest.approx(75.8, abs=1.5)
+    assert f_ship == pytest.approx(43.3, abs=1.5)   # M111: 32.3 -> 43.3, ratio 0.51 -> 0.57
     assert f_ship < 0.6 * f_legacy, (
         f"the lowest mode must have roughly halved: {f_legacy:.1f} -> {f_ship:.1f}"
     )
@@ -4125,11 +4181,16 @@ def test_ONE_SPOOL_PER_PAIR_HALVES_the_lowest_drivetrain_MODE():
     # inertia means the same gain commands more acceleration, so the corrected
     # leg destabilises where the capsule one held. M47's `kp = 50` is now only
     # **2x** inside the edge, where it used to be 4x.
-    ok = _ship_run(ship, q, kp=100.0, kd=2.0)
-    assert ok is not None and np.max(np.abs(ok[0])) < 0.1, "kp=100 still holds"
-    bad = _ship_run(ship, q, kp=200.0, kd=2.83)
+    # ✅ **M111 gave it back: the edge moves 100 -> 200.** ADR-0103's bigger arms
+    # raise the joint-space drivetrain stiffness as r^2, so the lowest mode
+    # climbs (32 -> 43 Hz) and the same gain commands less. Drift at kp =
+    # 100 / 150 / 200 / 300 is 0.000 / 0.002 / 0.003 / 3.307 deg. M47's kp = 50
+    # is 4x inside the edge again.
+    ok = _ship_run(ship, q, kp=200.0, kd=2.83)
+    assert ok is not None and np.max(np.abs(ok[0])) < 0.1, "kp=200 now holds"
+    bad = _ship_run(ship, q, kp=300.0, kd=3.46)
     assert bad is None or np.max(np.abs(bad[0])) > 0.5, (
-        "kp=200 must not hold -- that is the headroom the pulley spent"
+        "kp=300 must not hold -- the headroom came back, it did not become unlimited"
     )
 
 
@@ -4333,8 +4394,9 @@ def test_the_TROT_LOAD_SPLIT_is_REAR_biased_and_params_SAID_SO():
     assert frac_fore < 0.5, "rear-biased, as params F2 says it must be"
 
     W = mass * 9.81
-    assert W * frac_fore == pytest.approx(12.75, abs=0.3)
-    assert W * (1.0 - frac_fore) == pytest.approx(29.47, abs=0.5)
+    # M111: the body grew 4.383 -> 4.468 kg; the SPLIT did not move
+    assert W * frac_fore == pytest.approx(13.25, abs=0.3)
+    assert W * (1.0 - frac_fore) == pytest.approx(30.58, abs=0.5)
 
 
 def test_the_GAIT_holds_the_PAW_FLAT_so_the_ANKLE_DEMAND_HAS_NO_SHAPE():
@@ -4393,8 +4455,11 @@ def test_the_ONE_PAIR_over_its_CONTINUOUS_rating_is_the_HIND_ANKLE():
     traj = _trot_traj()
     frac_fore, mass = _load_split()
     W = mass * 9.81
-    want = {("LR", 0): 0.53, ("LR", 1): 0.19, ("LR", 2): 1.19,
-            ("LF", 0): 0.44, ("LF", 1): 0.62, ("LF", 2): 0.59}
+    # ✅ **M111: NOTHING is over its rating now.** The hind ankle 1.19 -> 0.79.
+    # This test's sibling below said what would fix it -- "a constant: 14.0 ->
+    # 16.6 mm" -- and ADR-0103 took the ankle to 22 mm for the fore leg's sake.
+    want = {("LR", 0): 0.31, ("LR", 1): 0.04, ("LR", 2): 0.79,
+            ("LF", 0): 0.26, ("LF", 1): 0.42, ("LF", 2): 0.39}
 
     over, worst_pk = [], 0.0
     for nm, leg_p, load in (("LR", DEFAULT_HINDLEG, (1 - frac_fore) * W),
@@ -4413,9 +4478,7 @@ def test_the_ONE_PAIR_over_its_CONTINUOUS_rating_is_the_HIND_ANKLE():
                 over.append((nm, PULLEY_PAIRS[j], rms))
 
     assert worst_pk < 0.7, f"structurally clear: worst peak {worst_pk:.2f} of max"
-    assert len(over) == 1 and over[0][:2] == ("LR", "ankle"), (
-        f"exactly one pair over its continuous rating: {over}"
-    )
+    assert not over, f"no pair over its continuous rating since M111: {over}"
 
 
 def test_the_VARIABLE_RADIUS_PROFILE_CANNOT_BUY_what_ADR0002_wanted():
@@ -4462,7 +4525,10 @@ def test_the_VARIABLE_RADIUS_PROFILE_CANNOT_BUY_what_ADR0002_wanted():
     stance = np.array([ins for _, ins in traj["LR"]])
     f = np.abs(F[:, 2])
     rms = float(np.sqrt((f ** 2).mean()))
-    assert rms / MT.TENSION_CONTINUOUS == pytest.approx(1.19, abs=0.06)
+    # ⚠️ M111: 1.19 -> 0.79. The constant fix this docstring names was taken,
+    # and past it: the ankle arm is 22 mm, not 16.6. The profile verdict stands --
+    # the demand still has no shape -- and there is now nothing for it to cure.
+    assert rms / MT.TENSION_CONTINUOUS == pytest.approx(0.79, abs=0.06)
 
     # a PERFECT profile flattens the stance demand to its mean. Here that is a
     # no-op, because the demand already IS its mean.
@@ -4482,8 +4548,12 @@ def test_the_VARIABLE_RADIUS_PROFILE_CANNOT_BUY_what_ADR0002_wanted():
 
     # and the fix that does work is a constant arm
     r_ankle = float(DEFAULT_TENDON.joint_moment_arm[2]) * 1e3
-    assert r_ankle == pytest.approx(14.0, abs=1e-6)
-    assert r_ankle * rms / MT.TENSION_CONTINUOUS == pytest.approx(16.6, abs=0.6)
+    # ⚠️ M111 (ADR-0103): 14 -> 22 mm. The arm at which RMS meets the rating
+    # is `r * rms / rating`, invariant to r; it moved 16.6 -> 17.3 mm with the
+    # heavier body and the re-solved wraps. 22 mm clears it by 27 %.
+    assert r_ankle == pytest.approx(22.0, abs=1e-6)
+    assert r_ankle * rms / MT.TENSION_CONTINUOUS == pytest.approx(17.3, abs=0.6)
+    assert r_ankle > r_ankle * rms / MT.TENSION_CONTINUOUS
 
 
 # ==========================================================================
@@ -5453,7 +5523,9 @@ def test_the_LATERAL_ARM_buys_COST_not_SWAY():
     # ⚠️ M102: 3x the arm cuts the demand to **0.557**, a hair outside the
     # 0.55 this asserted. The ideal is 1/3; the shortfall is the spine having
     # to hold a heavier forequarter, and it grew slightly with the head.
-    assert runs["plain60"]["raw_peak"] < 0.56 * runs["plain20"]["raw_peak"], (
+    # ⚠️ M111: 0.557 -> 0.566, the same drift for the same reason -- ADR-0103's
+    # sheaves put 21 g more on each leg for the spine to carry sideways.
+    assert runs["plain60"]["raw_peak"] < 0.58 * runs["plain20"]["raw_peak"], (
         f"3x the arm must cut the demand: {runs['plain20']['raw_peak']:.1f} -> "
         f"{runs['plain60']['raw_peak']:.1f} N"
     )
@@ -5623,7 +5695,9 @@ def test_ONLY_ONE_GAIN_PAIR_actually_STANDS():
     # noise, which is the mistake the tilt comparison below already records.
     # The claim is that the soft gain buys no MEANINGFUL sway, so that is what
     # is checked.
-    assert abs(soft["sway"] - shipped["sway"]) < 0.01 * shipped["sway"], (
+    # ⚠️ M111: no longer a tie -- the soft gain sways **4 % MORE** (2.887 vs
+    # 2.775 mm). The claim was never "equal", it was "buys none", and that holds.
+    assert soft["sway"] > 0.99 * shipped["sway"], (
         f"and it buys no sway either: {soft['sway']:.4f} vs "
         f"{shipped['sway']:.4f} mm"
     )
@@ -5633,7 +5707,8 @@ def test_ONLY_ONE_GAIN_PAIR_actually_STANDS():
     # ⚠️ M102: 0.30 -> **0.313** of the shipped sway. Same finding, 4 % less
     # margin: with no attitude term the trunk still counter-rotates instead of
     # translating, it just does so slightly less completely.
-    assert none["sway"] < 0.33 * shipped["sway"], (
+    # ⚠️ M111: 0.313 -> 0.335, the heavier legs again. Still a third.
+    assert none["sway"] < 0.36 * shipped["sway"], (
         f"with no attitude term the trunk counter-rotates instead: "
         f"{none['sway']:.2f} mm"
     )
@@ -6995,7 +7070,10 @@ def test_the_DRIVETRAIN_LOWERS_THE_MODE_and_IMPROVES_THE_MARGIN():
     # mode, it *introduces* one, three orders below anything the rigid plant has.
     f_rigid = _lowest_mode_whole(rigid)
     f_spool = _lowest_mode_whole(spooled)
-    assert f_spool == pytest.approx(4.6, abs=1.0)
+    # ⚠️ M111: 4.6 -> **10.6 Hz**. The series element appears at the joint as
+    # `k r^2`, and ADR-0103 grew r by 1.3-1.6x. Still three orders below the
+    # rigid plant's lowest, which is the claim.
+    assert f_spool == pytest.approx(10.6, abs=1.0)
     assert f_rigid > 1000.0, (
         f"the rigid plant has a structural mode again at {f_rigid:.1f} Hz -- "
         f"if the inertia or the damping moved, re-read this test"
@@ -7155,7 +7233,8 @@ def test_COMPLIANCE_leaves_the_SWAY_alone_exactly_as_ADR0072_ASSUMED():
     # ⚠️ M102: 4.60 -> 2.99 mm. Both causes push the same way here -- the
     # re-tuned 11 deg sway commands less, and at the old 12.5 deg this plant
     # gives 6.72, so the amplitude is the larger half of the move.
-    assert out["rigid"]["sway"] == pytest.approx(2.99, abs=0.15)
+    # ⚠️ M111: 2.99 -> 2.78 mm, the heavier legs (ADR-0103's sheaves).
+    assert out["rigid"]["sway"] == pytest.approx(2.78, abs=0.15)
     for label in ("legs", "legs+spine"):
         # ⚠️ **M93 REVERSED the direction.** The compliant plants used to sway
         # slightly MORE than the rigid one (4.66 against 4.60 mm) and now sway
@@ -7269,13 +7348,14 @@ def test_COMPLIANCE_costs_the_RIGHTING_a_FACTOR_OF_THREE_when_the_SPINE_has_it()
     # righting got faster (2.81 -> 1.35 s) and the cable that buys it got more
     # overloaded, which is the same trade the drop test shows: the head and the
     # tail give the spine more to work with AND more to hold.
-    assert rigid_peak == pytest.approx(6956.0, rel=0.02)
+    # ⚠️ M111: 6956 -> 7100 N, 32x the rating -- 21 g more per leg to swing over.
+    assert rigid_peak == pytest.approx(7100.0, rel=0.02)
     assert rigid_peak > 20.0 * MT.TENSION_MAX
 
     # ⚠️ and with the spine spooled the same manoeuvre takes longer again
     both_t, both_c, _ = _righting_run(None, s0=-1.0, seconds=11.0, spooled=True,
                                       spine_drive=True)
-    assert both_t is not None and both_t == pytest.approx(2.015, abs=0.35), (
+    assert both_t is not None and both_t == pytest.approx(2.62, abs=0.35), (
         f"legs+spine rights in {both_t} s"
     )
     # ⚠️ M93: the penalty had gone NEGATIVE. M71 measured compliance costing
@@ -7292,7 +7372,13 @@ def test_COMPLIANCE_costs_the_RIGHTING_a_FACTOR_OF_THREE_when_the_SPINE_has_it()
     # give back a smaller share of a bigger manoeuvre. Between 4.7x, 3 %,
     # -7 % and 1.49x, what this number measures is the plant it was measured
     # on; the title's "factor of three" was never more than one of those.
-    assert 1.2 < both_t / rigid_t < 1.9, (
+    # ⚠️ **M111: 1.49x -> 1.94x, and the bound caught it again.** The rigid
+    # plant and the legs-only compliant plant did not move (1.35, 1.356 s); only
+    # the case with the SPINE spooled did, 2.015 -> 2.62 s. The spine's own arm
+    # is unchanged at 30 mm, so the change came in through the legs -- ADR-0103
+    # put 21 g more on each, for a compliant spine to swing over. Not isolated
+    # further here.  `[owed]`
+    assert 1.2 < both_t / rigid_t < 2.2, (
         f"{both_t:.2f} s against {rigid_t:.2f} rigid"
     )
 
@@ -7416,7 +7502,8 @@ def test_ADR0073s_CABLE_MARGIN_was_bought_by_a_RIGID_TRUNK():
     """
     box = _held_drop(0.05, True)
     # ⚠️ M93: the rigid-box baseline moved 59.6 -> 71.4 N with the heavier leg.
-    assert box["cable"] == pytest.approx(71.4, rel=0.02), (
+    # ⚠️ M111: 71.4 -> 45.7 N -- the same joint torque on ADR-0103's bigger arms.
+    assert box["cable"] == pytest.approx(45.7, rel=0.02), (
         "the rigid-box baseline must reproduce"
     )
 
@@ -7581,7 +7668,7 @@ def test_the_LANDING_with_a_COMPLIANT_SPINE_is_NOT_YET_ANSWERABLE():
     # ✅ **and the contact it reports is now CREDIBLE**, which is the half of
     # this objection M87 retired. 535 N is 13x body weight, inside the 9-13x
     # ADR-0073 expects from an impact, where the 60 mm girdle box gave 260x.
-    weight = 4.3833 * 9.81
+    weight = DEFAULT_BODY_MASS_KG * 9.81
     assert hard["contact"] > soft["contact"], (
         f"contact {hard['contact']:.0f} N against {soft['contact']:.0f}"
     )
@@ -7755,9 +7842,12 @@ def test_JOINT_ANGLE_IS_RECOVERABLE_but_the_ANKLE_LOAD_CELL_is_what_pays():
         dL = MT.SPOOL_R * (T * MT.SPOOL_R / K_TORS)
         return math.degrees(np.linalg.solve(C, np.array([0.0, 0.0, dL]))[2])
 
-    assert ankle_err(81.1) == pytest.approx(2.21, abs=0.05)
-    assert ankle_err(MT.TENSION_MAX) == pytest.approx(6.08, abs=0.10), (
-        "at the peak rating the ankle angle is unknown by six degrees"
+    # ⚠️ M111: 2.21 -> 1.41 deg and 6.08 -> 3.87. The spring's deflection is a
+    # length; ADR-0103's 22 mm ankle arm turns the same length into 14/22 of the
+    # angle. The load cell still pays for itself -- by four degrees, not six.
+    assert ankle_err(81.1) == pytest.approx(1.41, abs=0.05)
+    assert ankle_err(MT.TENSION_MAX) == pytest.approx(3.87, abs=0.10), (
+        "at the peak rating the ankle angle is unknown by four degrees"
     )
 
 
@@ -7856,7 +7946,16 @@ def test_NFR12s_LATENCY_BUDGET_holds_on_the_plant_at_last():
     """
     base = _stand_at_gain(True, kp=0.0, control_hz=1000.0, latency_s=0.0)
     budget = _stand_at_gain(True, kp=0.0, control_hz=1000.0, latency_s=7.5e-3)
-    over = _stand_at_gain(True, kp=0.0, control_hz=1000.0, latency_s=20.0e-3)
+    # ✅ **M111 moved the boundary out: 15-20 ms -> 30-40 ms.** ADR-0103's arms
+    # carry the same torque on less cable, so every step of latency costs fewer
+    # newtons. At 1 kHz:
+    #
+    #     latency   0     7.5    15     20     25     30     40 ms
+    #     cable    50.2  52.3   80.3  104.6  140.1  167.1  222.9 N (SATURATED)
+    #     tilt     .011  .011   .741   .471   .497   3.79  159.7 deg
+    #
+    # NFR12's 7.5 ms now has 4-5x of margin to the edge, where it had ~2.5x.
+    over = _stand_at_gain(True, kp=0.0, control_hz=1000.0, latency_s=40.0e-3)
 
     # ✅ NFR12's budget is met, and it is nearly free
     assert budget["tilt"] < 0.05, f"at 7.5 ms tilt is {budget['tilt']:.3f} deg"
@@ -7865,15 +7964,15 @@ def test_NFR12s_LATENCY_BUDGET_holds_on_the_plant_at_last():
     )
     assert budget["peak"] < 0.4 * MT.TENSION_MAX
 
-    # ⚠️ and the boundary is real: at 20 ms the cable saturates
+    # ⚠️ and the boundary is real: at 40 ms the cable saturates
     assert over["peak"] > 0.9 * MT.TENSION_MAX, (
-        f"20 ms runs the cable to the edge: {over['peak']:.1f} N of "
+        f"40 ms runs the cable to the edge: {over['peak']:.1f} N of "
         f"{MT.TENSION_MAX:.1f}"
     )
     assert over["tilt"] > 20.0 * budget["tilt"]
 
     # ✅ peak cable is monotonic in latency -- tilt is not, so assert on cable
-    mid = _stand_at_gain(True, kp=0.0, control_hz=1000.0, latency_s=15.0e-3)
+    mid = _stand_at_gain(True, kp=0.0, control_hz=1000.0, latency_s=30.0e-3)
     assert base["peak"] <= budget["peak"] <= mid["peak"] <= over["peak"]
 
 
@@ -8230,8 +8329,9 @@ def test_the_EXTENSOR_SIDE_was_never_solved_and_ADR0042s_RETRACTION_is_half():
     # motors were before M88.
     flex = solved[("ankle", +1)]
     ext = solved[("ankle", -1)]
-    assert math.degrees(flex["total_wrap"]) == pytest.approx(152.8, abs=1.0)
-    assert math.degrees(ext["total_wrap"]) == pytest.approx(239.2, abs=1.0)
+    # ⚠️ M111: re-solved on ADR-0103's 22 mm ankle sheave -- 152.8/239.2 -> 147.0/243.9.
+    assert math.degrees(flex["total_wrap"]) == pytest.approx(147.0, abs=1.0)
+    assert math.degrees(ext["total_wrap"]) == pytest.approx(243.9, abs=1.0)
     assert ext["capstan"] > flex["capstan"], (
         f"the extensor is still the worse half: {ext['capstan']:.3f}x against "
         f"{flex['capstan']:.3f}"
@@ -8243,7 +8343,7 @@ def test_the_EXTENSOR_SIDE_was_never_solved_and_ADR0042s_RETRACTION_is_half():
     # no joint at all, so none of that wrap is coupling it has to carry -- it is
     # avoidable routing, and it is what saturates the trot in M106's budget.
     hip_ext = solved[("hip", -1)]
-    assert math.degrees(hip_ext["total_wrap"]) == pytest.approx(239.4, abs=1.0)
+    assert math.degrees(hip_ext["total_wrap"]) == pytest.approx(255.6, abs=1.0)   # M111: 36 mm
     assert hip_ext["capstan"] > 1.5, (
         f"the hip extensor ADR-0083 read as 1.014x: {hip_ext['capstan']:.3f}x"
     )

@@ -65,7 +65,7 @@ ANCHOR_R = 1.6
 #: leg still builds standalone, and it is the fallback, not the truth.
 SPOOL_OFFSET = (-42.0, 34.0)
 
-ARMS = np.asarray(DEFAULT_TENDON.joint_moment_arm) * MM     # 28 / 25 / 14 mm
+ARMS = np.asarray(DEFAULT_TENDON.joint_moment_arm) * MM     # 36 / 34 / 22 mm since M111 (was 28 / 25 / 14)
 CABLE_D = 1.75
 
 

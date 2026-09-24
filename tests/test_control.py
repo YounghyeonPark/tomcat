@@ -256,7 +256,9 @@ def test_spine_is_ROM_limited_not_RATE_limited():
     # denominator is the whole body, and placing the head put 240 g into that
     # denominator that the legs' term does not see. Fourth correction, same
     # mechanism, finding unchanged: `naive > full`, and by a real margin.
-    assert (naive - full) / naive == pytest.approx(0.060, abs=0.006)
+    # ⚠️ M111: **6.0 % -> 6.6 %**, the 36/34/22 sheaves putting 21 g a leg back
+    # out at the feet -- the same direction M93's heavier leg moved it.
+    assert (naive - full) / naive == pytest.approx(0.066, abs=0.006)
 
 
 def test_envelope_in_physical_units_is_a_real_shove():

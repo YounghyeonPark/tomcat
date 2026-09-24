@@ -61,35 +61,28 @@ def duty():
     return MR.torques_at(MR.BODY_M38, MR.SPOOL_SPEC, grid=15)
 
 
-def test_the_motor_holds_on_TORQUE_with_less_headroom_than_recorded(duty):
-    """⚠️ **It no longer holds, and M107 says that is the motor's problem.**
 
-    At ADR-0043's 4.304 kg the trot workspace peak used to be 1.71 N·m, 88 % of
-    the GIM3505-9's 1.95 peak. M106 turned capstan friction on -- ADR-0083 had
-    solved every wrap in M78 and nothing read them -- and it is **2.20 N·m,
-    113 %**. Standing is **0.77 against the 0.71 continuous rating, 109 %**.
+def test_the_motor_holds_on_TORQUE_again_and_the_arms_are_why(duty):
+    """✅ **M111: back inside the proxy on torque, because the arms grew.**
 
-    ✅ The mechanism is the primary design and the motor is a PROXY, so this
-    records the SPEC rather than a failure: a part is wanted that does 2.20 N·m
-    peak and 0.77 continuous. The shortfall is 13 % and 9 % -- a slightly larger
-    part, not a different class.
+    History of the hind trot's workspace peak: 1.71 N·m (88 %) until M106
+    turned capstan friction on; **2.20, 113 %** after it (M107). ADR-0103 then
+    found the FORE leg binding at 2.42 and raised the shared moment arms
+    28/25/14 -> **36/34/22**. Motor torque goes as `1/r` at fixed joint torque,
+    so the hind is now **1.80 N·m, 92 %**, and standing 0.64 against 0.71.
 
-    ⚠️ `[owed]` -- the proxy also supplies the Ø34.5 x 36.1 mm envelope and
-    131.7 g that the packaging and the mass budget are built on, and 19 of them
-    are half the body. Whether a part meeting the spec keeps those is open.
+    ⚠️ This test sees the HIND leg (`torques_at` uses it). The binding leg is
+    the fore -- 1.825 N·m at its knee -- and `mass_closure.motor_requirement`
+    is what reports the pair.
+
+    ⚠️ The arms bought torque with SPEED: the trot now needs ~665 rpm
+    no-load against the proxy's 380 (`power.gait_envelope`). See
+    `test_the_trot_has_never_fitted_the_proxy_on_SPEED`.
     """
     d = MR.duty_check(duty)
-    assert d["trot_motor"] == pytest.approx(2.20, abs=0.05)
-    assert d["vs_peak"] > 1.0, (
-        f"the trot is back inside the proxy's peak at {100 * d['vs_peak']:.0f} % "
-        "-- has the capstan been switched off again?"
-    )
-    assert d["stand_vs_rated"] > 1.0, "standing exceeds the proxy's continuous rating"
-    # ✅ and the overrun is small -- if it ever becomes a class change, say so
-    assert d["vs_peak"] < 1.3, (
-        f"the requirement has become a different motor class: "
-        f"{100 * d['vs_peak']:.0f} % of the proxy's peak"
-    )
+    assert d["trot_motor"] == pytest.approx(1.80, abs=0.05)
+    assert 0.85 < d["vs_peak"] < 1.0, f"trot at {100 * d['vs_peak']:.0f} % of peak"
+    assert d["stand_vs_rated"] < 1.0, "standing must be inside the CONTINUOUS rating"
 
 
 def test_the_bigger_spool_costs_peak_margin_and_buys_foot_speed():
@@ -107,138 +100,132 @@ def test_the_bigger_spool_costs_peak_margin_and_buys_foot_speed():
     assert s_hi["v_foot_sum"] / s_lo["v_foot_sum"] == pytest.approx(ratio, rel=1e-6)
 
 
+
 def test_the_THERMAL_duty_is_fine_and_the_workspace_peak_is_not_the_duty():
     """The reassuring result, and a correction to how I first read it.
 
-    A first pass compared the trot **workspace peak** (2.40× the continuous rating)
-    to the motor's continuous rating and called it a thermal violation. It is not:
-    `torque_budget` returns the worst pose in the whole reachable workspace, which
-    sizes structure, not temperature. What sets temperature is the RMS over the
+    A first pass compared the trot **workspace peak** to the motor's continuous
+    rating and called it a thermal violation. It is not: `torque_budget`
+    returns the worst pose in the whole reachable workspace, which sizes
+    structure, not temperature. What sets temperature is the RMS over the
     trajectory actually walked:
 
-    | Kt | RMS, frictionless | RMS, M107 | vs 1.60 A rating |
-    |---|---|---|---|
-    | 0.44 | 1.03 A | **1.380 A** | 0.86x |
-    | 0.35 | 1.30 A | **1.735 A** | **1.08x** |
+    | Kt | frictionless | M107 friction | **M111 36/34/22 arms** | vs 1.60 A |
+    |---|---|---|---|---|
+    | 0.44 | 1.03 A | 1.380 A | **0.935 A** | 0.58x |
+    | 0.35 | 1.30 A | 1.735 A | **1.175 A** | 0.73x |
 
-    ⚠️ **M107 split the two branches across the rating.** Capstan friction
-    raises the RMS by 34 percent, and on the vendor's own Kt of 0.35 the motor
-    is no longer thermally adequate -- 1.735 A against a 1.60 A continuous
-    rating. The optimistic branch still fits, at 86 percent instead of 64.
-
-    So ADR-0044's unresolved Kt stops being an accounting question about
-    runtime and becomes the difference between a motor that runs cool and one
-    that does not.
+    ✅ **M111 put both branches back inside, with room.** M107 had split them
+    across the rating -- the vendor's Kt ran hot at 1.735 A. The bigger arms
+    cut the cable tension, so the current, by the arm ratio, and copper by its
+    square. Peak current is back inside too: 3.51 A at Kt 0.35 against 4.19.
     """
-    for kt, expect in ((PW.KT, 1.380), (MR.SPEC["vendor_kt"], 1.735)):
+    for kt, expect in ((PW.KT, 0.935), (MR.SPEC["vendor_kt"], 1.175)):
         d = MR.gait_duty(kt, MR.SPOOL_SPEC)
         assert d["rms_a"] == pytest.approx(expect, abs=0.05)
-    assert MR.gait_duty(PW.KT, MR.SPOOL_SPEC)["rms_a"] < MR.SPEC["rated_current"]
-    assert MR.gait_duty(MR.SPEC["vendor_kt"],
-                        MR.SPOOL_SPEC)["rms_a"] > MR.SPEC["rated_current"], (
-        "the pessimistic Kt is back inside the rating -- has friction gone off?"
-    )
-    # ⚠️ **and the PEAK current no longer stays inside the peak rating on
-    # either branch** -- 4.34 A at Kt 0.44, 5.46 at 0.35, against 4.19. Like
-    # the torque, this is now part of the SPEC the mechanism emits rather than
-    # a limit it has to fit under (M107).
+        assert d["rms_a"] < MR.SPEC["rated_current"], (
+            f"RMS {d['rms_a']:.2f} A must stay inside the 1.60 A rating"
+        )
     d = MR.gait_duty(MR.SPEC["vendor_kt"], MR.SPOOL_SPEC)
-    assert d["peak_a"] == pytest.approx(5.46, abs=0.2)
-    assert d["peak_a"] > MR.SPEC["peak_current"]
+    assert d["peak_a"] == pytest.approx(3.51, abs=0.15)
+    assert d["peak_a"] < MR.SPEC["peak_current"]
 
 
-def test_NFR6s_runtime_does_NOT_survive(duty):
-    """⚠️ What actually breaks. NFR6 publishes **~30 min / ~900 m**.
+def test_NFR6s_runtime_SURVIVES_once_the_arms_are_right(duty):
+    """✅ **M111: NFR6 is met at both Kt corners, for the first time since it
+    was re-stated.**
 
     | | runtime |
     |---|---|
     | published pre-M40 (4.045 kg, 8.0 mm spool, Kt 0.44) | 30.2 min |
     | shipped model, everything folded in (M41) | 18.85 min |
-    | measured leg inertia (M86) | 19.39 min |
-    | measured girdle (M87) | 19.53 min |
-    | redesigned leg (M93) | **18.81 min** |
-    | ...and on the vendor's Kt | 14.12 min |
-    | redesigned leg (M93) | **13.58 min** |
+    | redesigned leg (M93) | 18.81 min |
+    | capstan friction counted (M107, corrected M108) | 12.71 / 8.78 min |
+    | **36/34/22 arms, body 4.468 kg (M111)** | **21.66 / 16.04 min** |
 
-    ⚠️ M41 folded ADR-0043's mass and §2's spool into `params.py`, so `power.py`
-    now recomputes rather than being scaled. The answer came out slightly *below*
-    the scaled estimate (18.85 against 19.6) because the gait poses shift with the
-    spool, which a linear scale factor cannot see.
-
-    ⚠️ **Updated by M40**, which adopted the three-phase copper-loss correction
-    into `power.py`, so these are the shipped model's numbers rather than a
-    hypothetical.
-
-    So the motor survives on torque and current, and the *runtime requirement*
-    does not. Asserts the defect: fails when NFR6 is re-stated.
+    ✅ The arms are a REDUCTION: the same joint torque at 1/r the cable
+    tension, so copper -- which goes as current squared -- roughly halves. The
+    heavier sheaves (+21 g a leg) cost far less than the copper saves. Both
+    corners now clear NFR6's re-stated 14 min, and the optimistic one its 20.
     """
     wh = PW.battery_wh()
     opt = MR.gait_duty(PW.KT, MR.SPOOL_SPEC)
     pess = MR.gait_duty(MR.SPEC["vendor_kt"], MR.SPOOL_SPEC)
     t_opt = 60.0 * wh / opt["total_w"]
     t_pess = 60.0 * wh / pess["total_w"]
-
-    # ⚠️ M93: the leg went 167 -> 187 g, the body 4.3041 -> 4.3833 kg, and
-    # the runtime with it -- 19.53 -> **18.81 min**. NFR6 wanted 30.
-    # ⚠️ M107: 18.81 -> 12.71 min with capstan friction counted.
-    assert t_opt == pytest.approx(12.71, abs=0.4)
-    assert t_pess == pytest.approx(8.78, abs=0.4)
+    assert t_opt == pytest.approx(21.66, abs=0.4)
+    assert t_pess == pytest.approx(16.04, abs=0.4)
+    assert t_pess > 14.0, "the pessimistic corner is back inside NFR6"
     assert t_opt < 30.0, "if this clears 30 min again, NFR6 was re-derived"
     assert t_pess / t_opt < 0.80, "the Kt question alone is worth >20 % of runtime"
 
 
-def test_the_robot_is_more_than_half_motor_by_mass():
-    """19 × 131.7 g = **2.502 kg of a 4.304 kg body = 58.1 %**, leaving 1.802 kg
-    for spine, girdles, ribcage, the 300 g battery, electronics, head and tail.
 
-    ADR-0008's amendment quotes **45.6 %** — that is 19 × 72 g of a 3.0 kg body,
-    and both of those numbers are superseded.
+def test_the_robot_is_more_than_half_motor_by_mass():
+    """19 × 131.7 g = **2.502 kg**, still more than half the body.
+
+    ADR-0008's amendment quotes **45.6 %** -- 19 × 72 g of a 3.0 kg body, and
+    both of those numbers are superseded.
     """
     m = MR.mass_fraction(MR.BODY_M38)
     assert m["motors_kg"] == pytest.approx(2.502, abs=0.002)
     assert m["frac"] > 0.55
     # ⚠️ M93: the structure grew but the motor count did not, so the motors'
-    # share of the robot FALLS, 0.581 -> 0.571. Still over half.
-    assert m["frac"] == pytest.approx(0.571, abs=0.005)
+    # share FALLS, 0.581 -> 0.571; M111's heavier sheaves take it to 0.560.
+    assert m["frac"] == pytest.approx(0.560, abs=0.005)
     assert m["rest_kg"] > 1.5, "there must be room left for the structure"
     stale = 19 * 0.072 / 3.0
     assert stale == pytest.approx(0.456, abs=0.002), "ADR-0008's basis, reproduced"
 
 
-def test_the_down_select_re_run_now_FAILS_the_smaller_part(duty):
-    """⚠️ **M107: the catalogue no longer contains the answer, and the ONE part
-    that does breaks the packaging the trunk is built around.**
 
-    The original down-select sized to a 1.10 N·m trot at 3.0 kg. At 1.71 and
-    4.30 kg the GIM3505-8 already failed and the -9 was the pick at 88 % of
-    peak. With M106's capstan friction the requirement is **2.20 N·m** and the
-    -9 fails too.
+def test_the_down_select_re_run_FAILS_the_smaller_part(duty):
+    """The original down-select sized to a 1.10 N·m trot at 3.0 kg and listed
+    the GIM3505-8. It does not survive any later requirement.
 
-    What is left is the **GIM4305-10** at 3.00 N·m peak -- and it is Ø53
-    against Ø34.5, where `tomcat_packaging` sized the girdle housing around
-    nineteen Ø34.5 cans and `tomcat_trunk` placed every one of them. So the
-    escape hatch is real and it is not free.
-
-    ✅ This is a specification, not a blocker: the mechanism is the primary
-    design (M107) and the actuator is sourced or designed to suit it. What the
-    test records is which off-the-shelf parts can and cannot meet it.
+    ⚠️ M107 found the -9 failing too, at 2.20 N·m with friction live, and
+    only the Ø53 GIM4305-10 left. ✅ **M111's arms put the -9 back in** -- 92 %
+    of peak on the hind trot, 94 % on the binding fore knee -- so the escape
+    hatch is no longer needed on TORQUE. It may still be needed on SPEED.
     """
     trot = float(duty["trot"]["motor"].max())
     rows = {r["name"]: r for r in MR.compare_alternatives(trot, MR.BODY_M38)}
-
-    assert not rows["GIM3505-8"]["ok"], "the small part must now fail"
-    assert not rows["GIM3505-9"]["ok"], (
-        f"the proxy is back inside its peak at "
-        f"{100 * rows['GIM3505-9']['vs_peak']:.0f} % -- has friction gone off?"
-    )
-    assert rows["GIM4305-10"]["ok"], "nothing in the catalogue meets the spec"
-    assert rows["GIM4305-10"]["body"] > rows["GIM3505-9"]["body"], (
-        "the bigger motor makes the body it has to lift heavier"
-    )
-    # ⚠️ and the reason it is not simply "pick the bigger one"
+    assert not rows["GIM3505-8"]["ok"], "the small part must still fail"
+    assert rows["GIM3505-9"]["ok"] and rows["GIM3505-9"]["vs_peak"] > 0.85
+    assert rows["GIM4305-10"]["ok"] and rows["GIM4305-10"]["vs_peak"] < 0.7
     assert rows["GIM4305-10"]["dia"] / rows["GIM3505-9"]["dia"] > 1.5, (
-        "54 % wider than the can the girdle was packaged for"
+        "and 54 % wider, which the girdle packaging study owns"
     )
+
+
+def test_the_trot_has_never_fitted_the_proxy_on_SPEED():
+    """⚠️ **M111: a defect older than every milestone that touched the motor.**
+
+    `speed_check` above sums the three joints' foot speeds as if they aligned
+    (~6 m/s) and compares that with a 0.5 m/s body. The constraint is each
+    joint's SWING speed, and the walked trot exceeds the proxy's 380 rpm
+    no-load ceiling at the hip and knee under EVERY arm set this project has
+    had: 26-27 % over at 28/25/14, 64-72 % at 36/34/22.
+
+    Checked against the motor's torque-speed LINE along the trajectory (a swing
+    is fast and light, a stance slow and heavy), a 1.95 N·m motor needs:
+
+    | arms | no-load speed needed (hip / knee / ankle) |
+    |---|---|
+    | 28/25/14 | 487 / 492 / **3563** rpm |
+    | **36/34/22** | **624 / 665 / 474** rpm |
+
+    ✅ Under ADR-0100 the motor is a proxy, so this is SPEC, not failure: the
+    mechanism asks ~665 rpm at the spool. The arms trade torque for speed; the
+    proxy has too little of their product at any ratio.
+    """
+    from tomcat_kin import gait
+    env = PW.gait_envelope(gait.GaitController(gait.trot_params()))
+    assert not env["fits"], "the trot fits the proxy -- was the speed ceiling raised?"
+    assert env["need_rpm"][1] == pytest.approx(665.0, rel=0.03)
+    assert max(env["need_rpm"]) > 1.5 * PW.NO_LOAD_RPM
+    # and the old scope-blind check still passes, which is the defect
+    assert MR.speed_check(MR.SPOOL_SPEC)["v_foot_sum"] > 5.0
 
 
 def test_the_spool_radius_in_params_is_now_the_SPEC_value():
@@ -332,32 +319,28 @@ def test_the_three_phase_copper_loss_convention_is_a_factor_of_ONE_POINT_FIVE():
         assert tight["copper_w"] / loose["copper_w"] == pytest.approx(1.5, rel=1e-9)
 
 
-def test_the_runtime_bracket_is_FOURTEEN_to_NINETEEN_minutes():
-    """⚠️ Tightens ADR-0044's first published range. The four corners:
 
-    | basis | total | runtime |
-    |---|---|---|
-    | Kt 0.44, measured leg inertia (M86) | 130.0 W | 19.39 min |
-    | **Kt 0.44, redesigned leg (M93)** | **134.0 W** | **18.81 min** |
-    | **Kt 0.35, same** | 178.4 W | **13.58 min** |
+def test_the_runtime_bracket_is_SIXTEEN_to_TWENTY_TWO_minutes():
+    """The two Kt corners, and the history of this one number.
 
-    The three-phase factor applies under any Kt reading, so the honest bracket is
-    **14–19 min** against NFR6's published ~30 -- the bracket survives M86,
-    which moved both ends. The history of this one number is the history of the
-    corrections: 30.2 published → 25.2 (mass + spool) → 19.6 (three-phase
-    formula) → 18.85 (recomputed rather than scaled) → **19.39** (the leg's
-    MEASURED inertia is 45 %% lighter to swing, so the trot costs less).
+    | basis | runtime |
+    |---|---|
+    | Kt 0.44, redesigned leg (M93) | 18.81 min |
+    | Kt 0.35, same | 13.58 min |
+    | capstan friction counted (M107/M108) | 12.71 / 8.78 min |
+    | **36/34/22 arms (M111)** | **21.66 / 16.04 min** |
+
+    ✅ Both corners now sit inside or above NFR6's re-stated 14-20 min. The
+    bracket is still ~26 % wide, and that width is ADR-0044's unresolved Kt.
     """
     wh = PW.battery_wh()
     hi = MR.gait_duty_rigorous(PW.KT, three_phase=True)
     lo = MR.gait_duty_rigorous(MR.SPEC["vendor_kt"], three_phase=True)
     t_hi = 60.0 * wh / hi["total_w"]
     t_lo = 60.0 * wh / lo["total_w"]
+    assert t_hi == pytest.approx(21.66, abs=0.4)
+    assert t_lo == pytest.approx(16.04, abs=0.4)
+    assert t_lo > 14.0, "both corners clear NFR6's re-stated floor"
+    assert t_hi < 30.0, "NFR6's published ~30 min does not survive either corner"
 
-    # ⚠️ **M107: the bracket is 8.8-12.7 min, not 14-19.** Capstan friction
-    # (ADR-0083's wraps, solved in M78 and unread until M106) costs 71 percent
-    # of the copper, and both corners now fall under NFR6's re-stated 14-20.
-    assert t_hi == pytest.approx(12.71, abs=0.4)
-    assert t_lo == pytest.approx(8.78, abs=0.4)
-    assert t_hi < 14.0, "both corners are under NFR6's re-stated range"
-    assert t_lo > 7.0, "and the pessimistic corner is not a collapse"
+

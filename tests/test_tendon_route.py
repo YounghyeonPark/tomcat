@@ -138,14 +138,20 @@ def test_the_cross_coupling_eats_the_cable_travel_budget(coupling):
                      for i in range(3)])
     total = own + para
 
+    # ⚠️ **M111 (ADR-0103, 36/34/22) shrank the coupling's SHARE, which is what
+    # M106 said a bigger arm would do.** The off-diagonals are the via radius,
+    # 8.75 mm/rad, and do not grow with the arms; the diagonals do. Parasitic
+    # travel against own: knee 63 % -> **41 %**, ankle 135 % -> **86 %** --
+    # the ankle's parasitic travel no longer exceeds its own. Totals
+    # 150.8 / 125.7 / 128.7 mm: still one class, and the hip still sizes it.
     assert para[0] == pytest.approx(0.0, abs=0.1)      # hip is proximal-most
-    assert para[1] / own[1] > 0.5, "knee parasitic travel > 50 % of its own"
-    assert para[2] / own[2] > 1.0, "ankle parasitic travel exceeds its own"
+    assert para[1] / own[1] == pytest.approx(0.41, abs=0.03)
+    assert para[2] / own[2] == pytest.approx(0.86, abs=0.03)
     assert own[0] == pytest.approx(total.max(), abs=0.5), "hip stays the sizing case"
     assert total.max() / total.min() < 1.25, (
         f"all three spools should now be one class, got {total.round(1)}"
     )
-    assert own.max() / own.min() > 2.5, "which §1.4's per-joint numbers do not say"
+    assert own.max() / own.min() > 2.0, "which §1.4's per-joint numbers do not say"
 
 
 def test_every_running_pulley_clears_the_cable_minimum_bend_radius():
@@ -182,7 +188,9 @@ def test_the_run_lengths_are_close_to_the_spec_estimates():
     _, q0 = LT.coupling_matrix()
     for tendon, spec_mm in (("hip", 100.0), ("knee", 220.0), ("ankle", 300.0)):
         got = LT.route(q0, tendon)["length"]
-        assert 0.6 * spec_mm < got < 1.45 * spec_mm, f"{tendon}: {got:.0f} mm"
+        # ⚠️ M111: the hip run 145 -> 160 mm. Its 255 deg of wrap now sits on a
+        # 36 mm sheave, so 84 mm of the run is arc; §3.3's 0.10 m is stale.
+        assert 0.6 * spec_mm < got < 1.65 * spec_mm, f"{tendon}: {got:.0f} mm"
 
 
 def test_the_spool_radius_in_params_is_now_the_SPEC_value():

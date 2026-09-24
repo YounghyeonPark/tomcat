@@ -162,18 +162,57 @@ def motor_requirement(b):
     `[owed]` -- the number below is still the hind's, because that is what the
     live budget computes. Making it the max over both legs means giving
     `pair_wrap` a per-leg form, which it does not have.
+
+    ✅ **M111 closed that `[owed]`: the FORE leg is budgeted here too**, on its
+    own spools and its own routed wraps, at the same body mass; `peak` and
+    `continuous` are the max over both legs and `binding_leg` says which. And
+    the spec gained its second axis -- `need_rpm`, the no-load speed a motor
+    with the proxy's peak would need for the walked trot to fit its
+    torque-speed line (`power.gait_envelope`). The proxy has 380.
     """
-    trot, stand = b["trot"], b["stand"]
+    import dataclasses
+    import leg_tendons as LT
+    import tomcat_trunk as TT
+    from tomcat_kin import gait, power
     names = ("hip", "knee", "ankle")
+    body = float(b["body"])
+    fore_wraps = _routed_wraps("fore", DEFAULT_FORELEG, LT, TT)
+    tm_f = TendonMap(dataclasses.replace(DEFAULT_TENDON, pair_wrap=fore_wraps))
+    fore = {}
+    for lc in loads_at(body):
+        r = budget(LegModel(DEFAULT_FORELEG), tm_f, lc, grid=21)
+        fore[lc.name.split()[0]] = np.asarray(r.peak_motor_torque)
+    hind = {k.split()[0]: v["motor"] for k, v in b.items()
+            if isinstance(v, dict) and "motor" in v}
+    both_trot = max(float(hind["trot"].max()), float(fore["trot"].max()))
+    both_stand = max(float(hind["stand"].max()), float(fore["stand"].max()))
+    env = power.gait_envelope(gait.GaitController(gait.trot_params()))
     return {
-        "peak": float(trot["motor"].max()),
-        "continuous": float(stand["motor"].max()),
-        "per_joint": {n: (float(stand["motor"][i]), float(trot["motor"][i]),
-                          float(b["land"]["motor"][i]))
+        "peak": both_trot,
+        "continuous": both_stand,
+        "binding_leg": "fore" if fore["trot"].max() >= hind["trot"].max() else "hind",
+        "per_joint": {n: (float(hind["stand"][i]), float(hind["trot"][i]),
+                          float(hind["land"][i]))
                       for i, n in enumerate(names)},
+        "fore_per_joint": {n: (float(fore["stand"][i]), float(fore["trot"][i]),
+                               float(fore["land"][i]))
+                           for i, n in enumerate(names)},
+        "need_rpm": float(np.max(env["need_rpm"])),
+        "need_rpm_per_joint": env["need_rpm"],
         "proxy_peak": PROXY_PEAK,
         "proxy_rated": PROXY_RATED,
+        "proxy_rpm": power.NO_LOAD_RPM,
     }
+
+
+def _routed_wraps(role, leg_params, LT, TT):
+    """(flexor, extensor) total wrap per joint, routed on the trunk's own spools."""
+    sp = {t: (p[0], p[2]) for t, p in zip(("hip", "knee", "ankle"),
+                                          TT.leg_spools(role, +1.0))}
+    q = np.asarray(LegModel(leg_params).inverse((0.04, -0.17, 0.0)), float)
+    return tuple((LT.route(q, n, side=+1, leg=leg_params, spools=sp)["total_wrap"],
+                  LT.route(q, n, side=-1, leg=leg_params, spools=sp)["total_wrap"])
+                 for n in ("hip", "knee", "ankle"))
 
 
 def gate(b):

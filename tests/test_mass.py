@@ -75,7 +75,7 @@ def _symmetric_trunk_body(leg_mass=0.0):
 def test_default_body_totals_the_load_case_body_mass():
     # The apportionment in params.py is built to reproduce the 3.0 kg that every
     # LoadCase / WholeBodyLoadCase already assumed.
-    assert DEFAULT_BODY_MASS_KG == pytest.approx(4.38328, abs=1e-9)  # ADR-0093
+    assert DEFAULT_BODY_MASS_KG == pytest.approx(4.4684, abs=1e-9)  # ADR-0093 -> M111 (ADR-0103)
     assert _body().total_mass == pytest.approx(LoadCase("x").body_mass_kg, abs=1e-9)
 
 
@@ -104,8 +104,8 @@ def test_the_fore_hind_leg_ASYMMETRY_has_vanished():
     Design review F2 settled the fore/hind weight split using the old asymmetry and
     is re-checked in `test_fore_hind_split_...` below.
     """
-    assert DEFAULT_HINDLEG.mass == pytest.approx(0.18665, abs=5e-4)
-    assert DEFAULT_FORELEG.mass == pytest.approx(0.18749, abs=5e-4)
+    assert DEFAULT_HINDLEG.mass == pytest.approx(0.20811, abs=5e-4)   # M111 sheaves
+    assert DEFAULT_FORELEG.mass == pytest.approx(0.20859, abs=5e-4)   # M111 sheaves
     assert abs(DEFAULT_HINDLEG.mass - DEFAULT_FORELEG.mass) < 0.001, (
         "the legs are equal now; if a real asymmetry returns, re-derive F2's split"
     )
@@ -119,7 +119,12 @@ def test_limbs_are_light_because_the_motors_are_not_in_them():
     # A tendon-driven limb is just structure, so it must be much lighter.
     body = _body()
     legs = sum(body.legs[n].params.mass for n in body.mounts)
-    assert 0.10 < legs / body.total_mass < 0.18
+    # ⚠️ M111: 0.170 -> 0.187. ADR-0103's 36/34/22 sheaves put +21 g on each
+    # leg, and that is the one place this guard's premise gives way: a sheave IS
+    # actuator hardware, and the fore leg's load could only be reached from the
+    # joint end. Still well under the ~24 % biological fraction F1 retired.
+    assert 0.10 < legs / body.total_mass < 0.20
+    assert legs / body.total_mass == pytest.approx(0.187, abs=0.005)
 
 
 def test_trunk_plus_legs_equals_total():
@@ -152,7 +157,7 @@ def test_fore_hind_split_is_near_balanced_not_sixty_forty():
     # change was symmetric — which is itself the point: the split is set by the
     # girdles and the head, not by the limbs.
     q = _body().mass_budget()
-    assert q.total == pytest.approx(4.38328, abs=1e-9)
+    assert q.total == pytest.approx(4.4684, abs=1e-9)   # M111
     assert q.fore + q.hind == pytest.approx(q.total, abs=1e-12)
     assert q.fore_fraction == pytest.approx(0.543, abs=0.02)
     assert q.hind_fraction == pytest.approx(0.457, abs=0.02)
@@ -342,7 +347,7 @@ def test_symmetric_body_with_legs_shifts_by_exactly_the_leg_offset():
 def test_default_com_sits_forward_of_mid_body_because_the_cat_is_front_heavy():
     body = _body()
     c = body.center_of_mass(STRAIGHT, STAND)
-    assert c.mass == pytest.approx(4.38328)
+    assert c.mass == pytest.approx(4.4684)   # M111
     # Forward of the mid-spine point, but still between the two girdles.
     assert c.x > DEFAULT_SPINE.total_length / 2.0
     assert 0.0 < c.x < DEFAULT_SPINE.total_length
@@ -362,7 +367,10 @@ def test_default_com_sits_forward_of_mid_body_because_the_cat_is_front_heavy():
     # **14.9 -> 20.1 mm**. That 5.2 mm is what took the default walk from
     # +5.30 mm of ZMP margin to -0.14, and forced the lateral re-tune in
     # `gait.py`.
-    assert c.z == pytest.approx(0.0201, abs=5e-4)
+    # ⚠️ M111's heavier sheaves (+21 g a leg, hanging BELOW the hip axis) pull
+    # it back down **20.1 -> 18.5 mm** -- the direction that helps the ZMP
+    # margin M102 had to re-tune for, not the one that hurts it.
+    assert c.z == pytest.approx(0.0185, abs=5e-4)
 
 
 def test_arching_the_spine_moves_the_com_up_and_rearward():
@@ -498,4 +506,4 @@ def test_total_matches_the_revised_NFR5_target():
     # target, and 19 of them do not fit inside 3 kg. See the motor-reality-check
     # note. A domestic cat is 4-5 kg, so the new figure is if anything more
     # biomimetic -- but it was forced by hardware, not chosen.
-    assert _body().mass_budget().total == pytest.approx(4.38328, abs=1e-9)
+    assert _body().mass_budget().total == pytest.approx(4.4684, abs=1e-9)   # M111
