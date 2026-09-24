@@ -8089,9 +8089,13 @@ The MuJoCo harness moved four numbers, and three of them moved the good way.
   ⚠️ **The specification the mechanism emits, at the trot ADR-0008 fixes as the
   actuator sizing case:**
 
+  ⚠️ **The peak below is the HIND leg's, and [ADR-0102](#adr-0102) found the
+  budget has only ever seen one leg.** The fore leg needs **2.42 N·m**, 24 %
+  over, set by its KNEE. Read the row as a floor.
+
   | | required | proxy | short by |
   |---|---|---|---|
-  | peak torque | **2.20 N·m** | 1.95 | 13 % |
+  | peak torque | **2.20 N·m** (hind; fore 2.42) | 1.95 | 13 % (fore 24 %) |
   | continuous torque | **0.77 N·m** | 0.71 | 9 % |
   | peak current | **4.34 A** | 4.19 | 4 % |
 
@@ -8234,6 +8238,83 @@ The MuJoCo harness moved four numbers, and three of them moved the good way.
   The budget sweeps a workspace and applies a capstan measured at the stance
   pose. That approximation was free while the factor was 1.0; it costs
   something now, and nothing here has priced it.
+
+## ADR-0102: the girdle can take most of it for free, and the FORE leg was never budgeted
+- **Status:** Accepted
+- **Context:** [ADR-0101](#adr-0101) left one question: the hip spool wants
+  z ≈ −20 and its row offers −3.4, so can the girdle house it 16.6 mm lower?
+
+- **Decision / findings:**
+
+  ⚠️ **Nothing checks whether a motor is inside the shell.** `tomcat_trunk.report`
+  checks that a motor lies in its body's x range and that no two interpenetrate.
+  That the can is inside the lofted **ellipse** is checked nowhere, and it is
+  exactly what decides how low a spool can go. `shell_fit()` now measures it.
+
+  ⚠️ **At the hip's own row it does not fit, and the reason is the ellipse.**
+  The section at x = −31.2 spans z −44.5…78.1, so there looks to be room; but
+  the motors sit at y = ±20.2 and an ellipse narrows as it falls. At y = 20.2
+  the limit is **z ≈ −10**; z = −20 fits only on the **centreline**, and a
+  centreline slot serves one motor where two hind legs need two.
+
+  ⚠️ **And the row's two slots are taken by cables that both want the low one.**
+  Hip and ankle share `hind_a`; ADR-0101 showed swapping them makes the leg
+  worse. Dropping the hip to −20 would push the ankle to ≈ +48, worse still.
+
+  ✅ **But the ASSIGNMENT is free, and it is worth two thirds of the overrun.**
+  Which joint drives from which of the three positions is set by `leg_spools`'
+  own rule — *"the hip needs the longest cable and the largest arm, so it takes
+  the topmost spool and the ankle the lowest"* — which is a drawing rule. All
+  six ways, hind leg:
+
+  | hip / knee / ankle | trot peak | vs the 1.95 proxy |
+  |---|---|---|
+  | **`hind_b` / `hind_a` hi / `hind_a` lo** | **2.026** | over 4 % |
+  | `hind_a` lo / `hind_a` hi / `hind_b` | 2.046 | over 5 % |
+  | `hind_a` hi / `hind_b` / `hind_a` lo (today) | 2.200 | over 13 % |
+  | `hind_a` lo / `hind_b` / `hind_a` hi | 2.282 | over 17 % |
+
+  Moving the hip to the far row and the knee to the near row's top slot costs
+  nothing and takes **13 % → 4 %**.
+
+  ⚠️ **The last 3 % is where the two curves cross.** With that assignment, the
+  hip can fall to z ≈ 10 inside the existing section (2.002, 3 % over); below
+  that the routing keeps improving and the shell stops containing it. Closing
+  it entirely needs the hip at z ≈ −15, which wants **hw 41.7 → 46.0, +10 % of
+  section perimeter** on that body.  `[owed]`
+
+  ⚠️ **THE ACTUATOR BUDGET HAS ONLY EVER SEEN THE HIND LEG, AND THE FORE LEG IS
+  THE BINDING ONE.** `mass_closure.budget_at` takes `leg_params=DEFAULT_HINDLEG`
+  by default, `tomcat_leg_detail.live_loads` builds from `DEFAULT_LEG`, and
+  `params.py` sets `DEFAULT_LEG = LegParams()` which **equals** `DEFAULT_HINDLEG`.
+  `close()` weighs both legs and budgets one.
+
+  | | frictionless | with its own wraps | vs the proxy |
+  |---|---|---|---|
+  | hind | 1.737 | 2.201 | over 13 % |
+  | **fore** | **1.886** | **2.421** | **over 24 %** |
+
+  So ADR-0100's published requirement of **2.20 N·m is understated; it is 2.42**,
+  and it is set by the fore **knee**, not by a hip.
+
+  ⚠️ **And the two overruns have different causes, so they need different
+  remedies.** Frictionless, the fore knee was already at 1.886 against the hind
+  knee's 1.193 — it carries more before any capstan is counted. Feeding the fore
+  leg the *hind's* wraps still gives 2.412 against 2.421 on its own, and its
+  best assignment is 2.382. **The hind's overrun is routing and routes away;
+  the fore's is load and does not.**
+
+- **Consequences:**
+  - `assignment_trade()` and `shell_fit()` ship in `structure_matrix.py`.
+  - Nothing is adopted here. The re-assignment is free and measured, but it
+    changes which motor drives which joint across the CAD, the MJCF and the
+    assembly, and the fore leg — the binding one — does not benefit from it.
+  - `[owed]` — making the requirement the max over both legs needs `pair_wrap`
+    in a per-leg form, which it does not have. Today it holds the hind's wraps
+    and the fore leg is routed with them wherever the plant reads it.
+  - `[owed]` — `DEFAULT_TENDON.joint_moment_arm` is shared by both legs. The
+    fore leg is a different length with a different load; whether it wants the
+    same 28/25/14 has never been asked.
 
 ---
 

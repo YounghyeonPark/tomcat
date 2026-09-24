@@ -143,6 +143,25 @@ def motor_requirement(b):
     transient is deliberately NOT in it -- ADR-0008 puts the x2.5 single-leg
     landing outside the actuator envelope and sizes cable, pulley and bearing
     from it instead.
+
+    ⚠️ **M109: THIS IS THE HIND LEG ONLY, AND THE FORE LEG IS THE BINDING
+    ONE.** `budget_at` takes `leg_params=DEFAULT_HINDLEG` by default and
+    `tomcat_leg_detail.live_loads` builds its map from `DEFAULT_LEG`, which
+    `params.py` sets equal to `DEFAULT_HINDLEG`. `close()` weighs both legs and
+    budgets one. The fore leg's trot peak is **2.421 N.m against the hind's
+    2.201** -- 24 % over the proxy where the hind is 13 -- and it is set by the
+    fore KNEE, not by a hip.
+
+    ⚠️ And the two overruns have different causes. Frictionless the hind
+    peaks at 1.737 and the fore at **1.886**, so the fore knee was carrying
+    more before any capstan was counted; feeding the fore leg the HIND's wraps
+    still gives 2.412 against 2.421 on its own. The hind's overrun is routing,
+    and ADR-0102 shows most of it routes away; the fore's is LOAD, and
+    re-assigning its spools moves it only 24 % -> 22 %.
+
+    `[owed]` -- the number below is still the hind's, because that is what the
+    live budget computes. Making it the max over both legs means giving
+    `pair_wrap` a per-leg form, which it does not have.
     """
     trot, stand = b["trot"], b["stand"]
     names = ("hip", "knee", "ankle")

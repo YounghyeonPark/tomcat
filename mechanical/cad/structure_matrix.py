@@ -404,6 +404,74 @@ def hip_spool_sweep(zs=(37.0, 25, 15, 5, -3.4, -10, -15, -20, -25, -30),
     return out
 
 
+def assignment_trade(role="hind", leg=None):
+    """Which joint should drive from which spool position -- all six ways.
+
+    ✅ **The assignment is free and it is worth two thirds of the hind leg's
+    motor overrun.** Today the rule is `leg_spools`' own: *"the hip needs the
+    longest cable and the largest arm, so it takes the topmost spool and the
+    ankle the lowest"*. That is a drawing rule, and the routing wants something
+    else. Putting the hip on the FAR row and the knee on the near row's top
+    slot takes the hind trot peak **2.201 -> 2.026 N.m**, 13 % over the proxy
+    to 4 %, with no geometry moved at all.
+
+    ⚠️ **The fore leg does not respond.** Its six assignments span
+    2.382-2.424 and its best is still 22 % over, because its overrun is LOAD
+    and not routing -- see `motor_requirement`. Re-assignment is a hind-leg
+    remedy.
+    """
+    import itertools
+    import dataclasses
+    import leg_tendons as LT
+    import tendon_route as TR
+    import tomcat_trunk as TT
+    from tomcat_kin import LegModel, TendonMap
+    from tomcat_kin.torque_budget import evaluate as budget
+    from tomcat_kin.params import (DEFAULT_FORELEG, DEFAULT_HINDLEG,
+                                   DEFAULT_LOADS)
+    if leg is None:
+        leg = DEFAULT_HINDLEG if role == "hind" else DEFAULT_FORELEG
+    sp3 = TT.leg_spools(role, +1.0)
+    pos = [(p[0], p[2]) for p in sp3]
+    q = np.asarray(LegModel(leg).inverse((0.04, -0.17, 0.0)), float)
+    trot = [lc for lc in DEFAULT_LOADS if lc.name.startswith("trot")][0]
+    out = []
+    for perm in itertools.permutations(range(3)):
+        sp = {j: pos[k] for j, k in zip(JOINTS, perm)}
+        try:
+            pw = tuple((LT.route(q, n, side=+1, leg=leg, spools=sp)["total_wrap"],
+                        LT.route(q, n, side=-1, leg=leg, spools=sp)["total_wrap"])
+                       for n in JOINTS)
+        except (TR.NoTangent, ValueError):
+            continue
+        tm = TendonMap(dataclasses.replace(DEFAULT_TENDON, pair_wrap=pw))
+        mt = np.asarray(budget(LegModel(leg), tm, trot).peak_motor_torque)
+        out.append({"perm": perm, "spools": dict(sp), "peak": float(mt.max()),
+                    "per_joint": mt, "today": perm == (0, 1, 2)})
+    return sorted(out, key=lambda r: r["peak"])
+
+
+def shell_fit(x, y, z, hw=None, zc=None, n=720):
+    """How far a motor at (x, y, z) is from poking through the shell: <=1 fits.
+
+    ⚠️ **Nothing else checks this.** `tomcat_trunk.report` checks that a
+    motor lies in its body's x range and that no two interpenetrate; that the
+    can is inside the lofted ELLIPSE is checked nowhere, and it is what decides
+    how low a spool can go.
+    """
+    import tomcat_trunk as TT
+    hw = TT._hw_at(x) if hw is None else hw
+    zc = TT._zc(x) if zc is None else zc
+    iy, iz = hw - TT.WALL, (hw - TT.WALL) * TT.ASPECT
+    lz = z - zc
+    worst = 0.0
+    for i in range(n):
+        a = 2.0 * math.pi * i / n
+        worst = max(worst, ((y + TT.R * math.cos(a)) / iy) ** 2
+                    + ((lz + TT.R * math.sin(a)) / iz) ** 2)
+    return worst
+
+
 def report(n: int = 4):
     import tomcat_leg_detail as LD
     leg = DEFAULT_HINDLEG
