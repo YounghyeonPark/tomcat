@@ -472,6 +472,75 @@ def shell_fit(x, y, z, hw=None, zc=None, n=720):
     return worst
 
 
+def arm_trade(arm_sets=((28, 25, 14), (34, 32, 20), (36, 34, 22)),
+              spiral=True):
+    """Both legs' actuator budget, WITH friction, for a set of shared moment arms.
+
+    ✅ **The fore leg's overrun is load, and the moment arm is the lever that
+    reaches load.** ADR-0102 found the fore knee at 2.421 N.m, 24 % over the
+    proxy, and that neither re-routing nor re-assignment moves it. Torque at the
+    motor goes as `1/r`, so the arm does. At 36/34/22 BOTH legs sit inside the
+    1.95 proxy with 6.3 % margin after the mass spiral closes, for 23.7 g of
+    sheave per leg.
+
+    ⚠️ **`leg_tendons` works in MILLIMETRES** (`MM = 1000`, `ARMS = [28, 25,
+    14]`) and `TendonParams.joint_moment_arm` in metres. A first sweep here set
+    `LT.ARMS` in metres, drew every sheave a thousand times too small, and
+    produced a plausible-looking table that was wrong everywhere. The tell was
+    the baseline row failing to reproduce ADR-0102.
+
+    Returns one dict per arm set: trot and stand peaks over both legs, the
+    per-leg sheave mass delta, and -- if `spiral` -- the same peaks with the body
+    carrying four legs' worth of that delta.
+    """
+    import dataclasses
+    import tomcat_leg_detail as LD
+    from tomcat_kin import LegModel, TendonMap
+    from tomcat_kin.torque_budget import evaluate as budget
+    from tomcat_kin.params import DEFAULT_FORELEG, DEFAULT_LOADS
+    trot = [lc for lc in DEFAULT_LOADS if lc.name.startswith("trot")][0]
+    stand = [lc for lc in DEFAULT_LOADS if lc.name.startswith("stand")][0]
+    legs = (("fore", DEFAULT_FORELEG), ("hind", DEFAULT_HINDLEG))
+
+    def sheave_g(r, j):
+        s = LD.sheave(float(r), bore=LD.BEARING[j][0])
+        return sum(sd.volume for sd in s.solids()) * LD.AL_RHO
+
+    shipped = LT.ARMS.copy()
+    base_g = sum(sheave_g(a, j) for a, j in zip((28, 25, 14), JOINTS))
+    out = []
+    try:
+        for arms in arm_sets:
+            LT.ARMS = np.asarray(arms, float)                # mm, as the router wants
+            dg = sum(sheave_g(a, j) for a, j in zip(arms, JOINTS)) - base_g
+            cases = [(trot, stand)]
+            if spiral:
+                dm = 4.0 * dg * 1e-3
+                cases.append((dataclasses.replace(trot, body_mass_kg=trot.body_mass_kg + dm),
+                              dataclasses.replace(stand, body_mass_kg=stand.body_mass_kg + dm)))
+            peaks = []
+            for tc, sc in cases:
+                pt = ps = 0.0
+                for role, legp in legs:
+                    sp = {t: (p[0], p[2]) for t, p in zip(JOINTS, TT.leg_spools(role, +1.0))}
+                    q = np.asarray(LegModel(legp).inverse((0.04, -0.17, 0.0)), float)
+                    pw = tuple((LT.route(q, n, side=+1, leg=legp, spools=sp)["total_wrap"],
+                                LT.route(q, n, side=-1, leg=legp, spools=sp)["total_wrap"])
+                               for n in JOINTS)
+                    tm = TendonMap(dataclasses.replace(
+                        DEFAULT_TENDON, pair_wrap=pw,
+                        joint_moment_arm=tuple(a * 1e-3 for a in arms)))
+                    pt = max(pt, float(np.max(budget(LegModel(legp), tm, tc).peak_motor_torque)))
+                    ps = max(ps, float(np.max(budget(LegModel(legp), tm, sc).peak_motor_torque)))
+                peaks.append((pt, ps))
+            out.append({"arms": tuple(arms), "sheave_dg_per_leg": dg,
+                        "trot": peaks[0][0], "stand": peaks[0][1],
+                        "trot_spiral": peaks[-1][0], "stand_spiral": peaks[-1][1]})
+    finally:
+        LT.ARMS = shipped
+    return out
+
+
 def report(n: int = 4):
     import tomcat_leg_detail as LD
     leg = DEFAULT_HINDLEG

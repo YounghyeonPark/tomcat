@@ -8316,6 +8316,66 @@ The MuJoCo harness moved four numbers, and three of them moved the good way.
     fore leg is a different length with a different load; whether it wants the
     same 28/25/14 has never been asked.
 
+## ADR-0103: the fore leg's overrun is load, and the moment arm is the lever that reaches it
+- **Status:** Proposed
+- **Context:** [ADR-0102](#adr-0102) found the actuator budget had only ever
+  seen the hind leg, and that the **fore** leg binds: its knee needs 2.421 N·m
+  against the 1.95 proxy, 24 % over. Neither re-routing nor re-assignment moves
+  it (best 2.382), because the overrun is load and not routing — frictionless,
+  the fore knee was already at 1.886 against the hind knee's 1.193. ADR-0102
+  also noted that `joint_moment_arm` is **shared** by both legs and nobody had
+  asked whether the fore leg wants 28/25/14.
+
+  ⚠️ **The continuous requirement had the same blind spot.** Standing, the fore
+  leg needs **0.845 N·m** against the proxy's 0.71 continuous — 19 % over —
+  where ADR-0100 published the hind's 0.77.
+
+- **Options:** motor torque goes as `1/r` at fixed joint torque, so the arm is
+  the one lever that reaches load. Sweeping each fore joint's arm alone:
+
+  | fore joint | today | enters the proxy at |
+  |---|---|---|
+  | hip | 28 mm, 2.214 | ~32–34 mm |
+  | knee | 25 mm, **2.421** | **32 mm** |
+  | ankle | 14 mm, 2.383 | 20 mm |
+
+  Because the arms are shared, each candidate was then evaluated on **both**
+  legs, and the mass spiral closed: four legs carry the sheave delta and the
+  load rises with it.
+
+  | arms | body | trot peak | stand peak |
+  |---|---|---|---|
+  | 28/25/14 (today) | 4.383 kg | 2.421 — over 24 % | 0.845 — over 19 % |
+  | 34/32/20 | +70 g | 1.935 — margin **0.8 %** | margin 3.9 % |
+  | 34/32/22 | +77 g | 1.938 — margin 0.6 % | margin 3.7 % |
+  | **36/34/22** | **+95 g** | **1.827 — margin 6.3 %** | **margin 9.0 %** |
+
+- **Decision (proposed):** **36/34/22.** The smallest set that clears the proxy
+  does so by 2 % before the spiral and 0.8 % after it, which is not a margin.
+  36/34/22 puts every joint of both legs inside peak and continuous, with the
+  spiral closed, for **23.7 g of sheave per leg** — hip +8.7, knee +9.2, ankle
+  +5.8.
+
+- **Consequences:**
+  - ✅ **No motor change, no girdle change, no re-assignment.** One shared set
+    closes both legs, so `joint_moment_arm` does not need a per-leg form.
+    ADR-0102's free hind re-assignment becomes unnecessary: at 36/34/22 the hind
+    hip is 1.762 on today's spools.
+  - ✅ The ankle at 22 mm clears the ~19–20 mm floor M106 found for
+    [ADR-0050](#adr-0050)'s antagonistic pair to close at all.
+  - Joint speed at 380 rpm falls to 554 / 587 / 907 °/s, still well above the
+    gait's need. Worst spool travel rises to ~126 mm, well inside the spool.
+  - ⚠️ **The cost is distal mass**, in a design whose premise is centralised
+    actuators: +9.2 g at each knee and +5.8 g at each ankle ride on moving links.
+    The swing-inertia cost is not priced here.  `[owed]`
+  - ⚠️ **`leg_tendons` works in millimetres and `TendonParams` in metres.** The
+    first sweep set `LT.ARMS` in metres, drew every sheave a thousand times too
+    small and produced a plausible table that was wrong everywhere; the tell was
+    the baseline row not reproducing ADR-0102. `arm_trade()` sets and restores
+    it in millimetres.
+  - Not adopted. Changing `joint_moment_arm` moves every sheave in the CAD, the
+    MJCF plant, the tendon map and most of the budget tests.
+
 ---
 
 ---
