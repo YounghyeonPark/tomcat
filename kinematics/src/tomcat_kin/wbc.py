@@ -311,13 +311,15 @@ def rotor_command(theta_rotor, theta_spool, tension, k_tors: float,
     `(kp + k_tors) / kp` removes it -- **to -0.1 % at every gain tried**, including
     the one that was 36 % out.
 
-    Vectorises over tendons; `k_tors` and `r_spool` are scalars.
+    Vectorises over tendons. `r_spool` is a scalar; `k_tors` may be a scalar or
+    one value per tendon -- M112 gave the leg and spine cables different G3 rates.
     """
     base = np.asarray(theta_rotor, dtype=float) + np.asarray(theta_spool,
                                                              dtype=float)
-    delta = np.asarray(tension, dtype=float) * float(r_spool) / float(k_tors)
+    k = np.asarray(k_tors, dtype=float)
+    delta = np.asarray(tension, dtype=float) * float(r_spool) / k
     if servo_kp is not None:
-        delta = delta * (float(servo_kp) + float(k_tors)) / float(servo_kp)
+        delta = delta * (float(servo_kp) + k) / float(servo_kp)
     return base + delta
 
 

@@ -1087,6 +1087,7 @@ def quadruped_rig(hip_height: float = 0.175, elastic: dict | None = None,
                   spool_a0: dict | None = None,
                   spool_servo: bool = False,
                   spine_spools: bool = True,
+                  spine_series_k: float | None = None,
                   sensors: bool = False) -> str:
     """Four tendon-driven legs on a floating trunk — the whole-body stand gate.
 
@@ -1167,12 +1168,17 @@ def quadruped_rig(hip_height: float = 0.175, elastic: dict | None = None,
     # same drivetrain, in the builder. The spools live on the REAR GIRDLE, which
     # is where ADR-0006 put the spine motors.
     spine_drive = spine and spools is not None and spine_spools
+    # ⚠️ M112: the spine cables carry their OWN G3 rate. One value for all twenty
+    # plus six cables softened the spine along with the legs, and the spooled
+    # righting failed outright at 1.0e5 -- the spine's arm never moved.
+    k_spine = float(DEFAULT_SPINE.series_k if spine_series_k is None
+                    else spine_series_k)
     if spine_drive:
         for i, tname in enumerate(spine_pair_names(DEFAULT_SPINE.n_segments)):
             side = 1.0 if tname[6] == "p" else -1.0
             seg = int(tname[7]) - 1
             sb, sw, se, sa = spool_xml(
-                tname, "", (0.0, side * 0.038, 0.034 + 0.014 * seg), spools,
+                tname, "", (0.0, side * 0.038, 0.034 + 0.014 * seg), k_spine,
                 indent=6, a0=(spool_a0 or {}).get(tname, 0.0), servo=spool_servo)
             hind_spools.append(sb)
             drive_w.append(sw)
@@ -1354,7 +1360,7 @@ def _joint_default(spools) -> str:
             + '" solimplimit="' + EQ_SOLIMP + '"/>\n')
 
 
-def quadruped_rig_spooled(q_ref: dict, series_k: float = 1.5e5, **kw) -> str:
+def quadruped_rig_spooled(q_ref: dict, series_k: float = DEFAULT_TENDON.series_k, **kw) -> str:
     """`quadruped_rig` with a real DRIVETRAIN behind every cable, in two passes.
 
     ⚠️ **M46's trap, on the whole body.** MuJoCo references a tendon equality at
@@ -1424,7 +1430,7 @@ def quadruped_rig_elastic(q_ref: dict | None = None,
 
 
 def single_leg_rig_spooled(leg_p=DEFAULT_HINDLEG, q_ref=None,
-                           series_k: float = 1.5e5, **kw) -> str:
+                           series_k: float = DEFAULT_TENDON.series_k, **kw) -> str:
     """`single_leg_rig` with a real DRIVETRAIN behind every cable, in two passes.
 
     Pass 1 builds the leg without spools and reads each cable's path length at

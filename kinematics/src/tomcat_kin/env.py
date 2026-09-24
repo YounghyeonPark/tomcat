@@ -30,7 +30,7 @@ import numpy as np
 
 from . import mjcf_tendon as MT
 from . import wbc
-from .params import DEFAULT_FORELEG, DEFAULT_HINDLEG, DEFAULT_TENDON
+from .params import DEFAULT_FORELEG, DEFAULT_HINDLEG, DEFAULT_SPINE, DEFAULT_TENDON
 
 LEGS = ("LF", "RF", "LR", "RR")
 PAIRS = ("hip", "knee", "ankle")
@@ -43,7 +43,9 @@ ENCODER_BITS = 14
 NFR12_LATENCY_S = 7.5e-3
 #: NFR12's 7.5 ms pipeline implies roughly this for the balance loop.
 BALANCE_HZ = 133.0
-SERIES_K = 1.5e5
+#: G3 rates, leg and spine cables -- ONE source, `params.py` (M112, ADR-0105).
+SERIES_K = DEFAULT_TENDON.series_k
+SPINE_SERIES_K = DEFAULT_SPINE.series_k
 
 
 def stance_pose(foot_x: float = 0.04, foot_z: float = -0.17) -> dict:
@@ -82,7 +84,6 @@ class TomcatEnv:
         self.model = mujoco.MjModel.from_xml_string(xml)
         self.data = mujoco.MjData(self.model)
         self.series_k = float(series_k)
-        self.k_tors = float(series_k) * MT.SPOOL_R ** 2
         self.servo_kp = MT.ROTOR_ARMATURE * MT.ROTOR_BANDWIDTH ** 2
         self.encoder_bits = int(encoder_bits)
         self.latency_s = float(latency_s)
@@ -90,6 +91,10 @@ class TomcatEnv:
         self.decim = max(1, int(round(1.0 / (float(control_hz) * self.dt))))
         self.control_hz = 1.0 / (self.decim * self.dt)
         self.pairs = [f"{nm}_{p}" for nm in LEGS for p in PAIRS] + list(SPINE)
+        # ⚠️ M112: one spring rate per pair -- the spine's G3 is not the legs'.
+        self.k_tors = np.array(
+            [(SPINE_SERIES_K if p in SPINE else self.series_k) * MT.SPOOL_R ** 2
+             for p in self.pairs], dtype=float)
 
         self._sensor = {}
         for i in range(self.model.nsensor):
@@ -164,7 +169,7 @@ class TomcatEnv:
                 idx = [self.pairs.index(f"{nm}_{p}") for p in PAIRS]
                 cmd = _w.rotor_command(self.data.qpos[[self._jr[i] for i in idx]],
                                        self.data.qpos[[self._js[i] for i in idx]],
-                                       T, self.k_tors, MT.SPOOL_R,
+                                       T, self.k_tors[idx], MT.SPOOL_R,
                                        servo_kp=self.servo_kp)
                 for k, i in enumerate(idx):
                     self.data.ctrl[self._act[i]] = float(cmd[k])

@@ -8433,6 +8433,7 @@ The MuJoCo harness moved four numbers, and three of them moved the good way.
     this exact fix, a constant arm of 16.6 mm. NFR12's latency edge moves
     **15–20 → 30–40 ms**.
 
+  ✅ **Resolved by [ADR-0105](#adr-0105): legs 125 kN/m, spine unchanged.**
   ⚠️ **G3's series spring should move 175 → ~100 kN/m, and this decision does
   NOT move it.** A spring in line with a cable appears at the joint as `k r^2`,
   so ADR-0026's 80–150 N·m/rad window is now met at **80–125 kN/m**; the shipped
@@ -8468,6 +8469,71 @@ The MuJoCo harness moved four numbers, and three of them moved the good way.
   - `[owed]`: `standing_power` prices the workspace-worst pose with pretension
     and `gait_power` the walked trajectory without, so M16's stand/trot ratio
     (now 1.04) compares two different bases.
+
+## ADR-0105: G3 is re-specified per cable group — legs 125 kN/m, spine unchanged
+- **Status:** Accepted
+- **Context:** G3 — the series-elastic element in every cable — is physically a
+  torsional spring between the motor rotor and the spool, `k_tors = k * R_spool²`
+  ([ADR-0051](#adr-0051)). Its requirement is not a spring rate but a **joint**
+  stiffness: [ADR-0026](#adr-0026)'s 80–150 N·m/rad for balance compliance, which
+  [ADR-0049](#adr-0049) confirmed from force control. A cable spring appears at a
+  joint as `k r²`, so when [ADR-0103](#adr-0103) grew the leg arms 28/25/14 →
+  36/34/22 mm, the shipped 150 kN/m moved the hip and knee to **171 / 154
+  N·m/rad**, above the window. [ADR-0104](#adr-0104) left the re-spec `[owed]`.
+
+- **Options, measured on the shipped spooled plant:**
+
+  | leg G3 | hip / knee N·m/rad | cascade hind-ankle tracking | env joint-angle reconstruction |
+  |---|---|---|---|
+  | 150 kN/m (was) | 171 / 154 — above | passes | passes |
+  | **125 kN/m** | **145 / 132 — inside** | **passes** | **passes** |
+  | 100 kN/m (window centre) | 118 / 109 — inside | **6.1° off** at the gait's low end | **3.4°** off |
+
+  100 kN/m is where the window is centred and it was rejected: the extra spring
+  deflection is error the controller cannot see.
+
+- **Decision:** **legs 125 kN/m, spine 150 kN/m — G3 is specified per cable
+  group, from the joint it serves.** Both now live in `params.py`
+  (`TendonParams.series_k`, `SpineParams.series_k`), and `env.py`, the MJCF
+  builders, the tools and the tests read them from there; before this there were
+  six literal copies.
+
+- **Consequences:**
+
+  ⚠️ **A single project-wide spring rate was a latent coupling, and it is what
+  M111's first attempt tripped on.** `quadruped_rig` passed one value to the leg
+  AND spine spools, so softening the legs softened the spine. The spine's arm
+  never moved, and the spooled righting — which the spine performs — went
+  2.62 s at 150 kN/m → **4.72 s** at 125 → **did not right in 11 s** at 100.
+  With the spine held at its own 150 kN/m it rights in **2.34 s** — faster than
+  M111's 2.62, a 1.71x penalty against the rigid plant instead of 1.94x. Driven
+  correctly, the softer legs help the righting rather than cost it.
+
+  ⚠️ **And the test harnesses carried the same coupling, in two places.** Four
+  of them COMMANDED the spine rotors with the leg's `K_TORS`, and one READ spine
+  spring deflection back into tension with it. With the plant split and the
+  harnesses not, the righting read **4.30 s** and the spine "delivered" 16.3 N of
+  19.6 — both artefacts of a controller that believed the wrong spring, which is
+  the error `env._roll`'s docstring warns about in the other direction.
+
+  The leg G3 part, at 125 kN/m on the 8.75 mm spool:
+
+  | | |
+  |---|---|
+  | torsional rate | **9.57 N·m/rad** |
+  | working deflection at the 1.95 N·m motor peak | **±11.7°** |
+  | delivered through the 3000 rad/s rotor servo | **118.7 kN/m (95 %)** |
+  | back-driven by the 516 N landing cable (4.5 N·m) | **27° — needs a hard stop** |
+  | series-elastic mode, `√(k/I_rotor)` | 692 rad/s (110 Hz), was 121 Hz |
+
+  - Legacy drivetrain lowest mode 75.8 → 69.5 Hz; shipped 43.3 → 39.8 Hz. The
+    usable joint gain M111 recovered (kp 200) holds.
+  - The ankle angle, unknown without a load cell, grows 1.41 → **1.69°** at the
+    continuous rating and 3.87 → **4.64°** at the peak: the compliance ADR-0026
+    asks for is paid for in state the encoders cannot see.
+  - `wbc.rotor_command` now takes `k_tors` per tendon.
+  - `[owed]`: the hard stop's angle and the spring's form (flexure, spiral,
+    coil) are drawing decisions this does not make.
 
 ---
 

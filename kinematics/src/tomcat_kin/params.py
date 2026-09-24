@@ -313,6 +313,27 @@ class TendonParams:
     # margin, `v_cable = omega * r_spool` buys the same 9.4 % of foot speed.
     motor_spool_radius: float = 0.00875
 
+    #: **G3 -- the series-elastic element on every LEG cable** (N/m), physically a
+    #: torsional spring between the motor rotor and the spool:
+    #: `k_tors = series_k * motor_spool_radius^2` (ADR-0051).
+    #:
+    #: ⚠️ **M112 (ADR-0105): 1.5e5 -> 1.25e5, because ADR-0103 grew the arms.** The
+    #: spring appears at a JOINT as `k r^2`, and ADR-0026 specifies the joint:
+    #: 80-150 N.m/rad for balance compliance. At 36/34/22 mm the old 1.5e5 gave
+    #: hip 171 / knee 154, above the window; 1.25e5 gives **145 / 132**, inside it.
+    #: 1.0e5 (the window's centre) was tried and REJECTED: the cascade's hind-ankle
+    #: tracking reached 6.1 deg off and the env's joint-angle reconstruction 3.4 deg,
+    #: both from the larger spring deflection. The spine keeps its own rate
+    #: (`SpineParams.series_k`), because its arm did not move.
+    #:
+    #: The part this specifies, at 1.25e5 and the 8.75 mm spool:
+    #:
+    #:     torsional rate          9.57 N.m/rad
+    #:     working deflection     +/-11.7 deg at the 1.95 N.m motor peak
+    #:     delivered through the 3000 rad/s rotor servo   ~118 kN/m (95 %)
+    #:     back-driven landing    516 N cable -> 4.5 N.m -> 27 deg: needs a HARD STOP
+    series_k: float = 1.25e5
+
     # Minimum tension kept in every cable so it never goes slack (N).  ❓ TBD
     # In antagonistic mode this is the co-contraction floor on the "slack" side.
     pretension: float = 5.0
@@ -485,6 +506,12 @@ class SpineParams:
     # **0.00875**.  The leg spool moved for the same reason and on the same date it
     # should have.
     motor_spool_radius: float = 0.00875
+
+    #: G3's series-elastic element on the SPINE cables (N/m). ⚠️ M112: unchanged at
+    #: 1.5e5 -- the spine's 30 mm arm did not move, so neither does the joint
+    #: stiffness this sets (`k r^2`). ADR-0104 measured what softening it costs:
+    #: the spooled righting goes 2.62 s at 1.5e5 -> 4.72 at 1.25e5 -> fails at 1.0e5.
+    series_k: float = 1.5e5
 
     # Minimum cable tension / mechanical slack floor (N).  ❓ TBD.
     # Kept at the leg's 5 N so the two budgets are comparable.  Note: the AIC

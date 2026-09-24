@@ -27,6 +27,7 @@ ROOT = os.path.dirname(HERE)
 sys.path.insert(0, os.path.join(ROOT, "kinematics", "src"))
 
 from tomcat_kin import mjcf_tendon as MT                    # noqa: E402
+from tomcat_kin.params import DEFAULT_TENDON  # noqa: E402  (M112: G3 from one source)
 from tomcat_kin import LegModel                          # noqa: E402
 from tomcat_kin.params import DEFAULT_FORELEG, DEFAULT_HINDLEG   # noqa: E402
 
@@ -81,7 +82,7 @@ def build(spooled=True):
     q = stance()
     if spooled:
         xml = MT.quadruped_rig_spooled(
-            q_ref={nm: list(v) for nm, v in q.items()}, series_k=1.5e5,
+            q_ref={nm: list(v) for nm, v in q.items()}, series_k=DEFAULT_TENDON.series_k,
             hip_height=0.176, spine=True, spool_servo=True, spine_spools=True)
     else:
         xml = MT.quadruped_rig(hip_height=0.176, spine=True)

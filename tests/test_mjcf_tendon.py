@@ -30,6 +30,7 @@ from tomcat_kin import wbc  # noqa: E402
 from tomcat_kin.params import DEFAULT_HINDLEG, DEFAULT_TENDON  # noqa: E402
 from tomcat_kin.params import DEFAULT_FORELEG  # noqa: E402
 from tomcat_kin.params import DEFAULT_BODY_MASS_KG  # noqa: E402
+from tomcat_kin.params import DEFAULT_SPINE  # noqa: E402
 
 #: ⚠️ M111 (ADR-0103/0104). The LEGACY plant -- one pull-only motor per wrapped
 #: cable, superseded by the shipped transmission in M54 -- no longer stands on
@@ -652,9 +653,10 @@ def test_G3s_series_spring_SIZES_at_about_175_kN_per_m():
     # 28/25/14 -> 36/34/22, so every rate here got 1.6-1.9x stiffer at the hip
     # and knee. 175 kN/m reads 196/175 N.m/rad, outside the window; the band
     # that keeps both inside is now **80-125 kN/m**, centred near **100**.
-    # The shipped plant runs 1.5e5 (171/154) and still stands -- ADR-0026's
-    # failure gain is 250 -- so this is a SPEC for mechanical, not a fix the
-    # plant needs today. Re-speccing G3 is `[owed]` (ADR-0104).
+    # ✅ **M112 (ADR-0105) re-specced it: the LEG cables now carry 1.25e5**
+    # (145/132 N.m/rad, inside the window). The centre, 1.0e5, was tried and
+    # rejected -- tracking and joint-angle reconstruction degrade with the extra
+    # deflection. The spine keeps 1.5e5, because its arm did not move.
     K = _joint_stiffness(series_k=1.75e5)
     assert K[0] > 150.0 and K[1] > 150.0, "175 kN/m is above the window now"
     for sk in (9.0e4, 1.0e5, 1.1e5):
@@ -664,7 +666,11 @@ def test_G3s_series_spring_SIZES_at_about_175_kN_per_m():
         )
     # and it is bracketed on both sides, so the band is not an artefact
     assert _joint_stiffness(series_k=7e4)[1] < 80.0, "too soft below 8e4"
-    assert _joint_stiffness(series_k=1.5e5)[0] > 150.0, "too stiff at the shipped 1.5e5"
+    assert _joint_stiffness(series_k=1.5e5)[0] > 150.0, "too stiff at the old 1.5e5"
+    # and the shipped leg rate is inside the window
+    Kd = _joint_stiffness(series_k=DEFAULT_TENDON.series_k)
+    assert 80.0 <= Kd[0] <= 150.0 and 80.0 <= Kd[1] <= 150.0, (
+        f"shipped G3 {DEFAULT_TENDON.series_k:.3g} gives {Kd[0]:.0f}/{Kd[1]:.0f}")
 
 
 # ===================================================================
@@ -1965,8 +1971,11 @@ def test_the_TROT_SETTLES_ADR0002_in_favour_of_OPTION_A():
 # M46 - a SPOOL behind every cable, so a motor can pay out
 # ===================================================================
 
-SERIES_K = 1.5e5            # N/m, inside ADR-0050's 150-200 kN/m band
+SERIES_K = DEFAULT_TENDON.series_k   # N/m -- G3 on the leg cables; M112 moved it 1.5e5 -> 1.25e5 (ADR-0105)
 K_TORS = SERIES_K * MT.SPOOL_R ** 2
+#: ⚠️ M112: the SPINE cables carry their own G3 rate (`SpineParams.series_k`),
+#: so a harness commanding a spine rotor must use this, not the leg's.
+SPINE_K_TORS = DEFAULT_SPINE.series_k * MT.SPOOL_R ** 2
 
 
 def _spooled(pin=(), q=None, ankle_pair=True):
@@ -2214,7 +2223,9 @@ def test_the_spool_plant_EXPOSES_a_controller_this_project_does_not_have():
     `test_the_DRIVETRAIN_now_exists_BEHIND_THE_PULLEY_and_so_does_G3`.
     """
     freq = math.sqrt(K_TORS / MT.ROTOR_ARMATURE)
-    assert freq == pytest.approx(758.0, rel=0.05), (
+    # ⚠️ M112: 758 -> 692 rad/s (121 -> 110 Hz), the leg G3 softened to 1.25e5
+    # (ADR-0105). The mode goes as the square root of the spring.
+    assert freq == pytest.approx(692.0, rel=0.05), (
         f"the series-elastic mode sits at {freq:.0f} rad/s"
     )
 
@@ -2378,9 +2389,11 @@ def test_the_SERVOS_OWN_COMPLIANCE_lands_in_series_with_G3():
 
     # and uncompensated it is low by exactly the stiffness ratio
     ratio = SERVO_KP / (SERVO_KP + K_TORS)
-    assert ratio == pytest.approx(0.940, abs=0.002)
+    # ⚠️ M112: a softer G3 leaves the servo's own stiffness relatively larger,
+    # so it takes less of the spring: 0.940 -> 0.950, 118.7 kN/m delivered of 125.
+    assert ratio == pytest.approx(0.950, abs=0.002)
     delivered = (SERVO_KP * K_TORS / (SERVO_KP + K_TORS)) / MT.SPOOL_R ** 2
-    assert delivered == pytest.approx(141004.0, rel=0.01)
+    assert delivered == pytest.approx(118693.0, rel=0.01)
     assert delivered < SERIES_K, "the servo always costs some of the spring"
     # a 1000 rad/s loop falls out of ADR-0050's 150-200 kN/m band
     kp_slow = MT.ROTOR_ARMATURE * 1000.0 ** 2
@@ -3911,7 +3924,9 @@ def test_the_DRIVETRAIN_now_exists_BEHIND_THE_PULLEY_and_so_does_G3():
     k_tors = [float(m.jnt_stiffness[i]) for i in range(m.njnt)
               if m.jnt_stiffness[i] > 0.0]
     assert len(k_tors) == 3, "one series-elastic element per pair"
-    assert k_tors[0] == pytest.approx(SERIES_K * MT.SPOOL_R ** 2, rel=1e-9), (
+    # M112: MJCF writes stiffness to 6 decimals; 1e-9 only held because
+    # 11.484375 happened to fit. 9.5703125 does not.
+    assert k_tors[0] == pytest.approx(SERIES_K * MT.SPOOL_R ** 2, rel=1e-6), (
         "G3 is k_series * r_spool^2 at the rotor"
     )
 
@@ -4170,8 +4185,9 @@ def test_ONE_SPOOL_PER_PAIR_HALVES_the_lowest_drivetrain_MODE():
     # ⚠️ M111: 63.4 -> 75.8 Hz. Heavier sheaves again, but the drivetrain's
     # joint-space stiffness goes as r^2 and ADR-0103 grew r by 1.3-1.6x, which
     # wins -- the mode rises.
-    assert f_legacy == pytest.approx(75.8, abs=1.5)
-    assert f_ship == pytest.approx(43.3, abs=1.5)   # M111: 32.3 -> 43.3, ratio 0.51 -> 0.57
+    # ⚠️ M112: 75.8 -> 69.5 Hz, the leg G3 at 1.25e5 instead of 1.5e5.
+    assert f_legacy == pytest.approx(69.5, abs=1.5)
+    assert f_ship == pytest.approx(39.8, abs=1.5)   # M111: 32.3 -> 43.3; M112 (leg G3 1.25e5): 39.8
     assert f_ship < 0.6 * f_legacy, (
         f"the lowest mode must have roughly halved: {f_legacy:.1f} -> {f_ship:.1f}"
     )
@@ -5043,7 +5059,7 @@ def _sway_run(m, q, ctl, *, seconds, phase0, period, kp=8.0, kd=None,
         Ts = np.clip(raw, -MT.TENSION_MAX, MT.TENSION_MAX)
         if spine_drive:
             Ts = wbc.rotor_command([d.qpos[j] for j in SR],
-                                   [d.qpos[j] for j in SS], Ts, K_TORS,
+                                   [d.qpos[j] for j in SS], Ts, SPINE_K_TORS,
                                    MT.SPOOL_R, servo_kp=SERVO_KP)
         for i, a in enumerate(sa):
             d.ctrl[a] = float(Ts[i])
@@ -6315,7 +6331,7 @@ def _righting_run(axial_deg=None, *, s0=-1.0, period=0.30, seconds=4.0,
         Ts = np.clip(raw, -MT.TENSION_MAX, MT.TENSION_MAX)
         if spine_drive:
             cs = wbc.rotor_command([d.qpos[j] for j in SR],
-                                   [d.qpos[j] for j in SS], Ts, K_TORS,
+                                   [d.qpos[j] for j in SS], Ts, SPINE_K_TORS,
                                    MT.SPOOL_R, servo_kp=SERVO_KP)
             for i, x in enumerate(sa):
                 d.ctrl[x] = float(cs[i])
@@ -6727,7 +6743,7 @@ def _held_drop(height_m, spooled, *, seconds=0.5, kp=50.0, kd=1.0,
             Ts = np.clip(raw, -MT.TENSION_MAX, MT.TENSION_MAX)
             if spine_drive:
                 Ts = wbc.rotor_command([d.qpos[j] for j in SR],
-                                       [d.qpos[j] for j in SS], Ts, K_TORS,
+                                       [d.qpos[j] for j in SS], Ts, SPINE_K_TORS,
                                        MT.SPOOL_R, servo_kp=SERVO_KP)
             for i, x in enumerate(sa):
                 d.ctrl[x] = float(Ts[i])
@@ -6767,7 +6783,7 @@ def test_the_WHOLE_BODY_gets_its_DRIVETRAIN_and_the_a0_TRAP_repeats():
     springs = [float(spooled.jnt_stiffness[i]) for i in range(spooled.njnt)
                if spooled.jnt_stiffness[i] > 0.0]
     assert len(springs) == 12, f"twelve G3 elements, got {len(springs)}"
-    assert springs[0] == pytest.approx(SERIES_K * MT.SPOOL_R ** 2, rel=1e-9)
+    assert springs[0] == pytest.approx(SERIES_K * MT.SPOOL_R ** 2, rel=1e-6)
 
     # ⚠️ M46's trap: without the two-pass a0 the pose starts violated
     naive = mujoco.MjModel.from_xml_string(
@@ -7173,13 +7189,13 @@ def test_the_SPINE_DRIVETRAIN_DELIVERS_ITS_TENSION_before_anything_is_read_into_
         for _ in range(20000):
             cmd = wbc.rotor_command([d.qpos[j] for j in sr],
                                     [d.qpos[j] for j in ss],
-                                    np.full(6, target), K_TORS, MT.SPOOL_R,
+                                    np.full(6, target), SPINE_K_TORS, MT.SPOOL_R,
                                     servo_kp=SERVO_KP)
             for i, a in enumerate(sa):
                 d.ctrl[a] = float(cmd[i])
             mujoco.mj_step(m, d)
         mujoco.mj_forward(m, d)
-        got = np.mean([K_TORS * (-float(d.qpos[j])) / MT.SPOOL_R for j in ss])
+        got = np.mean([SPINE_K_TORS * (-float(d.qpos[j])) / MT.SPOOL_R for j in ss])
         assert got == pytest.approx(target, rel=0.01), (
             f"spine spool should deliver {target} N, got {got:.1f}"
         )
@@ -7355,7 +7371,10 @@ def test_COMPLIANCE_costs_the_RIGHTING_a_FACTOR_OF_THREE_when_the_SPINE_has_it()
     # ⚠️ and with the spine spooled the same manoeuvre takes longer again
     both_t, both_c, _ = _righting_run(None, s0=-1.0, seconds=11.0, spooled=True,
                                       spine_drive=True)
-    assert both_t is not None and both_t == pytest.approx(2.62, abs=0.35), (
+    # ✅ M112 (ADR-0105): 2.62 -> 2.34 s. The leg G3 went to 1.25e5 and the
+    # spine kept its own 1.5e5; the softer legs help once the spine is driven
+    # with the spring it actually has.
+    assert both_t is not None and both_t == pytest.approx(2.34, abs=0.30), (
         f"legs+spine rights in {both_t} s"
     )
     # ⚠️ M93: the penalty had gone NEGATIVE. M71 measured compliance costing
@@ -7378,7 +7397,7 @@ def test_COMPLIANCE_costs_the_RIGHTING_a_FACTOR_OF_THREE_when_the_SPINE_has_it()
     # is unchanged at 30 mm, so the change came in through the legs -- ADR-0103
     # put 21 g more on each, for a compliant spine to swing over. Not isolated
     # further here.  `[owed]`
-    assert 1.2 < both_t / rigid_t < 2.2, (
+    assert 1.2 < both_t / rigid_t < 2.0, (   # M112: 1.94x -> 1.71x
         f"{both_t:.2f} s against {rigid_t:.2f} rigid"
     )
 
@@ -7432,7 +7451,11 @@ def test_the_SPINE_GETS_ITS_DRIVETRAIN_IN_THE_BUILDER_not_a_post_process():
     springs = [float(both.jnt_stiffness[i]) for i in range(both.njnt)
                if both.jnt_stiffness[i] > 0.0]
     assert len(springs) == 18, f"eighteen G3 elements, got {len(springs)}"
-    assert springs[0] == pytest.approx(SERIES_K * MT.SPOOL_R ** 2, rel=1e-9)
+    assert springs[0] == pytest.approx(SERIES_K * MT.SPOOL_R ** 2, rel=1e-6)
+    # ⚠️ M112: twelve LEG springs at the leg's rate, six SPINE springs at the
+    # spine's -- the split that keeps the righting from collapsing (ADR-0105).
+    assert sum(abs(k - K_TORS) < 1e-5 for k in springs) == 12
+    assert sum(abs(k - SPINE_K_TORS) < 1e-5 for k in springs) == 6
 
     # ✅ the spine spools ride on the rear girdle, not on the world
     for nm in SPINE_PAIRS:
@@ -7845,9 +7868,11 @@ def test_JOINT_ANGLE_IS_RECOVERABLE_but_the_ANKLE_LOAD_CELL_is_what_pays():
     # ⚠️ M111: 2.21 -> 1.41 deg and 6.08 -> 3.87. The spring's deflection is a
     # length; ADR-0103's 22 mm ankle arm turns the same length into 14/22 of the
     # angle. The load cell still pays for itself -- by four degrees, not six.
-    assert ankle_err(81.1) == pytest.approx(1.41, abs=0.05)
-    assert ankle_err(MT.TENSION_MAX) == pytest.approx(3.87, abs=0.10), (
-        "at the peak rating the ankle angle is unknown by four degrees"
+    # ⚠️ M112: the leg G3 at 1.25e5 deflects 1.2x as far per newton -- 1.41 -> 1.69
+    # and 3.87 -> 4.64 deg. The price of the compliance ADR-0026 asks for.
+    assert ankle_err(81.1) == pytest.approx(1.69, abs=0.05)
+    assert ankle_err(MT.TENSION_MAX) == pytest.approx(4.64, abs=0.10), (
+        "at the peak rating the ankle angle is unknown by nearly five degrees"
     )
 
 

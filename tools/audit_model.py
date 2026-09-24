@@ -23,6 +23,7 @@ ROOT = os.path.dirname(HERE)
 sys.path.insert(0, os.path.join(ROOT, "kinematics", "src"))
 
 from tomcat_kin import mjcf_tendon as MT          # noqa: E402
+from tomcat_kin.params import DEFAULT_TENDON  # noqa: E402  (M112: G3 from one source)
 from tomcat_kin.params import DEFAULT_SPINE      # noqa: E402
 
 YES, NO, PART = "  yes ", "  NO  ", " part "
@@ -31,7 +32,7 @@ YES, NO, PART = "  yes ", "  NO  ", " part "
 def build():
     q = {n: [0.0, 0.0, 0.0] for n in ("LF", "RF", "LR", "RR")}
     return mujoco.MjModel.from_xml_string(MT.quadruped_rig_spooled(
-        q_ref=q, series_k=1.5e5, hip_height=0.176, spine=True,
+        q_ref=q, series_k=DEFAULT_TENDON.series_k, hip_height=0.176, spine=True,
         spool_servo=True, sensors=True))
 
 
