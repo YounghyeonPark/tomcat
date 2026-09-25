@@ -344,3 +344,43 @@ def test_the_runtime_bracket_is_SIXTEEN_to_TWENTY_TWO_minutes():
     assert t_hi < 30.0, "NFR6's published ~30 min does not survive either corner"
 
 
+
+
+# ===================================================================
+# M119 -- the speed spec, and the one route that buys it
+# ===================================================================
+
+def test_the_speed_is_the_SWING_and_peak_torque_does_not_buy_it():
+    """The walked trot's largest torque is the ankle's ~1.23 N.m; its fastest
+    joint is the knee's swing at ~653 rpm, carrying almost nothing. So the
+    no-load speed it needs barely moves with the motor's peak: 665 rpm at
+    1.95 N.m, still ~660 at 3.5. Speed and torque are two separate axes of the
+    spec, and a stronger motor is not a faster one."""
+    from tomcat_kin import gait
+    ctl = gait.GaitController(gait.trot_params())
+    lo = PW.gait_envelope(ctl, peak_nm=1.95)
+    hi = PW.gait_envelope(ctl, peak_nm=3.5)
+    assert max(lo["peak_torque"]) < 1.3
+    assert lo["peak_speed_rpm"][1] == pytest.approx(653.0, rel=0.03)
+    assert max(hi["need_rpm"]) > 0.98 * max(lo["need_rpm"])
+
+
+def test_only_a_REWIND_buys_the_speed_and_the_ratio_cannot():
+    """⚠️ No-load speed is `15.83 rpm/V x V` at the -9's output, so the stock
+    part is short at every pack and even at its 40 V ceiling (633 rpm). A lower
+    reduction reaches the speed and loses the continuous rating in proportion
+    (0.36-0.53 N.m against 0.624). A rewind -- same frame, same 9:1, Kv x1.33
+    to x2 -- keeps the motor constant, so the trot's copper and the thermal
+    budget stand; it costs only peak CURRENT, 5.6-8.4 A against 4.19."""
+    r = MR.speed_routes(665.0, 0.624, 1.825)
+    assert r["ceiling_rpm"] == pytest.approx(633.2, abs=0.5)
+    assert r["ceiling_rpm"] < 665.0, "not even at the supply ceiling"
+    for row in r["rows"]:
+        assert row["in_range"], "every pack here charges inside 12-40 V"
+        assert not row["stock_ok"]
+        assert not row["ratio_ok"] and row["ratio_rated"] < 0.624
+        assert row["rewind_ok"]
+    six, eight, nine = r["rows"]
+    assert eight["kv_out"] == pytest.approx(23.75, abs=0.05)
+    assert eight["rewind_peak_a"] == pytest.approx(6.29, abs=0.05)
+    assert six["rewind"] == pytest.approx(2.0, abs=0.01)

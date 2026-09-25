@@ -8766,6 +8766,71 @@ The MuJoCo harness moved four numbers, and three of them moved the good way.
     only in `_cable_k`'s analytic price.
   - The fore-routing defect (M48) is closed by removal rather than by a fix.
 
+## ADR-0110: the speed is bought by the winding — a rewound 3505 at 9:1, not a lower ratio
+- **Status:** Accepted (the route); the pack's cell count and the part are `[owed]`
+- **Context:** [ADR-0104](#adr-0104) added speed to the motor spec: the walked
+  trot needs **~665 rpm** no-load at the spool against the proxy's 380, and
+  [ADR-0106](#adr-0106) showed no moment arm closes it. M119 asks what motor
+  delivers it and keeps the proxy's envelope, mass and thermal budget.
+
+- **Findings** (`tools/motor_spec_review.speed_routes`, `power.gait_envelope`):
+
+  ✅ **The speed is the SWING, and peak torque does not buy it.** The walked
+  trot's largest motor torque is the ankle's 1.23 N·m; its fastest joint is the
+  knee swinging at 653 rpm and carrying almost nothing. The no-load speed needed
+  is 665 rpm at a 1.95 N·m peak and still 660 at 3.5. Torque and speed are two
+  independent axes of the spec — a stronger motor is not a faster one.
+
+  ⚠️ **The stock -9 cannot reach it on any bus.** Its sheet gives
+  **15.83 rpm/V at the output** (× 24 V = the 380 rpm quoted) and a **12–40 V**
+  range: **633 rpm at the ceiling itself**, and at a LiPo's loaded floor
+  (3.5 V/cell `[assumed]`) 332 / 443 / 499 rpm on 6S / 8S / 9S. ⚠️ `power.NO_LOAD_RPM`
+  is quoted at 24 V, above a 6S floor, so every speed check against it is
+  optimistic on top of being short.
+
+  ❌ **A lower reduction reaches the speed and loses the continuous rating.**
+  Speed goes as `9/N`; output Kt and the rated torque go as `N/9`:
+
+  | pack | N for 665 rpm | rated / peak | copper at a given torque |
+  |---|---|---|---|
+  | 6S | 4.5 | 0.36 / 0.98 N·m | ×4.0 |
+  | 8S | 6.0 | 0.47 / 1.30 N·m | ×2.3 |
+  | 9S | 6.7 | 0.53 / 1.46 N·m | ×1.8 |
+
+  against **0.624 continuous / 1.825 peak** required. It fails both, everywhere.
+
+  ✅ **A rewind reaches it and costs only peak current.** Same frame, same 9:1,
+  fewer turns of thicker wire: at equal copper fill `Kt/√R` is unchanged, so the
+  continuous rating (0.71), the trot's copper loss, NFR6's runtime and NFR18's
+  thermal all stand. Only the current per N·m rises:
+
+  | pack | Kv at the output | × stock | peak current (at 1.95 N·m) |
+  |---|---|---|---|
+  | 6S | 31.7 rpm/V | 2.00 | 8.4 A |
+  | **8S** | **23.8 rpm/V** | **1.50** | **6.3 A** |
+  | 9S | 21.1 rpm/V | 1.33 | 5.6 A |
+
+- **Decision:** the actuator spec is **a 3505-class frame at 9:1, wound for
+  `Kv_out ≥ 665 rpm / V_floor`** — Ø34.5 × 36.1 mm, ≤ 132 g, peak ≥ 1.95 N·m,
+  continuous ≥ 0.71 N·m (0.624 needed). Recommended bus **8S**: it charges to
+  33.6 V inside the 12–40 V range with margin, and needs a 1.5× rewind at
+  6.3 A peak where 6S doubles the driver's current. The cell count is an
+  electronics decision and is left to it; the rule holds for any.
+
+- **Consequences:**
+  - The part is a custom winding of a stock frame, which SteadyWin and its
+    peers sell as a variant (`[owed]`: a quote and a measured Kv). A custom
+    motor must meet the same four numbers; nothing in the mechanism changes.
+  - Driver and battery carry the 1.5× current: 6.3 A peak per phase, and the
+    pack's peak current rises with it. Driver conduction losses rise as its
+    square and are outside `ELECTRONICS_W`'s flat 15 W `[owed]`.
+  - Equal fill is an ideal; a rewind with fewer, thicker turns usually loses
+    a few percent of `Km`, which NFR6 and NFR18 would pay as copper `[owed]`.
+  - `power.NO_LOAD_RPM` and `PEAK_NM` stay the PROXY's (the trot still does
+    not fit them — `test_the_trot_has_never_fitted_the_proxy_on_SPEED`); the
+    spec lives in `speed_routes` and this ADR until a part is chosen.
+  - `test_motor_spec.py` asserts the swing finding and all three routes.
+
 ---
 
 ---

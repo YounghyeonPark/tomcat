@@ -302,6 +302,58 @@ def mass_fraction(body_kg: float):
             "rest_kg": body_kg - motors}
 
 
+
+#: The -9's speed constant AT THE OUTPUT and its supply ceiling.
+#: `[sourced: AIFITLAB GIM3505-9 listing, "15.83 rpm/V", "12~40V"]`
+#: 15.83 x 24 V = 380 rpm, the sheet's max speed, so the two agree.
+KV_OUT = 15.83
+V_CEILING = 40.0
+#: LiPo cell voltage: charged, and the floor the speed must survive to.
+#: `[assumed: 4.2 V full, 3.5 V at the end of useful discharge under load]`
+CELL_FULL, CELL_MIN = 4.2, 3.5
+
+
+def speed_routes(need_rpm: float, cont_nm: float, peak_nm: float,
+                 cells=(6, 8, 9)):
+    """M119: three ways to buy the trot's no-load speed, per pack.
+
+    No-load output speed is `KV_OUT * V` and nothing else, so for each series
+    cell count the speed at the pack's FLOOR is what the swing gets. Three
+    routes to `need_rpm`:
+
+    - **stock**: the -9 as sold. Only the bus moves.
+    - **ratio**: the -9's motor behind a lower reduction `N`. Speed goes as
+      `9/N`; output Kt and the continuous rating go as `N/9`, and copper loss
+      at a given output torque as `(9/N)^2`.
+    - **rewind**: same frame, same 9:1, fewer turns of thicker wire so the
+      speed constant rises by `s`. At equal copper fill the motor constant
+      `Kt / sqrt(R)` is unchanged, so the continuous rating and the trot's
+      copper loss are unchanged; only the peak CURRENT rises, by `s`. `[assumed:
+      equal fill; a rewind at small wire counts loses some]`
+    """
+    rows = []
+    for n in cells:
+        v_min, v_full = n * CELL_MIN, n * CELL_FULL
+        rpm = KV_OUT * v_min
+        ratio = SPEC["ratio"] * rpm / need_rpm
+        s = need_rpm / rpm
+        rows.append({
+            "cells": n, "v_min": v_min, "v_full": v_full,
+            "in_range": v_full <= V_CEILING,
+            "stock_rpm": rpm, "stock_ok": rpm >= need_rpm,
+            "ratio": ratio,
+            "ratio_rated": SPEC["rated_torque"] * ratio / SPEC["ratio"],
+            "ratio_peak": SPEC["peak_torque"] * ratio / SPEC["ratio"],
+            "ratio_copper": (SPEC["ratio"] / ratio) ** 2,
+            "ratio_ok": (SPEC["rated_torque"] * ratio / SPEC["ratio"] >= cont_nm
+                         and SPEC["peak_torque"] * ratio / SPEC["ratio"] >= peak_nm),
+            "rewind": s, "kv_out": KV_OUT * s,
+            "rewind_peak_a": SPEC["peak_current"] * s,
+            "rewind_ok": SPEC["rated_torque"] >= cont_nm
+                         and SPEC["peak_torque"] >= peak_nm,
+        })
+    return {"need_rpm": need_rpm, "ceiling_rpm": KV_OUT * V_CEILING, "rows": rows}
+
 def runtime_under(kt: float):
     """Runtime with `power.py`'s model but a different Kt — the sensitivity."""
     from tomcat_kin import GaitController
