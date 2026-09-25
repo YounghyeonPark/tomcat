@@ -8536,7 +8536,7 @@ The MuJoCo harness moved four numbers, and three of them moved the good way.
     coil) are drawing decisions this does not make.
 
 ## ADR-0106: the arm cannot size the motor — it only chooses the axis, and the cable sets its floor
-- **Status:** Proposed — the choice below is a requirements decision about ADR-0008
+- **Status:** Accepted — **option 1: ADR-0008's static criterion stays, and the arms stay at 36/34/22.** The leg keeps the ability to hold trot load at any reachable pose; a cat that jumps, falls and rights itself leaves the nominal trot often, and the price lands on a motor this project finds or designs later (ADR-0100): **~1.9 N·m / ~665 rpm**. The ankle's ~26 mm optimum is not taken — under option 1 the knee, not the ankle, sets the speed.
 - **Context:** [ADR-0104](#adr-0104) found the walked trot needs ~665 rpm from a
   1.95 N·m motor at the 36/34/22 arms, against the proxy's 380, and that
   ADR-0008's static criterion and the walked trajectory want the arms in opposite
