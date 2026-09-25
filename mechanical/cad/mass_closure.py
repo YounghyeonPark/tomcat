@@ -186,10 +186,25 @@ def motor_requirement(b):
             if isinstance(v, dict) and "motor" in v}
     both_trot = max(float(hind["trot"].max()), float(fore["trot"].max()))
     both_stand = max(float(hind["stand"].max()), float(fore["stand"].max()))
-    env = power.gait_envelope(gait.GaitController(gait.trot_params()))
+    ctl = gait.GaitController(gait.trot_params())
+    env = power.gait_envelope(ctl)
+    # ⚠️ M115: the CONTINUOUS figure is thermal, so it is the load actually
+    # held -- the larger of the stance hold and the walked trot's RMS -- not the
+    # worst reachable pose, which is what `both_stand` is and what this returned
+    # until M115. It lands close (0.624 against 0.646) but for a different
+    # reason: the trot's fore ankle sets it, not standing.
+    tau_w, _qd, cap_w = power.walked_trajectory(ctl, 400)
+    arms_w = np.asarray(DEFAULT_TENDON.joint_moment_arm, dtype=float)
+    m_w = np.abs(tau_w) / arms_w * DEFAULT_TENDON.motor_spool_radius * cap_w
+    trot_rms = float(np.sqrt((m_w ** 2).mean(axis=0)).max())
+    stance_hold = float(max(v.max() for v in
+                            power.standing_power()["motor_torque"].values()))
     return {
         "peak": both_trot,
-        "continuous": both_stand,
+        "continuous": max(trot_rms, stance_hold),
+        "continuous_worst_pose": both_stand,
+        "trot_rms": trot_rms,
+        "stance_hold": stance_hold,
         "binding_leg": "fore" if fore["trot"].max() >= hind["trot"].max() else "hind",
         "per_joint": {n: (float(hind["stand"][i]), float(hind["trot"][i]),
                           float(hind["land"][i]))

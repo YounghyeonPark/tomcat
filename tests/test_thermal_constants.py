@@ -60,11 +60,18 @@ def test_rust_constants_match_the_python_model(name, live, declared):
     )
 
 
-def test_standing_still_costs_more_per_motor_than_trotting(live):
-    """The premise of M18's worst case, and of ADR-0021's brake.
+def test_standing_still_costs_LESS_per_motor_than_trotting(live):
+    """⚠️ **M115 inverted this, and the premise was an artefact.**
 
-    A cable can only pull, so a tendon-driven joint holds posture with current.
-    If this ever inverts, the thermal worst case moves and the brake argument
-    weakens — so it is asserted rather than assumed.
+    It asserted the premise of M18's worst case and of ADR-0021's brake -- that
+    holding a stance draws MORE per motor than trotting. It did only because the
+    stand was priced at `torque_budget`'s worst REACHABLE pose, charged to every
+    joint at once, while the trot was the walked trajectory. At the stance
+    actually held a motor draws **2.64 W against the trot's 5.85**: four feet
+    share the weight where the trot's two carry it. A cable still only pulls,
+    and posture still costs current; it just costs less than walking does.
+
+    This docstring said "if this ever inverts, the thermal worst case moves and
+    the brake argument weakens". Both are now true, and both are recorded.
     """
-    assert live["STAND_W"] > live["TROT_W"]
+    assert live["STAND_W"] < live["TROT_W"]

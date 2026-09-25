@@ -18,37 +18,38 @@ def _trot():
 
 
 
-def test_standing_costs_about_what_moving_costs_for_zero_work():
-    """THE M16 FINDING, and the quantified case for the ADR-0003 power-off brake.
+def test_standing_costs_a_THIRD_of_moving_at_the_stance_actually_held():
+    """THE M16 FINDING, re-priced -- and it shrinks.
 
-    ✅ M107 nearly broke it with an artefact: `gait_power` bypassed the
-    capstan while `standing_power` did not, and the ratio read 1.49. Fixed, it
-    was 0.972 (M108).
+    M16 found a stand cost most of what a trot cost and made the quantified case
+    for ADR-0003's power-off brake. M107 nearly broke it with an artefact (the
+    trot bypassed the capstan); M111 watched it cross 1.0 for a reason this
+    test's own `[owed]` named: `standing_power` priced the WORST REACHABLE pose,
+    pretension included, on every joint at once, while `gait_power` walked.
 
-    ⚠️ **M111 takes it to 1.04, and that is NOT standing becoming dearer than
-    walking.** The two halves were never computed on the same basis:
-    `standing_power` takes `torque_budget`'s WORST pose over the reachable
-    workspace -- with the pretension bias -- and charges it to every joint of
-    all four legs at once, while `gait_power` averages the trajectory actually
-    walked, with no bias. The 36/34/22 arms cut the walked copper harder than
-    the worst-pose bound, and the pretension floor does not shrink with the
-    arm at all. So the ratio crossing 1 is the two methods diverging.
-
-    `[owed]` -- price standing at the real stance pose, then this ratio means
-    what M16 meant by it.
+    ⚠️ **M115 prices the stance actually held**: the weight split fore/hind by the
+    CoM's lever (32.5 % fore, against 30.2 % measured in the MJCF), `J^T f` at
+    the stance pose, the same capstan the trot uses. The fraction is **0.31**.
+    Standing still costs current for zero work -- 31.7 W of copper -- but a
+    third of walking, not most of it.
     """
     r = power.runtime(_trot())
-    assert r["standing_fraction_of_trot"] == pytest.approx(1.04, abs=0.05)
-    assert 0.5 < r["standing_fraction_of_trot"] < 1.2
-    assert r["stand_w"] > 50.0                      # electronics included
+    assert r["standing_fraction_of_trot"] == pytest.approx(0.31, abs=0.03)
+    st = power.standing_power()
+    assert st["frac_fore"] == pytest.approx(0.302, abs=0.03), "the MJCF's split"
+    old = power.standing_power_worst_pose()
+    assert old["legs_w"] > 3.0 * st["legs_w"], "the worst pose overstated it 3x"
 
 
 def test_the_power_off_brake_multiplies_standing_endurance():
     # ADR-0003 specified the brake on qualitative grounds ("essential"). This is
     # what it is worth: standing hold current goes to zero and only the
     # electronics allowance remains.
+    # ⚠️ M115: 4x+ -> 3.1x. Priced at the stance actually held, standing costs
+    # 31.7 W of copper rather than 105.9, so there is less for the brake to save.
+    # Still a factor of three on endurance.
     r = power.runtime(_trot())
-    assert r["stand_minutes_braked"] > 4 * r["stand_minutes"]
+    assert r["stand_minutes_braked"] > 3 * r["stand_minutes"]
 
 
 

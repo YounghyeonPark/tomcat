@@ -176,11 +176,11 @@ pub mod from_power_py {
     pub const TROT_W: f64 = 5.8506;
     /// Per-motor draw HOLDING a stance, W. Higher than trotting — a cable can only
     /// pull, so posture costs current. (`legs_w / 12`)
-    pub const STAND_W: f64 = 8.8228;
+    pub const STAND_W: f64 = 2.6411;
     /// Minutes of trotting on the 300 g pack.
     pub const TROT_RUNTIME_MIN: f64 = 21.6567;
     /// Minutes standing on the pack, brake OFF.
-    pub const STAND_RUNTIME_MIN: f64 = 20.8483;
+    pub const STAND_RUNTIME_MIN: f64 = 53.9694;
     /// Whole-robot electrical draw at the trot, W. (`gait_power()["total_w"]`)
     ///
     /// ⚠️ M40: this lived as a bare `const TOTAL_W` inside two functions and was
@@ -542,14 +542,17 @@ mod tests {
     }
 
     #[test]
-    fn standing_without_the_brake_is_the_worst_thermal_case() {
-        // Reinforces ADR-0021 from a direction it never checked: a cable can only
-        // pull, so holding a stance draws MORE per motor than trotting does.
-        assert!(STAND_W > TROT_W);
+    fn trotting_not_standing_is_the_worst_thermal_case() {
+        // ⚠️ M115 INVERTED this. It asserted ADR-0021's premise -- a stance draws
+        // MORE per motor than a trot -- and that held only because the stand was
+        // priced at the worst REACHABLE pose on every joint at once. At the stance
+        // actually held it is 2.64 W against the trot's 5.85: four feet share
+        // what two carry in a trot. The worst thermal case is the trot.
+        assert!(STAND_W < TROT_W);
         let g = Part::girdle();
         assert!(
             g.equilibrium(EMIS_POLISHED, STILL_AIR_H, 6.0 * STAND_W)
-                > g.equilibrium(EMIS_POLISHED, STILL_AIR_H, 6.0 * TROT_W)
+                < g.equilibrium(EMIS_POLISHED, STILL_AIR_H, 6.0 * TROT_W)
         );
     }
 

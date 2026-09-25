@@ -240,13 +240,64 @@ def gait_envelope(controller, n: int = 400, arms=None,
     }
 
 
-def standing_power(n_legs: int = 4) -> dict:
-    """Electrical power (W) to HOLD a stance — pure `I^2 R`, no work done.
+def standing_power(n_legs: int = 4, foot=(0.04, -0.17)) -> dict:
+    """Electrical power (W) to HOLD a stance -- pure `I^2 R`, no work done.
 
     This is the number that matters for a tendon-driven robot. A cable can only
     pull, so posture is held by motor current, and that current burns whether or
     not the robot moves.
+
+    ⚠️ **M115: priced at the STANCE, not at the worst reachable pose.** Until
+    here this took `torque_budget`'s standing case -- the worst pose over the
+    whole reachable workspace, pretension included -- and charged it to every
+    joint of every leg at once, while `gait_power` averaged the trajectory
+    actually walked. M16's stand/trot ratio therefore compared two different
+    bases, and M111 watched it cross 1.0 for no physical reason. Temperature is
+    set by the load actually held, which M39 already said of the trot. Now: the
+    body's weight split fore/hind by the CoM's lever over the feet, `J^T f` at
+    the stance pose, and the same `|tau| / r * R * capstan` `gait_power` uses.
+    The old basis survives as `standing_power_worst_pose`.
     """
+    from . import GaitController, gait
+    from . import LegModel, TendonMap
+    from .params import DEFAULT_TENDON, GRAVITY
+
+    body = GaitController(gait.trot_params()).body
+    names = ("LF", "RF", "LR", "RR")
+    q = {nm: np.asarray(body.leg_model_for(nm).inverse((foot[0], foot[1], 0.0)),
+                        float) for nm in names}
+    spine_q = np.zeros(body.spine.params.n_segments)
+    com = body.center_of_mass(spine_q, q)
+    feet = body.foot_positions(spine_q, q)
+    x_f = 0.5 * (feet["LF"][0] + feet["RF"][0])
+    x_h = 0.5 * (feet["LR"][0] + feet["RR"][0])
+    frac_fore = float((com.com[0] - x_h) / (x_f - x_h))
+    W = com.mass * GRAVITY
+
+    arms = np.asarray(DEFAULT_TENDON.joint_moment_arm, dtype=float)
+    R = DEFAULT_TENDON.motor_spool_radius
+    tmap = TendonMap(DEFAULT_TENDON)
+    c_pos = np.asarray(tmap.capstan_factor(side=+1), dtype=float)
+    c_neg = np.asarray(tmap.capstan_factor(side=-1), dtype=float)
+    per_leg = {}
+    motor = {}
+    for nm in names:
+        F = (frac_fore if nm[1] == "F" else 1.0 - frac_fore) * W / 2.0
+        tau = body.leg_model_for(nm).jacobian(q[nm]).T @ np.array([0.0, F, 0.0])
+        cap = np.where(tau >= 0.0, c_pos, c_neg)
+        m_nm = np.abs(tau) / arms * R * cap
+        motor[nm] = m_nm
+        per_leg[nm] = float((PHASE_FACTOR * (m_nm / KT) ** 2 * R_PHASE_PHASE).sum())
+    legs_w = float(sum(per_leg.values())) * n_legs / 4.0
+    return {"per_leg_w": legs_w / n_legs, "legs_w": legs_w,
+            "total_w": legs_w + ELECTRONICS_W, "frac_fore": frac_fore,
+            "motor_torque": motor}
+
+
+def standing_power_worst_pose(n_legs: int = 4) -> dict:
+    """The pre-M115 basis: `torque_budget`'s worst reachable pose, pretension
+    included, charged to every joint of every leg. An upper bound on holding
+    cost, and the wrong quantity for temperature -- see `standing_power`."""
     from . import LegModel, TendonMap, torque_budget
     from .params import DEFAULT_TENDON, DEFAULT_LOADS
 

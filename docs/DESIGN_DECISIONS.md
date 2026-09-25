@@ -8651,6 +8651,48 @@ The MuJoCo harness moved four numbers, and three of them moved the good way.
     impact is `[owed]`.
   - `test_g3_spring.py` asserts the four findings above.
 
+## ADR-0108: standing is priced at the stance actually held, and the thermal worst case is the trot
+- **Status:** Accepted
+- **Context:** `power.standing_power` took `torque_budget`'s standing case — the
+  worst pose over the whole reachable workspace, pretension included — and
+  charged it to every joint of every leg at once, while `gait_power` averaged
+  the trajectory actually walked. M16's stand/trot ratio, ADR-0021's brake
+  argument and ADR-0023's "standing is the worst thermal case" all compared those
+  two bases. M111 saw the ratio cross 1.0 for no physical reason and left it
+  `[owed]`. [ADR-0106](#adr-0106) kept the worst-pose criterion for the actuator's
+  PEAK; temperature is a different question — the load actually held, as M39
+  already said of the trot.
+
+- **Decision:** price standing at the stance. The weight is split fore/hind by
+  the CoM's lever over the feet (**32.5 %** fore, against **30.2 %** measured on
+  the MJCF quadruped), `J^T f` at the stance pose, and the same
+  `|tau| / r * R * capstan` the trot uses. The old basis survives as
+  `standing_power_worst_pose`. The motor spec's **continuous** figure becomes the
+  larger of the stance hold and the walked trot's RMS.
+
+- **Consequences:**
+
+  | | worst reachable pose (was) | stance actually held |
+  |---|---|---|
+  | leg copper, standing | 105.9 W | **31.7 W** |
+  | per motor | 8.82 W | **2.64 W** (trot 5.85) |
+  | stand / trot | 1.04 | **0.31** |
+  | standing runtime | 20.8 min | **54.0 min** |
+  | brake's multiplier on it | ~4x | **3.1x** |
+  | continuous motor spec | 0.646 N·m | **0.624** (set by the trot's fore ankle RMS; the stance hold is 0.495) |
+
+  ⚠️ **Three standing claims were properties of the basis, not of the robot.**
+  M16's "standing costs most of what moving costs" is a third. ADR-0023's
+  "standing is the worst thermal case" inverts — **the trot is**, because four
+  feet share what two carry in a trot. And NFR17's brake, "required, not
+  optional" on the 76 % figure, is still worth 3.1x of standing endurance and
+  no longer rests on that argument. A cable still only pulls; posture still
+  costs current for zero work; it costs less than walking does.
+
+  ✅ The continuous spec barely moves (0.646 → 0.624) but its reason does: it is
+  the trot, not the stand. The thermal crate's tests follow — its own worst-case
+  test is renamed `trotting_not_standing_is_the_worst_thermal_case`.
+
 ---
 
 ---

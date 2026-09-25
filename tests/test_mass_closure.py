@@ -107,7 +107,11 @@ def test_the_MECHANISM_emits_a_MOTOR_SPEC_rather_than_fitting_one(closed):
     """
     req = MC.motor_requirement(closed["rows"][-1])
     assert req["peak"] == pytest.approx(1.825, abs=0.03)
-    assert req["continuous"] == pytest.approx(0.646, abs=0.02)
+    # ⚠️ M115: 0.646 (worst pose) -> 0.624 N.m -- the larger of the stance hold
+    # (0.495) and the walked trot's RMS (0.624, the fore ankle). Thermal is the
+    # load actually carried.
+    assert req["continuous"] == pytest.approx(0.624, abs=0.02)
+    assert req["trot_rms"] > req["stance_hold"], "the trot, not standing, sets it"
     assert req["binding_leg"] == "fore", "the fore leg sets the spec"
     fore_peak = max(req["fore_per_joint"], key=lambda k: req["fore_per_joint"][k][1])
     assert fore_peak == "knee", f"the fore trot is sized by {fore_peak}"
