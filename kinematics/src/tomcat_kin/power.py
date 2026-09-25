@@ -158,33 +158,18 @@ NO_LOAD_RPM = 380.0
 PEAK_NM = 1.95
 
 
-def gait_envelope(controller, n: int = 400, arms=None,
-                  peak_nm: float = PEAK_NM, no_load_rpm: float = NO_LOAD_RPM) -> dict:
-    """The walked trajectory against a motor's torque-speed LINE, per joint.
+def walked_trajectory(controller, n: int = 400):
+    """Joint torque, joint speed and capstan factor along the walked gait.
 
-    ⚠️ **M111: the trot has never fitted the proxy's speed, and nothing
-    looked.** `tools/motor_spec_review.speed_check` sums the three joints' foot
-    speeds as if they aligned (~6 m/s) and compares that with a 0.5 m/s body --
-    the wrong scope, because the constraint is each joint's SWING speed. At the
-    28/25/14 arms the hip and knee already swung 26-27 % faster than the no-load
-    ceiling; the 36/34/22 arms of ADR-0103 make that 64-72 %.
-
-    ✅ Separate peaks overstate it -- a swing is fast and light, a stance slow
-    and heavy -- so this checks each instant against the linear DC line
-    `T/T_peak + w/w_noload <= 1`, with the capstan on the torque exactly as
-    `gait_power` puts it.
-
-    Returns per joint: the worst envelope ratio (<= 1 reachable), the peak motor
-    torque and speed the trajectory actually asks, and `need_rpm` -- the no-load
-    speed a motor with `peak_nm` would need for the whole trot to fit.
+    Arrays of shape `(n, 4 legs, 3 joints)`, legs in `LF RF LR RR` order. The
+    torque is what the gait actually asks -- stance from the contact forces,
+    swing from the leg's own dynamics -- not `torque_budget`'s worst reachable
+    pose. The capstan is the side that carries it.
     """
     from . import dynamics as dyn
     from . import TendonMap
     from .params import DEFAULT_TENDON
 
-    arms = np.asarray(DEFAULT_TENDON.joint_moment_arm if arms is None else arms,
-                      dtype=float)
-    spool = DEFAULT_TENDON.motor_spool_radius
     legs = ("LF", "RF", "LR", "RR")
     dt = controller.params.period / n
     cyc = dyn.cycle(controller, n)
@@ -208,6 +193,35 @@ def gait_envelope(controller, n: int = 400, arms=None,
     cap = np.where(tau >= 0.0,
                    np.asarray(tmap.capstan_factor(side=+1), dtype=float),
                    np.asarray(tmap.capstan_factor(side=-1), dtype=float))
+    return tau, qd, cap
+
+
+def gait_envelope(controller, n: int = 400, arms=None,
+                  peak_nm: float = PEAK_NM, no_load_rpm: float = NO_LOAD_RPM) -> dict:
+    """The walked trajectory against a motor's torque-speed LINE, per joint.
+
+    ⚠️ **M111: the trot has never fitted the proxy's speed, and nothing
+    looked.** `tools/motor_spec_review.speed_check` sums the three joints' foot
+    speeds as if they aligned (~6 m/s) and compares that with a 0.5 m/s body --
+    the wrong scope, because the constraint is each joint's SWING speed. At the
+    28/25/14 arms the hip and knee already swung 26-27 % faster than the no-load
+    ceiling; the 36/34/22 arms of ADR-0103 make that 64-72 %.
+
+    ✅ Separate peaks overstate it -- a swing is fast and light, a stance slow
+    and heavy -- so this checks each instant against the linear DC line
+    `T/T_peak + w/w_noload <= 1`, with the capstan on the torque exactly as
+    `gait_power` puts it.
+
+    Returns per joint: the worst envelope ratio (<= 1 reachable), the peak motor
+    torque and speed the trajectory actually asks, and `need_rpm` -- the no-load
+    speed a motor with `peak_nm` would need for the whole trot to fit.
+    """
+    from .params import DEFAULT_TENDON
+
+    arms = np.asarray(DEFAULT_TENDON.joint_moment_arm if arms is None else arms,
+                      dtype=float)
+    spool = DEFAULT_TENDON.motor_spool_radius
+    tau, qd, cap = walked_trajectory(controller, n)
     t_mot = np.abs(tau) / arms * spool * cap
     w_mot = np.abs(qd) * arms / spool
     w_nl = no_load_rpm * 2.0 * np.pi / 60.0

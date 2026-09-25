@@ -541,6 +541,97 @@ def arm_trade(arm_sets=((28, 25, 14), (34, 32, 20), (36, 34, 22)),
     return out
 
 
+def arm_speed_trade(radii_mm=None, peak_nm=1.95, proxy_rpm=380.0, n=400):
+    """What each joint's arm does to the MOTOR the trot needs -- torque AND speed.
+
+    An arm is a reduction ratio. Seen from the joint, a motor offers torque in
+    proportion to `r` and speed in proportion to `1/r`, so the PRODUCT of the two
+    -- which is what sizes a motor -- does not depend on the arm. Along the
+    walked trot, with the linear DC line `T/T_pk + w/w_nl <= 1` at every instant,
+    the arm only chooses which axis the motor has to be big on.
+
+    What the arm CAN change is whether ADR-0008's static criterion binds: the
+    trot's load at the WORST reachable pose, `torque_budget`, is a floor on
+    `T_pk` at a given arm. Where that floor sits above the dynamic optimum, the
+    motor has to be bigger than walking needs.
+
+    Returns `{joint: [row per radius]}`, each row with the static torque floor,
+    the smallest motor meeting both criteria (`T_pk`, `rpm`, `product`), and the
+    no-load speed a motor with the proxy's `peak_nm` would need. Plus
+    `dyn_optimum[joint]` -- the smallest product with the static floor removed.
+
+    ⚠️ **M113: the arm has a THIRD floor, and it is not the motor's.** The
+    landing transient sizes the cable (ADR-0008 puts it outside the actuator
+    envelope for exactly that reason), and `cable_sf` is its safety factor at
+    each arm. At SF 4 the hip and knee cannot go below ~25 mm whatever the motor
+    is -- and at 25 mm the walked trot already needs 435-493 rpm from a
+    1.95 N.m motor (`proxy_rpm_walked`). No arm brings the proxy's 380 inside.
+
+    ⚠️ The walked torque carries no pretension bias (as `power.gait_envelope`)
+    while the static floor does (as `torque_budget`). Both are what their
+    modules already publish.
+    """
+    import dataclasses
+    from tomcat_kin import LegModel, TendonMap, gait, power
+    from tomcat_kin.torque_budget import evaluate as budget
+    from tomcat_kin.params import DEFAULT_FORELEG, DEFAULT_LOADS
+
+    if radii_mm is None:
+        radii_mm = (12, 14, 16, 18, 20, 22, 24, 26, 28, 30, 32, 34, 36, 38, 40)
+    R = float(DEFAULT_TENDON.motor_spool_radius)
+    tau, qd, cap = power.walked_trajectory(
+        gait.GaitController(gait.trot_params()), n)
+    trot = [lc for lc in DEFAULT_LOADS if lc.name.startswith("trot")][0]
+    land = [lc for lc in DEFAULT_LOADS if lc.name.startswith("land")][0]
+    import mass_closure as MC
+    legs = (DEFAULT_FORELEG, DEFAULT_HINDLEG)
+    base = np.asarray(DEFAULT_TENDON.joint_moment_arm, dtype=float)
+
+    def best(Tt, wt, floor):
+        """Smallest T_pk * w_nl with T_pk >= floor and every instant on-line."""
+        lo = max(floor, float(Tt.max()) * 1.0001)
+        best_row = None
+        for T_pk in np.linspace(lo, lo * 6.0, 600):
+            w_nl = float((wt / (1.0 - Tt / T_pk)).max())
+            prod = T_pk * w_nl
+            if best_row is None or prod < best_row[2]:
+                best_row = (T_pk, w_nl, prod)
+        return best_row
+
+    out, dyn_opt = {}, {}
+    for j, name in enumerate(JOINTS):
+        rows = []
+        for r_mm in radii_mm:
+            r = r_mm * 1e-3
+            arms = base.copy()
+            arms[j] = r
+            tm = TendonMap(dataclasses.replace(DEFAULT_TENDON,
+                                               joint_moment_arm=tuple(arms)))
+            T_s = max(float(np.asarray(
+                budget(LegModel(lp), tm, trot).peak_motor_torque)[j]) for lp in legs)
+            Tt = (np.abs(tau[:, :, j]) / r * R * cap[:, :, j]).ravel()
+            wt = (np.abs(qd[:, :, j]) * r / R).ravel()
+            T_pk, w_nl, prod = best(Tt, wt, T_s)
+            need = (float((wt / (1.0 - Tt / peak_nm)).max())
+                    if T_s <= peak_nm and Tt.max() < peak_nm else float("inf"))
+            walked = (float((wt / (1.0 - Tt / peak_nm)).max())
+                      if Tt.max() < peak_nm else float("inf"))
+            T_land = max(float(np.asarray(
+                budget(LegModel(lp), tm, land).peak_tension)[j]) for lp in legs)
+            rows.append({"r_mm": r_mm, "T_static": T_s,
+                         "cable_sf": MC.CABLE_BREAK / T_land,
+                         "proxy_rpm_walked": walked * 30.0 / np.pi,
+                         "T_pk": T_pk, "rpm": w_nl * 30.0 / np.pi,
+                         "product": prod,
+                         "proxy_rpm_needed": need * 30.0 / np.pi})
+            if r_mm == radii_mm[len(radii_mm) // 2]:
+                dyn_opt[name] = best(Tt, wt, 0.0)[2]
+        out[name] = rows
+    out["dyn_optimum"] = dyn_opt
+    out["proxy_product"] = peak_nm * proxy_rpm * np.pi / 30.0
+    return out
+
+
 def report(n: int = 4):
     import tomcat_leg_detail as LD
     leg = DEFAULT_HINDLEG

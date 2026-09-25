@@ -8535,6 +8535,70 @@ The MuJoCo harness moved four numbers, and three of them moved the good way.
   - `[owed]`: the hard stop's angle and the spring's form (flexure, spiral,
     coil) are drawing decisions this does not make.
 
+## ADR-0106: the arm cannot size the motor — it only chooses the axis, and the cable sets its floor
+- **Status:** Proposed — the choice below is a requirements decision about ADR-0008
+- **Context:** [ADR-0104](#adr-0104) found the walked trot needs ~665 rpm from a
+  1.95 N·m motor at the 36/34/22 arms, against the proxy's 380, and that
+  ADR-0008's static criterion and the walked trajectory want the arms in opposite
+  directions. This asks what the arm can do about it.
+
+- **Findings** (`structure_matrix.arm_speed_trade`):
+
+  ✅ **The motor's size does not depend on the arm.** Seen from a joint a motor
+  offers torque ∝ `r` and speed ∝ `1/r`, so the product that sizes a motor —
+  `T_pk · ω_nl` — is fixed by the loads, and the arm only splits it. Swept 12–40
+  mm, the smallest product meeting every criterion moves by 2 %: hip 115–118,
+  knee 125–128, ankle exactly 90.6 (N·m·rad/s). The proxy has **77.6**.
+
+  ⚠️ **What sets the size is the criterion, and ADR-0008's static one dominates
+  the hip and knee:**
+
+  | joint | static + walked | walked trot only | proxy |
+  |---|---|---|---|
+  | hip | 117 | **50.7** | 77.6 |
+  | knee | 128 | **69.4** | 77.6 |
+  | ankle | 90.6 | 90.6 | 77.6 |
+
+  The worst REACHABLE pose asks 2.3x (hip) and 1.8x (knee) the motor the
+  walked trot does. Against the walked trot alone the proxy is enough at both;
+  only the ankle is short, by 17 %, and there the trot itself is the reason.
+
+  ⚠️ **But the arm has a third floor, and it is the cable's.** The landing
+  transient sizes cable and bearing (ADR-0008 keeps it out of the actuator
+  envelope for exactly that): cable SF ≥ 4 and bearing C0 ≥ 2T both land at
+  **~25 mm** for the hip and knee — at 25 mm the hip reads SF 4.05 and C0
+  1482/1500 N. Below it the motor is irrelevant.
+
+  So, with a 1.95 N·m motor, the speed the walked trot needs:
+
+  | arms | cable SF | rpm needed (hip/knee/ankle) | worst |
+  |---|---|---|---|
+  | 36/34/22 (ADR-0103, static kept) | 5.8 / 6.0 / 8.0 | 624 / 665 / 474 | **665** |
+  | 34/32/26 (static floor) | 5.5 / 5.3 / 9.4 | 590 / 627 / 445 | **627** |
+  | 28/28/26 | 4.5 / 4.7 / 9.4 | 487 / 550 / 445 | **550** |
+  | 25/25/26 (cable floor) | 4.05 / 4.16 / 9.4 | 435 / 493 / 445 | **493** |
+
+  ⚠️ **No arm brings the proxy's 380 rpm inside.** At the cable floor the walked
+  trot still needs ~490 rpm; the ankle alone needs 445 at its own optimum
+  (~26 mm), below which a 1.95 N·m motor runs out of torque rather than speed.
+  The arm decides whether the speed shortfall is 1.3x or 1.75x; it cannot make
+  it 1.0x. That takes a faster motor or a gentler gait.
+
+- **Options** — this is ADR-0008's to decide, not the arm's:
+  1. **Keep ADR-0008's static criterion** (the leg can hold trot load at any
+     reachable pose). Arms stay near 36/34/22; motor spec ~1.9 N·m / ~665 rpm.
+  2. **Size the actuator to the walked gait, keep the landing cable.** Arms
+     ~28/28/26 for margin on cable and bearing; spec 1.95 N·m / ~550 rpm; the
+     leg can no longer hold a full trot load at its worst reachable pose.
+  3. The same at the cable floor (25/25/26): ~490 rpm, with cable and bearing at
+     their limits.
+
+- **Consequences (whichever is chosen):** the ankle's arm has an interior
+  optimum near 26 mm on the walked trot, independent of ADR-0008; the current 22
+  costs it 30 rpm it does not need. `[owed]` — standing (`standing_power`) is
+  also priced at the worst reachable pose, so relaxing ADR-0008 for the trot
+  without doing the same for the stand would leave the two inconsistent.
+
 ---
 
 ---
