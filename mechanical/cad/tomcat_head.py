@@ -351,9 +351,16 @@ def mass_props():
 #: `[derived: mjcf_tendon.quadruped_rig]`
 BODY_M, BODY_IYY, BODY_COM = 4.3833, 4.2023e-02, (109.0, 15.0)
 
-#: Where the lump sits today: the front girdle's own CoM.
-LUMPED_AT = (195.0 + SP.front_girdle_com[0] * MM,
-             SP.front_girdle_com[1] * MM)
+#: Where the lump sat: the front girdle's own CoM BEFORE M102, which is the
+#: plant the BODY_* figures above describe.
+#: ⚠️ This read `SP.front_girdle_com` live, and M102 folded the placed head
+#: INTO that CoM ((-4.6, +17.4) -> (+27.4, +37.8) mm). The "before" side of the
+#: account then already held the head: the lever read 116 mm instead of 81 and
+#: the cost fell 36 % -> 32 %, a failure from M102 to M117. The account is of a
+#: past move, so both of its sides are frozen.
+LUMPED_GIRDLE_COM = (-0.00461, 0.01739)   # [derived: params.py before M102]
+LUMPED_AT = (195.0 + LUMPED_GIRDLE_COM[0] * MM,
+             LUMPED_GIRDLE_COM[1] * MM)
 
 
 def account():

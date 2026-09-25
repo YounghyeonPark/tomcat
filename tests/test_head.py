@@ -94,13 +94,23 @@ def test_placing_the_240_g_costs_a_THIRD_of_the_pitch_inertia():
     )
 
 
-def test_the_lump_is_where_params_says_it_is_TODAY():
+def test_the_lump_is_where_params_said_it_was_and_M102_moved_it():
     """✅ The before side of the account has to be the model's own, not a
-    convenient zero: the 240 g rides the front girdle's measured CoM."""
-    from tomcat_kin.params import DEFAULT_SPINE as SP
-    assert HD.LUMPED_AT[0] == pytest.approx(195.0 + SP.front_girdle_com[0] * 1e3)
-    assert HD.LUMPED_AT[1] == pytest.approx(SP.front_girdle_com[1] * 1e3)
+    convenient zero: the 240 g rode the front girdle's measured CoM.
 
+    ⚠️ And it has to STAY the before side. M102 placed the head in the plant by
+    folding it into `front_girdle_com`, so reading that live put the head on
+    both sides of the account. The frozen lump plus the head moved to where it
+    is drawn must reproduce what `params.py` carries today."""
+    from tomcat_kin.params import DEFAULT_SPINE as SP
+    assert HD.LUMPED_AT[0] == pytest.approx(195.0 + HD.LUMPED_GIRDLE_COM[0] * 1e3)
+    assert HD.LUMPED_AT[1] == pytest.approx(HD.LUMPED_GIRDLE_COM[1] * 1e3)
+    m, (cx, cz), _own = HD.mass_props()
+    share = (m * 1e-3) / SP.front_girdle_mass
+    ox, oz = (v * 1e3 for v in HD.LUMPED_GIRDLE_COM)
+    now = (ox + share * ((cx - 195.0) - ox), oz + share * (cz - oz))
+    assert now[0] == pytest.approx(SP.front_girdle_com[0] * 1e3, abs=1.5)
+    assert now[1] == pytest.approx(SP.front_girdle_com[1] * 1e3, abs=1.5)
 
 def test_the_head_is_carried_a_HEAD_LENGTH_above_the_back():
     """⚠️ Measured off a side-view cat, and it was the biggest error in the
