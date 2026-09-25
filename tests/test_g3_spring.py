@@ -55,3 +55,40 @@ def test_the_spring_is_BIDIRECTIONAL_and_a_flexure_does_it_in_six_grams():
     sp = G.size_flexure(DEFAULT_SPINE.series_k, material="Ti-6Al-4V")
     assert DEFAULT_TENDON.series_k < DEFAULT_SPINE.series_k
     assert ti["active_g"] > sp["active_g"]
+
+
+def test_G3_puts_the_HIP_and_KNEE_inside_ADR0026s_window():
+    """The sizing ADR-0105 rests on, re-derived without the legacy plant.
+
+    ADR-0026 specifies JOINT stiffness, 80-150 N.m/rad. A series spring `k` in
+    line with a cable of stiffness `EA/L` appears at a joint as
+    `r^2 / (1/k + 1/(EA/L))`. The band was first measured on the legacy wrapped
+    MJCF leg, which modelled cable stretch; M116 removed that plant (ADR-0109),
+    so this computes it from the router's run lengths on the trunk's real spools
+    and `mjcf_tendon`'s `EA/L`. Same verdict: the shipped leg rate is inside,
+    the old 150 kN/m puts the hip over.
+    """
+    import numpy as np
+
+    sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..",
+                                    "kinematics", "src"))
+    pytest.importorskip("build123d", reason="the trunk's spool centres need CAD")
+    import leg_tendons as LT
+    import tomcat_trunk as TT
+    from tomcat_kin import LegModel, mjcf_tendon as MT
+    from tomcat_kin.params import DEFAULT_HINDLEG
+
+    sp = {t: (p[0], p[2]) for t, p in zip(("hip", "knee", "ankle"),
+                                          TT.leg_spools("hind", +1.0))}
+    q = np.asarray(LegModel(DEFAULT_HINDLEG).inverse((0.04, -0.17, 0.0)), float)
+    arms = np.asarray(DEFAULT_TENDON.joint_moment_arm, dtype=float)
+
+    def joint_k(series_k, j, name):
+        L = max(LT.route(q, name, side=s, leg=DEFAULT_HINDLEG, spools=sp)["length"]
+                for s in (+1, -1)) * 1e-3
+        k_eff = 1.0 / (1.0 / series_k + 1.0 / MT._cable_k(L))
+        return k_eff * arms[j] ** 2
+
+    ship = [joint_k(DEFAULT_TENDON.series_k, j, n) for j, n in ((0, "hip"), (1, "knee"))]
+    assert all(80.0 <= k <= 150.0 for k in ship), f"shipped G3 gives {ship}"
+    assert joint_k(1.5e5, 0, "hip") > 150.0, "the old 150 kN/m puts the hip over"

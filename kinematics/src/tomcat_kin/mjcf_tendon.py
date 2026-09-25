@@ -126,25 +126,16 @@ NO_SPOOL_DOF = True
 
 VIA_R = 0.00875
 
-#: Cable: Ø1.75 UHMWPE. `stiffness` is the axial spring rate the analytical model
-#: carries as `cable_stiffness`; `damping` is `[assumed]` and small.
-CABLE_WIDTH = 0.00088
+#: Cable: Ø1.75 UHMWPE.
 #: Settled UHMWPE tensile modulus, Pa. `[sourced: LEG_TENDON_SPEC §2]` — the fibre
 #: is 100-120 GPa (SK99), a spliced settled run 50-90; 60 is the spec's own figure.
 CABLE_E = 60e9
 
-#: ⚠️ **A single `stiffness` number is wrong, and that is why the first pass NaN'd.**
-#: `k = EA/L` is per-tendon and run-length dependent — LEG_TENDON_SPEC §2 says so
-#: explicitly (*"kinematics should compute it from the per-tendon path length, not a
-#: single constant"*), and §5.2's proposed `cable_stiffness = 3.5e5` is a single
-#: constant anyway. At the routed lengths the real values span **5.5e5–1.2e6 N/m**.
-#:
-#: A spatial tendon's `stiffness` pulls toward `springlength`. Given ONE value it is
-#: a two-sided spring — not a cable, and what fought the actuator into a NaN at
-#: t = 0.168 s. Given TWO it is a deadband: slack below, elastic above, which IS a
-#: cable. `single_leg_rig_elastic` builds twice to set each tendon's own deadband.
-CABLE_STIFFNESS = None      # per-tendon; see `_cable_k`
-CABLE_DAMPING = 0.02
+#: `k = EA/L` is per-tendon and run-length dependent (LEG_TENDON_SPEC §2); at the
+#: routed lengths it spans 5.5e5-1.2e6 N/m. ⚠️ M116: the plant no longer
+#: stretches its cables -- they are clamped, and G3 is the compliance -- but
+#: `_cable_k` still prices the stretch that sits in series with G3 at a joint
+#: (`test_g3_spring.py`).
 
 #: ⚠️ **Peak tendon tension the MOTOR can produce (N) — not the cable's rating.**
 #:
@@ -589,12 +580,10 @@ def _stance_ankle(leg_p) -> float:
 
 
 def leg_tendon_xml(name: str, leg_p, arms, indent: int = 4,
-                   elastic: dict | None = None,
                    mount=(0.0, 0.0, 0.0),
                    ankle_springref: float | None = None,
                    ankle_pair: bool = True,
                    ankle_spring: float | None = None,
-                   clamped: bool = True,
                    pulley: bool = True,
                    rotor_armature: bool = False) -> tuple[str, str, str]:
     """One tendon-driven leg. Returns (body_xml, tendon_xml, actuator_xml).
@@ -839,87 +828,17 @@ def leg_tendon_xml(name: str, leg_p, arms, indent: int = 4,
     b.append(f'{pad}</body>')
 
     # ----------------------------------------------------------------- tendons
-    def spatial(tname, chain):
-        el = elastic.get(tname) if elastic else None
-        springs = ""
-        if el is not None:
-            k, l0 = el
-            springs = f'stiffness="{k:.1f}" springlength="0 {l0:.6f}" '
-        out = [f'    <spatial name="{tname}" width="{CABLE_WIDTH}" '
-               f'{springs}damping="{CABLE_DAMPING}" '
-               f'rgba="0.76 0.48 0.23 1">']
-        out += chain
-        out.append("    </spatial>")
-        return "\n".join(out)
-
-    S = lambda s: f'      <site site="{s}"/>'                       # noqa: E731
-    G = lambda g, sd: f'      <geom geom="{g}" sidesite="{sd}"/>'   # noqa: E731
-
-    if clamped:
-        if elastic:
-            raise ValueError(
-                "cable elasticity cannot live on a CLAMPED tendon. A `<fixed>` "
-                "tendon's length is the commanded sum r*q, so a `stiffness` on it "
-                "is a passive JOINT spring, not a stretching cable -- and adding "
-                "one would pull the joints toward `springlength`. With the cable "
-                "clamped, ADR-0047's G3 series element belongs in the drivetrain: "
-                "build with `spools=<series_k>` (ADR-0051), where it is an exact "
-                "torsional spring between rotor and spool. Asking for both used "
-                "to return a silently INELASTIC plant.")
-        if pulley:
-            return "\n".join(b), pulley_tendons(name, arms, ankle_pair), \
-                pulley_actuators(name, ankle_pair)
-        return "\n".join(b), clamped_tendons(name, arms, ankle_pair), \
-            clamped_actuators(name, ankle_pair)
-
-    t = []
-    # hip: antagonistic pair, both on the hip sheave, opposite sides
-    t.append(spatial(f"{name}_hip_flex", [
-        S(f"{name}_spool_hip"), G(f"{name}_hip_sheave", f"{name}_hip_side"),
-        S(f"{name}_hip_anchor")]))
-    t.append(spatial(f"{name}_hip_ext", [
-        S(f"{name}_spool_hip_x"), G(f"{name}_hip_sheave", f"{name}_hip_side_x"),
-        S(f"{name}_hip_anchor_x")]))
-    # knee: past the hip on a concentric via, then the knee sheave
-    t.append(spatial(f"{name}_knee_flex", [
-        S(f"{name}_spool_knee"), G(f"{name}_hip_via", f"{name}_hip_via_side"),
-        S(f"{name}_femur_mid"),
-        G(f"{name}_knee_sheave", f"{name}_knee_side"), S(f"{name}_knee_anchor")]))
-    t.append(spatial(f"{name}_knee_ext", [
-        S(f"{name}_spool_knee_x"), G(f"{name}_hip_via", f"{name}_hip_via_side"),
-        S(f"{name}_femur_mid"),
-        G(f"{name}_knee_sheave", f"{name}_knee_side_x"),
-        S(f"{name}_knee_anchor_x")]))
-    # ankle: single tendon + the joint spring above
-    t.append(spatial(f"{name}_ankle", [
-        S(f"{name}_spool_ankle"), G(f"{name}_hip_via", f"{name}_hip_via_side"),
-        S(f"{name}_femur_mid"),
-        G(f"{name}_knee_via", f"{name}_knee_via_side"),
-        S(f"{name}_tibia_mid"),
-        G(f"{name}_ankle_sheave", f"{name}_ankle_side"),
-        S(f"{name}_ankle_anchor")]))
-    if ankle_pair:
-        t.append(spatial(f"{name}_ankle_ext", [
-            S(f"{name}_spool_ankle_x"),
-            G(f"{name}_hip_via", f"{name}_hip_via_side"),
-            S(f"{name}_femur_mid"),
-            G(f"{name}_knee_via", f"{name}_knee_via_side"),
-            S(f"{name}_tibia_mid"),
-            G(f"{name}_ankle_sheave", f"{name}_ankle_side_x"),
-            S(f"{name}_ankle_anchor_x")]))
-
-    # --------------------------------------------------------------- actuators
-    a = []
-    names = [f"{name}_hip_flex", f"{name}_hip_ext", f"{name}_knee_flex",
-             f"{name}_knee_ext", f"{name}_ankle"]
-    if ankle_pair:
-        names.append(f"{name}_ankle_ext")
-    for tname in names:
-        a.append(f'    <motor name="m_{tname}" tendon="{tname}" gear="-1" '
-                 f'ctrlrange="0 {TENSION_MAX:.0f}" ctrllimited="true" '
-                 f'forcerange="0 {TENSION_MAX:.0f}" forcelimited="true"/>')
-
-    return "\n".join(b), "\n".join(t), "\n".join(a)
+    # ⚠️ M116 (ADR-0109): the legacy WRAPPED routing -- spatial tendons resting
+    # on the sheaves, one pull-only motor per cable, optionally elastic -- is
+    # gone, and with it M48's unmirrored fore leg. Every cable is CLAMPED to its
+    # sheave, so its length is exactly `sum r_j q_j` (ADR-0055), and G3 lives in
+    # the drivetrain (ADR-0051). The wrap sites above stay: they cost nothing
+    # and the renderers draw them.
+    if pulley:
+        return "\n".join(b), pulley_tendons(name, arms, ankle_pair), \
+            pulley_actuators(name, ankle_pair)
+    return "\n".join(b), clamped_tendons(name, arms, ankle_pair), \
+        clamped_actuators(name, ankle_pair)
 
 
 #: Lateral half-track (m) — where the limb planes sit. ASSEMBLY_SPEC §0.1.
@@ -1076,11 +995,10 @@ def spine_actuators(sp) -> str:
         for nm in spine_pair_names(sp.n_segments))
 
 
-def quadruped_rig(hip_height: float = 0.175, elastic: dict | None = None,
+def quadruped_rig(hip_height: float = 0.175,
                   trunk_mass: float | None = None,
                   ankle_pair: bool = True,
                   ankle_spring: float | None = None,
-                  clamped: bool = True,
                   pulley: bool = True,
                   spine: bool = False,
                   spools: float | None = None,
@@ -1117,11 +1035,11 @@ def quadruped_rig(hip_height: float = 0.175, elastic: dict | None = None,
         # doubles the wheelbase (0.210 -> 0.405 m, measured). Same rule as
         # `mjcf.build_mjcf`.
         mx = 0.0 if spine else gx
-        b, t, a = leg_tendon_xml(nm, lp, arms, indent=6, elastic=elastic,
+        b, t, a = leg_tendon_xml(nm, lp, arms, indent=6,
                                  mount=(mx, ty, 0.0),
                                  ankle_springref=_stance_ankle(lp),
                                  ankle_pair=ankle_pair,
-                                 ankle_spring=ankle_spring, clamped=clamped,
+                                 ankle_spring=ankle_spring,
                                  pulley=pulley)
         (fore_bodies if gx > 0 else hind_bodies).append(b)
         bodies.append(b)
@@ -1398,37 +1316,6 @@ def quadruped_rig_spooled(q_ref: dict, series_k: float = DEFAULT_TENDON.series_k
     return quadruped_rig(spools=series_k, spool_a0=a0, **kw)
 
 
-def quadruped_rig_elastic(q_ref: dict | None = None,
-                          series_k: float | None = None, **kw) -> str:
-    """`quadruped_rig` with per-tendon cable elasticity, built in two passes.
-
-    `q_ref` maps leg name -> its three joint angles; the tendon lengths there set
-    each cable's deadband.
-    """
-    import mujoco
-
-    slack = quadruped_rig(elastic=None, **kw)
-    m = mujoco.MjModel.from_xml_string(slack)
-    d = mujoco.MjData(m)
-    if q_ref:
-        for nm, q in q_ref.items():
-            for i in range(3):
-                j = mujoco.mj_name2id(m, mujoco.mjtObj.mjOBJ_JOINT,
-                                      f"{nm}_q{i + 1}")
-                d.qpos[m.jnt_qposadr[j]] = float(q[i])
-    mujoco.mj_forward(m, d)
-
-    elastic = {}
-    for i in range(m.ntendon):
-        nm = mujoco.mj_id2name(m, mujoco.mjtObj.mjOBJ_TENDON, i)
-        L = float(d.ten_length[i])
-        k = _cable_k(L)
-        if series_k is not None:
-            k = 1.0 / (1.0 / k + 1.0 / series_k)
-        elastic[nm] = (k, L)
-    return quadruped_rig(elastic=elastic, **kw)
-
-
 def single_leg_rig_spooled(leg_p=DEFAULT_HINDLEG, q_ref=None,
                            series_k: float = DEFAULT_TENDON.series_k, **kw) -> str:
     """`single_leg_rig` with a real DRIVETRAIN behind every cable, in two passes.
@@ -1470,52 +1357,13 @@ def single_leg_rig_spooled(leg_p=DEFAULT_HINDLEG, q_ref=None,
     return single_leg_rig(leg_p, spools=series_k, spool_a0=a0, **kw)
 
 
-def single_leg_rig_elastic(leg_p=DEFAULT_HINDLEG, arms=None, q_ref=None,
-                           series_k: float | None = None, **kw) -> str:
-    """The rig with REAL cable elasticity, built in two passes.
-
-    Pass 1 has no springs, so each tendon's length at `q_ref` can be read; pass 2
-    sets that tendon's own `stiffness = EA/L` with a `springlength="0 L_ref"`
-    deadband — slack below `L_ref`, elastic above. That is a cable.
-
-    `series_k` optionally puts a **series-elastic element** in line with each
-    cable, combining as `1/k = 1/k_cable + 1/k_series`. That is design goal **G3**
-    (*"passive compliance / shock absorption at each joint"*), which has never been
-    sized — and the reason it now needs sizing is that the cable alone is far
-    stiffer than ADR-0026 found balance can tolerate.
-    """
-    import mujoco
-
-    if arms is None:
-        arms = tuple(float(a) for a in DEFAULT_TENDON.joint_moment_arm)
-    slack = single_leg_rig(leg_p, arms, **kw)
-    m = mujoco.MjModel.from_xml_string(slack)
-    d = mujoco.MjData(m)
-    if q_ref is not None:
-        for i, jn in enumerate(("L_q1", "L_q2", "L_q3")):
-            j = mujoco.mj_name2id(m, mujoco.mjtObj.mjOBJ_JOINT, jn)
-            d.qpos[m.jnt_dofadr[j]] = float(q_ref[i])
-    mujoco.mj_forward(m, d)
-
-    elastic = {}
-    for i in range(m.ntendon):
-        nm = mujoco.mj_id2name(m, mujoco.mjtObj.mjOBJ_TENDON, i)
-        L = float(d.ten_length[i])
-        k = _cable_k(L)
-        if series_k is not None:
-            k = 1.0 / (1.0 / k + 1.0 / series_k)
-        elastic[nm] = (k, L)
-    return single_leg_rig(leg_p, arms, elastic=elastic, **kw)
-
-
 def single_leg_rig(leg_p=DEFAULT_HINDLEG, arms=None, hip_height: float = 0.20,
-                   fixed_hip: bool = True, elastic: dict | None = None,
+                   fixed_hip: bool = True,
                    ankle_pair: bool = True,
                    ankle_spring: float | None = None,
                    spools: float | None = None,
                    spool_a0: dict | None = None,
                    spool_servo: bool = False,
-                   clamped: bool = True,
                    pulley: bool = True) -> str:
     """A one-leg test rig — the gate before anything whole-body is attempted.
 
@@ -1526,9 +1374,9 @@ def single_leg_rig(leg_p=DEFAULT_HINDLEG, arms=None, hip_height: float = 0.20,
     if arms is None:
         arms = tuple(float(a) for a in DEFAULT_TENDON.joint_moment_arm)
     body, tendons, acts = leg_tendon_xml(
-        "L", leg_p, arms, indent=6, elastic=elastic,
+        "L", leg_p, arms, indent=6,
         ankle_springref=_stance_ankle(leg_p), ankle_pair=ankle_pair,
-        ankle_spring=ankle_spring, clamped=clamped, pulley=pulley)
+        ankle_spring=ankle_spring, pulley=pulley)
 
     # spool sites live on the fixed mount, i.e. the girdle
     spool_sites = chr(10).join(

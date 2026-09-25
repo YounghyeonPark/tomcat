@@ -8693,6 +8693,46 @@ The MuJoCo harness moved four numbers, and three of them moved the good way.
   the trot, not the stand. The thermal crate's tests follow — its own worst-case
   test is renamed `trotting_not_standing_is_the_worst_thermal_case`.
 
+## ADR-0109: the legacy wrapped plant is removed
+- **Status:** Accepted
+- **Context:** `mjcf_tendon` still built the plant M42–M53 measured: spatial
+  tendons RESTING on the sheaves (`clamped=False`), one pull-only motor per
+  cable, optionally with cable stretch (`*_rig_elastic`). [ADR-0055](#adr-0055)
+  clamped the cables and M54 made the pulley transmission the default; since
+  then the old plant survived only as a comparison baseline. It carried M48's
+  unmirrored fore-leg routing, and at [ADR-0103](#adr-0103)'s 36 mm arms that
+  defect stopped it standing at all (`XFAIL_M111_LEGACY`). Options were to fix
+  its fore routing (an M111-sized re-baseline of a plant nothing ships), close it
+  as won't-fix, or remove it.
+
+- **Decision:** **remove it.** The `clamped` and `elastic` switches, the
+  wrapped-routing branch of `leg_tendon_xml`, `single_leg_rig_elastic` and
+  `quadruped_rig_elastic` are gone from `mjcf_tendon.py`. Every cable is clamped;
+  the one-motor-per-cable variant (`pulley=False`) stays, because it does not
+  carry the defect.
+
+- **Consequences:**
+  - `test_mjcf_tendon.py` 113 → **66 tests.** 47 depended on the legacy plant,
+    found by a scope-aware call-graph pass rather than by name. Their findings
+    are not lost: each is recorded in the ADR that made it (ADR-0042–0058), and
+    the tests are in git history before this commit.
+  - **Four mixed tests kept their shipped half** — the default plant is the
+    pulley transmission; the drivetrain exists behind the pulley with G3; the
+    whole-body model carries no G3; the shipped lowest mode (39.8 Hz) and its
+    kp headroom. Only the legacy comparison line in each was cut. ⚠️ So the
+    claim "one spool per pair HALVES the lowest mode" no longer has its
+    denominator in a test; ADR-0060 and M111/M112 record it (63–76 Hz legacy).
+  - ✅ **G3's sizing was the one live conclusion resting on the legacy plant** —
+    its joint-stiffness band was measured on the elastic wrapped leg, the only
+    model with cable stretch. It is re-derived analytically,
+    `r² / (1/k + 1/(EA/L))` on the router's run lengths
+    (`test_G3_puts_the_HIP_and_KNEE_inside_ADR0026s_window`): shipped 125 kN/m
+    gives hip 138 / knee 118 N·m/rad, inside; 150 kN/m puts the hip at 160.
+  - ⚠️ The shipped plant does not stretch its cables. That was already true of
+    the clamped transmission; it is now the only plant, so cable stretch exists
+    only in `_cable_k`'s analytic price.
+  - The fore-routing defect (M48) is closed by removal rather than by a fix.
+
 ---
 
 ---
