@@ -47,6 +47,7 @@ import link_inertia as LI                                        # noqa: E402
 import tomcat_head as HD                                         # noqa: E402
 import tomcat_tail as TL                                         # noqa: E402
 import tomcat_trunk as TT                                        # noqa: E402
+import g3_flexure as G3F                                         # noqa: E402
 from tomcat_kin.params import DEFAULT_SPINE as SP                # noqa: E402
 
 #: EVA foam. ⚠️ **The material is a righting decision, not a finish one**
@@ -163,6 +164,43 @@ def tail_motor():
     return MOTOR_M, np.array([x / 1000.0, 0.0, z / 1000.0]), I
 
 
+#: Girdle body -> the trunk x of its model frame's origin (the hip).
+_GIRDLE = {"fore": (3, 0.195), "hind": (0, 0.0)}
+
+
+def g3_parts(role: str):
+    """M120: the six leg G3 flexures on one girdle, as thin Ti discs.
+
+    ⚠️ **ADR-0107 priced them and nothing carried them.** Each sits between
+    its motor and its spool, on the motor's axis (x); its position along the
+    row is taken at the row's centre -- the trunk does not yet say which end
+    the spool is on, and 5 g moved 20 mm is below what these figures resolve.
+    `[owed]`: the spool end, when the spool is drawn.
+    """
+    body, x_hip = _GIRDLE[role]
+    m = G3F.mass_g() * 1e-3
+    r = G3F.R_RIM_OUT * 1e-3
+    I = np.diag([m * r * r / 2, m * r * r / 4, m * r * r / 4])
+    out = []
+    for (_nm, b, x, n, ro) in TT._rows():
+        if b != body or ro != role:
+            continue
+        for (y, z) in TT.ROWS[n][0]:
+            if (n, TT.ROWS[n][0].index((y, z))) in {k for k in TT.POSITION_ROLE}:
+                continue                               # the tail's motor
+            out.append((m, np.array([x * 1e-3 - x_hip, y * 1e-3,
+                                     (TT._zc(x) + z) * 1e-3]), I))
+    if len(out) != 6:
+        raise RuntimeError("%s girdle: %d G3 parts, not 6" % (role, len(out)))
+    return out
+
+
+def spine_g3_kg():
+    """M120: the six spine G3 flexures, kg -- they ride segment_mass[1]."""
+    from tomcat_kin.params import DEFAULT_SPINE
+    return 6 * G3F.mass_g(DEFAULT_SPINE.series_k) * 1e-3
+
+
 def front_without_head():
     """The published front girdle with the head-as-housing-lump removed.
 
@@ -185,7 +223,7 @@ def front_without_head():
 
 def front():
     """`(mass, com_xz, fullinertia)` for the front girdle with the head placed."""
-    M, c, I = combine([front_without_head(), head()])
+    M, c, I = combine([front_without_head(), head()] + g3_parts("fore"))
     return M, (c[0], c[2]), _mat_to_full(I)
 
 
@@ -194,7 +232,7 @@ def rear():
     m = M101["rear_mass"]
     c = np.array([M101["rear_com"][0], 0.0, M101["rear_com"][1]])
     I = _full_to_mat(M101["rear_inertia"])
-    M, cc, II = combine([(m, c, I), tail_motor(), tail()])
+    M, cc, II = combine([(m, c, I), tail_motor(), tail()] + g3_parts("hind"))
     return M, (cc[0], cc[2]), _mat_to_full(II)
 
 
@@ -251,9 +289,10 @@ def report():
              1000 * mm, 1000 * mc[0], 1000 * mc[2]))
     moved = mm + Mt
     mid = M101["segment_mass_mid"]
-    k = (mid - moved) / mid
-    print("  %.4f kg leaves segment_mass[1]: %.4f -> %.4f  (the budget pays "
-          "for both out of the structure allowance)" % (moved, mid, mid - moved))
+    g3 = spine_g3_kg()
+    k = (mid - moved + g3) / mid
+    print("  %.4f kg leaves segment_mass[1] and the spine's six G3 add %.4f: "
+          "%.4f -> %.4f" % (moved, g3, mid, mid - moved + g3))
     print("  segment_inertia[1] scales by %.5f -> (%s)"
           % (k, ", ".join("%.4e" % (v * k) for v in M101["segment_inertia_mid"])))
     print("\n  %s" % ("girdle checks pass" if ok else "*** SEE ABOVE ***"))

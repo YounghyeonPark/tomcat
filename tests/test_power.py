@@ -102,15 +102,15 @@ def test_NFR6_is_MET_once_the_arms_are_right():
     The history of this number is the history of the corrections: ~30
     published -> 25.2 (mass + spool) -> 19.6 (three-phase copper) -> 18.85
     -> 19.39 (measured leg inertia) -> 18.81 (M93) -> 12.71 (capstan friction,
-    M107/M108) -> **21.66** (36/34/22 arms, M111).
+    M107/M108) -> 21.66 (36/34/22 arms, M111) -> **21.12** (G3 carried, M120).
 
     The arms are a reduction: the same joint torque at 1/r the cable tension,
     and copper goes as its square. That recovers more than friction cost.
     """
     r = power.runtime(_trot())
-    assert r["trot_minutes"] == pytest.approx(21.66, abs=0.4)
+    assert r["trot_minutes"] == pytest.approx(21.12, abs=0.4)
     assert r["trot_minutes"] > 14.0, "back under NFR6's floor"
-    assert r["trot_range_m"] == pytest.approx(650.0, abs=15.0)
+    assert r["trot_range_m"] == pytest.approx(634.0, abs=15.0)   # M120: 650 -> 634
     assert r["trot_range_m"] > 420.0
     assert r["battery_wh"] == pytest.approx(
         power.BATTERY_KG * power.BATTERY_WH_PER_KG * power.BATTERY_USABLE)

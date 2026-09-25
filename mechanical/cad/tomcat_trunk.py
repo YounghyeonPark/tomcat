@@ -53,6 +53,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(HERE), "..", "kinematics", "src"
 
 import tomcat_packaging as TP                                    # noqa: E402
 import tomcat_leg_detail as LD                                   # noqa: E402
+import g3_flexure as G3F                                         # noqa: E402
 from tomcat_kin.params import DEFAULT_SPINE as SP                # noqa: E402
 
 MM = 1000.0
@@ -66,6 +67,20 @@ HIP_BORE, HIP_OD, HIP_W = LD.BEARING["hip"]
 BOSS_WALL = LD.BOSS_WALL
 TONGUE_T = 6.0
 ROW_L = TP.MOTOR_L + TP.SPOOL_L                     # 44.1 mm
+#: ⚠️ **M120: G3 is in the row.** ADR-0051 put the series spring between
+#: rotor and spool and ADR-0107 made it a flexure, but no row had ever been
+#: longer than motor + spool. It is now, by the flexure plus its clearances --
+#: 3.66 mm on a leg row, 2.43 on a spine row -- and the bodies are NOT
+#: lengthened: `BODIES` below still sizes on `ROW_L`, and `report()` checks
+#: the longer rows fit inside them with their bulkhead pads. The tail's motor
+#: shares a hind row and gets the hind length; it has no G3 of its own.
+G3_STACK = {r: G3F.stack("spine" if r == "spine" else "leg")
+            for r in ("hind", "fore", "spine")}
+
+
+def row_len(role: str) -> float:
+    """A row's length along x: motor, G3 and spool, mm."""
+    return ROW_L + G3_STACK.get(role, 0.0)
 Z0 = SP.girdle_offset_z * MM
 
 #: Solved symmetric layouts: (centres, outer half-width) for a row of N.
@@ -161,15 +176,15 @@ BODIES = {
 }
 
 
-def _row_x(body, frac):
+def _row_x(body, frac, role):
     x0, x1 = BODIES[body]
-    return x0 + ROW_L / 2 + _PAD + frac * max(
-        (x1 - x0) - ROW_L - 2 * _PAD, 0.0)
+    L = row_len(role)
+    return x0 + L / 2 + _PAD + frac * max((x1 - x0) - L - 2 * _PAD, 0.0)
 
 
 def _rows():
     """(name, body, absolute x, motors) with the fractions resolved."""
-    return [(nm, b, _row_x(b, f), n, r) for (nm, b, f, n, r) in LAYOUT]
+    return [(nm, b, _row_x(b, f, r), n, r) for (nm, b, f, n, r) in LAYOUT]
 
 
 def _hw(name):
@@ -323,7 +338,7 @@ def _bulkhead_x(body: int):
         if b != body:
             continue
         for sx in (-1.0, 1.0):
-            xb = x + sx * (ROW_L / 2 + BULKHEAD_T / 2)
+            xb = x + sx * (row_len(_r) / 2 + BULKHEAD_T / 2)
             xs.append((min(max(xb, x0 + BULKHEAD_T), x1 - BULKHEAD_T), n))
     xs.sort()
     keep = []
@@ -380,7 +395,7 @@ def bulkheads(body: int):
         slab = Pos(xb, 0, Z_DORSAL) * Box(BULKHEAD_T, 400, 400)
         cap = solid & slab
         row = [r for (_nm, b, x, r, _ro) in _rows()
-               if b == body and abs(x - xb) < ROW_L]
+               if b == body and abs(x - xb) < row_len(_ro)]
         for k in set(row):
             for (y, z) in ROWS[k][0]:
                 cap -= (Pos(xb, y, _zc(xb) + z)
@@ -397,7 +412,7 @@ def _unused_bulkheads(body: int):
         if b != body:
             continue
         for sx in (-1.0, 1.0):
-            xb = x + sx * (ROW_L / 2 + BULKHEAD_T / 2)
+            xb = x + sx * (row_len(_r) / 2 + BULKHEAD_T / 2)
             xb = min(max(xb, x0 + BULKHEAD_T), x1 - BULKHEAD_T)
             # ⚠️ Sized to the SHELL's local inner surface, not to the row's own
             # section. The shell tapers between rows, so a bulkhead cut to the
@@ -602,16 +617,24 @@ def process_clearance(body: int):
 
 def rigid_body(body: int):
     g = body_shell(body)
-    for i, c in enumerate(bulkheads(body)):
-        g = _fuse(g, c, "body %d bulkhead %d" % (body, i))
     for i, h in enumerate(hip_bosses(body)):
         g = _fuse(g, h, "body %d hip boss %d" % (body, i))
     # ⚠️ cut the cable clearance BEFORE the posts go in, or the post arrives
     # tangent to the wall and the fuse is the one that eats the body.
-    for v in process_clearance(body):
+    clear = process_clearance(body)
+    for v in clear:
         g = g - v
     for i, j in enumerate(joint_parts(body)):
         g = _fuse(g, j, "body %d joint part %d" % (body, i))
+    # ⚠️ M120: the bulkheads go in LAST, each with the cable clearance already
+    # cut from it. G3 lengthened body 1's row by 2.4 mm, its end bulkhead came
+    # to overlap a process post by 0.36 mm, and the post's fuse destroyed the
+    # body. Cut first, the bulkhead keeps 1.5 mm off the post -- and the cable
+    # clearance, which a bulkhead fused after the cut would have filled again.
+    for i, c in enumerate(bulkheads(body)):
+        for v in clear:
+            c = c - v
+        g = _fuse(g, c, "body %d bulkhead %d" % (body, i))
     return g
 
 
@@ -639,21 +662,25 @@ def report():
                  "%d %s" % (len(sol), "" if len(sol) == 1 else "***"),
                  v * 1.2e-3))
     # every motor must lie inside its own body
-    for b in sorted(BODIES):
+    # ⚠️ M120: with its bulkhead pads, since the rows grew by G3 and the
+    # bodies did not
+    for (_nm, b, x, _n, ro) in _rows():
         x0, x1 = BODIES[b]
-        for (x, _y, _z, _r) in motors(b):
-            if not (x0 - 1e-6 <= x - ROW_L / 2 and x + ROW_L / 2 <= x1 + 1e-6):
-                print("  *** a motor at x=%.1f straddles body %d (%.0f..%.0f)"
-                      % (x, b, x0, x1))
-                ok = False
+        h = row_len(ro) / 2 + _PAD
+        if not (x0 - 1e-6 <= x - h and x + h <= x1 + 1e-6):
+            print("  *** a row at x=%.1f straddles body %d (%.0f..%.0f)"
+                  % (x, b, x0, x1))
+            ok = False
 
     # ⚠️ no two motors may interpenetrate
-    allm = [(x, y, z) for b in BODIES for (x, y, z, _r) in motors(b)]
+    allm = [(x, y, _zc(x) + z, row_len(ro)) for (_nm, _b, x, n, ro) in _rows()
+            for (y, z) in ROWS[n][0]]
     for i in range(len(allm)):
         for j in range(i + 1, len(allm)):
-            xi, yi, zi = allm[i]
-            xj, yj, zj = allm[j]
-            if abs(xi - xj) < ROW_L - 1e-6 and math.hypot(yi - yj, zi - zj) < 2 * R:
+            xi, yi, zi, li = allm[i]
+            xj, yj, zj, lj = allm[j]
+            if (abs(xi - xj) < (li + lj) / 2 - 1e-6
+                    and math.hypot(yi - yj, zi - zj) < 2 * R):
                 print("  *** motors overlap: (%.0f,%.0f,%.0f) and (%.0f,%.0f,%.0f)"
                       % (xi, yi, zi, xj, yj, zj))
                 ok = False

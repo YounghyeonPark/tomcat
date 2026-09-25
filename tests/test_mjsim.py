@@ -572,7 +572,46 @@ def test_the_envelope_is_horizon_limited_and_must_be_converged(controller):
         f"converged envelope {1000 * long:.1f} mm exceeds the viability bound "
         f"{1000 * per[120]:.1f} mm -- no controller can do that, so one of them is wrong"
     )
-    assert long > 0.7 * bound, "the controller should still be within ~30 % of optimal"
+    # ⚠️ M120: `long > 0.7 * bound` ("within ~30 % of optimal") is withdrawn.
+    # Survival is NOT monotonic in the push, so a bisection's answer depends on
+    # which pushes it happens to try -- see the next test. It passed at 31.1 mm
+    # before M120 and read 16.3 after G3's 85.6 g on the same holed boundary.
+    assert bound > 0.0
+
+
+def test_survival_has_HOLES_so_no_bisection_measures_an_envelope(controller):
+    """⚠️ **M120, and it undercuts every bisected envelope in this file.**
+    Asserts the defect.
+
+    Scanned finely at 120 deg, the robot survives a 25.8 mm push and falls at
+    15.3 mm; at 300 deg (pre-M120 params) it fell at 8.4 mm and survived 18.8.
+    Undisturbed it trots 68 steps without falling, so this is not instability:
+    the survivable set has holes, and a bisection assumes it has none. The
+    envelope that means something -- the largest push below which EVERY push
+    survives -- is ~12 mm here, a third of the viable bound, not the 89 % a
+    bisection reported. Defining and measuring it is `[owed]`; until then the
+    envelopes above are upper bounds of unknown slack.
+    """
+    import math
+
+    model = mjsim.build(controller, mujoco, kp=80)
+    h = mjsim.BalanceHarness(controller, mujoco, model)
+    u = np.array([math.cos(math.radians(120)), math.sin(math.radians(120))])
+
+    def survives(d):
+        data = h.reset()
+        _hist, fell = h.run(data, steps=4)
+        assert not fell
+        hist, fell = h.run(data, steps=16, disturbance=d * u)
+        return not fell and len(hist) == 16
+
+    # the scan's own pushes, m/s: 0.185 -> 25.8 mm, 0.110 -> 15.3 mm. ⚠️ The
+    # boundary is SHARP -- the same pushes rounded through millimetres flip.
+    assert survives(0.185), "the larger push survives"
+    assert not survives(0.110), (
+        "the smaller push now survives too -- if the boundary has no holes left, "
+        "the bisected envelopes are measurements again"
+    )
 
 
 def test_the_sim_SURVIVES_past_the_viable_bound_in_its_TIGHTEST_direction(controller):

@@ -40,7 +40,8 @@ def test_the_spec_torque_table_is_stale_by_the_WHOLE_mass_history(loads):
     | 4.045 kg (ADR-0010) | 16.67 N·m | 1.35 |
     | 4.3041 kg (ADR-0046) | 17.73 N·m | 1.43 |
     | 4.3833 kg (ADR-0093) | 18.06 N·m | 1.46 |
-    | **4.4684 kg (ADR-0103, M111)** | **18.41 N·m** | **1.49** |
+    | 4.4684 kg (ADR-0103, M111) | 18.41 N·m | 1.49 |
+    | **4.5540 kg (ADR-0111, M120, G3)** | **18.76 N·m** | **1.52** |
 
     The ratio tracks the body mass exactly, which is what proves §1.1 is simply a
     stale snapshot rather than a different calculation. §2 *was* re-run at 4.045 kg
@@ -48,12 +49,12 @@ def test_the_spec_torque_table_is_stale_by_the_WHOLE_mass_history(loads):
     milestone's correction became the next one's staleness.
     """
     tau, T = loads["land"]["tau"][0], loads["land"]["T"][0]
-    assert tau == pytest.approx(18.41, abs=0.05)
+    assert tau == pytest.approx(18.76, abs=0.05)
     # ⚠️ M111: the tension FELL while the torque rose, 650 -> 516 N -- the
     # 36 mm hip arm carries the same torque on less cable. Torque tracks mass;
     # tension tracks mass over arm, so it is no longer a pure mass snapshot.
-    assert T == pytest.approx(516.4, abs=2.0)
-    assert tau / 12.36 == pytest.approx(4.4684 / 3.0, rel=0.02), (
+    assert T == pytest.approx(526.2, abs=2.0)          # M120: 516.4 -> 526.2
+    assert tau / 12.36 == pytest.approx(4.5540 / 3.0, rel=0.02), (
         "the discrepancy should be exactly the body-mass ratio; if it is not, "
         "something other than body mass moved and this needs re-diagnosing"
     )
@@ -97,8 +98,11 @@ def test_the_shipped_tube_sections_do_NOT_make_SF_2_at_the_live_loads(loads):
     # ⚠️ M111: the metatarsus 2.97 -> 3.72. Bending grew with the body, but
     # the 22 mm ankle arm cut the cable tension -- and with it the torsion the
     # sheave's lateral offset puts into the tube -- by more.
-    assert got[0] == pytest.approx(2.59, abs=0.06)
-    assert got[2] == pytest.approx(3.72, abs=0.05)
+    # ⚠️ M120: G3's 85.6 g takes the femur 2.59 -> 2.54, 0.04 above the 2.5
+    # line -- the thinnest margin in the leg, and the next mass increase
+    # crosses it.
+    assert got[0] == pytest.approx(2.54, abs=0.03)
+    assert got[2] == pytest.approx(3.65, abs=0.05)
 
 
 def test_one_step_up_in_stock_tube_restores_the_margin_cheaply():

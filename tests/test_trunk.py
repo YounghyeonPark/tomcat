@@ -145,7 +145,11 @@ def test_the_structure_mass_is_inside_the_budget_the_model_implies():
     computed here from `SpineParams`, so neither can drift from the model again.
     """
     struct = sum(_vol(T.rigid_body(b)) for b in sorted(T.BODIES)) * 1.2e-3
-    budget = T.SP.trunk_mass * T.MM - 18 * 131.7 - 240.0
+    # ⚠️ M120: the trunk now carries eighteen G3 flexures, which are not
+    # structure; left in, they would hand the shell 85.6 g it was never given.
+    from tomcat_kin.params import DEFAULT_SPINE as _SP
+    g3 = 12 * T.G3F.mass_g() + 6 * T.G3F.mass_g(_SP.series_k)
+    budget = T.SP.trunk_mass * T.MM - 18 * 131.7 - 240.0 - g3
     assert budget == pytest.approx(1024.4, abs=0.5)
     assert struct < budget, "structure %.0f g over the %.0f g budget" % (struct, budget)
     assert struct > 300.0, (

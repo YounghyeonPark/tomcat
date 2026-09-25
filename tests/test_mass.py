@@ -75,7 +75,7 @@ def _symmetric_trunk_body(leg_mass=0.0):
 def test_default_body_totals_the_load_case_body_mass():
     # The apportionment in params.py is built to reproduce the 3.0 kg that every
     # LoadCase / WholeBodyLoadCase already assumed.
-    assert DEFAULT_BODY_MASS_KG == pytest.approx(4.4684, abs=1e-9)  # ADR-0093 -> M111 (ADR-0103)
+    assert DEFAULT_BODY_MASS_KG == pytest.approx(4.55397, abs=1e-9)  # M111 -> M120 (ADR-0111, G3)
     assert _body().total_mass == pytest.approx(LoadCase("x").body_mass_kg, abs=1e-9)
 
 
@@ -157,7 +157,7 @@ def test_fore_hind_split_is_near_balanced_not_sixty_forty():
     # change was symmetric — which is itself the point: the split is set by the
     # girdles and the head, not by the limbs.
     q = _body().mass_budget()
-    assert q.total == pytest.approx(4.4684, abs=1e-9)   # M111
+    assert q.total == pytest.approx(4.55397, abs=1e-9)   # M120
     assert q.fore + q.hind == pytest.approx(q.total, abs=1e-12)
     assert q.fore_fraction == pytest.approx(0.543, abs=0.02)
     assert q.hind_fraction == pytest.approx(0.457, abs=0.02)
@@ -347,7 +347,7 @@ def test_symmetric_body_with_legs_shifts_by_exactly_the_leg_offset():
 def test_default_com_sits_forward_of_mid_body_because_the_cat_is_front_heavy():
     body = _body()
     c = body.center_of_mass(STRAIGHT, STAND)
-    assert c.mass == pytest.approx(4.4684)   # M111
+    assert c.mass == pytest.approx(4.55397)   # M120
     # Forward of the mid-spine point, but still between the two girdles.
     assert c.x > DEFAULT_SPINE.total_length / 2.0
     assert 0.0 < c.x < DEFAULT_SPINE.total_length
@@ -477,13 +477,17 @@ def test_actuation_mass_matches_the_downselected_motor_and_count():
     # 132 g each (motor + integrated driver), not a class target.
     from tomcat_kin.params import DEFAULT_SPINE as sp
     unit = 0.132          # SteadyWin GIM3505-9: 120 g motor + integrated driver
-    assert sp.front_girdle_mass == pytest.approx(6 * unit + 0.240 + 0.090, abs=1e-9)
+    # ⚠️ M120: plus six leg G3 flexures at 5.20 g (ADR-0111), placed by
+    # `girdle_inertia.g3_parts` -- the head, placed, moved nothing.
+    assert sp.front_girdle_mass == pytest.approx(
+        6 * unit + 0.240 + 0.090 + 0.03118, abs=2e-5)
     # ⚠️ **Seven, not six.** M102 put the 19th motor on this girdle -- the one
     # ADR-0096 bought for the tail and placed on trunk body 0, which this model
     # had never heard of -- plus the 9.8 g tail it drives. Both come out of the
     # structure allowance, so the body total does not move.
-    assert sp.rear_girdle_mass == pytest.approx(7 * unit + 0.110 + 0.0098,
-                                                abs=1e-9)
+    # M120: and its six leg G3 flexures, as on the front.
+    assert sp.rear_girdle_mass == pytest.approx(7 * unit + 0.110 + 0.0098
+                                                + 0.03118, abs=2e-5)
     # The pelvis is now the LIGHTER girdle: the spine/tail bank left it for the
     # mid-body bay, which is where the CAD packaging actually puts those motors.
     assert sp.rear_girdle_mass < sp.front_girdle_mass
@@ -496,8 +500,9 @@ def test_actuation_mass_matches_the_downselected_motor_and_count():
     # the rear girdle, which is where body 0 maps. What stays here is the
     # battery, the structure allowance and the six SPINE motors -- less the
     # 9.8 g of tail foam, which the same structure allowance pays for.
+    # M120: and the six spine G3 flexures, 3.86 g each.
     assert sp.segment_mass[1] == pytest.approx(
-        0.130 - 0.0098 + 0.300 + 6 * unit, abs=1e-9)
+        0.130 - 0.0098 + 0.300 + 6 * unit + 0.0232, abs=2e-5)
 
 
 def test_total_matches_the_revised_NFR5_target():
@@ -506,4 +511,4 @@ def test_total_matches_the_revised_NFR5_target():
     # target, and 19 of them do not fit inside 3 kg. See the motor-reality-check
     # note. A domestic cat is 4-5 kg, so the new figure is if anything more
     # biomimetic -- but it was forced by hardware, not chosen.
-    assert _body().mass_budget().total == pytest.approx(4.4684, abs=1e-9)   # M111
+    assert _body().mass_budget().total == pytest.approx(4.55397, abs=1e-9)   # M120

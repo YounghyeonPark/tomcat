@@ -141,7 +141,8 @@ def test_NFR6s_runtime_SURVIVES_once_the_arms_are_right(duty):
     | shipped model, everything folded in (M41) | 18.85 min |
     | redesigned leg (M93) | 18.81 min |
     | capstan friction counted (M107, corrected M108) | 12.71 / 8.78 min |
-    | **36/34/22 arms, body 4.468 kg (M111)** | **21.66 / 16.04 min** |
+    | 36/34/22 arms, body 4.468 kg (M111) | 21.66 / 16.04 min |
+    | **G3 carried, body 4.554 kg (M120)** | **21.12 / 15.60 min** |
 
     ✅ The arms are a REDUCTION: the same joint torque at 1/r the cable
     tension, so copper -- which goes as current squared -- roughly halves. The
@@ -153,8 +154,8 @@ def test_NFR6s_runtime_SURVIVES_once_the_arms_are_right(duty):
     pess = MR.gait_duty(MR.SPEC["vendor_kt"], MR.SPOOL_SPEC)
     t_opt = 60.0 * wh / opt["total_w"]
     t_pess = 60.0 * wh / pess["total_w"]
-    assert t_opt == pytest.approx(21.66, abs=0.4)
-    assert t_pess == pytest.approx(16.04, abs=0.4)
+    assert t_opt == pytest.approx(21.12, abs=0.4)
+    assert t_pess == pytest.approx(15.60, abs=0.4)
     assert t_pess > 14.0, "the pessimistic corner is back inside NFR6"
     assert t_opt < 30.0, "if this clears 30 min again, NFR6 was re-derived"
     assert t_pess / t_opt < 0.80, "the Kt question alone is worth >20 % of runtime"
@@ -169,10 +170,11 @@ def test_the_robot_is_more_than_half_motor_by_mass():
     """
     m = MR.mass_fraction(MR.BODY_M38)
     assert m["motors_kg"] == pytest.approx(2.502, abs=0.002)
-    assert m["frac"] > 0.55
+    assert m["frac"] > 0.5, "more than half the body is motor"
     # ⚠️ M93: the structure grew but the motor count did not, so the motors'
     # share FALLS, 0.581 -> 0.571; M111's heavier sheaves take it to 0.560.
-    assert m["frac"] == pytest.approx(0.560, abs=0.005)
+    # M120: G3's 85.6 g takes it to 0.549.
+    assert m["frac"] == pytest.approx(0.549, abs=0.005)
     assert m["rest_kg"] > 1.5, "there must be room left for the structure"
     stale = 19 * 0.072 / 3.0
     assert stale == pytest.approx(0.456, abs=0.002), "ADR-0008's basis, reproduced"
@@ -328,7 +330,8 @@ def test_the_runtime_bracket_is_SIXTEEN_to_TWENTY_TWO_minutes():
     | Kt 0.44, redesigned leg (M93) | 18.81 min |
     | Kt 0.35, same | 13.58 min |
     | capstan friction counted (M107/M108) | 12.71 / 8.78 min |
-    | **36/34/22 arms (M111)** | **21.66 / 16.04 min** |
+    | 36/34/22 arms (M111) | 21.66 / 16.04 min |
+    | **G3 carried (M120)** | **21.12 / 15.60 min** |
 
     ✅ Both corners now sit inside or above NFR6's re-stated 14-20 min. The
     bracket is still ~26 % wide, and that width is ADR-0044's unresolved Kt.
@@ -338,8 +341,8 @@ def test_the_runtime_bracket_is_SIXTEEN_to_TWENTY_TWO_minutes():
     lo = MR.gait_duty_rigorous(MR.SPEC["vendor_kt"], three_phase=True)
     t_hi = 60.0 * wh / hi["total_w"]
     t_lo = 60.0 * wh / lo["total_w"]
-    assert t_hi == pytest.approx(21.66, abs=0.4)
-    assert t_lo == pytest.approx(16.04, abs=0.4)
+    assert t_hi == pytest.approx(21.12, abs=0.4)
+    assert t_lo == pytest.approx(15.60, abs=0.4)
     assert t_lo > 14.0, "both corners clear NFR6's re-stated floor"
     assert t_hi < 30.0, "NFR6's published ~30 min does not survive either corner"
 

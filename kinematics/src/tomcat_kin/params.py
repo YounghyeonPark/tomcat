@@ -401,9 +401,14 @@ class TendonParams:
     # tangent points, so the wraps move with the arm: hip 135.6/239.4 ->
     # 148.3/255.6, ankle 152.8/239.2 -> 147.0/243.9. ADR-0103's 1.827 N.m was
     # computed on these, not on the 28/25/14 ones.
-    pair_wrap: tuple = ((2.5878, 4.4606),     # hip   148.3 / 255.6 deg
-                        (2.5026, 2.5707),     # knee  143.4 / 147.3 deg
-                        (2.5663, 4.2560))     # ankle 147.0 / 243.9 deg
+    #
+    # ⚠️ **M120: re-solved again, because G3 lengthened the rows** and moved
+    # every spool centre ~1.8 mm along x (ADR-0111). Hip 148.3 -> 145.7,
+    # ankle extensor 243.9 -> 243.5: a little LESS wrap on five of the six
+    # cables (the knee flexor gains 0.05 deg).
+    pair_wrap: tuple = ((2.5432, 4.4336),     # hip   145.7 / 254.0 deg
+                        (2.5035, 2.5657),     # knee  143.4 / 147.0 deg
+                        (2.5603, 4.2500))     # ankle 146.7 / 243.5 deg
 
     # Series cable compliance: model the tendon as a linear spring of stiffness
     # k_cable (N/m). Under tension T it stretches dL = T / k_cable, so the motor
@@ -553,7 +558,10 @@ class SpineParams:
     # ADR-0096 pays for them out of the structure allowance, which is what this
     # segment carries, so the body total does not move. They now sit on the
     # REAR girdle, where `tomcat_trunk` actually places them.
-    segment_mass: tuple[float, ...] = (0.130, 1.2122, 0.127)
+    #
+    # ⚠️ **M120: the spine's six G3 flexures ride it too**, 6 x 3.86 g = 23.2 g,
+    # which ADR-0107 priced and nothing carried. `[derived: cad/girdle_inertia.py]`
+    segment_mass: tuple[float, ...] = (0.130, 1.2354, 0.127)
 
     # Fraction along each segment (from its INBOARD/rear vertebra) at which that
     # segment's mass acts. 0.5 = uniform rod.  ❓ TBD
@@ -574,8 +582,10 @@ class SpineParams:
     # the 19th, which ADR-0096 placed on trunk body 0 and this model had never
     # heard of -- and the tail itself. The front girdle's mass does not move:
     # the head was always inside it, just never anywhere in particular.
-    front_girdle_mass: float = 1.122
-    rear_girdle_mass: float = 1.0438
+    #: ⚠️ **M120: each girdle carries its six leg G3 flexures**, 6 x 5.20 g,
+    #: between motor and spool (ADR-0107, drawn in `g3_flexure.py`).
+    front_girdle_mass: float = 1.15318
+    rear_girdle_mass: float = 1.07499
 
     #: Girdle housing, full extents (m), and the height of its centre above the
     #: girdle mount vertebra.
@@ -660,8 +670,9 @@ class SpineParams:
     # carries the whole front girdle **+32.0 mm forward and +20.4 up**. The
     # rear girdle moves **-12.0 and +4.5** under the tail and its motor.
     # `[derived: cad/girdle_inertia.py]`
-    front_girdle_com: tuple[float, float] = (0.02738, 0.03775)
-    rear_girdle_com: tuple[float, float] = (-0.01771, 0.02055)
+    # M120 adds the leg G3 at the motor bank and moves both a fraction of a mm.
+    front_girdle_com: tuple[float, float] = (0.02699, 0.03723)
+    rear_girdle_com: tuple[float, float] = (-0.01844, 0.02048)
 
     #: MJCF `fullinertia` about each girdle's CoM, in its own frame
     #: (ixx iyy izz ixy ixz iyz, kg m²).
@@ -689,10 +700,11 @@ class SpineParams:
     #: head-as-housing-lump out of the old front girdle and what is left is the
     #: rear girdle plus 20 g of structure, agreeing to 0.5 % on Ixz.
     #: `[derived: cad/girdle_inertia.py]`
+    #: M120: with the leg G3 flexures (`girdle_inertia.g3_parts`).
     front_girdle_inertia: tuple[float, ...] = (
-        3.1965e-03, 8.2412e-03, 5.9389e-03, 0.0, -3.2340e-03, -1.7442e-05)
+        3.2328e-03, 8.2884e-03, 5.9788e-03, 0.0, -3.2408e-03, -1.7442e-05)
     rear_girdle_inertia: tuple[float, ...] = (
-        1.0596e-03, 2.0030e-03, 1.7949e-03, 0.0, 5.0784e-04, -1.7442e-05)
+        1.0846e-03, 2.0325e-03, 1.8283e-03, 0.0, 5.0023e-04, -1.7442e-05)
 
     #: Per-segment `fullinertia`, or `None` to derive it from the segment box.
     #:
@@ -707,7 +719,7 @@ class SpineParams:
     #: geometry did not change, so the tensor scales with the mass it holds.
     segment_inertia: tuple[tuple[float, ...] | None, ...] = (
         None,
-        (1.2632e-03, 1.2632e-03, 9.8856e-04, 4.7859e-05, 5.6811e-05, 5.6811e-05),
+        (1.2874e-03, 1.2874e-03, 1.0075e-03, 4.8773e-05, 5.7897e-05, 5.7897e-05),
         None,
     )
 
@@ -758,7 +770,8 @@ class LoadCase:
      # -- 186.7 g) -> **4.4684** (ADR-0103/M111, the 36/34/22 sheaves the
      # fore leg's load needed: +21 g per leg, 208 g). Kept in sync with
      # DEFAULT_BODY_MASS_KG by test_mass.py.
-    body_mass_kg: float = 4.4684
+    # -> **4.55397** (ADR-0111/M120, the eighteen G3 flexures: 85.6 g).
+    body_mass_kg: float = 4.55397
     n_stance_legs: int = 2             # legs sharing the load (e.g. trot => 2).
     dynamic_factor: float = 1.5        # peak/static impact multiplier.  ❓ TBD
 

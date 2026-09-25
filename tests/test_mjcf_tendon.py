@@ -1058,8 +1058,9 @@ def test_the_pulley_transmission_is_ADR0008s_MOTOR_COUNT_and_ADR0042s_MAP():
     quad = mujoco.MjModel.from_xml_string(MT.quadruped_rig(
         hip_height=0.176, pulley=True, ankle_pair=True))
     assert quad.nu == 12, "ADR-0008's twelve leg motors"
-    # M111: 4.38328 -> 4.4684 (ADR-0103's sheaves), not this decision's doing
-    assert DEFAULT_BODY_MASS_KG == pytest.approx(4.4684, abs=1e-4), (
+    # M111: 4.38328 -> 4.4684 (ADR-0103's sheaves), M120: -> 4.55397 (G3,
+    # ADR-0111) -- neither this decision's doing
+    assert DEFAULT_BODY_MASS_KG == pytest.approx(4.55397, abs=1e-4), (
         "and params' body mass needs no change, which was the point"
     )
 
@@ -1879,9 +1880,10 @@ def test_the_TROT_LOAD_SPLIT_is_REAR_biased_and_params_SAID_SO():
     assert frac_fore < 0.5, "rear-biased, as params F2 says it must be"
 
     W = mass * 9.81
-    # M111: the body grew 4.383 -> 4.468 kg; the SPLIT did not move
-    assert W * frac_fore == pytest.approx(13.25, abs=0.3)
-    assert W * (1.0 - frac_fore) == pytest.approx(30.58, abs=0.5)
+    # M111: the body grew 4.383 -> 4.468 kg; the SPLIT did not move. M120:
+    # 4.468 -> 4.554 (G3), nor did it then.
+    assert W * frac_fore == pytest.approx(13.5, abs=0.3)
+    assert W * (1.0 - frac_fore) == pytest.approx(31.16, abs=0.5)
 
 
 def test_the_GAIT_holds_the_PAW_FLAT_so_the_ANKLE_DEMAND_HAS_NO_SHAPE():
@@ -3010,7 +3012,9 @@ def test_the_LATERAL_ARM_buys_COST_not_SWAY():
     # to hold a heavier forequarter, and it grew slightly with the head.
     # ⚠️ M111: 0.557 -> 0.566, the same drift for the same reason -- ADR-0103's
     # sheaves put 21 g more on each leg for the spine to carry sideways.
-    assert runs["plain60"]["raw_peak"] < 0.58 * runs["plain20"]["raw_peak"], (
+    # ⚠️ M120: 0.566 -> 0.583 -- G3 adds 31 g to each girdle and 23 g to the
+    # mid-body, the same drift again.
+    assert runs["plain60"]["raw_peak"] < 0.59 * runs["plain20"]["raw_peak"], (
         f"3x the arm must cut the demand: {runs['plain20']['raw_peak']:.1f} -> "
         f"{runs['plain60']['raw_peak']:.1f} N"
     )
@@ -4834,7 +4838,10 @@ def test_COMPLIANCE_costs_the_RIGHTING_a_FACTOR_OF_THREE_when_the_SPINE_has_it()
     # overloaded, which is the same trade the drop test shows: the head and the
     # tail give the spine more to work with AND more to hold.
     # ⚠️ M111: 6956 -> 7100 N, 32x the rating -- 21 g more per leg to swing over.
-    assert rigid_peak == pytest.approx(7100.0, rel=0.02)
+    # ⚠️ M120: 7100 -> 6022 N, 27x -- G3's 85.6 g, and it FELL. A saturated
+    # command's peak is a transient's, and this one has moved 15 % on 2 % of
+    # mass; the multiple of the rating is the finding, not the newtons.
+    assert rigid_peak == pytest.approx(6022.0, rel=0.02)
     assert rigid_peak > 20.0 * MT.TENSION_MAX
 
     # ⚠️ and with the spine spooled the same manoeuvre takes longer again
@@ -5063,7 +5070,9 @@ def test_ADR0073s_CABLE_MARGIN_was_bought_by_a_RIGID_TRUNK():
         # cable saturating is mass the spine must arrest, and at a shallow drop
         # it has the least time to do it. ADR-0073 called the spine's own
         # cables "the larger number"; they still are, by 8-16x.
-        assert r["spine"] > 7.5 * MT.TENSION_MAX, (
+        # ⚠️ M120: 1798 -> 1612 N at 0.30 m, 7.2x, under G3's mass -- the
+        # same fall as the righting peak's; the floor follows it.
+        assert r["spine"] > 7.0 * MT.TENSION_MAX, (
             f"spine demand {r['spine']:.0f} N at {h} m"
         )
     # ⚠️ **M92 REVERSED this.** The spine's own demand used to grow with drop
@@ -5075,7 +5084,8 @@ def test_ADR0073s_CABLE_MARGIN_was_bought_by_a_RIGID_TRUNK():
     # ⚠️ M102: the MINIMUM is 8.1x, at the 0.30 m drop -- barely above the
     # 8.0 this used to assert, so the bound is loosened to 7.5 rather than left
     # a percent from failing on noise. The shallow drops are 13-16x.
-    assert min(r["spine"] for r in peaks.values()) > 7.5 * MT.TENSION_MAX
+    # M120: 7.2x under G3's mass (1612 N), the same floor as the loop above.
+    assert min(r["spine"] for r in peaks.values()) > 7.0 * MT.TENSION_MAX
 
     # ⚠️ **but ONLY when the spine is held -- and M92 narrowed "held" a long
     # way.** On the belly-mounted spine the leg cable saturated at gain 0 AND at
@@ -5837,7 +5847,7 @@ def test_the_EXTENSOR_SIDE_was_never_solved_and_ADR0042s_RETRACTION_is_half():
     # no joint at all, so none of that wrap is coupling it has to carry -- it is
     # avoidable routing, and it is what saturates the trot in M106's budget.
     hip_ext = solved[("hip", -1)]
-    assert math.degrees(hip_ext["total_wrap"]) == pytest.approx(255.6, abs=1.0)   # M111: 36 mm
+    assert math.degrees(hip_ext["total_wrap"]) == pytest.approx(254.0, abs=1.0)   # M111: 36 mm; M120: G3 moved the spool
     assert hip_ext["capstan"] > 1.5, (
         f"the hip extensor ADR-0083 read as 1.014x: {hip_ext['capstan']:.3f}x"
     )

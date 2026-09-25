@@ -55,9 +55,10 @@ def test_the_body_mass_closes_ABOVE_NFR5(closed):
         "and params now agrees with the CAD -- if these diverge, one drifted"
     )
     # ⚠️ M111: 4.383 -> **4.468 kg**, the 36/34/22 sheaves (+21 g a leg).
-    assert closed["body"] == pytest.approx(4.468, abs=0.02)
-    # ⚠️ NFR5 (4.045 kg) is exceeded by 10.5 % now, was 8.4.
-    assert closed["body"] / old == pytest.approx(1.105, abs=0.01)
+    # ⚠️ M120: -> **4.554 kg**, the eighteen G3 flexures (ADR-0111).
+    assert closed["body"] == pytest.approx(4.554, abs=0.02)
+    # ⚠️ NFR5 (4.045 kg) is exceeded by 12.6 % now (10.5 at M111, 8.4 before).
+    assert closed["body"] / old == pytest.approx(1.126, abs=0.01)
 
 
 def test_the_spiral_still_CONVERGES_and_every_design_gate_holds(closed):
@@ -106,7 +107,8 @@ def test_the_MECHANISM_emits_a_MOTOR_SPEC_rather_than_fitting_one(closed):
     Ø34.5 x 36.1 mm and 131.7 g.
     """
     req = MC.motor_requirement(closed["rows"][-1])
-    assert req["peak"] == pytest.approx(1.825, abs=0.03)
+    # M120: 1.825 -> 1.859 under G3's 85.6 g -- 4.7 % under the proxy.
+    assert req["peak"] == pytest.approx(1.859, abs=0.03)
     # ⚠️ M115: 0.646 (worst pose) -> 0.624 N.m -- the larger of the stance hold
     # (0.495) and the walked trot's RMS (0.624, the fore ankle). Thermal is the
     # load actually carried.

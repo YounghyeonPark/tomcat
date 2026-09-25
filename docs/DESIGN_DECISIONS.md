@@ -8600,7 +8600,7 @@ The MuJoCo harness moved four numbers, and three of them moved the good way.
   without doing the same for the stand would leave the two inconsistent.
 
 ## ADR-0107: G3 is a bidirectional planar flexure at the spool, with a hard stop just past the motor's peak
-- **Status:** Accepted (form, material class and stop angles); drawn in M117
+- **Status:** Accepted (form, material class and stop angles); drawn in M117; **the drawing, its stop and its mass superseded by [ADR-0111](#adr-0111) (M120)**
 - **Context:** [ADR-0105](#adr-0105) fixed G3's rates — 125 kN/m on the leg
   cables, 150 kN/m on the spine — and left the part's form and hard stop open.
 
@@ -8830,6 +8830,81 @@ The MuJoCo harness moved four numbers, and three of them moved the good way.
     not fit them — `test_the_trot_has_never_fitted_the_proxy_on_SPEED`); the
     spec lives in `speed_routes` and this ADR until a part is chosen.
   - `test_motor_spec.py` asserts the swing finding and all three routes.
+
+
+## ADR-0111: G3 goes in the trunk — thinner, with its stop in the spool, and the body carries it
+- **Status:** Accepted
+- **Context:** M117 drew G3 (ADR-0107) as a part and left it out of the robot:
+  no row was longer than motor + spool, and its ~156 g was `[owed]` to the
+  mass budget. ADR-0107 had said the trunk had room — "16.4 mm spare per
+  two-row body and 6.9 mm in the one-row spine body 2".
+
+- **Findings:**
+
+  ⚠️ **It did not fit.** ADR-0107's spare left out the bulkhead pads (2.1 mm
+  each end of a row). With them a girdle body has **8.0 mm** for two rows and
+  spine body 2 **2.7 mm** for one. The M117 part needed 5.24 mm (leg, ×2 =
+  10.5) and 5.98 mm (spine): neither fitted.
+
+  ✅ **The arm WIDTH was a free choice, left with stress to spare.** Rate goes
+  as `T b³` and stop stress as `b`, so at a fixed stress the ACTIVE volume is
+  the energy — 714 mm³ leg, 595 spine — and the shape only trades width for
+  thickness. Widened to 95 % of the stop-stress bound (1.60 → 1.71 mm leg),
+  the leg part goes 3.74 → 3.06 mm; the spine, with two arms of a full turn
+  (`T ∝ 1/l²` at a fixed stress), 4.48 → 1.83 mm.
+
+  ✅ **The stop leaves the part.** It was a 1.5 mm layer of its own (three arms
+  sweep every angle, so it cannot share their plane). Now two hardened Ø2
+  dowels through the hub, at 90° to its two bolts, ride arc slots in the
+  spool's face — inside the spool's existing 8 mm. The landing's whole spool
+  torque on them: **602 N a pin, 192 MPa shear**; bearing 98 / 165 MPa in the
+  leg / spine hub.
+
+  | | leg | spine |
+  |---|---|---|
+  | arms × turns | 3 × 0.75 | 2 × 1.0 |
+  | arm, in-plane × axial | 1.71 × 3.06 mm | 2.71 × 1.83 mm |
+  | stop / trot stress (bounds 528 / 357) | 502 / 275 MPa | 502 / 275 MPa |
+  | radial gap between arms | 1.89 mm | 0.84 mm |
+  | in the row (± 0.3 mm clearance) | **3.66 mm** of 4.0 | **2.43 mm** of 2.7 |
+  | mass | **5.20 g** | **3.86 g** |
+
+  ⚠️ **Fusing it broke a body.** Body 1's longer row put its end bulkhead
+  0.36 mm into a process post, and the post's fuse destroyed the body
+  (`_fuse` caught it). The bulkheads now go in last with the cable clearance
+  already cut from them — 1.5 mm off the post, and the clearance kept.
+
+- **Decision:** G3 is in every leg and spine row (`tomcat_trunk.G3_STACK`,
+  `row_len`); the bodies are NOT lengthened. The mass is folded in:
+  **85.6 g** (12 × 5.20 + 6 × 3.86), leg parts on the girdles at their motors
+  (`girdle_inertia.g3_parts`), spine parts on `segment_mass[1]`.
+  **Body 4.4684 → 4.5540 kg.**
+
+- **Consequences:**
+  - Motor peak 1.825 → **1.859 N·m** (4.7 % under the proxy), continuous
+    0.624 → 0.635, speed unchanged at 665 rpm; runtime 21.66 / 16.04 →
+    **21.14 / 15.60 min**, range 650 → 634 m; hip landing
+    18.41 → 18.76 N·m at 526 N; the femur's SF 2.59 → **2.54**, 0.04 above
+    the 2.5 line — the thinnest margin in the leg.
+  - The longer rows moved every spool centre ~1.8 mm, so `pair_wrap` is
+    re-solved on the trunk's spools: hip 148.3 → 145.7°, less wrap on five of
+    six cables.
+  - The spine's saturated peaks FELL under the added mass — righting
+    7100 → 6022 N (27× the rating), the 0.30 m drop 1798 → 1612 N (7.2×): a
+    transient's peak moving 15 % on 2 % of mass. The multiple is the
+    finding; the newtons are not robust.
+  - `[owed]` — the spool: its arc slots, and its own bearing on the rotor
+    axis (the flexure carries torque only); which end of the row it is on
+    (`g3_parts` places G3 at row centre).
+  - `[owed]` — the spine part's 0.84 mm arm gap and the rate are beam theory:
+    FEA or a bench coupon before cutting.
+  - ⚠️ **Found on the way, and not G3's:** the balance sim's survival is not
+    monotonic in the push — at 120° it survives 25.8 mm and falls at 15.3 —
+    so every bisected envelope is an upper bound of unknown slack.
+    `test_mjsim` asserted "within 30 % of optimal" off a bisection; it passed
+    at 31.1 mm by the path the bisection took and read 16.3 after this
+    change on the same holed boundary. Withdrawn, and the holes asserted as a
+    defect. Re-defining the envelope is `[owed]`.
 
 ---
 
