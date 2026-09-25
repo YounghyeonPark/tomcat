@@ -8600,7 +8600,7 @@ The MuJoCo harness moved four numbers, and three of them moved the good way.
   without doing the same for the stand would leave the two inconsistent.
 
 ## ADR-0107: G3 is a bidirectional planar flexure at the spool, with a hard stop just past the motor's peak
-- **Status:** Accepted (form, material class and stop angles); the drawing is `[owed]`
+- **Status:** Accepted (form, material class and stop angles); drawn in M117
 - **Context:** [ADR-0105](#adr-0105) fixed G3's rates — 125 kN/m on the leg
   cables, 150 kN/m on the spine — and left the part's form and hard stop open.
 
@@ -8641,15 +8641,48 @@ The MuJoCo harness moved four numbers, and three of them moved the good way.
   per part, between rotor and spool, with angular stop lugs at the angles above.
 
 - **Consequences:**
-  - **Mass `[owed]`: ~100 g** — twelve leg and six spine parts at ~5.5 g —
-    not folded into `params.py`, which carries only CAD-measured masses. It will
-    move the body 4.468 → ~4.57 kg and the spiral with it when drawn.
+  - **Mass `[owed]`: ~156 g as drawn** (M117, below) — twelve leg parts at
+    8.26 g and six spine parts at 9.52 g, against ~100 g estimated here — not
+    yet folded into `params.py`. It will move the body 4.468 → ~4.62 kg and the
+    spiral with it.
   - Axial space: a ~4 mm disc plus lugs, ~5 mm per actuator. The trunk rows
     have 16.4 mm spare per two-row body and 6.9 mm in the one-row spine body 2 —
     it fits, tightly there.
   - The stop carries the landing's excess, ~2.3 N·m at the leg spool. Its
     impact is `[owed]`.
   - `test_g3_spring.py` asserts the four findings above.
+
+- **Drawn (M117, `mechanical/cad/g3_flexure.py`, `.step`/`.stl`):** one
+  Ti-6Al-4V piece — hub (bolted to the rotor), three Archimedean arms of 0.75
+  turn, a thin rim with three bolt ears (bolted to the spool), and the hard stop
+  in its own layer above the arms.
+
+  | | leg, 125 kN/m | spine, 150 kN/m |
+  |---|---|---|
+  | rate at the spool | 9.57 N·m/rad | 11.5 N·m/rad |
+  | envelope | Ø30 disc, 34 mm over the ears | same |
+  | arm, in-plane × axial | 1.60 × 3.74 mm, 45.6 mm long | 1.60 × 4.48 mm |
+  | stress at the stop / bound | 469 / 528 MPa | 391 / 528 MPa |
+  | stress, walked trot / bound | 257 / 357 MPa | 214 / 357 MPa |
+  | hard stop | ±13.4° (hub lugs 123°, rim lugs 30°) | ±11.2° |
+  | axial length | 5.24 mm | 5.98 mm |
+  | mass | **8.26 g** | **9.52 g** |
+
+  ⚠️ **The stop cannot share the arms' plane**: three arms of 0.75 turn sweep
+  every angle between hub and rim, so no hub feature can meet a rim feature
+  there. It sits 0.3 mm above the arms. The wide lugs are on the hub, where the
+  same free play costs a third of the material it would at the rim.
+
+  ⚠️ **The part is ~45 % over the energy estimate** (8.3 vs ~5.7 g): the arms
+  are the active 2.9 g, and the hub, rim, ears and stop layer are the rest.
+
+  ⚠️ **The rate is beam theory** (`k = N E T b³ / 12ℓ`, `σ = E b θ / 2ℓ`).
+  Clamped-clamped arms stiffen the real part; the rate is `[owed]` to an FEA
+  or a bench coupon before it is cut. The spine body 2 row (6.9 mm spare) keeps
+  0.9 mm after the 5.98 mm spine part.
+
+  `test_g3_flexure.py` asserts both stresses, the stop's free play, the spine
+  variant, and a valid single solid inside the 34.5 mm can at ~8.3 g.
 
 ## ADR-0108: standing is priced at the stance actually held, and the thermal worst case is the trot
 - **Status:** Accepted
