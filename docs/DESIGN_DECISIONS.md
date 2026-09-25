@@ -8599,6 +8599,58 @@ The MuJoCo harness moved four numbers, and three of them moved the good way.
   also priced at the worst reachable pose, so relaxing ADR-0008 for the trot
   without doing the same for the stand would leave the two inconsistent.
 
+## ADR-0107: G3 is a bidirectional planar flexure at the spool, with a hard stop just past the motor's peak
+- **Status:** Accepted (form, material class and stop angles); the drawing is `[owed]`
+- **Context:** [ADR-0105](#adr-0105) fixed G3's rates — 125 kN/m on the leg
+  cables, 150 kN/m on the spine — and left the part's form and hard stop open.
+
+- **Method:** by energy (`mechanical/cad/g3_spring.py`). A spring must store
+  `F²/2k` at its design load, and each form's material holds a bounded energy
+  per cubic millimetre before it yields or fatigues; the volume is the part.
+  Load cases from the plant: fatigue 0 → **140 N** every step (the walked
+  trot's worst cable, the hind ankle), working **222.9 N** (the motor's peak),
+  landing **516 N** (the hind hip's transient).
+
+- **Findings and decision:**
+
+  ✅ **The hard stop is what makes the spring buildable.** Without one the
+  spring absorbs the landing, **1.065 J** at 125 kN/m; with a stop at 1.15× the
+  motor's peak it holds **0.263 J** and the housing takes the landing. **Stop at
+  ±13.4° on the leg springs and ±11.2° on the spine** (working ±11.7° / ±9.7°).
+
+  ⚠️ **G3 cannot live in the cable line.** 125 N/mm over 2 mm of travel is too
+  stiff to wind: three or more active coils forces a wire over 4.6 mm, and no
+  helical compression spring fits even at 40 mm outside diameter. Rotated to the
+  spool the same energy is ±13° of twist, which is where ADR-0051's model already
+  put it — rotor, spring, spool.
+
+  ⚠️ **And it has to be BIDIRECTIONAL.** One spool drives a joint's pair
+  (ADR-0008's motor count), so the torque behind it reverses sense with the
+  loaded cable and the fatigue is fully reversed. A helical torsion spring — the
+  lightest form on a one-way load, 3.5 g, d 2.7 × D 11 × 1.6 turns — is strong
+  winding and weak unwinding. A planar torsional flexure is symmetric by
+  construction.
+
+  | flexure material | stress at stop, bound | leg G3 active / part | spine G3 |
+  |---|---|---|---|
+  | 17-4PH H1025 | 600 MPa, yield | 6.7 / ~13.5 g | 5.6 / ~11 g |
+  | **maraging C300** | 894 MPa, fatigue | **3.0 / ~6.0 g** | 2.5 / ~5.0 g |
+  | **Ti-6Al-4V** | 528 MPa, yield | **2.9 / ~5.7 g** | 2.4 / ~4.8 g |
+
+  **Decision: a planar torsional flexure in Ti-6Al-4V or maraging C300**, ~6 g
+  per part, between rotor and spool, with angular stop lugs at the angles above.
+
+- **Consequences:**
+  - **Mass `[owed]`: ~100 g** — twelve leg and six spine parts at ~5.5 g —
+    not folded into `params.py`, which carries only CAD-measured masses. It will
+    move the body 4.468 → ~4.57 kg and the spiral with it when drawn.
+  - Axial space: a ~4 mm disc plus lugs, ~5 mm per actuator. The trunk rows
+    have 16.4 mm spare per two-row body and 6.9 mm in the one-row spine body 2 —
+    it fits, tightly there.
+  - The stop carries the landing's excess, ~2.3 N·m at the leg spool. Its
+    impact is `[owed]`.
+  - `test_g3_spring.py` asserts the four findings above.
+
 ---
 
 ---
