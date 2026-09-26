@@ -1,5 +1,37 @@
 # mechanical/cad/
 
+## Current model (M120)
+
+![the whole robot](tomcat_whole.png)
+
+The robot as it is designed today. Every script reads `tomcat_kin`'s
+`params.py`, so CAD and simulation cannot drift; each writes its own STEP /
+PNG when run (`python mechanical/cad/<script>.py`; STLs are git-ignored).
+
+| script | what it draws | output |
+|---|---|---|
+| `tomcat_assembly.py` | the whole robot: four legs on the trunk, stance pose | `tomcat_whole.png` |
+| `tomcat_trunk.py` | four rigid bodies, 19 motors in rows along the trunk (M88), each leg and spine row motor + G3 + spool | `tomcat_trunk.png`, `_side.png` |
+| `tomcat_leg_detail.py` | one hind leg as parts: tubes, clevis joints, bearings, 36/34/22 mm sheaves (ADR-0103) | `tomcat_leg_detail.step`, `.png` |
+| `g3_flexure.py` | the series-elastic flexure between rotor and spool, leg and spine variants (ADR-0107/0111) | `g3_flexure.step`, `g3_flexure_spine.step`, `.png` |
+| `tomcat_head.py`, `tomcat_tail.py`, `tomcat_skin.py` | head and neck, tail, the skin cover | `.png` |
+| `girdle_inertia.py`, `link_inertia.py`, `mass_closure.py` | the masses and inertias `params.py` carries, derived from the drawn parts | printed |
+
+Body **4.554 kg**, 19 motors (the GIM3505-9 is a PROXY for envelope and mass;
+the spec it must meet is in ADR-0100/0110).
+
+⚠️ **Everything below this line is HISTORY** -- the July skeleton and
+packaging studies (`tomcat_skeleton.py`, `tomcat_packaging.py`,
+`render_views.py`) and the two-girdle study (`tomcat_girdle.py`) that
+`tomcat_trunk.py` replaced in M88. Their scripts and renders are kept as
+the record of how the layout was reached; their numbers (motor clusters,
+girdle boxes, 4.31 kg) are superseded and they are not re-exported.
+
+---
+
+## History: the skeleton and packaging studies (July 2026)
+
+
 The first **real 3D geometry** for T.O.M.C.A.T. — a parametric skeleton model
 built with [build123d](https://github.com/gumyr/build123d) (code-CAD on the
 OpenCascade kernel) and exported to STEP.

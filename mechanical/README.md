@@ -33,9 +33,11 @@ Scope:
   asymmetry, thorax vs lumbar.
 
 ## CAD
-- [cad/](cad/) — first **3D geometry**: a parametric build123d skeleton model
-  driven by the `tomcat_kin` dimensions, exported to STEP (`cad/tomcat_skeleton.step`)
-  with a rendered preview. A massing model, not yet a manufacturing model.
+- [cad/](cad/) — the build123d model, driven by `tomcat_kin`'s parameters: the
+  whole robot (`tomcat_assembly.py`), the trunk with its 19 motors
+  (`tomcat_trunk.py`), one leg as manufacturable parts (`tomcat_leg_detail.py`,
+  STEP), the G3 flexure (`g3_flexure.py`, STEP), head, tail and skin. The first
+  skeleton and packaging studies are kept there as history.
 
 ## Specs
 - [ASSEMBLY_SPEC.md](ASSEMBLY_SPEC.md) — **how it is built**: fabrication method

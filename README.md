@@ -151,8 +151,14 @@ every envelope rests on is wrong. **That is the next milestone.**
 
 | | |
 |---|---|
-| ![skeleton](mechanical/cad/views_skeleton.png) | ![packaging](mechanical/cad/views_packaging.png) |
-| Digitigrade legs, fore/hind asymmetry, articulated spine, ribcage | 19 motors in three clusters, tendon routing, joint pulleys |
+| ![the whole robot](mechanical/cad/tomcat_whole.png) | ![the trunk](mechanical/cad/tomcat_trunk.png) |
+| The robot as designed now (M120): digitigrade legs on a four-body trunk, head and tail | 19 motors in rows along the trunk, each leg and spine row carrying its G3 flexure |
+
+> The figures in the paragraphs below are from the M38–M40 review and have
+> moved since: the body is **4.554 kg** (ADR-0111), and the motor is a proxy
+> whose spec the mechanism emits (ADR-0100, ADR-0110). The July skeleton and
+> packaging studies this section used to show are kept in
+> [mechanical/cad/](mechanical/cad/) as history.
 
 **19 motors, 4.31 kg — and 58 % of that is motor.** The mass target has risen
 twice, both times because something assumed turned out to be purchasable: 3.0 →
@@ -192,7 +198,7 @@ air moves from an option to a requirement.
 
 ![leg detail](mechanical/cad/tomcat_leg_detail.png)
 
-The skeleton above is a *massing* model; this is the other kind. Bonded aluminium
+The first skeleton study was a *massing* model; this is the other kind. Bonded aluminium
 inserts with a modelled glue line, clevis joints with H7 bearing bores and h6
 shafts, turned sheaves whose groove pitch line **is** the tendon moment arm the
 kinematics model uses — so the CAD cannot drift from the torque budget. STEP and
