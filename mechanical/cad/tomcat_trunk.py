@@ -167,8 +167,20 @@ LAYOUT = [
 #: chain at the hip station: everything driving the hind legs has to live behind
 #: x = 0. Moving the first joint forward -- the sacrum-into-the-pelvis fix
 #: already named in `yoke()` -- is what shortens it.  `[owed]`
+#: ✅ **M122 (ADR-0112): the hind hips are 30 mm BEHIND spine joint 0.**
+#: The `[owed]` above, paid: the rear girdle now reaches past its hips to the
+#: first joint, so the hips sit in full section rather than on the neck, and
+#: the space between the hip and the joint is free for the knee and ankle
+#: cables to reach the hip axis. Body 0 grows by the offset; the hip-to-row
+#: geometry behind the hip is exactly what it was (`HIP_ROW_GAP`).
+REAR_HIP_X = SP.rear_hip_x * MM
+#: The front row of the rear girdle ends this far behind the hind hip -- the
+#: clearance it had when the hip was the body's end (half the joint gap plus
+#: a bulkhead pad).
+HIP_ROW_GAP = JOINT_GAP / 2 + _PAD
+
 BODIES = {
-    0: (-(NECK_SPAN + 2 * ROW_L + 4 * _PAD), -JOINT_GAP / 2),
+    0: (-(NECK_SPAN + 2 * ROW_L + 4 * _PAD) + REAR_HIP_X, -JOINT_GAP / 2),
     1: (JOINT_GAP / 2, 75.0 - JOINT_GAP / 2),
     2: (75.0 + JOINT_GAP / 2, 140.0 - JOINT_GAP / 2),
     3: (140.0 + JOINT_GAP / 2,
@@ -183,8 +195,18 @@ def _row_x(body, frac, role):
 
 
 def _rows():
-    """(name, body, absolute x, motors) with the fractions resolved."""
-    return [(nm, b, _row_x(b, f, r), n, r) for (nm, b, f, n, r) in LAYOUT]
+    """(name, body, absolute x, motors) with the fractions resolved.
+
+    `hind_a`, the rear girdle's front row, is placed from the HIND HIP rather
+    than by fraction: its end sits `HIP_ROW_GAP` behind it (M122)."""
+    out = []
+    for (nm, b, f, n, r) in LAYOUT:
+        if nm == "hind_a":
+            x = REAR_HIP_X - HIP_ROW_GAP - row_len(r) / 2
+        else:
+            x = _row_x(b, f, r)
+        out.append((nm, b, x, n, r))
+    return out
 
 
 def _hw(name):
@@ -325,6 +347,10 @@ def _hw_at(x):
     return pts[-1][1]
 
 
+#: Where an end bulkhead's centre is clamped: flush with the body's end.
+_END_BH = BULKHEAD_T / 2 + 0.05
+
+
 def _bulkhead_x(body: int):
     """Where the bulkheads go, deduplicated.
 
@@ -339,7 +365,13 @@ def _bulkhead_x(body: int):
             continue
         for sx in (-1.0, 1.0):
             xb = x + sx * (row_len(_r) / 2 + BULKHEAD_T / 2)
-            xs.append((min(max(xb, x0 + BULKHEAD_T), x1 - BULKHEAD_T), n))
+            # ⚠️ M122: clamped to `x0 + BULKHEAD_T` the end bulkhead spanned
+            # 0.8-2.4 mm in from the body's end, and `_PAD` starts the row at
+            # 2.1 -- 0.3 mm of bulkhead inside the row. Harmless while rows
+            # had 8 mm to spare; G3 (M120) filled them, and the hind ankle's
+            # spool (M122) sits at exactly that end. Flush with the end now,
+            # 0.05 in so the slab never shares the loft's end face.
+            xs.append((min(max(xb, x0 + _END_BH), x1 - _END_BH), n))
     xs.sort()
     keep = []
     for (xb, n) in xs:
@@ -353,16 +385,22 @@ def _bulkhead_x(body: int):
 LEG_BODY = {"hind": 0, "fore": 3}
 
 
-def leg_spools(role: str, side: float):
+def leg_spools(role: str, side: float, by: str = "height"):
     """The three spool centres driving ONE leg, as (x, y, z), hip/knee/ankle.
 
     ✅ This is what makes the drive train real rather than a volume argument.
     A girdle row is a set of mirrored PAIRS, so the six motors on a girdle deal
     three and three to the two legs it carries: `side > 0` takes the +y half.
 
-    Ordered by height, dorsal first. The hip needs the longest cable and the
-    largest arm (28 mm against the ankle's 14), so it takes the topmost spool
-    and the ankle the lowest -- which is also the order the runs cross the leg.
+    `by="height"`: dorsal first -- the order M88 dealt them, hip on top.
+    `by="tendon"`: hip, knee, ankle as `tendon_exit.DRIVE` assigns them.
+
+    ⚠️ **M122: "ordered by height" was an assignment nobody had checked.** It
+    put the hip on the top spool because the hip "needs the longest cable",
+    and it gave each (x, z) to a 2-D router as if the spool sat in the leg's
+    plane. With the spools where they are -- inside, winding across the body
+    -- the ankle cable can only reach its leg from above the hip, and only the
+    top motor's spool can put an idler there (ADR-0112).
     """
     body = LEG_BODY[role]
     out = []
@@ -375,7 +413,11 @@ def leg_spools(role: str, side: float):
     if len(out) != 3:
         raise ValueError("%s side %+.0f got %d spools, not 3"
                          % (role, side, len(out)))
-    return sorted(out, key=lambda p: -p[2])
+    out = sorted(out, key=lambda p: -p[2])
+    if by == "height":
+        return out
+    import tendon_exit as TE
+    return [out[TE.DRIVE[role][t][0]] for t in ("hip", "knee", "ankle")]
 
 
 def bulkheads(body: int):
@@ -413,7 +455,7 @@ def _unused_bulkheads(body: int):
             continue
         for sx in (-1.0, 1.0):
             xb = x + sx * (row_len(_r) / 2 + BULKHEAD_T / 2)
-            xb = min(max(xb, x0 + BULKHEAD_T), x1 - BULKHEAD_T)
+            xb = min(max(xb, x0 + _END_BH), x1 - _END_BH)
             # ⚠️ Sized to the SHELL's local inner surface, not to the row's own
             # section. The shell tapers between rows, so a bulkhead cut to the
             # row's width floats inside the barrel wherever the taper has moved
@@ -433,7 +475,7 @@ def hip_bosses(body: int):
     """Hips live on the two girdle bodies only."""
     if body not in (0, 3):
         return []
-    x = 0.0 if body == 0 else 195.0
+    x = REAR_HIP_X if body == 0 else 195.0
     out = []
     boss_r = HIP_OD / 2 + BOSS_WALL
     for side in (+1.0, -1.0):
@@ -449,7 +491,9 @@ def hip_bosses(body: int):
         # first mobile lumbar joint sits well forward of the hip. Moving the
         # joint forward is a kinematics change (ADR-0006's segment lengths), so
         # it is named here rather than made.  `[owed]`
-        xa = x + (-boss_r if body == 0 else 0.0)
+        # M122: the hind hip is inside its girdle now, so its boss is centred
+        # on it like the fore one; it no longer reaches back off the joint.
+        xa = x
         inner = _hw_at(xa) - WALL
         span = max(abs(y_hip) - inner, 1.0)
         # ⚠️ The REAR hip sits exactly on the first spine joint (x = 0), so a

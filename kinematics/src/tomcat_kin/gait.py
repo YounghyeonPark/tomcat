@@ -208,7 +208,11 @@ def trot_params(period: float = 0.4, stride_length: float = 0.10,
         phase_offsets=dict(TROT_PHASE_OFFSETS),
         # ⚠️ 0.00214, not 0.005 — re-tuned by M41 (ADR-0046) after the measured leg
         # masses moved the CoM. See the docstring; the old value now diverges.
-        nominal_foot=(0.00214, -0.17),
+        # ⚠️ M122 (ADR-0112): 0.00214 -> 0.00722. The hind hips moved 30 mm
+        # BEHIND spine joint 0, so the CoM sits further forward of them than it
+        # did; at 0.00214 the drift is +0.214 rad/s per cycle. Bisection on
+        # `_roll_drift` again.
+        nominal_foot=(0.00722, -0.17),
         step_height=0.02,
         lateral_amplitude=0.0,     # a trot does not sway; the diagonal does the work
     )

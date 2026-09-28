@@ -182,7 +182,9 @@ def test_walk_WITHOUT_lateral_sway_is_laterally_unstable():
     assert all(m.is_stable for m in c.stability_sweep(48))        # 2D says fine
     poly = c.support_polygon_sweep(48)
     assert any(not p.is_stable for p in poly)                     # 3D disagrees
-    assert min(p.margin for p in poly) < -0.02                    # by > 20 mm
+    # M122 (ADR-0112): -20.x -> -19.2 mm with the hips 225 mm apart; still out
+    # at 8 of 48 phases, which is the finding.
+    assert min(p.margin for p in poly) < -0.015                   # by > 15 mm
 
 
 def test_default_walk_IS_laterally_stable_via_the_actuated_spine():

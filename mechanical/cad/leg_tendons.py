@@ -7,9 +7,18 @@ ADR-0008:
 
 | tendon | stations | drive |
 |---|---|---|
-| hip flexor / extensor | spool -> hip sheave -> anchor | one motor, variable-radius pulley |
-| knee flexor / extensor | spool -> hip via -> knee sheave -> anchor | one motor |
-| ankle (single) | spool -> hip via -> knee via -> ankle sheave -> anchor | one motor + return spring |
+| hip flexor / extensor | spool -> hip sheave (anchored) | one motor, variable-radius pulley |
+| knee flexor / extensor | spool -> hip via -> knee sheave (anchored) | one motor |
+| ankle flexor / extensor | spool -> hip via -> knee via -> ankle sheave (anchored) | one motor (ADR-0055's pair) |
+
+✅ **M122: each cable ENDS on its joint sheave, anchored there** (ADR-0112). It
+used to run on to a pin placed by a rule of thumb -- `arm * 0.55` along the
+distal link and `arm + 5` beside it -- which fixed how much of the sheave the
+cable wrapped, and was only ever tuned on the hind leg. On the fore leg, whose
+knee bends the other way, it wound the ankle extensor 346 deg. The anchor is
+now where the RANGE puts it: the sheave wrap moves one-for-one with the joint
+(`d wrap / d q = +side`, measured), so the cable is anchored to keep
+`ANCHOR_MARGIN` on the sheave at the joint limit that unwinds it, and no more.
 
 **Via-pulleys are placed CONCENTRIC with the proximal joint axis.** That is the
 standard way to decouple a distal tendon from proximal motion: the centre distance
@@ -55,6 +64,11 @@ VIA_R = 8.75
 #: radius so it enters the tangent solve like any other station.
 ANCHOR_R = 1.6
 
+#: What a cable keeps wrapped on its joint sheave at the joint limit that
+#: unwinds it (M122). Less and it lifts off the sheave -- the arm stops being
+#: the sheave's -- before the joint reaches its stop.
+ANCHOR_MARGIN = math.radians(15.0)
+
 #: Spool position relative to the hip, in the pelvic girdle (P1: motors centralised).
 #:
 #: ⚠️ **A single 2-D offset was only ever right for one motor layout.** It puts
@@ -74,7 +88,8 @@ def joints(q, leg=DEFAULT_LEG):
     return LegModel(leg).joint_positions(np.asarray(q, float)) * MM
 
 
-def stations(q, tendon: str, side: int = +1, leg=DEFAULT_LEG, spools=None):
+def stations(q, tendon: str, side: int = +1, leg=DEFAULT_LEG, spools=None,
+             lead_r: float = SPOOL_R, entry: str = "plane"):
     """Station list for one tendon run at joint angles `q`.
 
     `side` = +1 flexor, -1 extensor: the antagonist wraps its sheave the other
@@ -85,6 +100,16 @@ def stations(q, tendon: str, side: int = +1, leg=DEFAULT_LEG, spools=None):
     frame -- the real spool centres, which the trunk owns. ✅ Passing them is
     what connects the cable to a motor that exists; without it the run goes to
     `SPOOL_OFFSET`, which is where the motors used to be.
+
+    `lead_r` is the first station's radius. It is the spool's when the run
+    starts on a spool in the leg's plane; ✅ M122 starts it at the EXIT IDLER
+    instead (`tendon_exit`), where the cable arrives from the trunk out of this
+    plane, so in the plane it is a point.
+
+    `entry="axis"` (M122, ADR-0112): the knee and ankle cables come in ALONG
+    the hip axis and turn into their planes over a pulley on the femur, so the
+    run starts at the hip centre and there is no hip via -- the femur carries
+    the turn, and the hip's rotation no longer reaches these cables.
     """
     p = joints(q, leg)
     hip, knee, ankle, paw = p[0], p[1], p[2], p[3]
@@ -95,17 +120,20 @@ def stations(q, tendon: str, side: int = +1, leg=DEFAULT_LEG, spools=None):
     s = float(side)
 
     if tendon == "hip":
-        return [(spool, SPOOL_R, s), (hip, ARMS[0], s),
-                (_pin(hip, knee, ARMS[0], s), ANCHOR_R, s)]
+        return [(spool, lead_r, s), (hip, ARMS[0], s)]
+
+    if entry == "axis" and tendon in ("knee", "ankle"):
+        start = (hip, 1e-3, s)
+        if tendon == "knee":
+            return [start, (knee, ARMS[1], s)]
+        return [start, (knee, VIA_R, s), (ankle, ARMS[2], s)]
 
     if tendon == "knee":
-        return [(spool, SPOOL_R, s), (hip, VIA_R, s), (knee, ARMS[1], s),
-                (_pin(knee, ankle, ARMS[1], s), ANCHOR_R, s)]
+        return [(spool, lead_r, s), (hip, VIA_R, s), (knee, ARMS[1], s)]
 
     if tendon == "ankle":
-        return [(spool, SPOOL_R, s), (hip, VIA_R, s), (knee, VIA_R, s),
-                (ankle, ARMS[2], s),
-                (_pin(ankle, paw, ARMS[2], s), ANCHOR_R, s)]
+        return [(spool, lead_r, s), (hip, VIA_R, s), (knee, VIA_R, s),
+                (ankle, ARMS[2], s)]
 
     raise ValueError(tendon)
 
@@ -133,7 +161,7 @@ def _perp(v):
 
 
 def route(q, tendon: str, side: int = +1, leg=DEFAULT_LEG, senses=None,
-          spools=None):
+          spools=None, lead_r: float = SPOOL_R, entry: str = "plane"):
     """Route one tendon, choosing the VIA-pulley wrap senses for minimum wrap.
 
     ⚠️ **The senses are not free-for-all and they are not arbitrary either.** The
@@ -147,13 +175,15 @@ def route(q, tendon: str, side: int = +1, leg=DEFAULT_LEG, senses=None,
     Enumerating the free senses and taking the minimum total wrap is what a
     designer does by eye, and it is cheap: at most 2^3 combinations.
     """
-    st = stations(q, tendon, side, leg, spools=spools)
+    st = stations(q, tendon, side, leg, spools=spools, lead_r=lead_r, entry=entry)
     if senses is not None:
         st = [(c, r, sg) for (c, r, _), sg in zip(st, senses)]
-        return tr.solve_path(st)
+        out = _anchored(tr.solve_path(st), st, q, tendon, side, leg)
+        out["senses"] = list(senses)
+        return out
 
     n = len(st)
-    free = [i for i in range(n) if i not in (_SHEAVE_IDX[tendon],)]
+    free = list(range(n - 1))              # the joint sheave, last, is fixed
     best = None
     for bits in range(1 << len(free)):
         trial = list(st)
@@ -169,10 +199,52 @@ def route(q, tendon: str, side: int = +1, leg=DEFAULT_LEG, senses=None,
             best["senses"] = [t[2] for t in trial]
     if best is None:
         raise tr.NoTangent(f"no admissible routing for the {tendon} tendon")
+    st = [(c, r, sg) for (c, r, _), sg in zip(st, best["senses"])]
+    senses = best["senses"]
+    best = _anchored(best, st, q, tendon, side, leg)
+    best["senses"] = senses
     return best
 
 
+def sheave_wrap(q, tendon: str, side: int, leg=DEFAULT_LEG) -> float:
+    """What the anchored cable wraps on its joint sheave at `q`, rad.
+
+    `ANCHOR_MARGIN` at the limit that unwinds it, plus the travel from there:
+    the flexor (+1) unwinds toward `q_min`, the extensor toward `q_max`."""
+    j = ("hip", "knee", "ankle").index(tendon)
+    lo, hi = float(leg.q_min[j]), float(leg.q_max[j])
+    qj = float(np.asarray(q, float)[j])
+    return ANCHOR_MARGIN + ((qj - lo) if side > 0 else (hi - qj))
+
+
+def _anchored(r, st, q, tendon, side, leg):
+    """The run solved up to the sheave, plus the anchored wrap on it and the
+    anchor point where it ends."""
+    k = len(st) - 1                        # the run ENDS on its joint sheave
+    c, rad, sg = st[k]
+    c = np.asarray(c, float)
+    w = sheave_wrap(q, tendon, side, leg)
+    p_in = np.asarray(r["points"][-1], float)
+    a0 = math.atan2(p_in[1] - c[1], p_in[0] - c[0])
+    n_arc = max(2, int(math.degrees(w) / 8.0))
+    arc = [c + rad * np.array([math.cos(a0 + sg * w * i / n_arc),
+                               math.sin(a0 + sg * w * i / n_arc)])
+           for i in range(1, n_arc + 1)]
+    wraps = np.array(r["wraps"], float)
+    wraps[k] = w
+    out = dict(r)
+    out.update({"points": np.vstack([r["points"], arc]), "wraps": wraps,
+                "arc_length": r["arc_length"] + rad * w,
+                "length": r["length"] + rad * w,
+                "total_wrap": float(wraps.sum()),
+                "capstan": math.exp(tr.MU_PULLEY * float(wraps.sum())),
+                "anchor": arc[-1]})
+    return out
+
+
 #: Index of the station whose wrap sense is FIXED by the tendon's function.
+#: (The sheave is the LAST station of every run since M122; this is its index
+#: for the in-plane entry, kept for callers that index `wraps`.)
 _SHEAVE_IDX = {"hip": 1, "knee": 2, "ankle": 3}
 
 

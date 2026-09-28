@@ -36,7 +36,9 @@ def test_standing_costs_a_THIRD_of_moving_at_the_stance_actually_held():
     r = power.runtime(_trot())
     assert r["standing_fraction_of_trot"] == pytest.approx(0.31, abs=0.03)
     st = power.standing_power()
-    assert st["frac_fore"] == pytest.approx(0.302, abs=0.03), "the MJCF's split"
+    # ⚠️ M122 (ADR-0112): 0.302 -> 0.371. The hind hips moved 30 mm back
+    # behind spine joint 0, so the CoM sits relatively nearer the fore hips.
+    assert st["frac_fore"] == pytest.approx(0.371, abs=0.03), "the MJCF's split"
     old = power.standing_power_worst_pose()
     assert old["legs_w"] > 3.0 * st["legs_w"], "the worst pose overstated it 3x"
 
@@ -49,7 +51,8 @@ def test_the_power_off_brake_multiplies_standing_endurance():
     # 31.7 W of copper rather than 105.9, so there is less for the brake to save.
     # Still a factor of three on endurance.
     r = power.runtime(_trot())
-    assert r["stand_minutes_braked"] > 3 * r["stand_minutes"]
+    # M122: 3.1x -> 2.8x -- standing copper fell with the friction too.
+    assert r["stand_minutes_braked"] > 2.5 * r["stand_minutes"]
 
 
 
@@ -72,8 +75,10 @@ def test_copper_loss_dominates_so_the_drive_is_inefficient():
     efficiency falling as copper fell. The capstan sits on the current path only.
     """
     g = power.gait_power(_trot())
-    assert g["copper_w"] > 2.0 * g["mechanical_w"]
-    assert 0.27 < g["efficiency"] < 0.34             # ~30.7 %
+    # ✅ M122 (ADR-0112): 2.25x -> 1.89x, 30.7 -> 34.6 %. Friction is charged
+    # where the cable slides; copper still dominates the useful work.
+    assert g["copper_w"] > 1.7 * g["mechanical_w"]
+    assert 0.31 < g["efficiency"] < 0.38             # ~34.6 %
 
 
 
@@ -89,7 +94,7 @@ def test_currents_are_back_inside_the_driver_rating():
     `test_motor_spec.py`'s thermal test, where that branch also fits now.
     """
     g = power.gait_power(_trot())
-    assert g["peak_current_a"] == pytest.approx(2.79, abs=0.15)
+    assert g["peak_current_a"] == pytest.approx(2.53, abs=0.15)   # M122: 2.79 -> 2.53
     assert g["peak_current_a"] < 4.19               # the part's peak rating
     assert g["rms_current_a"] < 1.60                # its RATED (continuous) current
 
@@ -102,15 +107,16 @@ def test_NFR6_is_MET_once_the_arms_are_right():
     The history of this number is the history of the corrections: ~30
     published -> 25.2 (mass + spool) -> 19.6 (three-phase copper) -> 18.85
     -> 19.39 (measured leg inertia) -> 18.81 (M93) -> 12.71 (capstan friction,
-    M107/M108) -> 21.66 (36/34/22 arms, M111) -> **21.12** (G3 carried, M120).
+    M107/M108) -> 21.66 (36/34/22 arms, M111) -> 21.12 (G3 carried, M120)
+    -> **24.18** (conduit friction and lighter legs, M122).
 
     The arms are a reduction: the same joint torque at 1/r the cable tension,
     and copper goes as its square. That recovers more than friction cost.
     """
     r = power.runtime(_trot())
-    assert r["trot_minutes"] == pytest.approx(21.12, abs=0.4)
+    assert r["trot_minutes"] == pytest.approx(24.18, abs=0.4)
     assert r["trot_minutes"] > 14.0, "back under NFR6's floor"
-    assert r["trot_range_m"] == pytest.approx(634.0, abs=15.0)   # M120: 650 -> 634
+    assert r["trot_range_m"] == pytest.approx(725.0, abs=15.0)   # M120: 634; M122: 725
     assert r["trot_range_m"] > 420.0
     assert r["battery_wh"] == pytest.approx(
         power.BATTERY_KG * power.BATTERY_WH_PER_KG * power.BATTERY_USABLE)

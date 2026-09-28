@@ -42,7 +42,7 @@ UHMWPE_RHO = 0.97e-3      # g/mm^3
 RHO = {"tube": LD.CF_RHO, "insert": LD.AL_RHO, "clevis": LD.AL_RHO,
        "sheave": LD.AL_RHO, "bearing": LD.STEEL_RHO, "shaft": LD.STEEL_RHO,
        "cable": UHMWPE_RHO, "tendon": UHMWPE_RHO, "pad": LD.TPU_RHO,
-       "anchor": LD.AL_RHO}
+       "anchor": LD.AL_RHO, "ferrule": LD.AL_RHO}
 
 #: ⚠️ A group missing from this table is silently DROPPED -- `rho is None`
 #: skips it -- so when `shaft` became its own group, **14.67 g of steel stopped
@@ -56,11 +56,11 @@ LINKS = ("femur", "tibia", "meta", "paw")
 JOINT_TO_LINK = {"hip": "femur", "knee": "tibia", "ankle": "meta"}
 
 #: Charged to a link outright, no geometry needed to decide.
-FIXED = {"cable": "meta", "pad": "paw"}
+FIXED = {"cable": "meta", "pad": "paw", "ferrule": "femur"}   # M122: conduit ferrules ride the femur
 
 #: ⚠️ Girdle motors are **not in the leg** (P1 centralisation) -- charging them
 #: to the femur is exactly the mistake the tendon drive exists to avoid.
-EXCLUDE = ("motor",)
+EXCLUDE = ("motor", "spool", "conduit", "trunk_ferrule")   # trunk-side or harness (M122)
 
 #: Solids that lie ALONG a bone. Proximity to a bone *segment* is well-posed for
 #: these -- unlike joint hardware, they are not shared between two links.

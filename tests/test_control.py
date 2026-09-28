@@ -488,8 +488,13 @@ def test_spine_authority_is_ALSO_friction_limited():
     # the friction-limited region.
     assert ctl.StepPlant.from_gait(c, floor_mu=0.8).spine < rom_only.spine, (
         "mu 0.8 is friction-limited again; the crossover is 0.8725")
-    assert ctl.StepPlant.from_gait(c, floor_mu=0.88).spine == pytest.approx(
-        rom_only.spine, rel=1e-9), "and ROM takes over by mu 0.88"
+    # ⚠️ M122 (ADR-0112) moved it a fifth time, 0.8725 -> ~0.895: the hind
+    # hips 30 mm behind spine joint 0 lengthened the body, and the ROM-limited
+    # shift rose 39.8 -> 40.8 mm. mu 0.88 is friction-limited now; NFR16's 0.70
+    # still is, by a wide margin.
+    assert ctl.StepPlant.from_gait(c, floor_mu=0.88).spine < rom_only.spine
+    assert ctl.StepPlant.from_gait(c, floor_mu=0.90).spine == pytest.approx(
+        rom_only.spine, rel=1e-9), "and ROM takes over by mu 0.90"
     assert ctl.StepPlant.from_gait(c, floor_mu=0.4).spine < \
         ctl.StepPlant.from_gait(c, floor_mu=0.7).spine, "and it is monotone in mu"
 

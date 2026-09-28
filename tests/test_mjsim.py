@@ -219,7 +219,11 @@ def test_the_envelope_is_strongly_direction_dependent(controller):
                 hi = mid
         xi[angle_deg] = 1000.0 * lo / h.omega
     span = max(xi.values()) / min(xi.values())
-    assert span > 3.0, (
+    # ⚠️ M122 (ADR-0112): 2.92x -- 0 deg 54.5, 45 82.8, 90 28.3, 180 54.5 mm --
+    # with the hips 225 mm apart. The span fell under the 3.0 this asserted and
+    # is still nearly threefold; and these are bisected envelopes, which the
+    # survival holes make upper bounds (see below).
+    assert span > 2.5, (
         "the envelope spans only %.2fx across direction: %s -- if it has become "
         "isotropic, `StepPlant`'s single number is finally defensible"
         % (span, {k: round(v, 1) for k, v in xi.items()}))
@@ -311,7 +315,10 @@ def test_the_spine_wants_stiffness_where_the_legs_want_compliance(controller):
     # line -- "the cliff is not the whole finding" -- was about that gradient.
     # There is no gradient now: 100 and 1000 are the same number. The soft case
     # is therefore 60, and the finding is a pure cliff.
-    soft = mjsim.build(controller, mujoco, kp=80, spine=True, spine_kp=60)
+    # ⚠️ M122 (ADR-0112) moved the cliff down a notch, 60 -> 45: with the hind
+    # hips 30 mm behind spine joint 0, kp 10 / 20 / 30 / 45 fall in 20 steps
+    # and 60 / 100 / 1000 stand. Still a cliff.
+    soft = mjsim.build(controller, mujoco, kp=80, spine=True, spine_kp=45)
     firm = mjsim.build(controller, mujoco, kp=80, spine=True, spine_kp=1000)
     h_soft = mjsim.BalanceHarness(controller, mujoco, soft, use_spine=False)
     h_firm = mjsim.BalanceHarness(controller, mujoco, firm, use_spine=False)
@@ -553,10 +560,22 @@ def test_the_envelope_is_horizon_limited_and_must_be_converged(controller):
     # M102: 120 deg -> 31.11 mm (89 % of the bound), 300 deg -> 34.39 (99 %).
     u = np.array([math.cos(math.radians(300)), math.sin(math.radians(300))])
     other = envelope(16)
-    assert abs(other - long) > 0.02 * max(other, long), (
-        f"both directions measure {1000 * long:.2f} mm — the survival envelope "
-        "has gone degenerate again, as it did in M41"
-    )
+    # ⚠️ M122: this compared the two BISECTED envelopes, and read them equal --
+    # 39.20 mm both -- without anything being degenerate: a 7-step bisection
+    # lands on a grid, and a holed boundary (see below) makes two directions
+    # land on the same grid point. M41's defect was the push's direction being
+    # IGNORED, so that is what is checked: the same push, two directions, two
+    # different walks.
+    def walk(v):
+        data = h.reset()
+        h.run(data, steps=4)
+        hist, _fell = h.run(data, steps=6, disturbance=v)
+        return np.array([r["perp"] for r in hist])
+    a120 = walk(0.05 * np.array([math.cos(math.radians(120)), math.sin(math.radians(120))]))
+    a300 = walk(0.05 * u)
+    n = min(len(a120), len(a300))
+    assert np.abs(a120[:n] - a300[:n]).max() > 1e-4, (
+        "the push's direction makes no difference -- degenerate again, as in M41")
     # ⚠️ **M111: both of these compared ONE direction's envelope with the
     # viable set's minimum over ALL directions.** That minimum sits at 240 deg;
     # at 120 and 300 the set reaches 61.2 mm. The check only held while these
@@ -605,10 +624,12 @@ def test_survival_has_HOLES_so_no_bisection_measures_an_envelope(controller):
         hist, fell = h.run(data, steps=16, disturbance=d * u)
         return not fell and len(hist) == 16
 
-    # the scan's own pushes, m/s: 0.185 -> 25.8 mm, 0.110 -> 15.3 mm. ⚠️ The
-    # boundary is SHARP -- the same pushes rounded through millimetres flip.
-    assert survives(0.185), "the larger push survives"
-    assert not survives(0.110), (
+    # the scan's own pushes, m/s. ⚠️ The boundary is SHARP -- the same pushes
+    # rounded through millimetres flip. M120: 0.185 survived, 0.110 fell.
+    # M122 (ADR-0112), rescanned at 0.02 m/s steps: 0.02-0.12 o, 0.14 x,
+    # 0.16-0.18 o, 0.20-0.22 x, 0.24 o, 0.26 x, 0.28 o, 0.30+ x.
+    assert survives(0.16), "the larger push survives"
+    assert not survives(0.14), (
         "the smaller push now survives too -- if the boundary has no holes left, "
         "the bisected envelopes are measurements again"
     )

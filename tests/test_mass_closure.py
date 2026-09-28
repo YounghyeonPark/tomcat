@@ -55,10 +55,11 @@ def test_the_body_mass_closes_ABOVE_NFR5(closed):
         "and params now agrees with the CAD -- if these diverge, one drifted"
     )
     # ⚠️ M111: 4.383 -> **4.468 kg**, the 36/34/22 sheaves (+21 g a leg).
-    # ⚠️ M120: -> **4.554 kg**, the eighteen G3 flexures (ADR-0111).
-    assert closed["body"] == pytest.approx(4.554, abs=0.02)
-    # ⚠️ NFR5 (4.045 kg) is exceeded by 12.6 % now (10.5 at M111, 8.4 before).
-    assert closed["body"] / old == pytest.approx(1.126, abs=0.01)
+    # ⚠️ M120: -> 4.554 kg, the eighteen G3 flexures (ADR-0111).
+    # ⚠️ M122: -> **4.501 kg**, the leg drive redrawn (ADR-0112).
+    assert closed["body"] == pytest.approx(4.501, abs=0.02)
+    # ⚠️ NFR5 (4.045 kg) is exceeded by 11.3 % now (12.6 at M120, 10.5 at M111).
+    assert closed["body"] / old == pytest.approx(1.113, abs=0.01)
 
 
 def test_the_spiral_still_CONVERGES_and_every_design_gate_holds(closed):
@@ -108,18 +109,27 @@ def test_the_MECHANISM_emits_a_MOTOR_SPEC_rather_than_fitting_one(closed):
     """
     req = MC.motor_requirement(closed["rows"][-1])
     # M120: 1.825 -> 1.859 under G3's 85.6 g -- 4.7 % under the proxy.
-    assert req["peak"] == pytest.approx(1.859, abs=0.03)
+    # ✅ M122 (ADR-0112): -> **1.623**, 17 % under it -- friction is the
+    # conduit's slide now, not a capstan on anchored and running pulleys.
+    assert req["peak"] == pytest.approx(1.623, abs=0.03)
     # ⚠️ M115: 0.646 (worst pose) -> 0.624 N.m -- the larger of the stance hold
     # (0.495) and the walked trot's RMS (0.624, the fore ankle). Thermal is the
     # load actually carried.
-    assert req["continuous"] == pytest.approx(0.624, abs=0.02)
+    # M122: 0.624 -> 0.575 N.m under the conduit friction model.
+    assert req["continuous"] == pytest.approx(0.575, abs=0.02)
     assert req["trot_rms"] > req["stance_hold"], "the trot, not standing, sets it"
     assert req["binding_leg"] == "fore", "the fore leg sets the spec"
     fore_peak = max(req["fore_per_joint"], key=lambda k: req["fore_per_joint"][k][1])
-    assert fore_peak == "knee", f"the fore trot is sized by {fore_peak}"
+    # M122: the fore HIP (1.623) edges the knee (1.618) -- 0.3 % apart; the
+    # knee's capstan share was the larger, and it is gone.
+    assert fore_peak in ("hip", "knee"), f"the fore trot is sized by {fore_peak}"
+    assert req["fore_per_joint"]["hip"][1] == pytest.approx(
+        req["fore_per_joint"]["knee"][1], rel=0.01)
     assert req["peak"] < req["proxy_peak"] and req["continuous"] < req["proxy_rated"]
     # ⚠️ and the axis the proxy fails on now
-    assert req["need_rpm"] == pytest.approx(665.0, rel=0.03)
+    # M122: 665 -> 629 rpm -- the swing's torque fell with the friction, and
+    # the need is read off the torque-speed LINE.
+    assert req["need_rpm"] == pytest.approx(629.0, rel=0.03)
     assert req["need_rpm"] > 1.5 * req["proxy_rpm"]
 
 

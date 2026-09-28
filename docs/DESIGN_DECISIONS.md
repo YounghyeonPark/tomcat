@@ -8906,6 +8906,117 @@ The MuJoCo harness moved four numbers, and three of them moved the good way.
     change on the same holed boundary. Withdrawn, and the holes asserted as a
     defect. Re-defining the envelope is `[owed]`.
 
+
+## ADR-0112: the leg drive in 3-D — friction where the cable slides, spine joint 0 moved forward, and the hip crossing still owed
+- **Status:** Accepted, with a **known defect**: the knee and ankle conduits cut
+  the hip sheave. The hip region's redesign (a hollow hip) is M123.
+- **Context:** the leg's tendon WIRING was questioned, and it had never been
+  checked in three dimensions. M122 looked, with the leg CAD at its joint limits,
+  the trunk's real motors, and the leg's sweep over its full range.
+
+- **Findings — defects, all fixed:**
+  - ⚠️ **The drive was a 2-D projection.** M88 laid the motors fore-aft: each
+    spool is inside the trunk at y = ±20.2 on an axis along x and winds across
+    the body. Every router, drawing and friction figure used it as a spool in the
+    leg's plane (y 65–75) on an axis along y — 45–55 mm and 90° away. The
+    assembly's "cable ends on its spool" check compared the router's first point
+    with the coordinates it had been given, so it could not fail.
+  - ⚠️ **The fore leg's cables were solved on the HIND leg's links**
+    (`tendon_drive` called the router without `leg=`): 12–26 % of their length
+    ran through parts, at every pose.
+  - ⚠️ **The CAD drew an ankle return spring** (ADR-0002 option B) on a leg whose
+    ankle has been an antagonistic pair since ADR-0055, and no ankle extensor.
+  - ⚠️ **The anchor pin was a hind-leg rule of thumb** (`0.55 r` along the link,
+    `r + 5` beside it); on the fore leg it wound the ankle extensor 346°. Each
+    cable now ENDS on its joint sheave, anchored to keep 15° wrapped at the joint
+    limit that unwinds it (`leg_tendons.ANCHOR_MARGIN`); the wrap moves
+    one-for-one with the joint, so the arms stay exactly 36/34/22.
+  - ⚠️ The trunk's end bulkheads sat 0.3 mm inside their rows since G3 filled
+    them (M120); flush with the body's end now.
+
+- **Findings — the hip crossing.** Over the full joint range the knee and ankle
+  sheaves and the vias sweep nearly all of each cable's plane around the hip.
+  Three ways across were tried:
+  1. an exit idler in each cable's plane — the ankle cable had one window, whose
+     spools sat inside spine joint 0's yoke; and an idler that turns a lateral
+     lead stands 8.75 mm out of the plane, into the femur's sweep;
+  2. along the hip axis (hollow shaft, turning pulleys on the femur) — each turn
+     off the axis needs 2R = 17.5 mm inboard of its plane: through the hip
+     sheave, and through the other three turns;
+  3. Bowden conduits (chosen) — whose femur ends still cross the hip sheave's
+     plane inside its rim.
+
+- **Decision:**
+  - **Spine joint 0 moves 30 mm forward of the hind hips**
+    (`SpineParams.rear_hip_x = -0.030`; `hip_offset` on the hind mounts, both
+    MJCF builders). The trunk grows 363 → **393 mm**, the hips 195 → 225 mm
+    apart; the hind hip sits in full section (its boss cantilever 27 → 12 mm)
+    and no spool sits in spine hardware any more. This was `tomcat_trunk`'s
+    `[owed]` sacrum.
+  - **The drive is Bowden conduits** (`mechanical/cad/tendon_exit.py`,
+    `DRIVE`): each cable leaves its spool tangentially in the spool's x-plane,
+    enters a conduit at a ferrule on the trunk wall, and leaves it at a trunk
+    bracket above the hip (hip pair) or a ferrule on the femur (knee and ankle
+    pairs) — which decouples the hip from those cables (the hip via's
+    8.75 mm/rad is gone, and so is the via). Motor assignment and spool ends are
+    solved, and moved on both legs. Conduit Ø3, bend radius ≥ 15 mm `[assumed]`.
+  - **Friction is counted where the cable slides** (`TendonParams.friction_model
+    = "drive"`): `exp(mu_c · conduit bend)` at mu_c 0.07 `[assumed]`, times one
+    running pulley's efficiency 0.97 `[assumed]` (the knee via, ankle pair);
+    anchored sheaves and the spool cost nothing. M107–M121 charged a capstan on
+    every degree of wrap — on sheaves the cable is anchored to and pulleys that
+    turn on bearings; that was 71 % of the trot's copper in M107. Factors now
+    ×1.12–1.22 against ×1.29–1.56.
+
+- **Known defect** (`test_tendon_exit`): **every knee and ankle conduit cuts the
+  hip sheave, 16–39 mm into it.** Moving the femur ferrule out, and clipping
+  the conduit to the femur, found no path either: between the trunk wall and the
+  femur the hip boss (r 12, y 41–65), the femur's root and the hip sheave
+  (r 38, y 62–68) leave a 15 mm-radius conduit no way through, at the stance
+  alone. It is the HIP's packaging, not the routing; M123 redesigns it hollow.
+
+- **Consequences** (re-measured, not scaled):
+
+  | | M120/M121 | M122 |
+  |---|---|---|
+  | body | 4.554 kg | **4.501 kg** (legs −13 g each: no hip via, spring, pins) |
+  | motor peak (binding) | 1.859 N·m, fore knee | **1.623 N·m**, fore hip ≈ knee |
+  | continuous | 0.624 N·m | **0.575 N·m** |
+  | no-load speed needed | 665 rpm | **629 rpm** (8S rewind ×1.42, 22.5 rpm/V) |
+  | runtime (Kt 0.44 / 0.35) | 21.1 / 15.6 min | **24.2 / 18.2 min**, ~725 m |
+  | anodised girdle, continuous | 102.8 °C | **91.6 °C**; forced air h 15 → 69.4 °C |
+  | trot foothold x | 0.00214 m | **0.00722 m** (re-tuned: roll drift +0.214 rad/s/cycle) |
+  | fore share of the stance | 0.302 | **0.371** |
+  | viable set, worst / with spine | 34.9 / 66.4 mm | **32.9 / 65.3 mm** |
+  | friction → ROM crossover | mu 0.8725 | **mu ~0.895** |
+  | soft-spine cliff | spine_kp 60 | **45** |
+  | diagonals' angle | 57.1° | **50.5°** |
+
+  The arms: 0.85× now fits the motor (93 %); the motor pins them only at ~0.8×.
+  - ⚠️ **One finding reversed: the leg tuck no longer helps the righting**
+    (118 → 85 °/s with it). M102 had it down to a 2 % margin once the head and
+    tail gave the spine its ends; with the hind hips behind spine joint 0,
+    folding the legs costs more than it gives. The rigid-spine righting is
+    faster, 1.35 → 1.08 s.
+  - The stance's weight moved toward the fore legs, 0.302 → 0.379 in the MJCF:
+    the standing cable force rose 24.2 → 32.3 N, the fore pairs' continuous
+    ratings to 0.34 / 0.55 / 0.49, the hind ankle's fell to 0.70. Nothing is
+    over its rating.
+  - Also re-measured: the survival holes (still there: 0.14 m/s falls, 0.16
+    survives at 120°), the envelope's direction span 2.9×, the soft-spine drop
+    ratio 4.1 → 2.4×, skin strains down with the longer cover (belly 34.7 →
+    32.1 %), the tail's share of pitch inertia 0.117 → 0.154.
+  - `[owed]` — the hollow hip (M123); then the conduits' real shape and
+    clearance (a Bezier here), the shell's conduit ports, the skin's aperture,
+    and the ferrule brackets (a conduit's compression equals its cable's tension:
+    the femur ferrules carry it into the femur).
+  - `[owed]` — mu_c and the pulley efficiency are assumed; a bench measurement
+    settles them.
+  - `[owed]` — found on the way and not fixed here: the FORE leg's bones were
+    never checked; its radius tube (Ø12) is SF 1.77 at landing (the fore knee
+    carries 18.3 N·m to the hind's 11.5). The paw pad parts from the leg at two
+    ROM extremes.
+
 ---
 
 ---

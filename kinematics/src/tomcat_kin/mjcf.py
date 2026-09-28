@@ -76,7 +76,8 @@ def _box_inertia(mass: float, hx: float, hy: float, hz: float) -> tuple:
     )
 
 
-def _leg_xml(name: str, track_y: float, leg_p, indent: int) -> str:
+def _leg_xml(name: str, track_y: float, leg_p, indent: int,
+             hip=(0.0, 0.0)) -> str:
     """One planar leg as a serial chain of hinges about the -y axis.
 
     The repo's `LegModel.forward` builds the paw tip from *cumulative* angles
@@ -85,14 +86,17 @@ def _leg_xml(name: str, track_y: float, leg_p, indent: int) -> str:
     hinge axis is ``(0, -1, 0)``, which makes a positive joint angle rotate +x
     toward +z exactly as the analytical convention does.
 
-    The hip sits at the girdle origin: the spine chain already carries the x.
+    The hip sits at the girdle origin plus its mount's `hip_offset`: the
+    spine chain already carries the rest of the x. (M122: the hind hips are
+    30 mm behind the rear girdle's origin, ADR-0112.)
     """
     lens = (leg_p.l1, leg_p.l2, leg_p.l3)
     fracs = leg_p.link_com_frac
     masses = leg_p.link_mass
 
     out = []
-    out.append(f'{" " * indent}<body name="{name}_L1" pos="0 {track_y} 0">')
+    out.append(f'{" " * indent}<body name="{name}_L1" '
+               f'pos="{hip[0]} {track_y} {hip[1]}">')
 
     for i, (ln, m, fr) in enumerate(zip(lens, masses, fracs), start=1):
         pad = " " * (indent + 2 * i)
@@ -217,7 +221,8 @@ def build_mjcf(controller, leg_q: dict, height: float = 0.17,
     def legs_on(girdle_value: str, indent: int) -> str:
         p = DEFAULT_FORELEG if girdle_value == "front" else DEFAULT_HINDLEG
         return "\n".join(
-            _leg_xml(nm, body.mounts[nm].track_y, p, indent)
+            _leg_xml(nm, body.mounts[nm].track_y, p, indent,
+                     hip=body.mounts[nm].hip_offset)
             for nm in body.leg_names
             if body.mounts[nm].girdle.value == girdle_value
         )

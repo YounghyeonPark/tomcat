@@ -1034,7 +1034,9 @@ def quadruped_rig(hip_height: float = 0.175,
         # already carries the fore-aft offset, so keeping GIRDLE_X here as well
         # doubles the wheelbase (0.210 -> 0.405 m, measured). Same rule as
         # `mjcf.build_mjcf`.
-        mx = 0.0 if spine else gx
+        # ✅ M122: plus the hind hips' offset behind the spine root (ADR-0112).
+        hx = float(DEFAULT_SPINE.rear_hip_x) if gx < 0 else 0.0
+        mx = (0.0 if spine else gx) + hx
         b, t, a = leg_tendon_xml(nm, lp, arms, indent=6,
                                  mount=(mx, ty, 0.0),
                                  ankle_springref=_stance_ankle(lp),

@@ -88,7 +88,9 @@ def test_the_curl_is_worth_a_fourteenth_of_what_the_tail_COSTS():
             "cost/authority is %.0fx at rho=%.2e" % (ratio, rho)
         )
     i0 = TL.inertia_about(com, 0.0)
-    assert i0 / TL.BODY_IYY == pytest.approx(0.117, abs=0.01)
+    # M122 (ADR-0112): 0.117 -> 0.154. The tail's base went 30 mm further back
+    # with body 0, and the tail, sized to the trunk, grew with it.
+    assert i0 / TL.BODY_IYY == pytest.approx(0.154, abs=0.01)
 
 
 def test_it_neither_grows_through_the_trunk_nor_drags():

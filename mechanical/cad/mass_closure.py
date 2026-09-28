@@ -176,8 +176,13 @@ def motor_requirement(b):
     from tomcat_kin import gait, power
     names = ("hip", "knee", "ankle")
     body = float(b["body"])
-    fore_wraps = _routed_wraps("fore", DEFAULT_FORELEG, LT, TT)
-    tm_f = TendonMap(dataclasses.replace(DEFAULT_TENDON, pair_wrap=fore_wraps))
+    # ✅ M122 (ADR-0112): the fore leg's friction is its OWN conduits' bend
+    # (and the knee via on its ankle pair), from the drive it actually has.
+    import tendon_exit as TE
+    tm_f = TendonMap(dataclasses.replace(
+        DEFAULT_TENDON, conduit_bend=TE.conduit_bend("fore"),
+        pulley_count=TE.pulley_count("fore"),
+        pair_wrap=_routed_wraps("fore", DEFAULT_FORELEG, LT, TT)))
     fore = {}
     for lc in loads_at(body):
         r = budget(LegModel(DEFAULT_FORELEG), tm_f, lc, grid=21)
@@ -221,7 +226,11 @@ def motor_requirement(b):
 
 
 def _routed_wraps(role, leg_params, LT, TT):
-    """(flexor, extensor) total wrap per joint, routed on the trunk's own spools."""
+    """(flexor, extensor) total wrap per joint, routed on the trunk's own spools.
+
+    ⚠️ M122: the capstan convention's input, kept for `friction_model =
+    "capstan"`; the shipped friction reads `tendon_exit`'s conduits. The spool
+    (x, z) is the motor's row centre, a 2-D projection (ADR-0112)."""
     sp = {t: (p[0], p[2]) for t, p in zip(("hip", "knee", "ankle"),
                                           TT.leg_spools(role, +1.0))}
     q = np.asarray(LegModel(leg_params).inverse((0.04, -0.17, 0.0)), float)

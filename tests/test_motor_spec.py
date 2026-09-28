@@ -80,8 +80,10 @@ def test_the_motor_holds_on_TORQUE_again_and_the_arms_are_why(duty):
     `test_the_trot_has_never_fitted_the_proxy_on_SPEED`.
     """
     d = MR.duty_check(duty)
-    assert d["trot_motor"] == pytest.approx(1.80, abs=0.05)
-    assert 0.85 < d["vs_peak"] < 1.0, f"trot at {100 * d['vs_peak']:.0f} % of peak"
+    # ✅ M122 (ADR-0112): 1.80 -> 1.57 N.m, 92 -> 80 % of peak -- friction is
+    # the conduit's slide, not a capstan on every degree of wrap.
+    assert d["trot_motor"] == pytest.approx(1.57, abs=0.05)
+    assert 0.75 < d["vs_peak"] < 0.85, f"trot at {100 * d['vs_peak']:.0f} % of peak"
     assert d["stand_vs_rated"] < 1.0, "standing must be inside the CONTINUOUS rating"
 
 
@@ -120,14 +122,15 @@ def test_the_THERMAL_duty_is_fine_and_the_workspace_peak_is_not_the_duty():
     cut the cable tension, so the current, by the arm ratio, and copper by its
     square. Peak current is back inside too: 3.51 A at Kt 0.35 against 4.19.
     """
-    for kt, expect in ((PW.KT, 0.935), (MR.SPEC["vendor_kt"], 1.175)):
+    # M122: 0.935 / 1.175 A -> 0.852 / 1.072 A under the conduit friction model
+    for kt, expect in ((PW.KT, 0.852), (MR.SPEC["vendor_kt"], 1.072)):
         d = MR.gait_duty(kt, MR.SPOOL_SPEC)
         assert d["rms_a"] == pytest.approx(expect, abs=0.05)
         assert d["rms_a"] < MR.SPEC["rated_current"], (
             f"RMS {d['rms_a']:.2f} A must stay inside the 1.60 A rating"
         )
     d = MR.gait_duty(MR.SPEC["vendor_kt"], MR.SPOOL_SPEC)
-    assert d["peak_a"] == pytest.approx(3.51, abs=0.15)
+    assert d["peak_a"] == pytest.approx(3.18, abs=0.15)   # M122: 3.51 -> 3.18
     assert d["peak_a"] < MR.SPEC["peak_current"]
 
 
@@ -142,7 +145,8 @@ def test_NFR6s_runtime_SURVIVES_once_the_arms_are_right(duty):
     | redesigned leg (M93) | 18.81 min |
     | capstan friction counted (M107, corrected M108) | 12.71 / 8.78 min |
     | 36/34/22 arms, body 4.468 kg (M111) | 21.66 / 16.04 min |
-    | **G3 carried, body 4.554 kg (M120)** | **21.12 / 15.60 min** |
+    | G3 carried, body 4.554 kg (M120) | 21.12 / 15.60 min |
+    | **conduit friction, body 4.501 kg (M122)** | **24.18 / 18.24 min** |
 
     ✅ The arms are a REDUCTION: the same joint torque at 1/r the cable
     tension, so copper -- which goes as current squared -- roughly halves. The
@@ -154,8 +158,8 @@ def test_NFR6s_runtime_SURVIVES_once_the_arms_are_right(duty):
     pess = MR.gait_duty(MR.SPEC["vendor_kt"], MR.SPOOL_SPEC)
     t_opt = 60.0 * wh / opt["total_w"]
     t_pess = 60.0 * wh / pess["total_w"]
-    assert t_opt == pytest.approx(21.12, abs=0.4)
-    assert t_pess == pytest.approx(15.60, abs=0.4)
+    assert t_opt == pytest.approx(24.18, abs=0.4)
+    assert t_pess == pytest.approx(18.24, abs=0.4)
     assert t_pess > 14.0, "the pessimistic corner is back inside NFR6"
     assert t_opt < 30.0, "if this clears 30 min again, NFR6 was re-derived"
     assert t_pess / t_opt < 0.80, "the Kt question alone is worth >20 % of runtime"
@@ -173,8 +177,8 @@ def test_the_robot_is_more_than_half_motor_by_mass():
     assert m["frac"] > 0.5, "more than half the body is motor"
     # ⚠️ M93: the structure grew but the motor count did not, so the motors'
     # share FALLS, 0.581 -> 0.571; M111's heavier sheaves take it to 0.560.
-    # M120: G3's 85.6 g takes it to 0.549.
-    assert m["frac"] == pytest.approx(0.549, abs=0.005)
+    # M120: G3's 85.6 g takes it to 0.549; M122's lighter legs to 0.556.
+    assert m["frac"] == pytest.approx(0.556, abs=0.005)
     assert m["rest_kg"] > 1.5, "there must be room left for the structure"
     stale = 19 * 0.072 / 3.0
     assert stale == pytest.approx(0.456, abs=0.002), "ADR-0008's basis, reproduced"
@@ -193,7 +197,8 @@ def test_the_down_select_re_run_FAILS_the_smaller_part(duty):
     trot = float(duty["trot"]["motor"].max())
     rows = {r["name"]: r for r in MR.compare_alternatives(trot, MR.BODY_M38)}
     assert not rows["GIM3505-8"]["ok"], "the small part must still fail"
-    assert rows["GIM3505-9"]["ok"] and rows["GIM3505-9"]["vs_peak"] > 0.85
+    # M122: 92 -> 80 % of peak under the conduit friction model
+    assert rows["GIM3505-9"]["ok"] and rows["GIM3505-9"]["vs_peak"] > 0.75
     assert rows["GIM4305-10"]["ok"] and rows["GIM4305-10"]["vs_peak"] < 0.7
     assert rows["GIM4305-10"]["dia"] / rows["GIM3505-9"]["dia"] > 1.5, (
         "and 54 % wider, which the girdle packaging study owns"
@@ -224,7 +229,10 @@ def test_the_trot_has_never_fitted_the_proxy_on_SPEED():
     from tomcat_kin import gait
     env = PW.gait_envelope(gait.GaitController(gait.trot_params()))
     assert not env["fits"], "the trot fits the proxy -- was the speed ceiling raised?"
-    assert env["need_rpm"][1] == pytest.approx(665.0, rel=0.03)
+    # ⚠️ M122 (ADR-0112): 665 -> ~620 at the knee, and the HIP (629) now
+    # asks the most -- the swing torque fell with the friction.
+    assert env["need_rpm"][1] == pytest.approx(620.0, rel=0.03)
+    assert max(env["need_rpm"]) == pytest.approx(629.0, rel=0.03)
     assert max(env["need_rpm"]) > 1.5 * PW.NO_LOAD_RPM
     # and the old scope-blind check still passes, which is the defect
     assert MR.speed_check(MR.SPOOL_SPEC)["v_foot_sum"] > 5.0
@@ -331,7 +339,8 @@ def test_the_runtime_bracket_is_SIXTEEN_to_TWENTY_TWO_minutes():
     | Kt 0.35, same | 13.58 min |
     | capstan friction counted (M107/M108) | 12.71 / 8.78 min |
     | 36/34/22 arms (M111) | 21.66 / 16.04 min |
-    | **G3 carried (M120)** | **21.12 / 15.60 min** |
+    | G3 carried (M120) | 21.12 / 15.60 min |
+    | **conduit friction (M122)** | **24.18 / 18.24 min** |
 
     ✅ Both corners now sit inside or above NFR6's re-stated 14-20 min. The
     bracket is still ~26 % wide, and that width is ADR-0044's unresolved Kt.
@@ -341,8 +350,8 @@ def test_the_runtime_bracket_is_SIXTEEN_to_TWENTY_TWO_minutes():
     lo = MR.gait_duty_rigorous(MR.SPEC["vendor_kt"], three_phase=True)
     t_hi = 60.0 * wh / hi["total_w"]
     t_lo = 60.0 * wh / lo["total_w"]
-    assert t_hi == pytest.approx(21.12, abs=0.4)
-    assert t_lo == pytest.approx(15.60, abs=0.4)
+    assert t_hi == pytest.approx(24.18, abs=0.4)
+    assert t_lo == pytest.approx(18.24, abs=0.4)
     assert t_lo > 14.0, "both corners clear NFR6's re-stated floor"
     assert t_hi < 30.0, "NFR6's published ~30 min does not survive either corner"
 
@@ -364,7 +373,9 @@ def test_the_speed_is_the_SWING_and_peak_torque_does_not_buy_it():
     lo = PW.gait_envelope(ctl, peak_nm=1.95)
     hi = PW.gait_envelope(ctl, peak_nm=3.5)
     assert max(lo["peak_torque"]) < 1.3
-    assert lo["peak_speed_rpm"][1] == pytest.approx(653.0, rel=0.03)
+    # M122: the knee's swing 653 -> 610 rpm (the trot's foothold was re-tuned);
+    # the hip's is now the fastest, 627.
+    assert lo["peak_speed_rpm"][1] == pytest.approx(610.0, rel=0.03)
     assert max(hi["need_rpm"]) > 0.98 * max(lo["need_rpm"])
 
 

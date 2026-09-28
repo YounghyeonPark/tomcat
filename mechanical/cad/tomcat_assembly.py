@@ -40,7 +40,9 @@ import tomcat_trunk as TT                                        # noqa: E402
 from tomcat_kin.params import DEFAULT_FORELEG, DEFAULT_HINDLEG   # noqa: E402
 
 #: Where the hips are, from the trunk model.
-HIP_X = {"rear": 0.0, "front": 195.0}
+#: Hip stations, trunk x. M122: the hind hips are `REAR_HIP_X` behind the
+#: spine's root joint (ADR-0112).
+HIP_X = {"rear": TT.REAR_HIP_X, "front": 195.0}
 
 #: ⚠️ **Groups the TRUNK owns wherever they sit at the hip.** This was the
 #: literal tuple `("clevis", "bearing")`, and when M93 split the shafts into
@@ -83,28 +85,30 @@ def _at_hip(solid, radius=26.0):
     return math.hypot(c.X, c.Z) < radius
 
 
-def one_leg(fore: bool, side: float, pose=None):
+#: The drive's HARNESS: cables, conduits and the trunk-side conduit ferrules.
+#: They leave the trunk through ports and pass the skin at the hip, neither of
+#: which is drawn yet (M122, `[owed]`), so the checks report them apart from
+#: the leg's STRUCTURE rather than fail on them.
+HARNESS = ("conduit", "trunk_ferrule", "tendon")
+
+
+def one_leg(fore: bool, side: float, pose=None, only=None, skip=()):
     """One leg in TRUNK coordinates.
 
     `tomcat_leg_detail` builds about its own hip at the origin and translates to
     the limb plane at +TRACK_Y, so a right leg is the left one mirrored in y.
     """
     leg = DEFAULT_FORELEG if fore else DEFAULT_HINDLEG
-    # ✅ **The cables go to the motors that exist.** `tomcat_leg_detail`
-    # defaults to `SPOOL_OFFSET`, a single 2-D diagonal from the hip that was
-    # only ever right for the upright two-bank girdle. Measured against the real
-    # centres those runs miss by **20 to 44 mm** -- the wires in the first
-    # assembly render pointed at empty space. The trunk owns the spools, so the
-    # trunk hands them over.
+    # ✅ **The cables go to the motors that exist -- in 3-D since M122.** M88's
+    # fix handed the leg the trunk's spool (x, z) and drew the spool in the
+    # leg's plane; the real one is inside the trunk on an axis along x.
+    # `tomcat_leg_detail` now draws the whole drive from `tendon_exit.DRIVE`:
+    # spool, lead, conduit, ferrules, free run, anchor.
     role = "fore" if fore else "hind"
-    sp3 = TT.leg_spools(role, side)
-    hx = HIP_X["front" if fore else "rear"]
-    spools = {t: (p3[0] - hx, p3[2])
-              for t, p3 in zip(("hip", "knee", "ankle"), sp3)}
-    comps, report, pts = LD.build(leg, spools=spools)
+    comps, report, pts = LD.build(leg, role=role)
     parts = []
     for name, comp in comps.items():
-        if name in DROP:
+        if name in DROP or name in skip or (only is not None and name not in only):
             continue
         for sd in comp.solids():
             # %s **The hip joint is drawn twice.** `tomcat_leg_detail` has to
@@ -154,15 +158,22 @@ def soft_parts():
             ("tail", TL.tail()), ("skin", SK.skin())]
 
 
-def assembly(soft: bool = True):
-    """`(bodies, legs, soft)` -- every part of the robot that has been drawn."""
+def assembly(soft: bool = True, split: bool = False):
+    """`(bodies, legs, soft)` -- every part of the robot that has been drawn.
+
+    `split=True` returns `(bodies, legs, soft, harness)` with each leg's drive
+    HARNESS (`HARNESS`) apart from its structure, for the checks."""
     bodies = [TT.rigid_body(b) for b in sorted(TT.BODIES)]
-    legs = [one_leg(f, s) for f in (True, False) for s in (+1.0, -1.0)]
-    return bodies, legs, (soft_parts() if soft else [])
+    if not split:
+        legs = [one_leg(f, s) for f in (True, False) for s in (+1.0, -1.0)]
+        return bodies, legs, (soft_parts() if soft else [])
+    legs = [one_leg(f, s, skip=HARNESS) for f in (True, False) for s in (+1.0, -1.0)]
+    harness = [one_leg(f, s, only=HARNESS) for f in (True, False) for s in (+1.0, -1.0)]
+    return bodies, legs, (soft_parts() if soft else []), harness
 
 
 def report():
-    bodies, legs, soft = assembly()
+    bodies, legs, soft, harness = assembly(split=True)
     print("%-16s %8s %9s" % ("part", "solids", "vol cm3"))
     tv = 0.0
     for i, b in enumerate(bodies):
@@ -211,28 +222,53 @@ def report():
         flag = "" if v < 1500.0 else "  *** deep interference"
         if v >= 1500.0:
             ok = False
-        print("  %-4s leg/trunk overlap %8.1f mm3%s" % (nm, v, flag))
+        hv = 0.0
+        hi = trunk.intersect(harness[i])
+        if hi is not None:
+            try:
+                hv = sum(sd.volume for sd in hi.solids())
+            except Exception:
+                hv = 0.0
+        print("  %-4s leg/trunk overlap %8.1f mm3%s   (harness through the wall: "
+              "%.1f mm3, ports `[owed]`)" % (nm, v, flag, hv))
 
-    # --- ⚠️ every cable must end ON a spool the trunk actually has
+    import numpy as _np
+    # --- ⚠️ every cable must START on a spool the trunk actually has, in 3-D
+    # ⚠️ **M122: this check could not fail.** It asked whether the router's
+    # first point sat on the spool (x, z) it had been GIVEN -- the same number
+    # twice -- while the spool it named was 45-55 mm away, inside the trunk,
+    # winding across the body. Now: the lead leaves a circle of `SPOOL_R` about
+    # a motor the trunk has, in that motor's end plane; it reaches a conduit
+    # ferrule ON the shell wall; and the hip pair's other ferrule is OUTSIDE it.
+    import tendon_exit as TE
     for i, (fore, side) in enumerate([(True, 1.0), (True, -1.0),
                                       (False, 1.0), (False, -1.0)]):
         nm = ["LF", "RF", "LR", "RR"][i]
         role = "fore" if fore else "hind"
-        hx = HIP_X["front" if fore else "rear"]
-        sp3 = TT.leg_spools(role, side)
-        leg = DEFAULT_FORELEG if fore else DEFAULT_HINDLEG
-        q = LD.LegModel(leg).inverse((LD.FOOT_X, LD.FOOT_Z, LD.FOOT_PITCH))
-        spools = {t: (p3[0] - hx, p3[2])
-                  for t, p3 in zip(("hip", "knee", "ankle"), sp3)}
-        worst = 0.0
-        for t in ("hip", "knee", "ankle"):
-            st = LT.stations(q, t, +1, leg, spools=spools)
-            end = np.asarray(st[0][0], float)
-            worst = max(worst, float(np.hypot(*(end - np.array(spools[t])))))
-        print("  %-4s cable ends off its spool by %.3f mm" % (nm, worst))
-        if worst > 0.05:
-            print("      *** the run does not reach the motor")
+        shell = TT._outer(TT.LEG_BODY[role])
+        motors = TT.leg_spools(role, side, by="tendon")
+        off_spool = off_wall = 0.0
+        inside = 0
+        for (t, sd), r in TE.drive(role, side).items():
+            x, y, z = motors[("hip", "knee", "ankle").index(t)]
+            T, F1 = r["lead"]
+            off_spool = max(off_spool, abs(_np.hypot(T[1] - y, T[2] - z) - LT.SPOOL_R))
+            half = TT.row_len(role) / 2
+            if not (x - half - 1e-6 <= T[0] <= x + half + 1e-6):
+                off_spool = max(off_spool, 999.0)
+            d = (F1 - T) / _np.linalg.norm(F1 - T)
+            if not shell.is_inside(tuple(F1 - 1.0 * d)) or shell.is_inside(tuple(F1 + 1.0 * d)):
+                off_wall += 1
+            if t == "hip" and shell.is_inside(tuple(r["F2"])):
+                inside += 1
+        print("  %-4s cables start on their spools to %.3f mm; wall ferrules off the "
+              "wall: %d of 6; hip ferrules inside the shell: %d of 2"
+              % (nm, off_spool, off_wall, inside))
+        if off_spool > 0.05 or off_wall or inside:
+            print("      *** the drive does not connect motor to leg")
             ok = False
+    print("  `[owed]`: the shell's conduit ports and the hip ferrule brackets are "
+          "not drawn -- each ferrule marks where one goes")
 
     # --- ⚠️ **the limb plane must clear the girdle, and DEPTH is the test.**
     # An 80 mm3 "leg/trunk overlap" passed a 1500 mm3 threshold for four
@@ -310,8 +346,16 @@ def report():
                     v = sum(sd.volume for sd in inter.solids())
                 except Exception:
                     v = 0.0
-            print("  %-4s skin/leg overlap  %8.1f mm3%s"
-                  % (nm, v, "" if v < 50.0 else "  *** the cover cuts the leg"))
+            hv = 0.0
+            hi = skin.intersect(harness[i])
+            if hi is not None:
+                try:
+                    hv = sum(sd.volume for sd in hi.solids())
+                except Exception:
+                    hv = 0.0
+            print("  %-4s skin/leg overlap  %8.1f mm3%s   (harness through the "
+                  "skin: %.1f mm3, aperture `[owed]`)"
+                  % (nm, v, "" if v < 50.0 else "  *** the cover cuts the leg", hv))
             if v >= 50.0:
                 ok = False
 

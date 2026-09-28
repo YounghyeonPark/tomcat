@@ -145,7 +145,8 @@ def head():
 
 
 def tail():
-    """The tail in the rear girdle's frame. Its frame origin IS the rear hip."""
+    """The tail in the rear girdle's frame, whose origin is the spine's root joint
+    (the hind hips sit `rear_hip_x` behind it since M122)."""
     return of_solids(list(TL.tail(0.0).solids()), RHO_TAIL)
 
 
@@ -169,29 +170,28 @@ _GIRDLE = {"fore": (3, 0.195), "hind": (0, 0.0)}
 
 
 def g3_parts(role: str):
-    """M120: the six leg G3 flexures on one girdle, as thin Ti discs.
+    """The six leg G3 flexures on one girdle, as thin Ti discs (M120).
 
-    ⚠️ **ADR-0107 priced them and nothing carried them.** Each sits between
-    its motor and its spool, on the motor's axis (x); its position along the
-    row is taken at the row's centre -- the trunk does not yet say which end
-    the spool is on, and 5 g moved 20 mm is below what these figures resolve.
-    `[owed]`: the spool end, when the spool is drawn.
+    Each sits between its motor and its spool, on the motor's axis (x).
+    ✅ M122: at the END of the row its spool is on (`tendon_exit.DRIVE`), which
+    the trunk now says -- M120 had it at the row's centre, `[owed]`.
     """
-    body, x_hip = _GIRDLE[role]
+    import tendon_exit as TE
+    import tomcat_packaging as TP
+    body, x_org = _GIRDLE[role]
     m = G3F.mass_g() * 1e-3
     r = G3F.R_RIM_OUT * 1e-3
     I = np.diag([m * r * r / 2, m * r * r / 4, m * r * r / 4])
+    stack = TT.G3_STACK[role]
     out = []
-    for (_nm, b, x, n, ro) in TT._rows():
-        if b != body or ro != role:
-            continue
-        for (y, z) in TT.ROWS[n][0]:
-            if (n, TT.ROWS[n][0].index((y, z))) in {k for k in TT.POSITION_ROLE}:
-                continue                               # the tail's motor
-            out.append((m, np.array([x * 1e-3 - x_hip, y * 1e-3,
-                                     (TT._zc(x) + z) * 1e-3]), I))
-    if len(out) != 6:
-        raise RuntimeError("%s girdle: %d G3 parts, not 6" % (role, len(out)))
+    for side in (+1.0, -1.0):
+        own = TE.motors(role, side)
+        for t in ("hip", "knee", "ankle"):
+            mi, end = TE.DRIVE[role][t][:2]
+            _nm, _x, y, z = own[mi]
+            xs = TE.spool_x_of(role, mi, end, side)
+            xg = xs - end * (TP.SPOOL_L / 2 + stack / 2)
+            out.append((m, np.array([xg * 1e-3 - x_org, y * 1e-3, z * 1e-3]), I))
     return out
 
 
@@ -228,9 +228,14 @@ def front():
 
 
 def rear():
-    """`(mass, com_xz, fullinertia)` for the rear girdle with the tail placed."""
+    """`(mass, com_xz, fullinertia)` for the rear girdle with the tail placed.
+
+    ⚠️ M122 (ADR-0112): the frame origin is the spine's ROOT JOINT, and the
+    hind hips -- and the whole motor bank the M101 lump holds -- now sit
+    `rear_hip_x` (30 mm) behind it. The lump moves with them; the tail and its
+    motor come from the CAD, which moved them already."""
     m = M101["rear_mass"]
-    c = np.array([M101["rear_com"][0], 0.0, M101["rear_com"][1]])
+    c = np.array([M101["rear_com"][0] + SP.rear_hip_x, 0.0, M101["rear_com"][1]])
     I = _full_to_mat(M101["rear_inertia"])
     M, cc, II = combine([(m, c, I), tail_motor(), tail()] + g3_parts("hind"))
     return M, (cc[0], cc[2]), _mat_to_full(II)

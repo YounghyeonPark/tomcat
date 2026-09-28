@@ -62,7 +62,7 @@ from tomcat_kin import LegModel  # noqa: E402
 from tomcat_kin.tendon import TendonMap  # noqa: E402
 from tomcat_kin.torque_budget import evaluate as budget  # noqa: E402
 from tomcat_kin.params import (  # noqa: E402
-    DEFAULT_LEG, DEFAULT_TENDON, DEFAULT_LOADS,
+    DEFAULT_FORELEG, DEFAULT_LEG, DEFAULT_TENDON, DEFAULT_LOADS,
 )
 
 MM = 1000.0
@@ -500,51 +500,113 @@ def anchor_fitting(centre, y: float = 0.0):
     return Compound([eye, stud])
 
 
-def tendon_drive(q, leg=DEFAULT_LEG, spools=None, lay=None):
-    """Every cable, spool and anchor for one leg -- five runs, three motors.
+def xaxis_can(x0: float, x1: float, y: float, z: float, r: float):
+    """A cylinder along x from x0 to x1."""
+    return Plane(origin=((x0 + x1) / 2, y, z), z_dir=(1, 0, 0)).location * \
+        Cylinder(r, abs(x1 - x0))
 
-    ⚠️ Every run used to be drawn in ONE plane, 9.2 or 15.2 mm out -- the two
-    FLANGES of a 6 mm sheave whose only groove is at its mid-plane, so no
-    cable was in the groove it drives. A run now names, for EVERY pulley it
-    touches, the groove it sits in, and the cable ramps between them.
+
+def _rod(a, b, r):
+    """A cylinder of radius r from point a to point b."""
+    a, b = np.asarray(a, float), np.asarray(b, float)
+    return Plane(origin=tuple((a + b) / 2), z_dir=tuple(b - a)).location * \
+        Cylinder(r, float(np.linalg.norm(b - a)))
+
+
+FERRULE = (2.5, 8.0)        # radius, length: a crimped conduit end   [assumed]
+
+
+def tendon_drive(q, leg=DEFAULT_LEG, lay=None, role=None):
+    """Every cable of one leg, motor to anchor, in 3-D -- six runs, three motors.
+
+    ✅ **M122 (ADR-0112): the drive is drawn where it is.** This used to route
+    five runs in the leg's own plane from a "spool" at the trunk motor's (x, z)
+    but at the CABLE's y, on an axis along y -- a spool that does not exist:
+    the real one is inside the trunk at y = 20.2 on an axis along x. Each cable
+    now leaves that spool tangentially, leads to a ferrule on the trunk wall,
+    runs in a Bowden CONDUIT to a second ferrule (on a trunk bracket above the
+    hip for the hip pair; on the FEMUR for the knee and ankle pairs), and runs
+    free from there to its anchor on its joint sheave. The ANKLE runs are a
+    pair (ADR-0055) -- six runs, not five, and no return spring.
+
+    ⚠️ And this called `LT.route` without `leg=`, so the FORE leg's cables were
+    solved on the HIND leg's link lengths at the fore leg's angles -- 12-26 %
+    of their length ran through parts.
+
+    Frame: the leg's own (hip at x = 0, limb plane at y = 0); `build` moves it
+    out to `TRACK_Y`.
     """
     import leg_tendons as LT
+    import tendon_exit as TE
+    import tomcat_packaging as TP
+    import tomcat_trunk as TT
 
-    groups = {"tendon": [], "motor": [], "anchor": []}
+    role = role or ("fore" if leg is DEFAULT_FORELEG else "hind")
+    hx = TE.HIP_X[role]
+    groups = {"tendon": [], "motor": [], "spool": [], "conduit": [], "ferrule": [],
+              "trunk_ferrule": [], "anchor": []}
     routes = {}
     if lay is None:
         lay = plane_layout({"hip": 6.4, "knee": 6.4, "ankle": 4.4},
                            {j: BEARING[j][2] for j in ("hip", "knee", "ankle")})
-    #   ✅ one plane per CABLE, and both legs of an antagonistic loop share it.
-    #   The stack is monotone (see `plane_layout`), so a run never has to cross a
-    #   band and the fleet is zero by construction rather than by tolerance.
     plane = lay["hip"]["plane"]
     fleet = {}
-    for tendon, side in (("hip", +1), ("hip", -1), ("knee", +1),
-                         ("knee", -1), ("ankle", +1)):
+    off = np.array([hx, TRACK_Y, 0.0])          # trunk -> leg-local
+
+    def loc(p):
+        return np.asarray(p, float) - off
+
+    runs = TE.drive(role, side=+1.0, q=q)
+    for (tendon, side), r in runs.items():
         y = plane[tendon]
-        r = LT.route(q, tendon, side=side, spools=spools)
         routes[(tendon, side)] = r
-        st = LT.stations(q, tendon, side, spools=spools)
-        _, worst = fleet_profile(r["points"], st[:-1], [y] * len(st[:-1]))
+        st = [(np.asarray(r["points"][0], float), 1e-3, 1.0)]
+        _, worst = fleet_profile(r["points"], st, [y])
         fleet["%s%+d" % (tendon, side)] = worst
         groups["tendon"].append(cable(r["points"], y=y))
-        groups["anchor"].append(anchor_fitting(st[-1][0], y=y))
+        T, F1 = r["lead"]
+        groups["tendon"].append(_rod(loc(T), loc(F1), CABLE_D / 2))
+        C = np.array([loc(p) for p in r["conduit"]])
+        # every 4th point: the conduit's curve at ~5 mm chords; finer drew a
+        # whole robot the renderer ran out of memory on
+        Cd = np.vstack([C[::4], C[-1:]])
+        for a, b in zip(Cd[:-1], Cd[1:]):
+            if np.linalg.norm(b - a) > 1e-6:
+                groups["conduit"].append(_rod(a, b, TE.CONDUIT_OD / 2))
+        d1 = (C[1] - C[0]) / np.linalg.norm(C[1] - C[0])
+        d2 = (C[-1] - C[-2]) / np.linalg.norm(C[-1] - C[-2])
+        groups["trunk_ferrule"].append(_rod(C[0] - d1 * 2, C[0] + d1 * (FERRULE[1] - 2),
+                                            FERRULE[0]))
+        f2 = _rod(C[-1] - d2 * (FERRULE[1] - 1), C[-1] + d2 * 1, FERRULE[0])
+        if tendon == "hip":
+            groups["trunk_ferrule"].append(f2)
+        else:
+            # the femur ferrule's bracket: a post from the femur's own axis
+            P = LT.joints(q, leg)
+            a0 = np.array([P[0][0], 0.0, P[0][1]])
+            a1 = np.array([P[1][0], 0.0, P[1][1]])
+            fp = C[-1] - d2 * FERRULE[1] / 2
+            t = float(np.clip((fp - a0) @ (a1 - a0) / ((a1 - a0) @ (a1 - a0)), 0, 1))
+            groups["ferrule"].append(f2)
+            groups["ferrule"].append(_rod(a0 + t * (a1 - a0), fp, 2.0))
+        an = r["anchor"]
+        groups["anchor"].append(Pos(an[0], y, an[1]) * Sphere(CABLE_D))
     routes["fleet"] = fleet
 
-    # ✅ The motors are drawn where the cables actually end. Given `spools`
-    # they are the trunk's real centres; without them the old diagonal, so a
-    # standalone leg still renders and an assembled one is honest.
-    if spools:
-        seats = [(spools[t][0], spools[t][1], plane[t])
-                 for t in ("hip", "knee", "ankle")]
-    else:
-        c = LT.joints(q, leg)[0] + np.array(LT.SPOOL_OFFSET)
-        seats = [(c[0] - dz * 0.35, c[1] + dz, plane[t])
-                 for t, dz in zip(("hip", "knee", "ankle"), (0.0, 26.0, 52.0))]
-    for (sx, sz, sy) in seats:
-        groups["motor"].append(motor_and_spool((sx, sz), LT.SPOOL_R, y=sy))
-    return {k: Compound(v) for k, v in groups.items()}, routes
+    # the motors: cans along x, each spool at the END of its row the drive chose
+    for t in ("hip", "knee", "ankle"):
+        r = runs[(t, +1)]
+        x, yy, zz = r["seat"]
+        xs = r["spool_x"]
+        end = 1.0 if xs > x else -1.0
+        x_far = x - end * TT.row_len(role) / 2
+        groups["motor"].append(xaxis_can(x_far - hx, x_far - hx + end * TP.MOTOR_L,
+                                         yy - TRACK_Y, zz, TP.MOTOR_D / 2))
+        groups["spool"].append(
+            xaxis_can(xs - hx - TP.SPOOL_L / 2, xs - hx + TP.SPOOL_L / 2,
+                      yy - TRACK_Y, zz, LT.SPOOL_R + GROOVE_R + FLANGE_H)
+            - xaxis_can(xs - hx - TP.SPOOL_L, xs - hx + TP.SPOOL_L, yy - TRACK_Y, zz, 3.0))
+    return {k: Compound(v) for k, v in groups.items() if v}, routes
 
 
 def joint_offset(joint: str) -> float:
@@ -553,8 +615,10 @@ def joint_offset(joint: str) -> float:
     return od / 2 + BOSS_WALL
 
 
-def build(leg=DEFAULT_LEG, spools=None):
-    """One hind leg in the stance pose, as manufacturable parts."""
+def build(leg=DEFAULT_LEG, role=None):
+    """One leg in the stance pose, as manufacturable parts, with its drive.
+
+    `role` ("hind" / "fore") picks the drive; it defaults from `leg`."""
     lm = LegModel(leg)
     q = lm.inverse((FOOT_X, FOOT_Z, FOOT_PITCH))
     pts = lm.joint_positions(q) * MM          # hip, knee, ankle, paw-base, paw-tip
@@ -562,10 +626,17 @@ def build(leg=DEFAULT_LEG, spools=None):
     arms = np.asarray(DEFAULT_TENDON.joint_moment_arm) * MM
     LAY = plane_layout({"hip": 6.4, "knee": 6.4, "ankle": 4.4},
                        {j: BEARING[j][2] for j in ("hip", "knee", "ankle")})
+    # ✅ M122 (ADR-0112): NO via at the hip. The knee and ankle cables reach
+    # the femur in Bowden conduits whose ferrules sit on the femur itself, so
+    # nothing has to wrap the hip -- and the 8.75 mm/rad the hip via coupled
+    # into both cables goes with it. The knee via (the ankle cable past the
+    # knee) stays.
+    LAY["hip"]["via"] = []
     groups: dict[str, list] = {k: [] for k in
                                ("tube", "insert", "clevis", "sheave",
                                 "bearing", "shaft", "cable", "pad", "tendon",
-                                "motor", "anchor")}
+                                "motor", "spool", "conduit", "ferrule",
+                                "trunk_ferrule", "anchor")}
     report: dict[str, dict] = {}
 
     # ⚠️ Four links, not three. The first pass stopped at the metatarsus and left
@@ -720,31 +791,15 @@ def build(leg=DEFAULT_LEG, spools=None):
 
     tip = np.array([pts[4][0], 0.0, pts[4][1]])
     groups["pad"].append(Pos(tip[0], 0.0, tip[2] + 1.5) * paw_pad())
-    # ⚠️ **The return spring was anchored to nothing.** ADR-0002 Option B is a
-    # single ankle tendon plus a spring that pulls the joint back, so the spring
-    # has to CROSS the ankle: one end on the tibia, one on the metatarsus. It was
-    # parked at (-35, -12, -99), 3.14 mm clear of the nearest clevis and touching
-    # no part of the leg -- 836 mm3 of loose steel. It is now built between two
-    # eyes that sit on the bones it acts across.
-    ank = np.array([pts[2][0], 0.0, pts[2][1]])
-    kne = np.array([pts[1][0], 0.0, pts[1][1]])
-    paw = np.array([pts[3][0], 0.0, pts[3][1]])
-    SPR_Y = -(BEARING["ankle"][1] / 2 + 3.0)      # medial, clear of the clevis
-    a_end = ank + (kne - ank) / np.linalg.norm(kne - ank) * 16.0
-    b_end = ank + (paw - ank) / np.linalg.norm(paw - ank) * 16.0
-    v = b_end - a_end
-    L = float(np.linalg.norm(v))
-    groups["cable"].append(
-        Plane(origin=tuple((a_end + b_end) / 2 + np.array([0.0, SPR_Y, 0.0])),
-              z_dir=tuple(v)).location * return_spring(length=L))
-    for e in (a_end, b_end):
-        groups["cable"].append(Pos(e[0], SPR_Y / 2, e[2])
-                               * (Plane(origin=(0, 0, 0), z_dir=(0, 1, 0)).location
-                                  * Cylinder(1.6, abs(SPR_Y))))
+    # ✅ M122: no return spring. It was ADR-0002 Option B -- one ankle cable
+    # and a spring to pull the joint back -- and the ankle has been an
+    # antagonistic PAIR on one motor since ADR-0055 (`ankle_pair`, the default).
+    # The spring was 836 mm3 of steel charged to the leg for a part the design
+    # does not have; the ankle extensor it stood in for is drawn below.
 
     # ⚠️ THE TENDON DRIVE. Without this the model is a linkage with pulleys
     # bolted to it, and P1 — the premise of the whole robot — is undrawn.
-    drive, routes = tendon_drive(q, leg, spools=spools, lay=LAY)
+    drive, routes = tendon_drive(q, leg, lay=LAY, role=role)
     for k, comp in drive.items():
         groups[k].extend(comp.solids())
     report["routes"] = {f"{t}{'+' if s > 0 else '-'}": r
@@ -766,9 +821,9 @@ def connectivity(comps, tol: float = 0.05):
     Everything that carries load is in.
     """
     STRUCT = ("tube", "insert", "clevis", "bearing", "shaft",
-              "sheave", "pad", "cable")
+              "sheave", "pad", "cable", "ferrule")
     items = [(g, sd, sd.bounding_box())
-             for g in STRUCT for sd in comps[g].solids()]
+             for g in STRUCT if g in comps for sd in comps[g].solids()]
     n = len(items)
     parent = list(range(n))
 
@@ -891,10 +946,13 @@ def checks(comps, report):
         # UHMWPE, 0.97 g/cm^3 -- the cable floats, which IS the P1 argument
         "tendon": vol(comps["tendon"]) * 0.97e-3 if "tendon" in comps else 0.0,
         "anchor": vol(comps["anchor"]) * AL_RHO if "anchor" in comps else 0.0,
+        # M122: the femur's conduit ferrules and their brackets
+        "ferrule": vol(comps["ferrule"]) * AL_RHO if "ferrule" in comps else 0.0,
         # ⚠️ SPRING_FILL: the envelope is a solid cylinder but an extension
         # spring is mostly air. Wire volume / envelope volume for a typical
         # cat-scale coil. `[assumed]`
-        "cable": vol(comps["cable"]) * STEEL_RHO * SPRING_FILL,
+        # the ankle return spring, while the leg had one (gone in M122)
+        "cable": vol(comps["cable"]) * STEEL_RHO * SPRING_FILL if "cable" in comps else 0.0,
     }
     total = sum(mass.values())
     budget = sum(DEFAULT_LEG.link_mass) * 1e3
@@ -1207,7 +1265,8 @@ def render_png(comps, path):
     style = {"tube": "#d7ac86", "insert": "#b8bfc7", "clevis": "#8a9bb0",
              "sheave": "#5f7285", "bearing": "#3c4a5a", "shaft": "#6b7684", "cable": "#c17a3a",
              "pad": "#4a4a4a", "tendon": "#c17a3a", "motor": "#2f3b49",
-             "anchor": "#9aa7b4"}
+             "anchor": "#9aa7b4", "spool": "#c8ccd2", "conduit": "#7b8591",
+             "ferrule": "#d4a642", "trunk_ferrule": "#d4a642"}
     fig = plt.figure(figsize=(11, 7))
     ax = fig.add_subplot(111, projection="3d")
     for name, comp in comps.items():

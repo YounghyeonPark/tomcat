@@ -107,7 +107,9 @@ def test_the_1D_reduction_lands_on_the_worst_direction(setup):
     # ⚠️ M102 **33.77 -> 34.85 mm** when the head stopped being a lump at the
     # girdle mount. Placing 240 g at 149 mm forward and 118 up raises the body
     # CoM 14.9 -> 20.1 mm; the viable set GREW. Not every correction costs.
-    assert exact == pytest.approx(0.03485, abs=5e-4)
+    # M122 (ADR-0112): 34.85 -> 32.94 mm -- the hind hips 30 mm behind spine
+    # joint 0, a longer body over the same feet.
+    assert exact == pytest.approx(0.03294, abs=5e-4)
     # ⚠️ **The agreement WIDENED to 4.0 %, and it is still conservative.**
     # `rejection_envelope` reads 29.25 mm against the exact 30.46: the reduction
     # under-claims, which is the direction that matters. The headline was "2-3 %"
@@ -171,7 +173,8 @@ def test_the_spine_authority_is_sufficient_for_NFR15(setup):
     worst = _worst(with_spine)
     # ⚠️ M102 **65.2 -> 66.4 mm** with the head placed. NFR15 wants 48 and
     # the margin widened, so the conclusion is unchanged and stronger.
-    assert worst == pytest.approx(0.0664, abs=1e-3)
+    # M122: 66.4 -> 65.3 mm; still well over NFR15's 48.
+    assert worst == pytest.approx(0.0653, abs=1e-3)
     assert worst > 0.048, "NFR15 would be unachievable — recheck before publishing"
 
     quoted = control.self_consistent_envelope(c)["envelope"]

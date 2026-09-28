@@ -253,11 +253,15 @@ class LegMount:
 #: See `mjcf_tendon.TRACK_HALF` -- M93 moved it 0.048 -> 0.053.
 TRACK_HALF = 0.053
 
+#: ✅ M122: the hind hips sit `rear_hip_x` behind the spine's root joint
+#: (ADR-0112); the fore hips stay at the front girdle's origin.
+_REAR_HIP = (float(DEFAULT_SPINE.rear_hip_x), 0.0)
+
 DEFAULT_MOUNTS: tuple[LegMount, ...] = (
     LegMount("LF", Girdle.FRONT, track_y=+TRACK_HALF),
     LegMount("RF", Girdle.FRONT, track_y=-TRACK_HALF),
-    LegMount("LR", Girdle.REAR, track_y=+TRACK_HALF),
-    LegMount("RR", Girdle.REAR, track_y=-TRACK_HALF),
+    LegMount("LR", Girdle.REAR, hip_offset=_REAR_HIP, track_y=+TRACK_HALF),
+    LegMount("RR", Girdle.REAR, hip_offset=_REAR_HIP, track_y=-TRACK_HALF),
 )
 
 

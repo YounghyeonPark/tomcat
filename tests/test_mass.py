@@ -75,7 +75,7 @@ def _symmetric_trunk_body(leg_mass=0.0):
 def test_default_body_totals_the_load_case_body_mass():
     # The apportionment in params.py is built to reproduce the 3.0 kg that every
     # LoadCase / WholeBodyLoadCase already assumed.
-    assert DEFAULT_BODY_MASS_KG == pytest.approx(4.55397, abs=1e-9)  # M111 -> M120 (ADR-0111, G3)
+    assert DEFAULT_BODY_MASS_KG == pytest.approx(4.50092, abs=1e-9)  # M120 -> M122 (ADR-0112)
     assert _body().total_mass == pytest.approx(LoadCase("x").body_mass_kg, abs=1e-9)
 
 
@@ -104,8 +104,9 @@ def test_the_fore_hind_leg_ASYMMETRY_has_vanished():
     Design review F2 settled the fore/hind weight split using the old asymmetry and
     is re-checked in `test_fore_hind_split_...` below.
     """
-    assert DEFAULT_HINDLEG.mass == pytest.approx(0.20811, abs=5e-4)   # M111 sheaves
-    assert DEFAULT_FORELEG.mass == pytest.approx(0.20859, abs=5e-4)   # M111 sheaves
+    # M122 (ADR-0112): -13 g each -- no hip via, no return spring, no pins
+    assert DEFAULT_HINDLEG.mass == pytest.approx(0.19506, abs=5e-4)
+    assert DEFAULT_FORELEG.mass == pytest.approx(0.19515, abs=5e-4)
     assert abs(DEFAULT_HINDLEG.mass - DEFAULT_FORELEG.mass) < 0.001, (
         "the legs are equal now; if a real asymmetry returns, re-derive F2's split"
     )
@@ -124,7 +125,8 @@ def test_limbs_are_light_because_the_motors_are_not_in_them():
     # actuator hardware, and the fore leg's load could only be reached from the
     # joint end. Still well under the ~24 % biological fraction F1 retired.
     assert 0.10 < legs / body.total_mass < 0.20
-    assert legs / body.total_mass == pytest.approx(0.187, abs=0.005)
+    # M122: 0.187 -> 0.173, the legs shed the hip via, spring and pins.
+    assert legs / body.total_mass == pytest.approx(0.173, abs=0.005)
 
 
 def test_trunk_plus_legs_equals_total():
@@ -157,7 +159,7 @@ def test_fore_hind_split_is_near_balanced_not_sixty_forty():
     # change was symmetric — which is itself the point: the split is set by the
     # girdles and the head, not by the limbs.
     q = _body().mass_budget()
-    assert q.total == pytest.approx(4.55397, abs=1e-9)   # M120
+    assert q.total == pytest.approx(4.50092, abs=1e-9)   # M122
     assert q.fore + q.hind == pytest.approx(q.total, abs=1e-12)
     assert q.fore_fraction == pytest.approx(0.543, abs=0.02)
     assert q.hind_fraction == pytest.approx(0.457, abs=0.02)
@@ -336,7 +338,9 @@ def test_symmetric_body_with_legs_shifts_by_exactly_the_leg_offset():
     body = _symmetric_trunk_body(leg_mass=0.1)
     bare = _symmetric_trunk_body(leg_mass=0.0)
     offset = leg_com(body.fore_leg, STAND).com   # hip -> leg CoM, shared by all 4
-    hips = np.array([body.spine.params.total_length / 2.0, 0.0])  # mean hip
+    # mean hip -- M122: the hind hips sit `rear_hip_x` behind the spine root
+    hips = np.array([(body.spine.params.total_length
+                      + body.spine.params.rear_hip_x) / 2.0, 0.0])
     m_trunk = bare.total_mass
     m_legs = 4 * 0.1
     expected = ((m_trunk * bare.center_of_mass(np.zeros(3), STAND).com
@@ -347,7 +351,7 @@ def test_symmetric_body_with_legs_shifts_by_exactly_the_leg_offset():
 def test_default_com_sits_forward_of_mid_body_because_the_cat_is_front_heavy():
     body = _body()
     c = body.center_of_mass(STRAIGHT, STAND)
-    assert c.mass == pytest.approx(4.55397)   # M120
+    assert c.mass == pytest.approx(4.50092)   # M122
     # Forward of the mid-spine point, but still between the two girdles.
     assert c.x > DEFAULT_SPINE.total_length / 2.0
     assert 0.0 < c.x < DEFAULT_SPINE.total_length
@@ -370,7 +374,8 @@ def test_default_com_sits_forward_of_mid_body_because_the_cat_is_front_heavy():
     # ⚠️ M111's heavier sheaves (+21 g a leg, hanging BELOW the hip axis) pull
     # it back down **20.1 -> 18.5 mm** -- the direction that helps the ZMP
     # margin M102 had to re-tune for, not the one that hurts it.
-    assert c.z == pytest.approx(0.0185, abs=5e-4)
+    # M122: 18.5 -> 19.1 mm -- the legs lost 13 g each below the hip axis.
+    assert c.z == pytest.approx(0.0191, abs=5e-4)
 
 
 def test_arching_the_spine_moves_the_com_up_and_rearward():
@@ -486,8 +491,9 @@ def test_actuation_mass_matches_the_downselected_motor_and_count():
     # had never heard of -- plus the 9.8 g tail it drives. Both come out of the
     # structure allowance, so the body total does not move.
     # M120: and its six leg G3 flexures, as on the front.
-    assert sp.rear_girdle_mass == pytest.approx(7 * unit + 0.110 + 0.0098
-                                                + 0.03118, abs=2e-5)
+    # M122: the tail grew 9.8 -> 10.2 g with the 30 mm longer trunk.
+    assert sp.rear_girdle_mass == pytest.approx(7 * unit + 0.110 + 0.0102
+                                                + 0.03118, abs=6e-5)
     # The pelvis is now the LIGHTER girdle: the spine/tail bank left it for the
     # mid-body bay, which is where the CAD packaging actually puts those motors.
     assert sp.rear_girdle_mass < sp.front_girdle_mass
@@ -501,8 +507,9 @@ def test_actuation_mass_matches_the_downselected_motor_and_count():
     # battery, the structure allowance and the six SPINE motors -- less the
     # 9.8 g of tail foam, which the same structure allowance pays for.
     # M120: and the six spine G3 flexures, 3.86 g each.
+    # M122: the tail foam is 10.2 g now (the trunk is 30 mm longer).
     assert sp.segment_mass[1] == pytest.approx(
-        0.130 - 0.0098 + 0.300 + 6 * unit + 0.0232, abs=2e-5)
+        0.130 - 0.0102 + 0.300 + 6 * unit + 0.0232, abs=2e-4)
 
 
 def test_total_matches_the_revised_NFR5_target():
@@ -511,4 +518,4 @@ def test_total_matches_the_revised_NFR5_target():
     # target, and 19 of them do not fit inside 3 kg. See the motor-reality-check
     # note. A domestic cat is 4-5 kg, so the new figure is if anything more
     # biomimetic -- but it was forced by hardware, not chosen.
-    assert _body().mass_budget().total == pytest.approx(4.55397, abs=1e-9)   # M120
+    assert _body().mass_budget().total == pytest.approx(4.50092, abs=1e-9)   # M122

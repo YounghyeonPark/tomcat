@@ -206,10 +206,18 @@ class TendonMap:
         wa = getattr(self.params, "wrap_angle", None)
         if wa is not None:
             return float(np.exp(sign * mu * float(wa)))
+        k = 0 if side >= 0 else 1
+        # ✅ M122 (ADR-0112): slide in the conduit, lose a little per running
+        # pulley, nothing on the anchored sheave or the spool.
+        if getattr(self.params, "friction_model", "capstan") == "drive":
+            bend = np.array([float(row[k]) for row in self.params.conduit_bend])
+            n = np.array([float(row[k]) for row in self.params.pulley_count])
+            eta = float(self.params.pulley_efficiency)
+            return (np.exp(sign * float(self.params.conduit_mu) * bend)
+                    * eta ** (-sign * n))
         pw = getattr(self.params, "pair_wrap", None)
         if pw is None:
             return 1.0
-        k = 0 if side >= 0 else 1
         wrap = np.array([float(row[k]) for row in pw], dtype=float)
         return np.exp(sign * mu * wrap)
 
