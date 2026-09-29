@@ -151,7 +151,8 @@ def test_KNOWN_DEFECT_the_femur_conduits_cut_the_hip_sheave(role, runs):
     hip sheave's rim, every knee and ankle conduit crosses the sheave's plane
     inside the rim. Between the trunk wall and the femur the hip's boss, the
     femur's root and the sheave leave no path at all -- a hip packaging
-    problem, which M123's hollow hip is to solve. This fails when it does."""
+    problem. ADR-0113's hollow hip could not be fed from the trunk; the fix
+    moves the knee and ankle spools (`[owed]`). This fails when it lands."""
     q0 = TE.stance(role)
     cut = [k for k, r in runs.items()
            if k[0] != "hip" and not TE._leg_clear(role, r["conduit"], q0, skip_end=4, parts=(0,))]

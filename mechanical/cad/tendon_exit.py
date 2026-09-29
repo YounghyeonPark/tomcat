@@ -93,8 +93,10 @@ CONDUIT_MU = 0.07
 #: the femur found no path either: between the trunk wall and the femur the
 #: hip's boss (r 12, y 41-65), the femur's root and the hip sheave (r 38,
 #: y 62-68) leave a 15 mm-radius conduit no way through, at the stance alone.
-#: That is a HIP packaging problem, not a routing one; ADR-0112 takes it to a
-#: hollow hip (M123). `test_tendon_exit` asserts the defect.
+#: ADR-0113 then tried a hollow hip, fed from inside the trunk by conduits or
+#: by idlers; neither fits between the motor rows and the hip axis, so the fix
+#: moves the knee and ankle spools themselves (`[owed]`).
+#: `test_tendon_exit` asserts the defect.
 S2 = 42.0
 #: What a conduit keeps from the leg, mm (beyond its own radius).
 LEG_MARGIN = 1.0

@@ -8909,7 +8909,8 @@ The MuJoCo harness moved four numbers, and three of them moved the good way.
 
 ## ADR-0112: the leg drive in 3-D — friction where the cable slides, spine joint 0 moved forward, and the hip crossing still owed
 - **Status:** Accepted, with a **known defect**: the knee and ankle conduits cut
-  the hip sheave. The hip region's redesign (a hollow hip) is M123.
+  the hip sheave. The hip region's redesign (a hollow hip) is M123 — measured
+  and rejected in ADR-0113; the defect stands.
 - **Context:** the leg's tendon WIRING was questioned, and it had never been
   checked in three dimensions. M122 looked, with the leg CAD at its joint limits,
   the trunk's real motors, and the leg's sweep over its full range.
@@ -9016,6 +9017,78 @@ The MuJoCo harness moved four numbers, and three of them moved the good way.
     never checked; its radius tube (Ø12) is SF 1.77 at landing (the fore knee
     carries 18.3 N·m to the hind's 11.5). The paw pad parts from the leg at two
     ROM extremes.
+
+---
+
+## ADR-0113: the hollow hip does not fit the trunk — two in-trunk routings measured and rejected; ADR-0112's known defect stands
+- **Status:** Rejected (both options below). ADR-0112's drive and its known
+  defect stand unchanged; nothing in the design moved.
+- **Context:** ADR-0112 left every knee and ankle conduit cutting the hip
+  sheave and named the fix: a HOLLOW HIP. The trunk carries a stub on the hip
+  axis (Ø35 × 31). The femur's hub turns on it in two thin-section bearings.
+  The knee and ankle conduits come out of the trunk along the axis, inside the
+  stub, and turn at the hub to ferrules in its wall. Nothing of the leg can
+  sweep them, and over the hip range they only twist. The femur side was drawn
+  and closes. The question was the trunk side: getting four cables per leg
+  from spools on axes along x, deep in rows of cans, onto that axis.
+
+- **Findings — the geometry that decides it:**
+  - A lead leaves its spool in the spool's y-z plane; the hip axis runs along
+    y at the hip's x. Every route therefore turns at least twice (into x, then
+    onto the axis) and needs room in x between the spool plane and the axis.
+    That is ≥ 2 × 15 mm for a conduit and ≥ 2 × 8.75 mm for two idlers.
+    ADR-0112 left 9 mm (hind row end → hip) and 7 mm (hip → fore front row).
+  - The bottom motors' axis is 3.4 mm under the hip axis. A single curve from
+    a lead to the axis cannot get round the cans. The routes that exist drop
+    into the belly under the motors, or the channel between them, run along x,
+    and climb onto the axis in front of the row.
+  - Four cables per leg compete for those few corridors round the spools.
+    Each cable alone has a route; four together do not.
+
+- **Option A — conduits inside the trunk (rejected).** F1 a few mm along the
+  lead, one clip point in the trunk, conduit to the axis, bundle through the
+  stub. The search is `place()` extended: lead length, axis entry, one
+  waypoint, real spool ends, conduits clear of each other.
+
+  | trunk bays (hind / fore) | conduit R | hind | fore |
+  |---|---|---|---|
+  | 0 / 0 (ADR-0112) | 15 | no layout | no layout |
+  | 10 / 10 (+20 mm) | 15 | no layout | no layout |
+  | 10 / 10 | 10 | no layout | no layout |
+  | 25 / 25 (+50 mm) | 15 | **layout** | no layout |
+
+  Brute force on the fore leg: no four-conduit set stays clear even with the
+  last 16 mm round the axis allowed as a shared bundle. The one hind layout
+  found bends ~300–335° per conduit including the hub turn — friction
+  ×~1.5 against ADR-0112's ×1.19.
+
+- **Option B — two idlers per cable inside the trunk (rejected).** Spool →
+  pulley 1 (turn into x) → pulley 2 (horizontal disk at the hip's x, turn onto
+  a line parallel to the axis) → conduit only for the axis and the hub turn.
+  The four cables are stacked in height, one level each, at a 4.9 mm pitch.
+  It would have cost ×0.97² · e^(0.07·π/2) ≈ ×1.19, the same as ADR-0112.
+  With bays 10 / 13 mm, NOT ONE knee or ankle cable on the fore leg has even a
+  single route. The lead cannot reach a level inside the stub's bore
+  (|z| ≤ 14 mm) within reach of its spool at most angles. The rest put pulley 1
+  into a neighbouring spool or can, or the line along the axis past the stub's
+  inner end. The hind leg finds no four-cable layout either.
+
+- **Decision:** neither. The trunk is not lengthened (a 50 mm longer trunk did
+  not fix the fore leg). ADR-0112 stands as committed, with its known defect.
+  The attempt is kept outside the tree for reference; the design did not move.
+
+- **Consequences / what this says about the next attempt:**
+  - The obstruction is the drive's ROOT, not the hip. The spools sit on axes
+    along x, deep in rows of cans, and the rows are packed against the hips.
+    Any fix that keeps that has to find ~2 turns × 4 cables of free space
+    between the rows and the hip axis, and the measurement says it is not there.
+  - So the next attempt changes where or how the knee and ankle spools
+    sit — e.g. a spool plane at the hip's x, spools turned toward the hip axis,
+    or knee and ankle drives off the girdle's rows. That is a packaging
+    decision above one milestone. `[owed]`
+  - Unchanged and still `[owed]` from ADR-0112: the defect itself
+    (`test_tendon_exit` asserts it), the conduits' real shape, ports and
+    brackets, and mu_c / pulley efficiency on a bench.
 
 ---
 
