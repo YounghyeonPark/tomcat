@@ -694,11 +694,41 @@ def process_clearance(body: int):
     return out
 
 
+#: A conduit port through the shell: the SEAT of its wall ferrule (Ø5,
+#: `tomcat_leg_detail.FERRULE`) plus 0.5 mm, mm.
+PORT_D = 5.5
+
+
+def conduit_ports(body: int):
+    """✅ M124 (ADR-0115): the hip pair's Bowden conduits leave the girdle
+    through the wall at their F1 ferrules (`tendon_exit`), and nothing had cut
+    the hole -- the assembly reported ~60 mm3 of harness through each flank.
+    One Ø`PORT_D` bore per conduit along its lead, through the wall. (The knee
+    and ankle conduits leave through the hollow hip's stub.)"""
+    if body not in (0, 3):
+        return []
+    import tendon_exit as TE
+    role = "hind" if body == 0 else "fore"
+    out = []
+    for side in (+1.0, -1.0):
+        for (t, _sd), r in TE.drive(role, side).items():
+            if t != "hip":
+                continue
+            T, F1 = r["lead"]
+            d = (F1 - T) / np.linalg.norm(F1 - T)
+            L = 4.0 * WALL + 8.0
+            out.append(Plane(origin=tuple(F1 - d * L / 2), z_dir=tuple(d)).location
+                       * (Pos(0, 0, L / 2) * Cylinder(PORT_D / 2, L)))
+    return out
+
+
 def rigid_body(body: int):
     g = body_shell(body)
     for i, h in enumerate(hip_bosses(body)):
         g = _fuse(g, h, "body %d hip boss %d" % (body, i))
     for v in hip_bores(body):
+        g = g - v
+    for v in conduit_ports(body):
         g = g - v
     # ⚠️ cut the cable clearance BEFORE the posts go in, or the post arrives
     # tangent to the wall and the fuse is the one that eats the body.

@@ -56,7 +56,11 @@ and trunk ferrules; the knee and ankle pairs' drive is fixed by the layout.
 ⚠️ The conduit is modelled as a cubic Bezier between its ferrules. Its real
 shape is `[owed]` to a mock-up; its bend radius, and that the knee and ankle
 conduits stay inside the stub's and the hub's bores, are checked here. Four
-conduits share the bore and twist with the hip `[owed]`.
+conduits share the bore and twist with the hip `[owed]`: modelled one at a
+time they pass through EACH OTHER between the stub's end and the hub's
+ferrules (y 61-69 mm, 5-16 mm off the axis) at most hip angles -- a real
+bundle has to twist there instead, through the hip's full range (M124,
+measured; a mock-up settles it).
 """
 from __future__ import annotations
 
@@ -102,6 +106,13 @@ CONDUIT_MU = 0.07
 HUB_F2_R = 30.0
 #: ...and begin inside the trunk: F1 where the lead reaches this |y|, mm.
 LEAD_Y = 31.5
+#: ⚠️ **The ankle pair's two cables leave the hip on ONE line** -- both reach
+#: the knee via on the same side, so their rays from the hip coincide and so
+#: did their ferrules (on the femur in M122, in the hub in M123). Staggered
+#: along the axis by this much either side of the cable's plane, mm: a ferrule's
+#: width and a gap. Each cable then enters its groove ~100 mm away at a 1.5 deg
+#: fleet, inside the ~2 deg a groove holds.
+ANKLE_STAGGER = 2.6
 #: (F1's ferrule body, 2 mm behind F1, clears its own spool's flange from
 #: |y| 31.1 -- the flange is 10.9 mm round an axis 8.75 from the lead.)
 #: What a conduit keeps from the leg, mm (beyond its own radius).
@@ -309,7 +320,8 @@ def hub_ferrule(role, tendon, side_c, q, lr_side=+1.0):
     run = leg_run(role, tendon, side_c, q)
     p = run["points"]
     u = (p[1] - p[0]) / np.linalg.norm(p[1] - p[0])
-    return (np.array([HIP_X[role] + HUB_F2_R * u[0], plane_y(tendon, lr_side),
+    dy = lr_side * side_c * ANKLE_STAGGER if tendon == "ankle" else 0.0
+    return (np.array([HIP_X[role] + HUB_F2_R * u[0], plane_y(tendon, lr_side) + dy,
                       HUB_F2_R * u[1]]), np.array([u[0], 0.0, u[1]]))
 
 

@@ -1,6 +1,6 @@
 # mechanical/cad/
 
-## Current model (M123)
+## Current model (M124)
 
 ![the whole robot](tomcat_whole.png)
 
@@ -18,7 +18,7 @@ PNG when run (`python mechanical/cad/<script>.py`; STLs are git-ignored).
 | `tendon_exit.py`, `leg_drive_3d.py` | the leg drive in 3-D, spool to anchor (ADR-0112/0114), and its animation | `leg_drive_3d.gif`, `_still.png` |
 | `girdle_inertia.py`, `link_inertia.py`, `mass_closure.py` | the masses and inertias `params.py` carries, derived from the drawn parts | printed |
 
-Body **4.605 kg**, 19 motors (the GIM3505-9 is a PROXY for envelope and mass;
+Body **4.589 kg**, 19 motors (the GIM3505-9 is a PROXY for envelope and mass;
 the spec it must meet is in ADR-0100/0110).
 
 ⚠️ **Everything below this line is HISTORY** -- the July skeleton and

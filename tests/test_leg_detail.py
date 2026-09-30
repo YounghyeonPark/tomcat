@@ -43,7 +43,8 @@ def test_the_spec_torque_table_is_stale_by_the_WHOLE_mass_history(loads):
     | 4.4684 kg (ADR-0103, M111) | 18.41 N·m | 1.49 |
     | 4.5540 kg (ADR-0111, M120, G3) | 18.76 N·m | 1.52 |
     | 4.5009 kg (ADR-0112, M122) | 18.54 N·m | 1.50 |
-    | **4.6053 kg (ADR-0114, M123, hollow hip)** | **18.97 N·m** | **1.54** |
+    | 4.6053 kg (ADR-0114, M123, hollow hip) | 18.97 N·m | 1.54 |
+    | **4.5889 kg (ADR-0115, M124)** | **18.91 N·m** | **1.53** |
 
     The ratio tracks the body mass exactly, which is what proves §1.1 is simply a
     stale snapshot rather than a different calculation. §2 *was* re-run at 4.045 kg
@@ -51,12 +52,12 @@ def test_the_spec_torque_table_is_stale_by_the_WHOLE_mass_history(loads):
     milestone's correction became the next one's staleness.
     """
     tau, T = loads["land"]["tau"][0], loads["land"]["T"][0]
-    assert tau == pytest.approx(18.97, abs=0.05)
+    assert tau == pytest.approx(18.91, abs=0.05)
     # ⚠️ M111: the tension FELL while the torque rose, 650 -> 516 N -- the
     # 36 mm hip arm carries the same torque on less cable. Torque tracks mass;
     # tension tracks mass over arm, so it is no longer a pure mass snapshot.
     assert T == pytest.approx(532.1, abs=2.0)          # M120: 526.2; M122: 520.1; M123: 532.1
-    assert tau / 12.36 == pytest.approx(4.60530 / 3.0, rel=0.02), (
+    assert tau / 12.36 == pytest.approx(4.58886 / 3.0, rel=0.02), (
         "the discrepancy should be exactly the body-mass ratio; if it is not, "
         "something other than body mass moved and this needs re-diagnosing"
     )

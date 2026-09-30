@@ -9216,6 +9216,69 @@ The MuJoCo harness moved four numbers, and three of them moved the good way.
 
 ---
 
+## ADR-0115: what ADR-0114 left owed — the landing and righting numbers are chaotic, not regressed; the hub lightened; the ankle ferrules parted
+- **Status:** Accepted. Corrects two of ADR-0114's findings.
+- **Context:** ADR-0114 recorded the landing contact "not credible again"
+  (32× body weight) and the spooled spine's righting penalty "back to 5.1×",
+  with the cause `[owed]`. It also left the hub unlightened, the bearing
+  mass assumed and the conduit bundle unexamined.
+
+- **Findings:**
+  - ⚠️ **Neither was a regression. Both numbers are CHAOTIC on the plant with
+    the spine spooled.** An ablation reverting M123's femur, its hips, or both,
+    moves the compliant-spine landing contact 16× → 461× with no pattern, and
+    over 8 mm of drop height it reads 16 / 18 / 32 / 163 / 92×. The rigid-spine
+    plant reads **9–12× at every drop**: the contact physics is sound. Righting
+    is the same: start leans of 0.95 / 1.00 / 1.05 give 4.9 / 5.0 / 2.5 s with
+    the spine spooled against 1.09 / 0.99 / 0.91 s rigid, and one ablation
+    never rights. The cause is the one ADR-0075 named: a kp 300 spine loop
+    through a transmission that saturates at 40–60× its rating. M122's "12×"
+    and "1.56×" were draws from the same distribution. Until the spine has a
+    controller that lives inside its transmission, neither number is a
+    property of the plant. `[owed]` — that controller.
+  - ⚠️ **The ankle pair's two cables leave the hip on one line** (both reach
+    the knee via on the same side), so their ferrules coincided, in the hub
+    and on M122's femur before it. Now staggered ±2.6 mm along the axis
+    (`tendon_exit.ANKLE_STAGGER`): each enters its groove at ~1.5° fleet,
+    inside the ~2° a groove holds.
+  - ⚠️ **The four conduits pass through each other** in the ~30 mm between the
+    stub's end and the hub's ferrules (y 61–69, 5–16 mm off the axis), shaped
+    one at a time. A real bundle twists there through the hip's full range;
+    whether it does so without binding is for a mock-up. `[owed]`
+  - ⚠️ **The fore leg's bones had never been checked.** `tomcat_leg_detail`
+    computed every safety factor on the HIND leg's loads (`live_loads` read
+    `DEFAULT_LEG`). The fore knee carries 18.4 N·m at landing against the hind's
+    11.4, and the fore radius -- the same Ø12 × 1 as the tibia -- is **SF 1.76**,
+    under the 2.0 the check holds every bone to (ADR-0112 had it `[owed]`).
+
+- **Decision:**
+  - **The hub is lightened**: a full ring only over the bearings and the hip
+    sheave, then an arc (69–74°) that carries the four ferrules. 28 → ~20 g.
+  - **The hub bearing is a 6708** (40 × 50 × 6): 22.8 g, C₀ 2.2 kN against
+    ASSEMBLY_SPEC's 1.5 kN `[sourced: ISK, Bearings Direct catalogue]`.
+  - **The fore leg gets its own tubes** (`TUBE_FORE`): the radius Ø14 × 1,
+    SF 2.48, the lightest stock at the 2.5 the others were sized to (+1.9 g).
+    `checks()` now reads each leg's own loads and tubes.
+  - **The hip pair's conduits get their ports**: a Ø5.5 seat through the
+    girdle wall at each wall ferrule (`tomcat_trunk.conduit_ports`), from the
+    drive model's own F1. Harness through the wall 60 → 0.0–0.3 mm³ a leg, and
+    the assembly now FAILS on a conduit without a port instead of listing it
+    `[owed]`.
+  - The whole-robot render meshes at 0.8 mm, not 0.4: at 0.4 it reached
+    ~15 GB and had to be killed.
+  - The two test findings are rewritten to assert what is true: the rigid-spine
+    landing sits at 5–15× body weight, and the compliant-spine landing and
+    righting are chaotic.
+
+- **Consequences:** hind leg 221.2 → **216.3 g**, fore 221.3 → **218.1 g**;
+  body 4.605 → **4.589 kg**; motor peak 1.656 → **1.650 N·m**, continuous
+  **0.569**; runtime **17.8–23.7 min** (~711 m); anodised girdle **93.4 °C**.
+  The spine-stiffness cliff blurred (10 / 15 fall, 20 stands, 25 falls, 30
+  stands) and the env's joint reconstruction reads 2.57° (G3's stretch under
+  the fore legs' larger share).
+
+---
+
 ---
 
 ### How to add an ADR

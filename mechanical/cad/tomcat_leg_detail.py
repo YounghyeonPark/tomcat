@@ -91,6 +91,17 @@ TUBE = {
     "paw": (8.0, 1.0),
 }
 
+#: ✅ **M124: the FORE leg's own tubes.** Every safety factor in this file was
+#: computed on the HIND leg's loads (`live_loads` used `DEFAULT_LEG`), and the
+#: fore leg's radius -- the same Ø12 x 1 -- is **SF 1.76** at landing: the
+#: fore knee carries 18.4 N.m against the hind's 11.4. Ø14 x 1 is the lightest
+#: stock that reaches the 2.5 the others were sized to (2.48).
+TUBE_FORE = dict(TUBE, tibia=(14.0, 1.0))
+
+
+def tubes(role):
+    return TUBE_FORE if role == "fore" else TUBE
+
 #: (bore, OD, width). ASSEMBLY_SPEC §2 wants static C0 >= 1.5 kN at the loaded
 #: joints and only ~0.3 kN dynamic; the 626 class hits C0 easily at 6 mm bore,
 #: and the ankle — the worst place for mass (P1) — takes an MR104.
@@ -124,9 +135,15 @@ HUB_OD = HUB_BEARING[1] + 2 * HUB_WALL
 #: the ankle ferrules),
 #: the two bearings' centres, and where the stub ends (past the outer bearing,
 #: short of the knee conduits' turn -- `test_tendon_exit` checks the bore).
-HUB_Y = (-7.0, 25.0)
+HUB_Y = (-7.0, 28.0)             # M124: the ankle ferrules staggered to 24.3
 #: The hub's femur root: Ø10 x 1.5, off the rim along the femur, mm.
 HUB_ROOT = 6.0
+#: ✅ **Lightened (M124).** A full ring only as far as it carries something
+#: all the way round -- the two bearings and the hip sheave on its rim, to
+#: `HUB_RING_END`; beyond that, only the arc the knee and ankle ferrules sit
+#: in, `HUB_SECTOR_PAD` either side of the outermost. 28 -> ~20 g.
+HUB_RING_END = 15.0
+HUB_SECTOR_PAD = 12.0            # deg
 HUB_BEARING_Y = (-4.0, 7.5)
 STUB_END = 11.5
 
@@ -136,7 +153,7 @@ STUB_END = 11.5
 #: races and air. Envelope is used for FIT, catalogue mass for the BUDGET.
 #: `[assumed: class-typical; exact PNs owed with the BOM]`
 BEARING_G = {"hip": 8.0, "knee": 8.0, "ankle": 2.2,
-             "hub": 22.0}   # 6708 class, class-typical  [assumed]
+             "hub": 22.8}   # 6708 (40 x 50 x 6), C0 2.2 kN  [sourced: ISK, Bearings Direct 6708 catalogue]
 
 #: Wire volume as a fraction of an extension spring's envelope.  `[assumed]`
 SPRING_FILL = 0.25
@@ -162,7 +179,7 @@ TRACK_Y = 53.0
 FOOT_X, FOOT_Z, FOOT_PITCH = 0.04, -0.17, 0.0
 
 
-def live_loads(grid: int = 21):
+def live_loads(grid: int = 21, role: str = "hind"):
     """Joint torques and cable tensions from the LIVE budget, per load case.
 
     ⚠️ **This is not a convenience — it is the finding.** LEG_TENDON_SPEC §1.1
@@ -179,6 +196,14 @@ def live_loads(grid: int = 21):
     mistake, and `checks()` re-derives every safety factor from it.
     """
     leg, tm = LegModel(DEFAULT_LEG), TendonMap(DEFAULT_TENDON)
+    if role == "fore":
+        # M124: the fore leg, on its own links and its own conduits
+        import dataclasses
+        import tendon_exit as TE
+        leg = LegModel(DEFAULT_FORELEG)
+        tm = TendonMap(dataclasses.replace(DEFAULT_TENDON,
+                                           conduit_bend=TE.conduit_bend("fore"),
+                                           pulley_count=TE.pulley_count("fore")))
     out = {}
     for lc in DEFAULT_LOADS:
         r = budget(leg, tm, lc, grid=grid)
@@ -653,7 +678,7 @@ def hollow_hip():
     """The hip's parts about its centre, limb plane at y = 0: (hub, [bearings],
     stub). The hub is the femur's; the stub is the trunk's, drawn here to its
     outboard end so the leg shows what it turns on."""
-    y0, y1 = HUB_Y
+    y0, y1 = HUB_Y[0], HUB_RING_END
     hub = Pos(0, (y0 + y1) / 2, 0) * (yaxis((0, 0, 0))
                                       * (Cylinder(HUB_OD / 2, y1 - y0)
                                          - Cylinder(HUB_BEARING[1] / 2, y1 - y0 + 2)))
@@ -678,6 +703,8 @@ def build(leg=DEFAULT_LEG, role=None):
     lm = LegModel(leg)
     q = lm.inverse((FOOT_X, FOOT_Z, FOOT_PITCH))
     pts = lm.joint_positions(q) * MM          # hip, knee, ankle, paw-base, paw-tip
+    role = role or ("fore" if leg is DEFAULT_FORELEG else "hind")
+    TUBES = tubes(role)
 
     arms = np.asarray(DEFAULT_TENDON.joint_moment_arm) * MM
     LAY = plane_layout({"hip": 6.4, "knee": 6.4, "ankle": 4.4},
@@ -694,6 +721,7 @@ def build(leg=DEFAULT_LEG, role=None):
                                 "motor", "spool", "conduit", "ferrule",
                                 "trunk_ferrule", "anchor", "stub")}
     report: dict[str, dict] = {}
+    report["role"] = role                      # M124: whose loads the checks read
 
     # ⚠️ Four links, not three. The first pass stopped at the metatarsus and left
     # the passive paw phalanx unmodelled, which also left the pad floating.
@@ -709,7 +737,7 @@ def build(leg=DEFAULT_LEG, role=None):
         off_p, off_d = joint_offset(JN[j_prox]), joint_offset(JN[j_dist])
         cut = span - off_p - off_d
 
-        od, wall = TUBE[bone]
+        od, wall = TUBES[bone]
         tube_id = od - 2 * wall
         loc = Plane(origin=tuple(p0 + (p1 - p0) / span * off_p),
                     z_dir=tuple((p1 - p0) / span)).location
@@ -880,6 +908,28 @@ def build(leg=DEFAULT_LEG, role=None):
     drive, routes = tendon_drive(q, leg, lay=LAY, role=role)
     for k, comp in drive.items():
         groups[k].extend(comp.solids())
+    # the hub carries its ferrules on an ARC beyond the full ring (M124):
+    # the arc spans the four ferrules' angles in the hip plane, padded
+    import math as _m
+    from build123d import Polygon, extrude
+    hx = pts[0][0]
+    fer = [(k, r) for k, r in routes.items() if isinstance(k, tuple) and k[0] != "hip"]
+    import tendon_exit as _TE
+    xh = _TE.HIP_X[role or ("fore" if leg is DEFAULT_FORELEG else "hind")]
+    angs = [_m.atan2(r["F2"][2], r["F2"][0] - xh) for _k, r in fer]
+    mid = _m.atan2(sum(_m.sin(a) for a in angs), sum(_m.cos(a) for a in angs))
+    half = max(abs(_m.remainder(a - mid, 2 * _m.pi)) for a in angs) + _m.radians(HUB_SECTOR_PAD)
+    R = HUB_OD / 2 + 5.0
+    wedge = [(0.0, 0.0)] + [(R * _m.cos(mid + t), R * _m.sin(mid + t))
+                            for t in np.linspace(-half, half, 16)]
+    L = HUB_Y[1] - HUB_RING_END
+    prism = extrude(Plane(origin=(hx, HUB_Y[1], pts[0][1]), x_dir=(1, 0, 0),
+                          z_dir=(0, -1, 0)) * Polygon(*wedge), amount=L)
+    arc = (Pos(hx, (HUB_RING_END + HUB_Y[1]) / 2, pts[0][1])
+           * (yaxis((0, 0, 0)) * (Cylinder(HUB_OD / 2, L)
+                                  - Cylinder(HUB_BEARING[1] / 2, L + 2)))) & prism
+    hub_solid = hub_solid + arc
+    report["joints"]["hip"]["hub_arc_deg"] = _m.degrees(2 * half)
     # the hub's wall seats the knee and ankle ferrules: cut their seats
     for f in drive["ferrule"].solids():
         hub_solid = hub_solid - f
@@ -1044,7 +1094,7 @@ def checks(comps, report):
         "cable": vol(comps["cable"]) * STEEL_RHO * SPRING_FILL if "cable" in comps else 0.0,
     }
     total = sum(mass.values())
-    budget = sum(DEFAULT_LEG.link_mass) * 1e3
+    budget = sum((DEFAULT_FORELEG if report.get("role") == "fore" else DEFAULT_LEG).link_mass) * 1e3
     # ⚠️ **This is a CONSISTENCY check, not a budget, and it used to read as
     # one.** `LegParams.link_mass` is not an allowance the leg has to fit: M86
     # calibrated it FROM this same measurement, so the line compared a number
@@ -1064,12 +1114,14 @@ def checks(comps, report):
     # 7. link safety factors, re-derived from the LIVE land case at the lateral
     #    sheave offset this layout actually produces (§0.1's combined check).
     #    ⚠️ §3.5 quotes SF 2.84 / 3.10 / 2.87 from the stale 12.36 N.m table.
-    loads = live_loads()
+    # M124: on THIS leg's loads and tubes -- the fore leg was never checked
+    role = report.get("role", "hind")
+    loads = live_loads(role=role)
     land = loads["land"]
     CF_ALLOW = 400.0                              # MPa in bending  [assumed, §3.5]
     for i, (bone, jn) in enumerate((("femur", "hip"), ("tibia", "knee"),
                                     ("meta", "ankle"))):
-        od, wall = TUBE[bone]
+        od, wall = tubes(role)[bone]
         Z = section_Z(od, wall)
         e = report["joints"][jn]["lateral_offset"]
         sig_b = land["tau"][i] * 1e3 / Z

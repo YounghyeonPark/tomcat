@@ -230,8 +230,13 @@ def report():
                 hv = sum(sd.volume for sd in hi.solids())
             except Exception:
                 hv = 0.0
+        # M124 (ADR-0115): the hip pair's wall ports are cut
+        # (`tomcat_trunk.conduit_ports`); anything left is a harness defect
         print("  %-4s leg/trunk overlap %8.1f mm3%s   (harness through the wall: "
-              "%.1f mm3, ports `[owed]`)" % (nm, v, flag, hv))
+              "%.1f mm3%s)" % (nm, v, flag, hv,
+                               "" if hv < 1.0 else "  *** a conduit without a port"))
+        if hv >= 1.0:
+            ok = False
 
     import numpy as _np
     # --- ⚠️ every cable must START on a spool the trunk actually has, in 3-D
@@ -402,7 +407,11 @@ def _mesh(groups):
         for sd in solids:
             for f in sd.faces():
                 try:
-                    verts, tris = f.tessellate(0.4)
+                    # M124: 0.8, not 0.4 -- at 0.4 the four legs' drive and the
+                    # hollow hips took the render to ~15 GB and had to be
+                    # killed; at the picture's 2000 px the difference is not
+                    # visible.
+                    verts, tris = f.tessellate(0.8)
                 except Exception:
                     skipped += 1
                     continue
@@ -482,16 +491,33 @@ def render_views(path, soft=True):
     mesh, skipped = _mesh(_groups(*assembly(soft=soft)))
     if skipped:
         print("  *** %d face(s) would not mesh" % skipped)
-    fig = plt.figure(figsize=(19, 6.5))
-    span = None
-    for k, (name, elev, azim) in enumerate(VIEWS):
-        ax = fig.add_subplot(1, len(VIEWS), k + 1, projection="3d")
+    # ⚠️ M124: ONE view at a time, stitched after. Three 3-D axes in one
+    # figure each held their own projected copy of every triangle, and with
+    # the hollow hips and the drive drawn that took the render past 15 GB.
+    import gc
+    import io as _io
+    from PIL import Image
+    tiles, span = [], None
+    for name, elev, azim in VIEWS:
+        fig = plt.figure(figsize=(19 / len(VIEWS), 6.5))
+        ax = fig.add_subplot(1, 1, 1, projection="3d")
         _paint(ax, mesh)
         span = _frame(ax, mesh, elev, azim)
         ax.set_title(name)
-    fig.tight_layout()
-    fig.savefig(path, dpi=110, bbox_inches="tight", facecolor="white")
-    plt.close(fig)
+        buf = _io.BytesIO()
+        fig.savefig(buf, dpi=110, facecolor="white")
+        plt.close(fig)
+        gc.collect()
+        buf.seek(0)
+        tiles.append(Image.open(buf).convert("RGB"))
+    W = sum(t.width for t in tiles)
+    H = max(t.height for t in tiles)
+    out = Image.new("RGB", (W, H), "white")
+    x = 0
+    for t in tiles:
+        out.paste(t, (x, 0))
+        x += t.width
+    out.save(path)
     print("wrote %s   overall %.0f x %.0f x %.0f mm"
           % (path, span[0] - 10, span[1] - 10, span[2] - 10))
 

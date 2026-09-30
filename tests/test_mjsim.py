@@ -329,7 +329,9 @@ def test_the_spine_wants_stiffness_where_the_legs_want_compliance(controller):
     # and 60 / 100 / 1000 stand. Still a cliff.
     # ⚠️ M123 (ADR-0114) moved it again, 45 -> 30: kp 5-30 fall inside 20
     # steps, 45 stands. The hips 270 mm apart.
-    soft = mjsim.build(controller, mujoco, kp=80, spine=True, spine_kp=30)
+    # ⚠️ M124 (ADR-0115): the edge is no longer clean -- 10 / 15 fall, 20
+    # stands, 25 falls, 30 stands. The soft case is 15, clear of it.
+    soft = mjsim.build(controller, mujoco, kp=80, spine=True, spine_kp=15)
     firm = mjsim.build(controller, mujoco, kp=80, spine=True, spine_kp=1000)
     h_soft = mjsim.BalanceHarness(controller, mujoco, soft, use_spine=False)
     h_firm = mjsim.BalanceHarness(controller, mujoco, firm, use_spine=False)
