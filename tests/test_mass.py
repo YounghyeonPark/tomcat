@@ -75,7 +75,7 @@ def _symmetric_trunk_body(leg_mass=0.0):
 def test_default_body_totals_the_load_case_body_mass():
     # The apportionment in params.py is built to reproduce the 3.0 kg that every
     # LoadCase / WholeBodyLoadCase already assumed.
-    assert DEFAULT_BODY_MASS_KG == pytest.approx(4.58886, abs=1e-9)  # M123 -> M124 (ADR-0115)
+    assert DEFAULT_BODY_MASS_KG == pytest.approx(4.57916, abs=1e-9)  # M124 -> M126 (ADR-0117)
     assert _body().total_mass == pytest.approx(LoadCase("x").body_mass_kg, abs=1e-9)
 
 
@@ -165,7 +165,7 @@ def test_fore_hind_split_is_near_balanced_not_sixty_forty():
     # change was symmetric — which is itself the point: the split is set by the
     # girdles and the head, not by the limbs.
     q = _body().mass_budget()
-    assert q.total == pytest.approx(4.58886, abs=1e-9)   # M124
+    assert q.total == pytest.approx(4.57916, abs=1e-9)   # M126
     assert q.fore + q.hind == pytest.approx(q.total, abs=1e-12)
     assert q.fore_fraction == pytest.approx(0.543, abs=0.02)
     assert q.hind_fraction == pytest.approx(0.457, abs=0.02)
@@ -357,7 +357,7 @@ def test_symmetric_body_with_legs_shifts_by_exactly_the_leg_offset():
 def test_default_com_sits_forward_of_mid_body_because_the_cat_is_front_heavy():
     body = _body()
     c = body.center_of_mass(STRAIGHT, STAND)
-    assert c.mass == pytest.approx(4.58886)   # M124
+    assert c.mass == pytest.approx(4.57916)   # M126
     # Forward of the point midway between the HIPS, but still between them.
     # (M123, ADR-0114: that was the mid-spine point while the hips sat on the
     # spine's ends; they are now 65 mm behind it and 10 mm ahead of it, and the
@@ -523,8 +523,10 @@ def test_actuation_mass_matches_the_downselected_motor_and_count():
     # 9.8 g of tail foam, which the same structure allowance pays for.
     # M120: and the six spine G3 flexures, 3.86 g each.
     # M122: the tail foam is 10.2 g now (the trunk is 30 mm longer).
+    # M126 (ADR-0117): the spine's G3 at 350 kN/m, 2.19 g each; and the tail's
+    # 9.9 g (M123) carried here at last.
     assert sp.segment_mass[1] == pytest.approx(
-        0.130 - 0.0102 + 0.300 + 6 * unit + 0.0232, abs=2e-4)
+        0.130 - 0.0099 + 0.300 + 6 * unit + 0.0131, abs=2e-4)
 
 
 def test_total_matches_the_revised_NFR5_target():
@@ -533,4 +535,4 @@ def test_total_matches_the_revised_NFR5_target():
     # target, and 19 of them do not fit inside 3 kg. See the motor-reality-check
     # note. A domestic cat is 4-5 kg, so the new figure is if anything more
     # biomimetic -- but it was forced by hardware, not chosen.
-    assert _body().mass_budget().total == pytest.approx(4.58886, abs=1e-9)   # M124
+    assert _body().mass_budget().total == pytest.approx(4.57916, abs=1e-9)   # M126

@@ -35,8 +35,11 @@ def test_the_STOP_ANGLES_follow_from_the_rate():
     t = G.size_torsion_spring()
     assert t["working_deg"] == pytest.approx(11.7, abs=0.2)
     assert t["stop_deg"] == pytest.approx(13.4, abs=0.2)
-    s = G.size_torsion_spring(DEFAULT_SPINE.series_k)
-    assert s["stop_deg"] == pytest.approx(11.2, abs=0.2)
+    # ⚠️ M126 (ADR-0117): at the spine's 350 kN/m NO helical torsion spring
+    # exists in the envelope -- the flexure (`g3_flexure`) is the only form; its
+    # stop is the same stop torque over the rate, 4.8 deg.
+    assert G.size_torsion_spring(DEFAULT_SPINE.series_k) is None
+    assert G.size_torsion_spring(1.5e5)["stop_deg"] == pytest.approx(11.2, abs=0.2)
 
 
 def test_the_spring_is_BIDIRECTIONAL_and_a_flexure_does_it_in_six_grams():

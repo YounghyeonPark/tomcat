@@ -26,7 +26,8 @@ def test_the_leg_rate_and_stop_are_ADR0107s():
     d = F.design()
     assert d["k_rad"] / 1e3 == pytest.approx(9.57, abs=0.05)
     assert d["stop_deg"] == pytest.approx(13.4, abs=0.2)
-    assert F.design(DEFAULT_SPINE.series_k)["stop_deg"] == pytest.approx(11.2, abs=0.2)
+    # M126 (ADR-0117): the spine at 350 kN/m stops at 4.8 deg (was 11.2 at 150)
+    assert F.design(DEFAULT_SPINE.series_k)["stop_deg"] == pytest.approx(4.8, abs=0.2)
 
 
 def test_the_ACTIVE_volume_is_the_energy_and_the_shape_only_trades_it():
@@ -34,9 +35,10 @@ def test_the_ACTIVE_volume_is_the_energy_and_the_shape_only_trades_it():
     width against thickness is free, so the width is spent to buy thickness."""
     leg, sp = F.design(), F.design(DEFAULT_SPINE.series_k)
     assert leg["active_mm3"] == pytest.approx(714.0, rel=0.02)
-    assert sp["active_mm3"] == pytest.approx(595.0, rel=0.02)
+    # M126: the stiffer spine stores less at the same stop torque -- 595 -> 255
+    assert sp["active_mm3"] == pytest.approx(255.0, rel=0.02)
     assert leg["T"] == pytest.approx(3.06, abs=0.05)
-    assert sp["T"] == pytest.approx(1.83, abs=0.05)
+    assert sp["T"] == pytest.approx(1.63, abs=0.05)      # M126: 3 arms x 0.35 turn
 
 
 def test_the_STOP_DOWELS_take_the_whole_landing():
@@ -56,7 +58,7 @@ def test_every_row_FITS_its_body_with_G3_and_the_bodies_did_not_grow():
     pytest.importorskip("build123d", reason="the trunk needs CAD")
     import tomcat_trunk as TT
     assert TT.G3_STACK["hind"] == pytest.approx(3.66, abs=0.05)
-    assert TT.G3_STACK["spine"] == pytest.approx(2.43, abs=0.05)
+    assert TT.G3_STACK["spine"] == pytest.approx(2.23, abs=0.05)   # M126: 2.43 -> 2.23
     # M122 (ADR-0112) did lengthen body 0, by the 30 mm between the hind hip
     # and spine joint 0 -- not G3's doing. M123 (ADR-0114) made it exactly its
     # two hip-station rows and pads: 109.2 mm.
@@ -70,7 +72,7 @@ def test_every_row_FITS_its_body_with_G3_and_the_bodies_did_not_grow():
 
 def test_the_parts_are_ONE_valid_solid_each_inside_the_can():
     pytest.importorskip("build123d", reason="drawing the part needs CAD")
-    for k, g in ((None, 5.20), (DEFAULT_SPINE.series_k, 3.86)):
+    for k, g in ((None, 5.20), (DEFAULT_SPINE.series_k, 2.19)):   # M126: spine 3.86 -> 2.19 g
         part, _d = F.build(k)
         assert part.is_valid
         bb = part.bounding_box()

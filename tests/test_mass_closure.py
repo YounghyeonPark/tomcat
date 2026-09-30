@@ -57,10 +57,10 @@ def test_the_body_mass_closes_ABOVE_NFR5(closed):
     # ⚠️ M111: 4.383 -> **4.468 kg**, the 36/34/22 sheaves (+21 g a leg).
     # ⚠️ M120: -> 4.554 kg, the eighteen G3 flexures (ADR-0111).
     # ⚠️ M122: -> 4.501 kg, the leg drive redrawn (ADR-0112).
-    # ⚠️ M123: -> **4.605 kg**, the hollow hip (ADR-0114).
-    assert closed["body"] == pytest.approx(4.605, abs=0.02)
-    # ⚠️ NFR5 (4.045 kg) is exceeded by 13.9 % now (11.3 at M122, 12.6 at M120).
-    assert closed["body"] / old == pytest.approx(1.139, abs=0.01)
+    # ⚠️ M123: -> 4.605 kg, the hollow hip (ADR-0114); M124: 4.589; M126: **4.579**.
+    assert closed["body"] == pytest.approx(4.579, abs=0.02)
+    # ⚠️ NFR5 (4.045 kg) is exceeded by 13.2 % now (13.9 at M123, 11.3 at M122).
+    assert closed["body"] / old == pytest.approx(1.132, abs=0.01)
 
 
 def test_the_spiral_still_CONVERGES_and_every_design_gate_holds(closed):

@@ -57,7 +57,12 @@ E_TI, YIELD_TI, SE_TI, RHO_TI = G.FLEXURE_MATERIALS["Ti-6Al-4V"]
 #: (arms, turns) per cable group. The leg keeps M117's three arms; the spine,
 #: with 2.7 mm to live in, takes two arms of a full turn -- longer arms, thinner
 #: part (`T` goes as `1/l^2` at a fixed stress).
-VARIANTS = {"leg": (3, 0.75), "spine": (2, 1.0)}
+#: ✅ M126 (ADR-0117): the spine is 350 kN/m, and a stiffer rate needs SHORTER
+#: arms -- the width is set by the stop stress (b ~ l / theta_stop) and the
+#: thickness goes as l / b^3. Two full turns at 350 kN/m overlapped their arms
+#: (gap -4.5 mm) on a 0.34 mm plate; three arms of 0.35 turn are 2.34 wide,
+#: 1.63 thick, 4.8 mm apart.
+VARIANTS = {"leg": (3, 0.75), "spine": (3, 0.35)}
 R_BORE = 2.0            # mm, rotor output pilot
 R_HUB = 5.0             # mm, hub outer radius -- the arms start here
 R_RIM_IN = 14.0         # mm, rim inner radius -- the arms end here
@@ -109,7 +114,10 @@ def design(k=None):
     n, turns = VARIANTS[name]
     R = float(DEFAULT_TENDON.motor_spool_radius) * 1e3                # mm
     k_rad = k * 1e-3 * R * R                                          # N.mm/rad
-    th_stop = math.radians(G.size_torsion_spring(k)["stop_deg"])
+    # the stop sits STOP_MARGIN past the working load: its angle is that torque
+    # over the rate. (Read off `size_torsion_spring` until M126, which returns
+    # None when no helical spring exists at the rate -- as at 350 kN/m.)
+    th_stop = G.STOP_MARGIN * G.F_WORKING * R / k_rad
     th_fat = th_stop * G.F_FATIGUE / (G.STOP_MARGIN * G.F_WORKING)
     target = SIGMA_USE * 0.6 * YIELD_TI
     b = 1.6

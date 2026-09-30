@@ -579,7 +579,15 @@ class SpineParams:
     #: 1.5e5 -- the spine's 30 mm arm did not move, so neither does the joint
     #: stiffness this sets (`k r^2`). ADR-0104 measured what softening it costs:
     #: the spooled righting goes 2.62 s at 1.5e5 -> 4.72 at 1.25e5 -> fails at 1.0e5.
-    series_k: float = 1.5e5
+    #:
+    #: ✅ **M126 (ADR-0117): 1.5e5 -> 3.5e5.** At 150 kN/m the spring against the
+    #: spine's ~0.1 kg m^2 rings at ~6 Hz, where the righting manoeuvre runs,
+    #: and the spooled righting was CHAOTIC (4.96 s / never / 2.71 s over start
+    #: leans 0.95 / 1.00 / 1.05). At 350 kN/m it is 1.06 / 0.99 / 0.93 s -- the
+    #: rigid spine's own -- and the held landing's 1 ms peak goes 20 -> 23x body
+    #: weight. It leaves ADR-0026's 80-150 N.m/rad band (k r^2 = 315 N.m/rad a
+    #: cable); that band was the LEGS' balance compliance, which does not move.
+    series_k: float = 3.5e5
 
     # Minimum cable tension / mechanical slack floor (N).  ❓ TBD.
     # Kept at the leg's 5 N so the two budgets are comparable.  Note: the AIC
@@ -624,7 +632,8 @@ class SpineParams:
     #
     # ⚠️ **M120: the spine's six G3 flexures ride it too**, 6 x 3.86 g = 23.2 g,
     # which ADR-0107 priced and nothing carried. `[derived: cad/girdle_inertia.py]`
-    segment_mass: tuple[float, ...] = (0.130, 1.2349, 0.127)
+    # M126 (ADR-0117): 6 x 2.19 g = 13.1 g -- the stiffer spine flexure is thinner.
+    segment_mass: tuple[float, ...] = (0.130, 1.2252, 0.127)
 
     # Fraction along each segment (from its INBOARD/rear vertebra) at which that
     # segment's mass acts. 0.5 = uniform rod.  ❓ TBD
@@ -786,7 +795,7 @@ class SpineParams:
     #: geometry did not change, so the tensor scales with the mass it holds.
     segment_inertia: tuple[tuple[float, ...] | None, ...] = (
         None,
-        (1.2869e-03, 1.2869e-03, 1.0071e-03, 4.8756e-05, 5.7877e-05, 5.7877e-05),
+        (1.2768e-03, 1.2768e-03, 9.9915e-04, 4.8371e-05, 5.7420e-05, 5.7420e-05),
         None,
     )
 
@@ -842,9 +851,10 @@ class LoadCase:
     # spring and the anchor pins, -52.4 g for four; the trunk is 30 mm longer)
     # -> 4.60530 (ADR-0114/M123: the hollow hip, +26 g per leg; the rear
     # body is 26 mm shorter and the tail with it)
-    # -> **4.58886** (M124: the hub lightened, the bearing at catalogue mass,
+    # -> 4.58886 (M124: the hub lightened, the bearing at catalogue mass,
     # the fore radius Ø14).
-    body_mass_kg: float = 4.58886
+    # -> **4.57916** (M126: the spine's G3 at 350 kN/m is 10 g lighter).
+    body_mass_kg: float = 4.57916
     n_stance_legs: int = 2             # legs sharing the load (e.g. trot => 2).
     dynamic_factor: float = 1.5        # peak/static impact multiplier.  ❓ TBD
 

@@ -9309,7 +9309,13 @@ The MuJoCo harness moved four numbers, and three of them moved the good way.
     spooled righting takes 4.96 / fails / 2.71 s over start leans 0.95 / 1.00
     / 1.05 at 150 kN/m, and **1.11 / 1.01 / 0.93 s at 500 kN/m** — the
     rigid-spine plant's 1.09 / 0.99 / 0.91. At 1500 kN/m, 1.38 / 1.25 / 1.15.
-  - ⚠️ **But at 500 kN/m the landing peak runs away**: 140–660× body weight,
+  - ~~⚠️ **But at 500 kN/m the landing peak runs away**~~ — ⚠️ **WITHDRAWN by
+    [ADR-0117](#adr-0117): an error in the experiment.** Those landing runs
+    raised the spring to 500 kN/m but left the controller converting tension
+    to rotor angle with the 150 kN/m rate, so every spine command was 3.3× too
+    large. With the two consistent the 1 ms-averaged landing peak is 25–27×
+    at 500 kN/m and 22–23× at 350, against 20–21× at 150. What follows is
+    kept as the record of the error: 140–660× body weight,
     growing as the timestep shrinks (2.5e-4 → 1e-4 s) instead of converging,
     where 150 kN/m reads 14–26× and the rigid spine 8–12× at both 1e-4 and
     5e-5 s. A peak that grows with resolution is an unresolved impact spike,
@@ -9321,6 +9327,55 @@ The MuJoCo harness moved four numbers, and three of them moved the good way.
 - **Decision:** none on the design yet. The next milestone studies the spine
   spring at ~500 kN/m, starting with whether its landing spike is numerical.
   The prototype laws are not shipped.
+
+---
+
+## ADR-0117: the spine's G3 goes to 350 kN/m — the spooled righting stops being chaotic
+- **Status:** Accepted. Corrects [ADR-0116](#adr-0116)'s landing finding;
+  supersedes [ADR-0105](#adr-0105)'s spine rate.
+- **Context:** ADR-0116 found the spring's rate to be the lever on the
+  spooled spine's righting, and a landing spike at 500 kN/m that stopped it.
+
+- **Findings:**
+  - ⚠️ **ADR-0116's landing spike was my error**, not the plant's: the drop
+    kept the 150 kN/m torsional rate in the controller while the spring was
+    500 kN/m. Measured consistently, with the landing's IMPULSE (22 N·s, the
+    same at every rate and converged in the timestep) and the force averaged
+    over 1 ms (the sub-millisecond spike does NOT converge in the timestep and
+    is not a force):
+
+    | spine G3 | righting, start lean 0.95 / 1.00 / 1.05 | landing, 1 ms peak (0.05 / 0.10 m) |
+    |---|---|---|
+    | 150 kN/m (was) | 4.96 s / **never** / 2.71 s | 20× / 21× |
+    | 250 kN/m | 1.12 / 1.12 / 1.19 s | 24× / 28× |
+    | **350 kN/m** | **1.06 / 0.99 / 0.93 s** | **22× / 23×** |
+    | 500 kN/m | 1.11 / 1.01 / 0.93 s | 27× / 25× |
+    | rigid spine | 1.09 / 0.99 / 0.91 s | 17× |
+
+  - At 350 kN/m the spooled spine rights like the rigid one, smoothly in the
+    start lean; the landing costs 10 %.
+
+- **Decision:**
+  - **`SpineParams.series_k` 150 → 350 kN/m.** It leaves ADR-0026's 80–150
+    N·m/rad band (`k r²` = 315 N·m/rad a cable); that band was set for the
+    LEGS' balance compliance, which is unchanged at 125 kN/m.
+  - **The spine flexure is three arms of 0.35 turn** (`g3_flexure.VARIANTS`):
+    two full turns at 350 kN/m overlapped their arms on a 0.34 mm plate. Now
+    b 2.34, T 1.63, stack 2.23 mm (was 2.43), arms 4.8 mm apart, stop pins
+    184 MPa. 2.19 g against 3.86.
+  - `g3_flexure.design` takes the stop angle as the stop torque over the rate;
+    it had read it off the helical-spring sizer, which returns None where no
+    helical spring exists (as at 350 kN/m).
+
+- **Consequences:** body 4.589 → **4.579 kg** (the six spine flexures 23.2 →
+  13.1 g); motor peak 1.647 N·m; runtime 17.9–23.8 min; anodised girdle
+  93.1 °C. The spooled righting test now holds it to the rigid plant's time
+  within 15 % (0.98 against 0.99 s); `size_torsion_spring` has no helical
+  design at 350 kN/m, and the test says so. The controller-side laws ADR-0116 tried are not shipped. The spine
+  loop is still kp 300 and still saturates its cables in the righting — that
+  is the manoeuvre's own demand, ~3× the rating — but the plant is no longer
+  chaotic under it. `[owed]`: an FEA or bench rate for the new flexure
+  (ADR-0107's caveat), and whether the robot needs the righting at this speed.
 
 ---
 

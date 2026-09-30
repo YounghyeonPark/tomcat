@@ -1062,9 +1062,9 @@ def test_the_pulley_transmission_is_ADR0008s_MOTOR_COUNT_and_ADR0042s_MAP():
         hip_height=0.176, pulley=True, ankle_pair=True))
     assert quad.nu == 12, "ADR-0008's twelve leg motors"
     # M111: 4.38328 -> 4.4684 (ADR-0103's sheaves), M120: -> 4.55397 (G3,
-    # ADR-0111), M122: -> 4.50092 (ADR-0112), M123: -> 4.60530 (ADR-0114), M124: -> 4.58886 (ADR-0115) --
+    # ADR-0111), M122: -> 4.50092 (ADR-0112), M123: -> 4.60530 (ADR-0114), M124: -> 4.58886 (ADR-0115), M126: -> 4.57916 (ADR-0117) --
     # none this decision's doing
-    assert DEFAULT_BODY_MASS_KG == pytest.approx(4.58886, abs=1e-4), (
+    assert DEFAULT_BODY_MASS_KG == pytest.approx(4.57916, abs=1e-4), (
         "and params' body mass needs no change, which was the point"
     )
 
@@ -4954,10 +4954,15 @@ def test_COMPLIANCE_costs_the_RIGHTING_a_FACTOR_OF_THREE_when_the_SPINE_has_it()
     # saturated spine loop again, as in the landing below: the spooled spine
     # rights 2.5-5x slower than the rigid one, and how much is not a property
     # the plant has.
-    # M124 (ADR-0115): and 10.15 s after 20 g came off the legs. Only the
-    # robust half is held: the spooled spine rights much SLOWER, if at all.
-    assert both_t is None or both_t > 2.0 * rigid_t, (
-        f"legs+spine rights in {both_t} s"
+    # M124 (ADR-0115): and 10.15 s after 20 g came off the legs.
+    # ✅ **M126 (ADR-0117): GONE. 0.98 s against the rigid plant's 0.99.** The
+    # spine's G3 went 150 -> 350 kN/m: the spring had rung at ~6 Hz, where the
+    # manoeuvre runs, and the chaos was that mode. Stiffened, the spooled spine
+    # rights as the rigid one does, smoothly in the start lean (ADR-0117). The
+    # title's factor -- 3.6x, 4.7x, 1.03x, 1.49x, 1.94x, 1.71x, chaotic -- is
+    # finally none.
+    assert both_t is not None and both_t == pytest.approx(rigid_t, rel=0.15), (
+        f"legs+spine rights in {both_t} s against {rigid_t} rigid"
     )
     # ⚠️ M93: the penalty had gone NEGATIVE. M71 measured compliance costing
     # the righting **4.7x**; M87 had it down to 3 %; M93 measured **2.61 s
@@ -4979,7 +4984,7 @@ def test_COMPLIANCE_costs_the_RIGHTING_a_FACTOR_OF_THREE_when_the_SPINE_has_it()
     # is unchanged at 30 mm, so the change came in through the legs -- ADR-0103
     # put 21 g more on each, for a compliant spine to swing over. Not isolated
     # further here.  `[owed]`
-    assert both_t is None or both_t / rigid_t > 2.0, (   # M112 1.71x; M123-M124 2.5-10x, chaotic
+    assert both_t / rigid_t < 1.2, (   # M112 1.71x; M123-M124 2.5-10x, chaotic; M126 0.99x
         f"{both_t:.2f} s against {rigid_t:.2f} rigid"
     )
 
@@ -5275,7 +5280,8 @@ def test_the_LANDING_with_a_COMPLIANT_SPINE_is_NOT_YET_ANSWERABLE():
     # headroom; the compliant-spine landing question is no closer to answerable.
     # ⚠️ M122: 4.1x -> 2.4x (19.1 kN against 8.0), the rigid-spine demand
     # rose more than the compliant one. Same direction, less headroom again.
-    assert hard["spine"] > 2.0 * soft["spine"], (
+    # M126 (ADR-0117): 1.7x (15.1 kN against 9.0) at the stiffer spine G3.
+    assert hard["spine"] > 1.5 * soft["spine"], (
         f"{hard['spine']:.0f} against {soft['spine']:.0f} N rigid-spine"
     )
     # ✅ **and the contact it reports is now CREDIBLE**, which is the half of
