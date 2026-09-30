@@ -58,8 +58,9 @@ def test_every_row_FITS_its_body_with_G3_and_the_bodies_did_not_grow():
     assert TT.G3_STACK["hind"] == pytest.approx(3.66, abs=0.05)
     assert TT.G3_STACK["spine"] == pytest.approx(2.43, abs=0.05)
     # M122 (ADR-0112) did lengthen body 0, by the 30 mm between the hind hip
-    # and spine joint 0 -- not G3's doing.
-    assert TT.BODIES[0][1] - TT.BODIES[0][0] == pytest.approx(134.6, abs=0.05)
+    # and spine joint 0 -- not G3's doing. M123 (ADR-0114) made it exactly its
+    # two hip-station rows and pads: 109.2 mm.
+    assert TT.BODIES[0][1] - TT.BODIES[0][0] == pytest.approx(109.16, abs=0.05)
     assert TT.BODIES[2][1] - TT.BODIES[2][0] == pytest.approx(51.0, abs=0.05)
     for (_nm, b, x, _n, ro) in TT._rows():
         x0, x1 = TT.BODIES[b]

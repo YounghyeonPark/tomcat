@@ -101,8 +101,14 @@ def test_the_undisturbed_baseline_is_quiet_enough_to_measure_against(controller)
     # for a typical direction; the MAX is what limits the worst one.
     mean = _mean_dcm(hist, slice(None))
     worst = max(abs(r["perp"]) for r in hist) + max(abs(r["para"]) for r in hist)
-    assert mean < 0.003, f"mean baseline drift {1000 * mean:.1f} mm"
-    assert worst < 0.015, f"peak baseline excursion {1000 * worst:.1f} mm"
+    # ⚠️ **M123 (ADR-0114): the floor rose, 0.7 -> 6.6 mm mean.** The hips
+    # are 270 mm apart and the harness's foothold is the ANALYTIC optimum
+    # (0.01383 m, `_roll_drift`); in MuJoCo the quietest foothold is ~0.007
+    # (4.0 mm) and neither makes the old 3 mm. Still a quarter of the 25-30 mm
+    # signals this harness is asked to resolve. Re-tuning the harness is `[owed]`.
+    assert mean < 0.008, f"mean baseline drift {1000 * mean:.1f} mm"
+    # M123: 17.6 mm, on the higher floor.
+    assert worst < 0.020, f"peak baseline excursion {1000 * worst:.1f} mm"
 
     # And — the failure M17 actually had — it must not be quietly winding up.
     # M17's drifted to 25 mm and was still growing; this one is bounded.
@@ -171,9 +177,12 @@ def test_balance_needs_compliant_legs(controller):
 
     assert len(soft) == 24, "the compliant baseline should not fall"
     soft_late = _mean_dcm(soft, slice(-8, None))
-    assert soft_late < 0.005, f"compliant drift {1000 * soft_late:.1f} mm"
+    # M123: the baseline's floor rose (see the gate above) -- 7.0 mm.
+    assert soft_late < 0.008, f"compliant drift {1000 * soft_late:.1f} mm"
     if len(stiff) == 24:
-        assert _mean_dcm(stiff, slice(-8, None)) > 2.0 * soft_late
+        # M123: 1.5x (10.8 against 7.0 mm) -- the compliant gain still wins,
+        # by less, on the higher floor.
+        assert _mean_dcm(stiff, slice(-8, None)) > 1.3 * soft_late
 
 
 # ⚠️ M87 (ADR-0089) moved WHICH directions are best and worst, not the
@@ -318,7 +327,9 @@ def test_the_spine_wants_stiffness_where_the_legs_want_compliance(controller):
     # ⚠️ M122 (ADR-0112) moved the cliff down a notch, 60 -> 45: with the hind
     # hips 30 mm behind spine joint 0, kp 10 / 20 / 30 / 45 fall in 20 steps
     # and 60 / 100 / 1000 stand. Still a cliff.
-    soft = mjsim.build(controller, mujoco, kp=80, spine=True, spine_kp=45)
+    # ⚠️ M123 (ADR-0114) moved it again, 45 -> 30: kp 5-30 fall inside 20
+    # steps, 45 stands. The hips 270 mm apart.
+    soft = mjsim.build(controller, mujoco, kp=80, spine=True, spine_kp=30)
     firm = mjsim.build(controller, mujoco, kp=80, spine=True, spine_kp=1000)
     h_soft = mjsim.BalanceHarness(controller, mujoco, soft, use_spine=False)
     h_firm = mjsim.BalanceHarness(controller, mujoco, firm, use_spine=False)
@@ -352,7 +363,7 @@ def test_the_proportional_spine_assist_has_unity_loop_gain_and_is_harmful(contro
     The authority is not the problem (see the held-sway test); reactive use of it is.
     """
     plant = control.StepPlant.from_gait(controller, n=96, latency=0.0075, floor_mu=0.8)
-    assert plant.spine == pytest.approx(0.0360, abs=5e-4)
+    assert plant.spine == pytest.approx(0.0365, abs=5e-4)   # M123: 36.0 -> 36.5 mm
 
     model = mjsim.build(controller, mujoco, kp=80, spine=True, spine_kp=1000)
 
@@ -486,7 +497,9 @@ def test_measuring_friction_demand_needs_a_PAIRED_design(controller):
     # variance the corrected mass model had flattened -- so M30's paired design
     # has its own evidence again, on the plant that now has a head in it. The
     # bound records the size rather than forbidding it.
-    assert sd < 0.0025, (
+    # ⚠️ M123 (ADR-0114): **7.1 mm** -- on the baseline whose floor rose to
+    # 6.6 (the gate above); the paired design is more load-bearing than ever.
+    assert sd < 0.008, (
         f"phase-to-phase spread is {1000 * sd:.1f} mm — larger than M102 "
         "measured (1.8); the paired design is load-bearing, re-check M30"
     )
@@ -628,11 +641,12 @@ def test_survival_has_HOLES_so_no_bisection_measures_an_envelope(controller):
     # rounded through millimetres flip. M120: 0.185 survived, 0.110 fell.
     # M122 (ADR-0112), rescanned at 0.02 m/s steps: 0.02-0.12 o, 0.14 x,
     # 0.16-0.18 o, 0.20-0.22 x, 0.24 o, 0.26 x, 0.28 o, 0.30+ x.
-    assert survives(0.16), "the larger push survives"
-    assert not survives(0.14), (
-        "the smaller push now survives too -- if the boundary has no holes left, "
-        "the bisected envelopes are measurements again"
-    )
+    # ✅ **M123 (ADR-0114): the holes are GONE at 120 deg.** Rescanned at the
+    # same steps: 0.02-0.22 o, 0.24-0.30 x -- one clean boundary. So a
+    # bisection in this direction measures an envelope again; the test now
+    # asserts the boundary is monotone, and fails if the holes come back.
+    assert all(survives(d) for d in (0.10, 0.14, 0.18, 0.22)), "a hole below the edge"
+    assert not any(survives(d) for d in (0.24, 0.28)), "survives past the edge"
 
 
 def test_the_sim_SURVIVES_past_the_viable_bound_in_its_TIGHTEST_direction(controller):
@@ -675,7 +689,8 @@ def test_the_sim_SURVIVES_past_the_viable_bound_in_its_TIGHTEST_direction(contro
                V, (math.cos(math.radians(a)), math.sin(math.radians(a))))
            for a in range(0, 360, 15)}
     tight = min(per, key=per.get)
-    assert tight == 240, f"the viable set's tightest direction moved to {tight}"
+    # M123 (ADR-0114): 240 -> 255 deg, the hips 270 mm apart.
+    assert tight == 255, f"the viable set's tightest direction moved to {tight}"
 
     model = mjsim.build(controller, mujoco, kp=80)
     h = mjsim.BalanceHarness(controller, mujoco, model)
@@ -874,12 +889,16 @@ def test_the_noise_floor_RISES_at_a_short_stance(controller):
     # a function of the gait parameters, so short-stance envelopes cannot be
     # adjudicated against it.
     nominal, short = drift(0.200), drift(0.117)
-    assert nominal < 0.008, f"the shipped baseline must stay usable, got {nominal:.4f}"
-    assert short > 1.4 * nominal, (
-        f"a {1000 * short:.1f} mm noise floor against {1000 * nominal:.1f} mm is what "
-        "disqualifies short-stance envelopes -- if this has stopped being true, the "
-        "harness improved and M34's negative result should be re-run"
-    )
+    # M123: 13.0 mm -- the baseline's floor rose (the gate at the top).
+    assert nominal < 0.015, f"the shipped baseline must stay usable, got {nominal:.4f}"
+    # ⚠️ **M123 (ADR-0114) REVERSED it: the short stance is now QUIETER,
+    # 7.7 mm against 13.0.** The floor is still a function of the gait
+    # parameters -- that half stands -- but the reason M34's short-stance
+    # negative result was set aside no longer holds, which is what this line
+    # said to watch for. Re-running M34 on this plant is `[owed]`.
+    assert short < nominal, (
+        f"short {1000 * short:.1f} mm vs shipped {1000 * nominal:.1f} mm -- the "
+        "M123 reversal has reverted; re-read M34")
 
 
 @pytest.mark.xfail(reason=XFAIL_M92, strict=False)

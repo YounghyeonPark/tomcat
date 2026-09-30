@@ -8910,7 +8910,8 @@ The MuJoCo harness moved four numbers, and three of them moved the good way.
 ## ADR-0112: the leg drive in 3-D — friction where the cable slides, spine joint 0 moved forward, and the hip crossing still owed
 - **Status:** Accepted, with a **known defect**: the knee and ankle conduits cut
   the hip sheave. The hip region's redesign (a hollow hip) is M123 — measured
-  and rejected in ADR-0113; the defect stands.
+  and rejected in ADR-0113 as a routing fix; **closed by ADR-0114**, which moves
+  the knee and ankle motors to straddle the hip.
 - **Context:** the leg's tendon WIRING was questioned, and it had never been
   checked in three dimensions. M122 looked, with the leg CAD at its joint limits,
   the trunk's real motors, and the leg's sweep over its full range.
@@ -9113,6 +9114,105 @@ The MuJoCo harness moved four numbers, and three of them moved the good way.
   - `plane_layout` now takes a joint's via cables from the anatomy (the distal
     joints), not the stacking order — identical for the shipped order; any
     other order put the hip's cable on a via at the ankle.
+
+---
+
+## ADR-0114: the knee and ankle motors straddle their hip — cables straight along the hip axis into a hollow hip
+- **Status:** Accepted. Closes ADR-0112's known defect.
+- **Context:** ADR-0112 shipped every knee and ankle conduit through the hip
+  sheave, the hip's boss and the femur's root. ADR-0113 measured every fix
+  AT the hip and found none: to reach the cable planes (y 65–75) from the
+  trunk (y < 45), a conduit crosses the femur's own plane (y 46–60) where the
+  femur sweeps. The hollow hip avoids that plane, because the conduit crosses
+  on the axis, and its femur side closed. What failed was the trunk side: no
+  room to bring four cables per leg from spools on x-axes, deep in rows of
+  cans, onto the hip axis. So the fix moves the spools, not the cables.
+
+- **Decision:**
+  - **Each girdle is its hip station.** Two motor rows straddle each hip with
+    their spools facing across it and ONE bulkhead between them at the hip
+    (`tomcat_trunk`: `hip4` / `hip2` / `hip2top1`). Front of the hip: the hip
+    pair's motor on top and the knee's at hip height; behind it: the ankle's at
+    hip height, and on the rear girdle the tail's motor on the centreline.
+  - **Knee and ankle cables run straight along the hip axis.** A spool at
+    hip height, `HIP_SPOOL_DX` = 5.3 mm either side of the hip, sends its two
+    leads off its top and bottom, 8.75 mm above and below the axis, straight
+    out along +y. The bottom pair was raised 3.8 mm to put it exactly on the
+    axis (`pairs4` had it 3.4 mm low, one lead 13.2 mm off the axis and its
+    conduit bent to 12.4 mm radius). The section grows 0.3 mm.
+  - **The hollow hip.** The trunk carries a stub on the hip axis, Ø40 × 36;
+    the femur's hub turns on it in two 40 × 50 × 6 thin-section bearings
+    `[assumed: 6708 class, 22 g]`. The hip sheave is an annulus on the hub.
+    Each conduit starts inside the trunk (F1 at |y| 31.5), runs out through
+    the stub and the hub, and ends in a ferrule seated in the hub's wall, 30 mm
+    off the axis, on the ray to its target. The hip only twists the conduits.
+    Sized by the conduits: in a Ø31 bore the knee conduits bent to 14.6 mm.
+  - **The stations moved.** The row in front of the hind hip has to end
+    clear of spine joint 0's neck, and the row behind the fore hip has to start
+    clear of joint 2's: `rear_hip_x` −0.030 → **−0.065**, new `front_hip_x`
+    **+0.010** (fore mounts' `hip_offset`, both MJCF builders).
+  - **The hip pair keeps ADR-0112's route** (spool → wall ferrule → conduit →
+    trunk bracket), re-solved from the new rows.
+
+- **Consequences** (re-measured):
+
+  | | M122 | M123 |
+  |---|---|---|
+  | knee / ankle conduits | through the hip sheave, boss and femur | **inside the stub and hub; clear** |
+  | conduit bend, hind (flexor / extensor) | hip 94/139°, knee 104/102°, ankle 116/139° | hip 122/140°, **knee 97/97°, ankle 98/98°** |
+  | trunk length | 393 mm | **372 mm** |
+  | hips apart | 225 mm | **270 mm** |
+  | leg | 195.1 g | **221.2 g** (hub + two 40 × 50 bearings) |
+  | body | 4.501 kg | **4.605 kg** (NFR5 +13.9 %) |
+  | motor peak / continuous | 1.623 / 0.575 N·m | **1.656 / 0.570 N·m** (the hind and fore hips tie) |
+  | no-load speed needed | 629 rpm | **635 rpm** |
+  | runtime (Kt 0.44 / 0.35) | 24.2 / 18.2 min | **23.6 / 17.8 min**, ~709 m |
+  | anodised girdle, continuous | 91.6 °C | **93.6 °C**; h 15 → 70.9 °C |
+  | trot foothold x | 0.00722 m | **0.01383 m** (re-bisected on roll drift) |
+  | walk sway amplitude | 11.0° | **8.75°** (ZMP margin 3.9 → 13.2 mm) |
+  | fore share of the stance | 0.371 | **0.415** |
+  | friction → ROM crossover | mu ~0.895 | **mu ~0.925** |
+  | diagonals' angle | 50.5° | **42.9°** |
+
+  - ✅ **The survival "holes" are gone** at 120°: every push to 0.22 m/s
+    survives and every one from 0.24 falls, so a bisection measures an
+    envelope in that direction again (M120 had asserted the defect).
+  - ✅ Found on the way: the lateral CoM ignored the fore hip's offset under
+    yaw (0.68 mm against MuJoCo, fixed in `spine.center_of_mass_y`), and the
+    skin's hind apertures had sat at the pre-M122 hip (x = 0) since M122.
+  - ⚠️ **The MuJoCo balance harness's noise floor rose**, 0.7 → 6.6 mm mean.
+    The analytic foothold (0.01383) is not MuJoCo's quietest (~0.007, 4.0 mm).
+    That is still a quarter of the signals the harness resolves, but the gates
+    were widened and the harness's own tuning is `[owed]`. The floor's stance
+    dependence REVERSED (the short stance is now quieter), so M34's
+    short-stance negative result should be re-run `[owed]`.
+  - ⚠️ The fast (0.30 s) trot meets NFR15's 48 mm from mu 0.55, no longer
+    0.5. NFR15's own floor, 0.6, holds at both speeds with more margin (50.2 /
+    54.4 mm). The base spine joint's quiet-stand load, 0.569 N·m, is now AT
+    the tuned model's 0.57.
+  - ⚠️ **Three sim findings moved the wrong way and are asserted as found:**
+    - **Landing contact is not credible again**: a held 0.05 m drop reports
+      32x body weight on the compliant-spine plant, and 32 / 84 / 17x over
+      0.05 / 0.10 / 0.30 m (rigid spine 11 / 11 / 62x) -- the non-monotone
+      signature the 60 mm girdle box had (ADR-0073). `[owed]`: which of the
+      wider hips and the heavier femur undid it.
+    - **Compliance costs the righting 5.1x again** when the spine is spooled
+      (5.0 s against 0.99 rigid). M87 had it at 3 %; the rigid plant sped up on
+      the longer wheelbase and the spooled spine did not follow. ADR-0075's
+      mechanism (a compliant spine asked for a saturated manoeuvre). `[owed]`
+    - **The rigid plant rocks at 4.7 Hz**, zeta 0.72 -- a whole-body mode the
+      joint damping over-damped until the body lengthened and the femur's
+      inertia doubled. Heavily damped; lightly-damped modes still start at the
+      1394 Hz contact mode.
+  - With the sway re-tuned to 8.75°, the directional pad's case weakened: it
+    sways the body 1.15x a plain foot's (was 1.76x), its worst slip is 10 %
+    MORE, and it doubles the sagittal spine's demand without binding it. The
+    compliant plants sway 5 % more than the rigid one, where M93-M122 had
+    them 37-43 % less -- ADR-0072's assumption nearly holds again.
+  - `[owed]` — lightening the hub (it is a plain Ø54 × 2 tube); the bearings'
+    catalogue part and mass; the four conduits' twist in the bore over the
+    hip range; ports for the conduits through the hip-station bulkhead; mu_c
+    and the pulley efficiency on a bench (ADR-0112).
 
 ---
 

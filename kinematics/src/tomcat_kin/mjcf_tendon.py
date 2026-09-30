@@ -1035,7 +1035,8 @@ def quadruped_rig(hip_height: float = 0.175,
         # doubles the wheelbase (0.210 -> 0.405 m, measured). Same rule as
         # `mjcf.build_mjcf`.
         # ✅ M122: plus the hind hips' offset behind the spine root (ADR-0112).
-        hx = float(DEFAULT_SPINE.rear_hip_x) if gx < 0 else 0.0
+        # ✅ M123: and the fore hips' ahead of the front girdle (ADR-0114).
+        hx = float(DEFAULT_SPINE.rear_hip_x if gx < 0 else DEFAULT_SPINE.front_hip_x)
         mx = (0.0 if spine else gx) + hx
         b, t, a = leg_tendon_xml(nm, lp, arms, indent=6,
                                  mount=(mx, ty, 0.0),

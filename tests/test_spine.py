@@ -116,11 +116,13 @@ def test_straight_spine_front_foot_matches_standalone_leg():
     q_spine = np.zeros(DEFAULT_SPINE.n_segments)
     leg_q = np.deg2rad([-80.0, 60.0, 10.0])
     foot = body.foot_world_position(q_spine, "LF", leg_q)
-    # Front girdle is at (total_length, 0, 0) with zero orientation, hip offset 0,
-    # so the world foot is just the standalone leg foot shifted forward by the
-    # spine length. LF is a FRONT-girdle leg, so it uses the FORE model.
+    # Front girdle is at (total_length, 0, 0) with zero orientation, so the
+    # world foot is the standalone leg foot shifted forward by the spine length
+    # plus the fore hip's offset from the girdle (M123, ADR-0114: 10 mm).
+    # LF is a FRONT-girdle leg, so it uses the FORE model.
     leg_foot = LegModel(DEFAULT_FORELEG).forward(leg_q)[:2]
-    assert np.allclose(foot, leg_foot + np.array([DEFAULT_SPINE.total_length, 0.0]))
+    assert np.allclose(foot, leg_foot + np.array(
+        [DEFAULT_SPINE.total_length + DEFAULT_SPINE.front_hip_x, 0.0]))
 
 
 def test_spine_bend_shifts_front_foot_but_not_rear_foot():
@@ -148,7 +150,9 @@ def test_front_foot_equals_girdle_composition():
     foot_hip = LegModel(DEFAULT_FORELEG).forward(leg_q)[:2]  # LF -> FORE model
     c, s = math.cos(gth), math.sin(gth)
     R = np.array([[c, -s], [s, c]])
-    expected = np.array([gx, gz]) + R @ foot_hip
+    # M123: the fore hip sits `front_hip_x` ahead of the girdle's origin
+    hip = np.array([DEFAULT_SPINE.front_hip_x, 0.0])
+    expected = np.array([gx, gz]) + R @ (hip + foot_hip)
     assert np.allclose(body.foot_world_position(q_spine, "LF", leg_q), expected)
 
 

@@ -110,6 +110,17 @@ were fixed to the shaft or the proximal link, the tendon would do no work.
 Bearings are sized in LEG_TENDON_SPEC §3.2 (static C₀ ≥ 1.5 kN, dynamic C ≥ 0.3 kN)
 `[sourced]`. Exact part numbers `[owed: BOM pass]`.
 
+> ✅ **M123 ([ADR-0114](../docs/DESIGN_DECISIONS.md)): the HIP is not this stack
+> any more.** It is hollow: the trunk carries a **stub** on the hip axis
+> (Ø40 × 36), and the femur's **hub** (Ø54) turns on it in two thin-section
+> bearings (40 × 50 × 6, 6708 class `[assumed]`), bearing OD H7 in the hub, stub
+> h6 in the bearing bore. The hip sheave is an annulus on the hub's rim (still
+> on the DISTAL link), and the femur's insert bonds to a root tube off the hub.
+> The knee and ankle Bowden conduits pass through the stub's bore and end in
+> ferrules seated in the hub's wall, 30 mm off the axis: assemble the conduits
+> through the stub BEFORE the hub goes on. The knee and ankle keep the stack
+> above.
+
 ## 3. Cable termination
 
 UHMWPE (Dyneema) is slippery and **loses 30–50 % of its strength in a knot** —

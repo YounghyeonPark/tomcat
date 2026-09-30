@@ -184,7 +184,8 @@ def test_walk_WITHOUT_lateral_sway_is_laterally_unstable():
     assert any(not p.is_stable for p in poly)                     # 3D disagrees
     # M122 (ADR-0112): -20.x -> -19.2 mm with the hips 225 mm apart; still out
     # at 8 of 48 phases, which is the finding.
-    assert min(p.margin for p in poly) < -0.015                   # by > 15 mm
+    # M123 (ADR-0114): -13.8 mm, the fore hip 10 mm ahead of its girdle.
+    assert min(p.margin for p in poly) < -0.010                   # by > 10 mm
 
 
 def test_default_walk_IS_laterally_stable_via_the_actuated_spine():

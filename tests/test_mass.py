@@ -75,7 +75,7 @@ def _symmetric_trunk_body(leg_mass=0.0):
 def test_default_body_totals_the_load_case_body_mass():
     # The apportionment in params.py is built to reproduce the 3.0 kg that every
     # LoadCase / WholeBodyLoadCase already assumed.
-    assert DEFAULT_BODY_MASS_KG == pytest.approx(4.50092, abs=1e-9)  # M120 -> M122 (ADR-0112)
+    assert DEFAULT_BODY_MASS_KG == pytest.approx(4.60530, abs=1e-9)  # M122 -> M123 (ADR-0114)
     assert _body().total_mass == pytest.approx(LoadCase("x").body_mass_kg, abs=1e-9)
 
 
@@ -105,8 +105,9 @@ def test_the_fore_hind_leg_ASYMMETRY_has_vanished():
     is re-checked in `test_fore_hind_split_...` below.
     """
     # M122 (ADR-0112): -13 g each -- no hip via, no return spring, no pins
-    assert DEFAULT_HINDLEG.mass == pytest.approx(0.19506, abs=5e-4)
-    assert DEFAULT_FORELEG.mass == pytest.approx(0.19515, abs=5e-4)
+    # M123 (ADR-0114): +26 g each -- the hollow hip's hub and 40 x 50 bearings
+    assert DEFAULT_HINDLEG.mass == pytest.approx(0.22122, abs=5e-4)
+    assert DEFAULT_FORELEG.mass == pytest.approx(0.22133, abs=5e-4)
     assert abs(DEFAULT_HINDLEG.mass - DEFAULT_FORELEG.mass) < 0.001, (
         "the legs are equal now; if a real asymmetry returns, re-derive F2's split"
     )
@@ -126,7 +127,8 @@ def test_limbs_are_light_because_the_motors_are_not_in_them():
     # joint end. Still well under the ~24 % biological fraction F1 retired.
     assert 0.10 < legs / body.total_mass < 0.20
     # M122: 0.187 -> 0.173, the legs shed the hip via, spring and pins.
-    assert legs / body.total_mass == pytest.approx(0.173, abs=0.005)
+    # M123: -> 0.192, the hollow hip (ADR-0114). Still under the 0.20 guard.
+    assert legs / body.total_mass == pytest.approx(0.192, abs=0.005)
 
 
 def test_trunk_plus_legs_equals_total():
@@ -159,7 +161,7 @@ def test_fore_hind_split_is_near_balanced_not_sixty_forty():
     # change was symmetric — which is itself the point: the split is set by the
     # girdles and the head, not by the limbs.
     q = _body().mass_budget()
-    assert q.total == pytest.approx(4.50092, abs=1e-9)   # M122
+    assert q.total == pytest.approx(4.60530, abs=1e-9)   # M123
     assert q.fore + q.hind == pytest.approx(q.total, abs=1e-12)
     assert q.fore_fraction == pytest.approx(0.543, abs=0.02)
     assert q.hind_fraction == pytest.approx(0.457, abs=0.02)
@@ -339,8 +341,8 @@ def test_symmetric_body_with_legs_shifts_by_exactly_the_leg_offset():
     bare = _symmetric_trunk_body(leg_mass=0.0)
     offset = leg_com(body.fore_leg, STAND).com   # hip -> leg CoM, shared by all 4
     # mean hip -- M122: the hind hips sit `rear_hip_x` behind the spine root
-    hips = np.array([(body.spine.params.total_length
-                      + body.spine.params.rear_hip_x) / 2.0, 0.0])
+    hips = np.array([(body.spine.params.total_length + body.spine.params.front_hip_x
+                      + body.spine.params.rear_hip_x) / 2.0, 0.0])   # M123: both hips offset
     m_trunk = bare.total_mass
     m_legs = 4 * 0.1
     expected = ((m_trunk * bare.center_of_mass(np.zeros(3), STAND).com
@@ -351,10 +353,15 @@ def test_symmetric_body_with_legs_shifts_by_exactly_the_leg_offset():
 def test_default_com_sits_forward_of_mid_body_because_the_cat_is_front_heavy():
     body = _body()
     c = body.center_of_mass(STRAIGHT, STAND)
-    assert c.mass == pytest.approx(4.50092)   # M122
-    # Forward of the mid-spine point, but still between the two girdles.
-    assert c.x > DEFAULT_SPINE.total_length / 2.0
-    assert 0.0 < c.x < DEFAULT_SPINE.total_length
+    assert c.mass == pytest.approx(4.60530)   # M123
+    # Forward of the point midway between the HIPS, but still between them.
+    # (M123, ADR-0114: that was the mid-spine point while the hips sat on the
+    # spine's ends; they are now 65 mm behind it and 10 mm ahead of it, and the
+    # CoM is 25 mm ahead of their midpoint -- 3 mm behind the mid-spine.)
+    rear = DEFAULT_SPINE.rear_hip_x
+    fore = DEFAULT_SPINE.total_length + DEFAULT_SPINE.front_hip_x
+    assert c.x > (rear + fore) / 2.0
+    assert rear < c.x < fore
     # ⚠️ **M92 changed the SIGN of this.** The legs still hang below the hips,
     # but the trunk's 3.635 kg now sits on a vertebral chain 49.8 mm above them
     # instead of level with them, and it outweighs the 0.67 kg of leg. The whole
@@ -375,7 +382,9 @@ def test_default_com_sits_forward_of_mid_body_because_the_cat_is_front_heavy():
     # it back down **20.1 -> 18.5 mm** -- the direction that helps the ZMP
     # margin M102 had to re-tune for, not the one that hurts it.
     # M122: 18.5 -> 19.1 mm -- the legs lost 13 g each below the hip axis.
-    assert c.z == pytest.approx(0.0191, abs=5e-4)
+    # M123: 19.1 -> 18.2 mm -- the girdles' CoM dropped (the leg motors now
+    # sit at hip height, ADR-0114) and the legs gained 26 g each.
+    assert c.z == pytest.approx(0.0182, abs=5e-4)
 
 
 def test_arching_the_spine_moves_the_com_up_and_rearward():
@@ -492,7 +501,8 @@ def test_actuation_mass_matches_the_downselected_motor_and_count():
     # structure allowance, so the body total does not move.
     # M120: and its six leg G3 flexures, as on the front.
     # M122: the tail grew 9.8 -> 10.2 g with the 30 mm longer trunk.
-    assert sp.rear_girdle_mass == pytest.approx(7 * unit + 0.110 + 0.0102
+    # M123: and shrank to 9.9 g with the 21 mm shorter one (ADR-0114).
+    assert sp.rear_girdle_mass == pytest.approx(7 * unit + 0.110 + 0.0099
                                                 + 0.03118, abs=6e-5)
     # The pelvis is now the LIGHTER girdle: the spine/tail bank left it for the
     # mid-body bay, which is where the CAD packaging actually puts those motors.
@@ -518,4 +528,4 @@ def test_total_matches_the_revised_NFR5_target():
     # target, and 19 of them do not fit inside 3 kg. See the motor-reality-check
     # note. A domestic cat is 4-5 kg, so the new figure is if anything more
     # biomimetic -- but it was forced by hardware, not chosen.
-    assert _body().mass_budget().total == pytest.approx(4.50092, abs=1e-9)   # M122
+    assert _body().mass_budget().total == pytest.approx(4.60530, abs=1e-9)   # M123

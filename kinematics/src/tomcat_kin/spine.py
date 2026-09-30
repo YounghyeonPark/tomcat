@@ -256,10 +256,13 @@ TRACK_HALF = 0.053
 #: ✅ M122: the hind hips sit `rear_hip_x` behind the spine's root joint
 #: (ADR-0112); the fore hips stay at the front girdle's origin.
 _REAR_HIP = (float(DEFAULT_SPINE.rear_hip_x), 0.0)
+#: ✅ M123: and the fore hips `front_hip_x` ahead of the front girdle's origin
+#: (ADR-0114).
+_FRONT_HIP = (float(DEFAULT_SPINE.front_hip_x), 0.0)
 
 DEFAULT_MOUNTS: tuple[LegMount, ...] = (
-    LegMount("LF", Girdle.FRONT, track_y=+TRACK_HALF),
-    LegMount("RF", Girdle.FRONT, track_y=-TRACK_HALF),
+    LegMount("LF", Girdle.FRONT, hip_offset=_FRONT_HIP, track_y=+TRACK_HALF),
+    LegMount("RF", Girdle.FRONT, hip_offset=_FRONT_HIP, track_y=-TRACK_HALF),
     LegMount("LR", Girdle.REAR, hip_offset=_REAR_HIP, track_y=+TRACK_HALF),
     LegMount("RR", Girdle.REAR, hip_offset=_REAR_HIP, track_y=-TRACK_HALF),
 )
@@ -614,6 +617,13 @@ class WholeBody:
         # girdle has one because its motor bank stacks on the inboard column.
         num += sp.front_girdle_mass * sp.front_girdle_com[0] * math.sin(theta)
 
+        # ✅ M123 (ADR-0114): and each fore HIP sits `hip_offset` ahead of the
+        # girdle's origin (10 mm), which the yaw rotates into y as well -- the
+        # same correction a third time, one joint further out. Left out, the
+        # sway parted from MuJoCo by 0.68 mm.
+        for n in fore:
+            hx = float(self.mounts[n].hip_offset[0])
+            num += self.legs[n].params.mass * hx * math.sin(theta)
         if leg_q is not None:
             # Each fore leg's CoM is offset from its hip by `dx` along the girdle's
             # own x. The girdle is yawed by `theta`, so that offset projects into y.

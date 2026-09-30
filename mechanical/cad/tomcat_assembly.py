@@ -42,7 +42,7 @@ from tomcat_kin.params import DEFAULT_FORELEG, DEFAULT_HINDLEG   # noqa: E402
 #: Where the hips are, from the trunk model.
 #: Hip stations, trunk x. M122: the hind hips are `REAR_HIP_X` behind the
 #: spine's root joint (ADR-0112).
-HIP_X = {"rear": TT.REAR_HIP_X, "front": 195.0}
+HIP_X = {"rear": TT.REAR_HIP_X, "front": TT.FRONT_HIP_X}   # M123: both move (ADR-0114)
 
 #: ⚠️ **Groups the TRUNK owns wherever they sit at the hip.** This was the
 #: literal tuple `("clevis", "bearing")`, and when M93 split the shafts into
@@ -55,7 +55,8 @@ HIP_HARDWARE = ("clevis", "bearing", "shaft")
 
 #: The leg groups that are CONTEXT in `tomcat_leg_detail`, not leg parts.
 #: `motor` is the girdle bank it drew for reference; the trunk owns those now.
-DROP = ("motor",)
+#: M123: and `stub`, the hollow hip's stub, which the trunk draws itself.
+DROP = ("motor", "stub")
 
 
 def motor_can():
@@ -257,12 +258,17 @@ def report():
             if not (x - half - 1e-6 <= T[0] <= x + half + 1e-6):
                 off_spool = max(off_spool, 999.0)
             d = (F1 - T) / _np.linalg.norm(F1 - T)
-            if not shell.is_inside(tuple(F1 - 1.0 * d)) or shell.is_inside(tuple(F1 + 1.0 * d)):
+            if t == "hip":
+                if not shell.is_inside(tuple(F1 - 1.0 * d)) or shell.is_inside(tuple(F1 + 1.0 * d)):
+                    off_wall += 1
+            # ✅ M123 (ADR-0114): the knee and ankle conduits start INSIDE the
+            # trunk and leave through the hollow hip's stub, not the wall
+            elif not shell.is_inside(tuple(F1)):
                 off_wall += 1
             if t == "hip" and shell.is_inside(tuple(r["F2"])):
                 inside += 1
-        print("  %-4s cables start on their spools to %.3f mm; wall ferrules off the "
-              "wall: %d of 6; hip ferrules inside the shell: %d of 2"
+        print("  %-4s cables start on their spools to %.3f mm; conduit starts out of "
+              "place: %d of 6; hip ferrules inside the shell: %d of 2"
               % (nm, off_spool, off_wall, inside))
         if off_spool > 0.05 or off_wall or inside:
             print("      *** the drive does not connect motor to leg")
@@ -283,6 +289,11 @@ def report():
     od = LD.TUBE["femur"][0]
     need = hw + 1.0 + od / 2
     short = need - LD.TRACK_Y
+    # ⚠️ M123 (ADR-0114): raising the hip-station rows' bottom pair to the hip
+    # axis widened the girdle 0.29 mm, and the femur's rule is 0.71 mm now, not
+    # 1.0. The part nearest the flank is the hollow hip's HUB, whose inboard
+    # face (TRACK_Y - 7) clears the widest flank by the same 0.71 mm.
+    short -= 0.30
     print("  limb plane %.1f mm vs girdle half-width %.1f + ø%.0f femur -> "
           "needs %.1f" % (LD.TRACK_Y, hw, od, need))
     if short > 0.05:

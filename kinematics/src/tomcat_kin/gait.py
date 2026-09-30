@@ -212,7 +212,10 @@ def trot_params(period: float = 0.4, stride_length: float = 0.10,
         # BEHIND spine joint 0, so the CoM sits further forward of them than it
         # did; at 0.00214 the drift is +0.214 rad/s per cycle. Bisection on
         # `_roll_drift` again.
-        nominal_foot=(0.00722, -0.17),
+        # ⚠️ M123 (ADR-0114): 0.00722 -> 0.01383. The hips moved apart again
+        # (hind 65 mm behind the root, fore 10 mm ahead of the front girdle);
+        # at 0.00722 the drift is +0.242 rad/s per cycle. Bisected.
+        nominal_foot=(0.01383, -0.17),
         step_height=0.02,
         lateral_amplitude=0.0,     # a trot does not sway; the diagonal does the work
     )
@@ -382,7 +385,18 @@ class GaitParams:
     # 4.86 M93 could reach. The static margin still climbs past the turnover,
     # which is the same friction limit this comment named in M93 -- so the
     # DYNAMIC number picks the amplitude, as it did then.
-    lateral_amplitude: float = math.radians(11.0)
+    #
+    # ⚠️ **M123 (ADR-0114) re-tuned it again: 11.0 -> 8.75 deg.** The hips
+    # moved apart (270 mm), the fore 10 mm ahead of its girdle, and the ZMP
+    # curve moved with them -- at 11.0 the default walk kept only 3.87 mm:
+    #
+    #     deg    ZMP mm   feasible
+    #      8.0    11.04   yes
+    #      8.75   13.20   yes   <- the new optimum
+    #      9.5    10.03   yes
+    #     11.0     3.87   yes   <- the M102 default
+    #     12.0    -0.09   NO
+    lateral_amplitude: float = math.radians(8.75)
     # Swing-return profile: "matched" (default, C1/C2 -- end velocities equal the
     # stance sweep so the foot lands without scuffing and the transition carries
     # no acceleration impulse) or "cycloid" (the legacy M2 profile, C0 only).

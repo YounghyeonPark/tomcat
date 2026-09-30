@@ -195,6 +195,11 @@ def g3_parts(role: str):
     return out
 
 
+#: ✅ **M123 (ADR-0114): the lump IS the new layout.** The M101 girdle is a
+#: housing box about its hip (CoM 5.7 mm behind it), not the motors at M88's
+#: row positions -- subtracting them from there gave a negative inertia. Each
+#: girdle's six leg motors now sit in two rows straddling its hip, which is
+#: the box the lump always was; it moves with its hip, as in M122.
 def spine_g3_kg():
     """M120: the six spine G3 flexures, kg -- they ride segment_mass[1]."""
     from tomcat_kin.params import DEFAULT_SPINE
@@ -223,7 +228,10 @@ def front_without_head():
 
 def front():
     """`(mass, com_xz, fullinertia)` for the front girdle with the head placed."""
-    M, c, I = combine([front_without_head(), head()] + g3_parts("fore"))
+    # M123: the lump rides the fore hip, `front_hip_x` ahead of the frame
+    m, c, I = front_without_head()
+    c = c + np.array([SP.front_hip_x, 0.0, 0.0])
+    M, c, I = combine([(m, c, I), head()] + g3_parts("fore"))
     return M, (c[0], c[2]), _mat_to_full(I)
 
 

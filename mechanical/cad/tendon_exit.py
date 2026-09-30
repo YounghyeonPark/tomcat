@@ -26,27 +26,37 @@ with the coordinates it had been handed, so it could not fail.
    there. ADR-0112 moved the joint 30 mm forward (`SpineParams.rear_hip_x`).
 
 ✅ **Bowden conduits.** Every cable leaves its spool tangentially in the
-spool's x-plane (zero fleet) and enters a conduit at a ferrule F1 on the
-trunk wall, aimed along that lead. The conduit carries it to a second ferrule
-F2 aimed along the cable's in-plane run:
+spool's x-plane (zero fleet) and runs in a conduit to a ferrule F2 aimed along
+its in-plane run:
 
-- **hip pair** -- F2 on a TRUNK bracket above the hip, where the femur never
-  goes, in the hip plane, aimed at the hip sheave. The conduit does not move.
-- **knee and ankle pairs** -- F2 on the FEMUR, `S2` out from the hip on the ray
-  that reaches the cable's target, in the cable's plane. The conduit flexes
-  with the hip; the cable's length relative to it does not change, so the hip
-  no longer drives these cables at all (the old hip via coupled 8.75 mm/rad),
-  and the conduit's compression is reacted inside the leg, not across the hip.
+- **hip pair** -- F1 on the trunk wall, F2 on a TRUNK bracket above the hip,
+  where the femur never goes, in the hip plane, aimed at the hip sheave. The
+  conduit does not move.
+- ✅ **knee and ankle pairs -- M123 (ADR-0114): along the hip axis.** Their
+  motors sit either side of the hip at hip height, spools facing across it
+  (`tomcat_trunk`), so a spool's two leads leave its top and bottom running
+  straight along +y -- parallel to the hip axis, `HIP_SPOOL_DX` either side of
+  it. Each enters its conduit inside the trunk (F1 at |y| = `LEAD_Y`), runs out
+  through the trunk's hollow stub and the femur hub it carries, and turns to
+  F2 seated in the hub's wall, `HUB_F2_R` off the axis on the ray to the
+  cable's target. The femur cannot reach a conduit inside its own hub, and the
+  hip only rotates F2 about the axis: the conduit twists, it is not swept.
+
+⚠️ M122 hung F2 on the femur 42 mm out, and every knee and ankle conduit ran
+through the hip sheave, the hip's boss and the femur's root -- it had to
+cross the femur's own plane where the femur sweeps (ADR-0112, ADR-0113). No
+routing at the hip fixed it; moving the motors did.
 
 Friction is the conduit's SLIDING over its bend (`e^(mu_c theta)`, worst over
 the hip range) times one running pulley's efficiency where there is one (the
-knee via, on the ankle pair). `place()` chooses which motor drives which joint,
-which END of its row each spool goes on (`[owed]` since M120) and each lead,
-for the least conduit bend; `DRIVE` pins the result.
+knee via, on the ankle pair). `place()` solves the hip pair's motor end, leads
+and trunk ferrules; the knee and ankle pairs' drive is fixed by the layout.
+`DRIVE` pins the result.
 
 ⚠️ The conduit is modelled as a cubic Bezier between its ferrules. Its real
-shape, and its clearance from the leg and the skin through the range, are
-`[owed]` to a physical model or a mock-up; its bend radius is checked here.
+shape is `[owed]` to a mock-up; its bend radius, and that the knee and ankle
+conduits stay inside the stub's and the hub's bores, are checked here. Four
+conduits share the bore and twist with the hip `[owed]`.
 """
 from __future__ import annotations
 
@@ -73,7 +83,9 @@ TENDONS = ("hip", "knee", "ankle")
 CABLE_D = LT.CABLE_D
 #: Hip stations, trunk x mm; the hind hips sit `rear_hip_x` behind the spine's
 #: root joint (ADR-0112).
-HIP_X = {"hind": float(DEFAULT_SPINE.rear_hip_x) * 1000.0, "fore": 195.0}
+HIP_X = {"hind": float(DEFAULT_SPINE.rear_hip_x) * 1000.0,
+         "fore": (float(sum(DEFAULT_SPINE.segment_lengths))
+                  + float(DEFAULT_SPINE.front_hip_x)) * 1000.0}
 STANCE_FOOT = (0.04, -0.17, 0.0)
 CAN_R = TP.MOTOR_D / 2.0
 
@@ -83,26 +95,15 @@ CONDUIT_OD = 3.0
 CONDUIT_RMIN = 15.0
 #: UHMWPE sliding in a PTFE liner. `[assumed]`
 CONDUIT_MU = 0.07
-#: Femur ferrules: this far out from the hip on the cable's ray, mm -- just
-#: past the hip sheave's rim (38.2).
-#:
-#: ⚠️ **KNOWN DEFECT (M122): every knee and ankle conduit cuts the hip
-#: sheave.** To reach a ferrule here from the trunk wall the conduit crosses
-#: the sheave's plane INSIDE its rim -- 16-39 mm into the disc, measured with
-#: `_leg_clear`. Moving the ferrule out (58 mm) and clipping the conduit to
-#: the femur found no path either: between the trunk wall and the femur the
-#: hip's boss (r 12, y 41-65), the femur's root and the hip sheave (r 38,
-#: y 62-68) leave a 15 mm-radius conduit no way through, at the stance alone.
-#: ⚠️ **And it is larger than the sheave: over the hip's range every knee and
-#: ankle conduit also runs through the femur's root and the hip's boss.** To
-#: reach its plane (y 65-75) from the trunk (y < 45) it crosses the femur's own
-#: plane (y 46-60) where the femur sweeps; no stacking order of the planes
-#: changes that (ADR-0113 addendum).
-#: ADR-0113 then tried a hollow hip, fed from inside the trunk by conduits or
-#: by idlers; neither fits between the motor rows and the hip axis, so the fix
-#: moves the knee and ankle spools themselves (`[owed]`).
-#: `test_tendon_exit` asserts the defect, both halves.
-S2 = 42.0
+#: ✅ M123 (ADR-0114): the knee and ankle conduits end in the femur hub's WALL,
+#: this far off the hip axis, on the ray to the cable's target, mm. Not at 15:
+#: the ankle pair's two rays reach round a via of 8.75 mm about 100 mm away,
+#: so they leave the hip only ~10 deg apart; at 30 their ferrules clear.
+HUB_F2_R = 30.0
+#: ...and begin inside the trunk: F1 where the lead reaches this |y|, mm.
+LEAD_Y = 31.5
+#: (F1's ferrule body, 2 mm behind F1, clears its own spool's flange from
+#: |y| 31.1 -- the flange is 10.9 mm round an axis 8.75 from the lead.)
 #: What a conduit keeps from the leg, mm (beyond its own radius).
 LEG_MARGIN = 1.0
 #: Trunk ferrules for the hip pair: this far from the hip, above it, mm.
@@ -167,7 +168,7 @@ def cans(role, side=+1.0):
 #: Spool placements that put a spool inside trunk STRUCTURE (the spine joints'
 #: yokes and processes at the girdle ends), (motor by height, end) -- measured
 #: on the CAD, and re-measured by `test_tendon_exit`.
-FORBIDDEN = {"hind": set(), "fore": {(1, -1)}}
+FORBIDDEN = {"hind": {(0, +1), (1, +1)}, "fore": {(2, -1)}}   # M123: the new rows
 
 
 def _seg_clear(P, H, C, r):
@@ -181,7 +182,7 @@ def _seg_clear(P, H, C, r):
 def leg_run(role, tendon, side, q=None, start=None, senses=None):
     """The in-plane run to the anchored sheave: for the hip pair from the trunk
     ferrule `start` = (x, z) hip frame; for the knee and ankle pairs from the
-    hip axis (the femur ferrule sits on that ray, `S2` out)."""
+    hip axis (the hub ferrule sits on that ray, `HUB_F2_R` out)."""
     lg = leg(role)
     q = stance(role) if q is None else q
     if tendon == "hip":
@@ -275,14 +276,22 @@ def _outside_shell(C, pad=4.0):
     return True
 
 
-def spool_lead(role, m, end, phi, sense, side=+1.0):
+def spool_lead(role, m, end, phi, sense, side=+1.0, to_y=None):
     """A lead leaving motor `m`'s spool at angle `phi` round it, in winding
-    `sense`: (tangent point, F1 on the wall, lead direction), or None if it
-    does not reach the wall on the leg's own flank clear of the other cans."""
+    `sense`: (tangent point, F1, lead direction), or None if it is blocked.
+
+    F1 is on the trunk wall (the hip pair's conduits leave the body), or --
+    `to_y`, the knee and ankle pairs -- where the lead reaches |y| = `to_y`
+    inside the trunk: those leads run along the hip axis."""
     _nm, x, y, z = motors(role, side)[m]
     xs = spool_x_of(role, m, end, side)
     T = np.array([y, z]) + LT.SPOOL_R * np.array([math.cos(phi), math.sin(phi)])
     dv = sense * np.array([-math.sin(phi), math.cos(phi)])
+    if to_y is not None:
+        if side * dv[0] < 0.99:
+            return None
+        F1 = np.array([xs, *(T + (side * to_y - T[0]) / dv[0] * dv)])
+        return np.array([xs, T[0], T[1]]), F1, np.array([0.0, dv[0], dv[1]])
     F1 = _wall_point(_trunk().LEG_BODY[role], xs, T[0], T[1], dv[0], dv[1])
     if F1 is None or side * F1[1] < 20.0:
         return None
@@ -293,13 +302,15 @@ def spool_lead(role, m, end, phi, sense, side=+1.0):
     return np.array([xs, T[0], T[1]]), F1, np.array([0.0, dv[0], dv[1]])
 
 
-def femur_ferrule(role, tendon, side_c, q, lr_side=+1.0):
-    """F2 on the femur at pose `q`: (position, direction), trunk mm."""
+def hub_ferrule(role, tendon, side_c, q, lr_side=+1.0):
+    """F2 in the femur hub's wall at pose `q`: `HUB_F2_R` off the hip axis in
+    the cable's plane, on the ray the free cable leaves along -- fixed in the
+    femur, so it turns with the hip. (position, direction), trunk mm."""
     run = leg_run(role, tendon, side_c, q)
     p = run["points"]
     u = (p[1] - p[0]) / np.linalg.norm(p[1] - p[0])
-    return (np.array([HIP_X[role] + S2 * u[0], plane_y(tendon, lr_side), S2 * u[1]]),
-            np.array([u[0], 0.0, u[1]]))
+    return (np.array([HIP_X[role] + HUB_F2_R * u[0], plane_y(tendon, lr_side),
+                      HUB_F2_R * u[1]]), np.array([u[0], 0.0, u[1]]))
 
 
 def hip_ferrule(role, side_c, angle, q, lr_side=+1.0):
@@ -319,18 +330,28 @@ def hip_range(role, n=N_HIP):
     return [np.array([h, q0[1], q0[2]]) for h in np.linspace(lg.q_min[0], lg.q_max[0], n)]
 
 
-def conduit_shape(F1, d1, F2, d2):
+def conduit_shape(F1, d1, F2, d2, ok=None, handles=HANDLES):
     """The shape a flexible conduit settles into between its ferrules, modelled
-    as the Bezier, over `HANDLES`, whose tightest bend is gentlest:
-    (polyline, bend, tightest radius, length)."""
+    as the Bezier, over `handles`, whose tightest bend is gentlest:
+    (polyline, bend, tightest radius, length). `ok`: where it is guided -- a
+    conduit in a bore takes the gentlest shape the bore lets it take."""
     best = None
-    for h0 in HANDLES:
-        for h3 in HANDLES:
+    for h0 in handles:
+        for h3 in handles:
             C = bezier(F1, d1, F2, d2, h0=h0, h3=h3)
+            if ok is not None and not ok(C):
+                continue
             b, r, L = bend(C)
             if best is None or r > best[2]:
                 best = (C, b, r, L)
+    if best is None:
+        C = bezier(F1, d1, F2, d2)
+        return C, np.inf, 0.0, bend(C)[2]
     return best
+
+
+#: Handle lengths for a conduit guided through the hollow hip.
+BORE_HANDLES = tuple(np.round(np.arange(0.1, 0.96, 0.05), 2))
 
 
 def _leg_parts(role, q, lr_side=+1.0):
@@ -397,88 +418,113 @@ def _leg_clear(role, C, q, lr_side=+1.0, skip_end=4, parts=None):
 def conduit_path(role, tendon, side_c, lead3, F2spec, q, lr_side=+1.0):
     """The conduit at pose `q`: (polyline, bend, tightest radius). The hip
     pair's runs trunk wall -> trunk ferrule (`F2spec` = its angle); the knee
-    and ankle pairs' trunk wall -> femur ferrule."""
+    and ankle pairs' from inside the trunk, along the hip axis, to the hub."""
     _T, F1, d1 = lead3
     if tendon == "hip":
         F2, d2 = hip_ferrule(role, side_c, F2spec, stance(role), lr_side)
-    else:
-        F2, d2 = femur_ferrule(role, tendon, side_c, q, lr_side)
-    C, b, r, _L = conduit_shape(F1, d1, F2, d2)
+        C, b, r, _L = conduit_shape(F1, d1, F2, d2)
+        return C, b, r
+    F2, d2 = hub_ferrule(role, tendon, side_c, q, lr_side)
+    C, b, r, _L = conduit_shape(F1, d1, F2, d2, ok=lambda c: in_bore(role, c, lr_side),
+                                handles=BORE_HANDLES)
     return C, b, r
 
 
+def in_bore(role, C, lr_side=+1.0):
+    """A knee or ankle conduit stays where it may be: clear of the hip station's
+    bulkhead inside the trunk, inside the stub's bore through the wall and out
+    to the stub's end, inside the hub's bore beyond it, and out through the
+    hub's wall only in its own plane, at its ferrule."""
+    import tomcat_leg_detail as LD
+    TT = _trunk()
+    xh = HIP_X[role]
+    rc = CONDUIT_OD / 2
+    y = lr_side * C[:, 1]
+    r = np.hypot(C[:, 0] - xh, C[:, 2])
+    inner = TT._hw_at(xh) - TT.WALL
+    stub_end = LD.TRACK_Y + LD.STUB_END
+    bh = np.abs(C[:, 0] - xh) < TT.BULKHEAD_T / 2 + rc + 0.2
+    if (bh & (y < inner)).any():
+        return False
+    stub = (y >= inner - 4.0) & (y <= stub_end)
+    if (r[stub] > LD.HIP_STUB[1] / 2 - rc - 0.3).any():
+        return False
+    hub = y > stub_end
+    wall_in = LD.HUB_BEARING[1] / 2 - rc - 0.3
+    out = hub & (r > wall_in)
+    # beyond the hub's bore only the ferrule's own radial run, in its plane:
+    # within 1 mm of it, so the conduit (r 1.5) keeps clear of the hip sheave
+    # beside the knee's plane
+    return not (np.abs(y[out] - y[-1]) > 1.0).any()
+
+
 def conduit_worst(role, tendon, side_c, lead3, F2spec, lr_side=+1.0):
-    """(worst bend over the hip range, tightest radius) for one conduit.
-    Checked: the bend radius and the shell. NOT checked: the leg -- see the
-    known defect at `S2`."""
+    """(worst bend over the hip range, tightest radius) for one conduit; (inf,
+    0) if it leaves where it may be. The hip pair's is fixed to the trunk and
+    must stay outside the shell; the knee and ankle pairs' twist with the hip,
+    inside the stub and the hub (`in_bore`)."""
+    if lead3 is None:
+        return np.inf, 0.0
     worst, rmin = 0.0, np.inf
     for q in ([stance(role)] if tendon == "hip" else hip_range(role)):
         C, b, r = conduit_path(role, tendon, side_c, lead3, F2spec, q, lr_side)
-        if not _outside_shell(C[4:]):
+        if tendon == "hip" and not _outside_shell(C[4:]):
             return np.inf, 0.0            # the conduit would run back into the body
+        if tendon != "hip" and not np.isfinite(b):
+            return np.inf, 0.0             # no shape the bores allow
         worst, rmin = max(worst, b), min(rmin, r)
     return worst, rmin
 
 
+#: The knee and ankle pairs, fixed by the layout (M123): motor by height (the
+#: hip-station rows' bottom pair: 1 = the row in FRONT of the hip, 2 = behind
+#: it), the spool end FACING the hip, and the leads off the spool's bottom
+#: (flexor) and top (extensor), both running out along +y.
+KNEE_ANKLE = {"knee": (1, -1), "ankle": (2, +1)}
+
+
 def place(role: str, side=+1.0):
-    """Which motor drives which joint, which end of its row each spool is on,
-    each lead and each hip ferrule: least conduit bend summed over the six
-    cables, every conduit at least `CONDUIT_RMIN`, the two cables of a spool
-    leaving it in OPPOSITE senses (they wind it opposite ways)."""
-    keys = [(m, e) for m in range(3) for e in (+1, -1) if (m, e) not in FORBIDDEN[role]]
+    """The hip pair: which end of the top motor's row its spool is on, its
+    leads and its two trunk ferrules -- least conduit bend, every conduit at
+    least `CONDUIT_RMIN`, the two cables leaving in OPPOSITE senses. The knee
+    and ankle pairs are `KNEE_ANKLE`'s."""
     phis = np.radians(np.arange(0.0, 360.0, 6.0))
     hip_angles = np.radians(np.arange(-50.0, 51.0, 5.0))
-    best_c = {}
-    for t in TENDONS:
-        for (m, e) in keys:
-            for sd in (+1, -1):
-                for sense in (+1.0, -1.0):
-                    # per trunk-ferrule angle (hip pair) the best lead
-                    best = {}
-                    for phi in phis:
-                        l3 = spool_lead(role, m, e, phi, sense, side)
-                        if l3 is None:
-                            continue
-                        for a in (hip_angles if t == "hip" else [None]):
-                            w, r = conduit_worst(role, t, sd, l3, a, side)
-                            if r < CONDUIT_RMIN:
-                                continue
-                            if a not in best or w < best[a][0]:
-                                best[a] = (w, float(phi), a, r)
-                    best_c[(t, m, e, sd, sense)] = best
     best = None
-    for perm in itertools.permutations(range(3)):
-        for ends in itertools.product((+1, -1), repeat=3):
-            tot, plan, ok = 0.0, {}, True
-            for t, m, e in zip(TENDONS, perm, ends):
-                if (m, e) not in keys:
-                    ok = False
-                    break
-                opt = None
-                for sf in (+1.0, -1.0):
-                    F, X = best_c.get((t, m, e, +1, sf)) or {}, best_c.get((t, m, e, -1, -sf)) or {}
-                    for f in F.values():
-                        for x in X.values():
-                            # the hip pair's two trunk ferrules cannot share a place
-                            if t == "hip" and abs(f[2] - x[2]) < HIP_F2_SEP - 1e-9:
-                                continue
-                            if opt is None or f[0] + x[0] < opt[0]:
-                                opt = (f[0] + x[0], sf, f, x)
-                if opt is None:
-                    ok = False
-                    break
-                tot += opt[0]
-                _s, sf, f, x = opt
-                plan[t] = (m, e, sf, f[1], x[1],
-                           None if t != "hip" else (float(f[2]), float(x[2])))
-            if ok and (best is None or tot < best[0]):
-                best = (tot, plan)
+    for e in (+1, -1):
+        if (0, e) in FORBIDDEN[role]:
+            continue
+        cands = {}
+        for sd in (+1, -1):
+            for sense in (+1.0, -1.0):
+                got = {}
+                for phi in phis:
+                    l3 = spool_lead(role, 0, e, phi, sense, side)
+                    if l3 is None:
+                        continue
+                    for a in hip_angles:
+                        w, r = conduit_worst(role, "hip", sd, l3, a, side)
+                        if r < CONDUIT_RMIN:
+                            continue
+                        if a not in got or w < got[a][0]:
+                            got[a] = (w, float(phi), float(a), r)
+                cands[(sd, sense)] = got
+        for sf in (+1.0, -1.0):
+            for f in cands[(+1, sf)].values():
+                for x in cands[(-1, -sf)].values():
+                    if abs(f[2] - x[2]) < HIP_F2_SEP - 1e-9:
+                        continue
+                    if best is None or f[0] + x[0] < best[0]:
+                        best = (f[0] + x[0], (0, e, sf, f[1], x[1], (f[2], x[2])))
     if best is None:
-        raise RuntimeError("%s: no admissible drive layout" % role)
-    return best[1]
+        raise RuntimeError("%s: no admissible hip drive" % role)
+    plan = {"hip": best[1]}
+    for t, (m, e) in KNEE_ANKLE.items():
+        plan[t] = (m, e, +1.0, math.radians(270.0), math.radians(90.0), None)
+    return plan
 
 
-#: ✅ **The drive as designed** (M122). Per tendon:
+#: ✅ **The drive as designed** (M122; M123 for the knee and ankle). Per tendon:
 #:   (motor by height top-first, spool end (+1 = +x), flexor lead sense,
 #:    flexor lead angle deg, extensor lead angle deg,
 #:    hip pair only: (flexor, extensor) trunk-ferrule angle from straight up, deg)
@@ -486,16 +532,16 @@ def place(role: str, side=+1.0):
 #: leaves in the opposite sense. `place()` produced it; `test_tendon_exit`
 #: holds the two together.
 #:
-#: ⚠️ The assignment moved on both legs: hind hip -> the back row (hind_b),
-#: knee -> hind_a's lower motor, ankle -> its upper one; fore hip -> fore_a's
-#: upper motor, knee -> the single row (fore_b), ankle -> fore_a's lower one.
+#: M123 (ADR-0114): the hip pair drives off the top of the row in FRONT of
+#: its hip; the knee off that row's bottom motor, the ankle off the bottom
+#: motor of the row behind -- spools facing across the hip.
 DRIVE = {
-    "hind": {"hip": (1, +1, +1.0, 306.0, 126.0, (-40.0, -50.0)),
-             "knee": (2, +1, +1.0, 276.0, 90.0, None),
-             "ankle": (0, +1, +1.0, 252.0, 42.0, None)},
-    "fore": {"hip": (0, -1, -1.0, 126.0, 318.0, (25.0, -15.0)),
-             "knee": (1, +1, +1.0, 264.0, 60.0, None),
-             "ankle": (2, -1, +1.0, 270.0, 84.0, None)},
+    "hind": {"hip": (0, -1, -1.0, 126.0, 324.0, (20.0, -20.0)),
+             "knee": (1, -1, +1.0, 270.0, 90.0, None),
+             "ankle": (2, +1, +1.0, 270.0, 90.0, None)},
+    "fore": {"hip": (0, -1, -1.0, 126.0, 330.0, (20.0, -15.0)),
+             "knee": (1, -1, +1.0, 270.0, 90.0, None),
+             "ankle": (2, +1, +1.0, 270.0, 90.0, None)},
 }
 
 
@@ -521,7 +567,7 @@ def conduit_bend(role: str = "hind"):
         m, e, sf, pf, pe, ha = _spec(role, t)
         row = []
         for sd, sense, phi in ((+1, sf, pf), (-1, -sf, pe)):
-            l3 = spool_lead(role, m, e, phi, sense)
+            l3 = spool_lead(role, m, e, phi, sense, to_y=None if t == "hip" else LEAD_Y)
             w, _r = conduit_worst(role, t, sd, l3, None if ha is None else ha[0 if sd > 0 else 1])
             row.append(w)
         out.append(tuple(row))
@@ -545,21 +591,22 @@ def drive(role: str, side: float = +1.0, q=None, senses=None):
             sn = None if senses is None else senses.get((t, sd))
             # the right leg mirrors the left in y: a lead at angle phi round the
             # spool becomes one at pi - phi, wound the other way
+            to_y = None if t == "hip" else LEAD_Y
             if side < 0:
-                T, F1, d1 = spool_lead(role, m, e, math.pi - phi, -sense, side)
+                T, F1, d1 = spool_lead(role, m, e, math.pi - phi, -sense, side, to_y)
             else:
-                T, F1, d1 = spool_lead(role, m, e, phi, sense, side)
+                T, F1, d1 = spool_lead(role, m, e, phi, sense, side, to_y)
             F2spec = None if ha is None else ha[0 if sd > 0 else 1]
             C, b, r = conduit_path(role, t, sd, (T, F1, d1), F2spec, q, side)
             if t == "hip":
                 F2, _d2 = hip_ferrule(role, sd, F2spec, stance(role), side)
                 run = dict(leg_run(role, t, sd, q, start=(F2[0] - xh, F2[2]), senses=sn))
             else:
-                F2, _d2 = femur_ferrule(role, t, sd, q, side)
+                F2, _d2 = hub_ferrule(role, t, sd, q, side)
                 run = dict(leg_run(role, t, sd, q, senses=sn))
                 # the run INSIDE the conduit, hip axis -> F2, is not free cable
                 p = run["points"]
-                k = int(np.argmax(np.linalg.norm(p - p[0], axis=1) >= S2))
+                k = int(np.argmax(np.linalg.norm(p - p[0], axis=1) >= HUB_F2_R))
                 run["points"] = np.vstack([[F2[0] - xh, F2[2]], p[k:]])
             run.update({"seat": seat, "spool_x": xs, "lead": (T, F1), "conduit": C,
                         "F1": F1, "F2": F2, "conduit_bend": b, "conduit_rmin": r,

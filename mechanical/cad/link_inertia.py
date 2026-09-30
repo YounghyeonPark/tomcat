@@ -60,7 +60,8 @@ FIXED = {"cable": "meta", "pad": "paw", "ferrule": "femur"}   # M122: conduit fe
 
 #: ⚠️ Girdle motors are **not in the leg** (P1 centralisation) -- charging them
 #: to the femur is exactly the mistake the tendon drive exists to avoid.
-EXCLUDE = ("motor", "spool", "conduit", "trunk_ferrule")   # trunk-side or harness (M122)
+EXCLUDE = ("motor", "spool", "conduit", "trunk_ferrule",   # trunk-side or harness (M122)
+           "stub")                                             # the trunk's hip stub (M123)
 
 #: Solids that lie ALONG a bone. Proximity to a bone *segment* is well-posed for
 #: these -- unlike joint hardware, they are not shared between two links.
@@ -123,7 +124,7 @@ def assign(group, com, joints, bones):
 
 def _bearing_k(m_drawn, rho):
     """Per-part catalogue/envelope ratio for one bearing solid."""
-    for j, (bore, od, w) in LD.BEARING.items():
+    for j, (bore, od, w) in list(LD.BEARING.items()) + [("hub", LD.HUB_BEARING)]:
         env = (math.pi * ((od / 2) ** 2 - (bore / 2) ** 2) * w) * rho * 1e-3
         if abs(env - m_drawn) < 0.15 * max(env, 1e-9):
             return 1e-3 * LD.BEARING_G[j] / m_drawn

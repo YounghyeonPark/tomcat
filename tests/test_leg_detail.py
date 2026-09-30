@@ -42,7 +42,8 @@ def test_the_spec_torque_table_is_stale_by_the_WHOLE_mass_history(loads):
     | 4.3833 kg (ADR-0093) | 18.06 N·m | 1.46 |
     | 4.4684 kg (ADR-0103, M111) | 18.41 N·m | 1.49 |
     | 4.5540 kg (ADR-0111, M120, G3) | 18.76 N·m | 1.52 |
-    | **4.5009 kg (ADR-0112, M122)** | **18.54 N·m** | **1.50** |
+    | 4.5009 kg (ADR-0112, M122) | 18.54 N·m | 1.50 |
+    | **4.6053 kg (ADR-0114, M123, hollow hip)** | **18.97 N·m** | **1.54** |
 
     The ratio tracks the body mass exactly, which is what proves §1.1 is simply a
     stale snapshot rather than a different calculation. §2 *was* re-run at 4.045 kg
@@ -50,12 +51,12 @@ def test_the_spec_torque_table_is_stale_by_the_WHOLE_mass_history(loads):
     milestone's correction became the next one's staleness.
     """
     tau, T = loads["land"]["tau"][0], loads["land"]["T"][0]
-    assert tau == pytest.approx(18.54, abs=0.05)
+    assert tau == pytest.approx(18.97, abs=0.05)
     # ⚠️ M111: the tension FELL while the torque rose, 650 -> 516 N -- the
     # 36 mm hip arm carries the same torque on less cable. Torque tracks mass;
     # tension tracks mass over arm, so it is no longer a pure mass snapshot.
-    assert T == pytest.approx(520.1, abs=2.0)          # M120: 516.4 -> 526.2; M122: 520.1
-    assert tau / 12.36 == pytest.approx(4.50092 / 3.0, rel=0.02), (
+    assert T == pytest.approx(532.1, abs=2.0)          # M120: 526.2; M122: 520.1; M123: 532.1
+    assert tau / 12.36 == pytest.approx(4.60530 / 3.0, rel=0.02), (
         "the discrepancy should be exactly the body-mass ratio; if it is not, "
         "something other than body mass moved and this needs re-diagnosing"
     )
@@ -149,11 +150,12 @@ def test_the_moment_arms_cannot_be_REDUCED_the_motor_peak_binds():
     # ⚠️ M122 (ADR-0112): 0.85 -> 0.74. The capstan on every degree of wrap
     # is gone; friction is the conduit's slide. The arms are still pinned
     # from below -- see the step down.
-    assert rows[1.0]["mot_frac"] == pytest.approx(0.74, abs=0.04), (
-        "the shipped arms sit at ~74 % of motor peak in this re-sized-cable what-if"
+    # M123 (ADR-0114): 0.74 -> 0.79 under the hollow hip's +104 g of body.
+    assert rows[1.0]["mot_frac"] == pytest.approx(0.79, abs=0.04), (
+        "the shipped arms sit at ~79 % of motor peak in this re-sized-cable what-if"
     )
     # ⚠️ M122 REVERSED this: 0.85x now fits (93 % of peak); 0.70x does not
-    # (122 %). The motor still pins the arms from below, but at ~0.8x -- and
+    # (122 %). M123: 99 % and 130 % -- 0.85x fits by 1 %. The motor still pins the arms from below, but at ~0.8x -- and
     # there the cable's own floor (ADR-0106, ~25 mm at the hip) is close.
     assert rows[0.85]["mot_frac"] < 1.0, "0.85x fits the motor since M122"
     assert rows[0.70]["mot_frac"] > 1.0, "0.70x must still exceed motor peak"
@@ -188,7 +190,9 @@ def test_the_leg_does_not_close_at_its_mass_budget():
     # the fore leg's load. Folded into `link_mass` in the same milestone.
     # ⚠️ M122: 208.1 -> **195.1 g** -- the hip via and its bearing, the ankle
     # return spring and the anchor pins left; the femur's conduit ferrules came.
-    assert 190.0 < total < 200.0, f"leg hardware {total:.1f} g moved unexpectedly"
+    # ⚠️ M123: 195.1 -> **221.2 g** -- the hollow hip (ADR-0114): a hub on two
+    # 40 x 50 bearings for the clevis, tongue, shaft and two 626s.
+    assert 215.0 < total < 227.0, f"leg hardware {total:.1f} g moved unexpectedly"
     heavy = mass["bearing"] + mass["sheave"] + mass["clevis"]
     assert heavy / total > 0.75, "the joint hardware is the overrun, not the bones"
 

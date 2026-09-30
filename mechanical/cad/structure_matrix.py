@@ -79,7 +79,7 @@ def real_spools(role: str = "hind", side: float = +1.0):
     M78, so it is correct for a routing that has since been reconnected and has
     never been re-measured.
     """
-    hx = 0.0 if role == "hind" else 195.0
+    hx = TT.REAR_HIP_X if role == "hind" else TT.FRONT_HIP_X   # M123: the hip stations
     sp3 = TT.leg_spools(role, side)
     return {t: (p[0] - hx, p[2])
             for t, p in zip(JOINTS, sp3)}

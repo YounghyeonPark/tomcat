@@ -43,7 +43,8 @@ MATERIAL = {"tube": (0.23, 0.25, 0.28), "insert": (0.74, 0.77, 0.80),
             "clevis": (0.74, 0.77, 0.80), "bearing": (0.42, 0.46, 0.52),
             "shaft": (0.55, 0.58, 0.62), "pad": (0.17, 0.17, 0.17),
             "motor": (0.35, 0.37, 0.40), "spool": (0.80, 0.80, 0.82),
-            "ferrule": (0.90, 0.72, 0.30), "trunk_ferrule": (0.90, 0.72, 0.30)}
+            "ferrule": (0.90, 0.72, 0.30), "trunk_ferrule": (0.90, 0.72, 0.30),
+            "stub": (0.60, 0.63, 0.66)}
 LINKS = ("femur", "tibia", "meta", "paw")
 
 
@@ -133,7 +134,7 @@ def _deal(comps, pts):
         if g in ("tendon", "anchor", "cable", "conduit"):
             continue                      # drawn live, every frame
         for sd in comp.solids():
-            if g in ("motor", "spool", "trunk_ferrule"):
+            if g in ("motor", "spool", "trunk_ferrule", "stub"):   # M123: the hip stub is the trunk's
                 fixed.setdefault(g, []).append(sd)
                 continue
             c = sd.center()

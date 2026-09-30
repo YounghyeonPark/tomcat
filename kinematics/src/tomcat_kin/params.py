@@ -211,7 +211,11 @@ class LegParams:
     # (the knee and ankle cables arrive by conduit), so are the ankle return
     # spring (the ankle is a PAIR) and the anchor pins (cables anchor on their
     # sheaves); the femur gains its two conduit ferrules.
-    link_mass: tuple[float, float, float, float] = (0.07663, 0.07472, 0.03612,
+    # ⚠️ M123 (ADR-0114): +26 g, all on the femur. The hip is HOLLOW: a hub on
+    # two 40 x 50 thin-section bearings (22 g each `[assumed]`) replaces the
+    # clevis, tongue, 6 mm shaft and two 626s; the conduit ferrules sit in the
+    # hub's wall. Lightening the hub is `[owed]`.
+    link_mass: tuple[float, float, float, float] = (0.10279, 0.07472, 0.03612,
                                                     0.00759)
 
     # Fraction of each link's LENGTH, measured from that link's PROXIMAL joint,
@@ -223,13 +227,13 @@ class LegParams:
     # at 6-8 %**: the mass is joint hardware sitting ON the proximal joint, not
     # a belly part-way down a bone. The paw is the opposite (87 %) because the
     # pad is at its tip.  `[derived: cad/link_inertia.py]`
-    link_com_frac: tuple[float, float, float, float] = (0.0983, 0.0695, 0.1834, 0.8743)
+    link_com_frac: tuple[float, float, float, float] = (0.0663, 0.0695, 0.1834, 0.8743)
 
     #: Centre of mass in the link's OWN body frame (m), +x along the link from
     #: its proximal joint. The full vector `link_com_frac` cannot carry: the
     #: sheaves stand ~4 mm off the limb plane in +y.  `[derived: cad/link_inertia.py]`
     link_com: tuple[tuple[float, float, float], ...] = (
-        (0.008846, 0.004681, 0.000061),       # femur
+        (0.005965, 0.005699, 0.000291),       # femur
         (0.006604, 0.007078, 0.000091),       # tibia
         (0.012836, 0.006910, -0.000181),      # meta
         (0.021858, 0.000000, -0.002353),      # paw
@@ -244,7 +248,7 @@ class LegParams:
     #: joint hardware sitting at its joints; a capsule spreads it down the bone.
     #: `[derived: cad/link_inertia.py]`
     link_inertia: tuple[tuple[float, ...], ...] = (
-        (1.6114e-05, 5.3079e-05, 4.6371e-05, -2.7505e-07, -7.4502e-07, -3.4213e-07),
+        (3.8041e-05, 9.3432e-05, 6.9108e-05, 1.6316e-06, -7.1882e-08, -9.4651e-08),
         (1.6209e-05, 4.5039e-05, 4.3403e-05, 2.7332e-06, 1.7834e-07, 1.4016e-07),
         (5.9258e-06, 2.1280e-05, 2.3210e-05, 3.1287e-06, 9.1186e-08, 3.3537e-08),
         (3.0802e-07, 7.2523e-07, 9.1886e-07, 0.0, 5.6145e-08, 0.0),
@@ -435,9 +439,11 @@ class TendonParams:
     #: Worst conduit bend over the hip range, (flexor, extensor) per joint, rad
     #: -- the HIND leg's; the fore leg's is `tendon_exit.conduit_bend("fore")`.
     #: `[derived: mechanical/cad/tendon_exit.py]`
-    conduit_bend: tuple = ((1.6481, 2.4251),  # hip   94 / 139 deg
-                           (1.8161, 1.7746),  # knee  104 / 102 deg
-                           (2.0243, 2.4300))  # ankle 116 / 139 deg
+    #: ✅ M123 (ADR-0114): the knee and ankle conduits run along the hip axis
+    #: to the hub; the hip pair's from the new hip-station row.
+    conduit_bend: tuple = ((2.1221, 2.4463),  # hip   122 / 140 deg
+                           (1.6911, 1.6908),  # knee   97 /  97 deg
+                           (1.7122, 1.7058))  # ankle  98 /  98 deg
     #: Running pulleys between spool and anchored sheave: the knee via, on the
     #: ankle pair, and nothing else (ADR-0112).
     pulley_count: tuple = ((0, 0), (0, 0), (1, 1))
@@ -508,7 +514,18 @@ class SpineParams:
     #: the only path to 0.1 mm. `tomcat_trunk` had it `[owed]` as the sacrum
     #: that belongs INSIDE the pelvis. The segment lengths are unchanged, so
     #: the hips are now 195 + 30 = 225 mm apart and the trunk 30 mm longer.
-    rear_hip_x: float = -0.030
+    #:
+    #: ✅ **M123 (ADR-0114): 65 mm.** The knee and ankle motors now sit either
+    #: side of their hip, spools facing across it, so their cables run straight
+    #: along the hip axis into a hollow hip (`tendon_exit`). The rear girdle's
+    #: motors are two rows straddling the hip, and the one in FRONT of it has to
+    #: end clear of spine joint 0's neck -- which puts the hip 65 mm behind it.
+    rear_hip_x: float = -0.065
+    #: Where the FORE hips sit ahead of the front girdle frame's origin (the
+    #: spine's last joint station, `sum(segment_lengths)`), m. M123 (ADR-0114):
+    #: the row BEHIND the fore hip has to start clear of spine joint 2's neck.
+    #: The hips are 195 + 65 + 10 = 270 mm apart.
+    front_hip_x: float = 0.010
 
     # Per-segment sagittal joint-angle limits (rad), (min, max).  ❓ TBD.
     # ±25° per joint -> ~±75° whole-spine sagittal range.
@@ -630,7 +647,7 @@ class SpineParams:
     #: ⚠️ **M120: each girdle carries its six leg G3 flexures**, 6 x 5.20 g,
     #: between motor and spool (ADR-0107, drawn in `g3_flexure.py`).
     front_girdle_mass: float = 1.15318
-    rear_girdle_mass: float = 1.07542     # M122: the tail grew 0.4 g with the trunk
+    rear_girdle_mass: float = 1.07512     # M123: the tail shrank with the rear body
 
     #: Girdle housing, full extents (m), and the height of its centre above the
     #: girdle mount vertebra.
@@ -718,8 +735,10 @@ class SpineParams:
     # M120 adds the leg G3 at the motor bank and moves both a fraction of a mm.
     # M122: the hind hips and the rear motor bank sit 30 mm behind the spine
     # root now (ADR-0112), and the G3 flexures at their spools' row ends.
-    front_girdle_com: tuple[float, float] = (0.02686, 0.03723)
-    rear_girdle_com: tuple[float, float] = (-0.04815, 0.02049)
+    # M123 (ADR-0114): each girdle's motor bank rides its hip, now 65 mm
+    # behind the spine root and 10 mm ahead of the front girdle's origin.
+    front_girdle_com: tuple[float, float] = (0.03556, 0.03703)
+    rear_girdle_com: tuple[float, float] = (-0.07392, 0.01879)
 
     #: MJCF `fullinertia` about each girdle's CoM, in its own frame
     #: (ixx iyy izz ixy ixz iyz, kg m²).
@@ -749,9 +768,9 @@ class SpineParams:
     #: `[derived: cad/girdle_inertia.py]`
     #: M120: with the leg G3 flexures (`girdle_inertia.g3_parts`).
     front_girdle_inertia: tuple[float, ...] = (
-        3.2328e-03, 8.2781e-03, 5.9685e-03, 0.0, -3.2444e-03, -1.7442e-05)
+        3.2362e-03, 7.9601e-03, 5.6473e-03, 0.0, -3.1408e-03, -1.7442e-05)
     rear_girdle_inertia: tuple[float, ...] = (
-        1.0848e-03, 2.0475e-03, 1.8432e-03, 0.0, 5.0229e-04, -1.7442e-05)
+        1.0084e-03, 1.0870e-03, 9.5915e-04, 0.0, 2.2677e-04, -1.7442e-05)
 
     #: Per-segment `fullinertia`, or `None` to derive it from the segment box.
     #:
@@ -818,9 +837,11 @@ class LoadCase:
      # fore leg's load needed: +21 g per leg, 208 g). Kept in sync with
      # DEFAULT_BODY_MASS_KG by test_mass.py.
     # -> 4.55397 (ADR-0111/M120, the eighteen G3 flexures: 85.6 g)
-    # -> **4.50092** (ADR-0112/M122: the legs drop the hip via, the return
-    # spring and the anchor pins, -52.4 g for four; the trunk is 30 mm longer).
-    body_mass_kg: float = 4.50092
+    # -> 4.50092 (ADR-0112/M122: the legs drop the hip via, the return
+    # spring and the anchor pins, -52.4 g for four; the trunk is 30 mm longer)
+    # -> **4.60530** (ADR-0114/M123: the hollow hip, +26 g per leg; the rear
+    # body is 26 mm shorter and the tail with it).
+    body_mass_kg: float = 4.60530
     n_stance_legs: int = 2             # legs sharing the load (e.g. trot => 2).
     dynamic_factor: float = 1.5        # peak/static impact multiplier.  ❓ TBD
 
@@ -916,18 +937,19 @@ DEFAULT_FORELEG = LegParams(
     # split using the assumed asymmetry and needs re-checking (ADR-0043).
     # ⚠️ M111: re-measured at the 36/34/22 sheaves (ADR-0103), +21 g per leg.
     # ⚠️ M122: -13 g, as the hind leg (ADR-0112).
-    link_mass=(0.07718, 0.07479, 0.03559, 0.00759),
+    # ⚠️ M123: +26 g on the humerus, the hollow hip (as the hind leg).
+    link_mass=(0.10336, 0.07479, 0.03559, 0.00759),
     # ⚠️ Re-derived at the FORE link lengths, not copied from the hind leg:
     # the same hardware on shorter links moves the fractions.
-    link_com_frac=(0.1001, 0.0705, 0.1799, 0.8743),
+    link_com_frac=(0.0674, 0.0705, 0.1799, 0.8743),
     link_com=(
-        (0.010009, 0.004622, 0.000032),       # humerus
+        (0.006743, 0.005655, -0.000115),      # humerus
         (0.006343, 0.007171, -0.000090),      # radius
         (0.011696, 0.006862, -0.000109),      # metacarpus
         (0.021858, 0.000000, -0.002353),      # paw
     ),
     link_inertia=(
-        (1.6343e-05, 6.0150e-05, 5.3238e-05, 1.8891e-07, -4.2481e-07, -1.0122e-07),
+        (3.8063e-05, 1.0172e-04, 7.7418e-05, 2.1022e-06, -2.3574e-07, -1.1053e-07),
         (1.6151e-05, 4.1863e-05, 4.0395e-05, 2.3790e-06, 3.4343e-09, -4.9869e-08),
         (5.8584e-06, 1.8346e-05, 2.0201e-05, 2.8569e-06, 9.1982e-08, -2.6682e-08),
         (3.0802e-07, 7.2523e-07, 9.1886e-07, 0.0, 5.6145e-08, 0.0),

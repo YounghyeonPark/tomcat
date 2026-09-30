@@ -109,6 +109,9 @@ def test_the_lump_is_where_params_said_it_was_and_M102_moved_it():
     share = (m * 1e-3) / SP.front_girdle_mass
     ox, oz = (v * 1e3 for v in HD.LUMPED_GIRDLE_COM)
     now = (ox + share * ((cx - 195.0) - ox), oz + share * (cz - oz))
+    # M123 (ADR-0114): the rest of the girdle rides the fore hip, now
+    # `front_hip_x` ahead of the frame's origin
+    now = (now[0] + (1.0 - share) * SP.front_hip_x * 1e3, now[1])
     assert now[0] == pytest.approx(SP.front_girdle_com[0] * 1e3, abs=1.5)
     assert now[1] == pytest.approx(SP.front_girdle_com[1] * 1e3, abs=1.5)
 

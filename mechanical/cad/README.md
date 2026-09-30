@@ -1,6 +1,6 @@
 # mechanical/cad/
 
-## Current model (M120)
+## Current model (M123)
 
 ![the whole robot](tomcat_whole.png)
 
@@ -11,13 +11,14 @@ PNG when run (`python mechanical/cad/<script>.py`; STLs are git-ignored).
 | script | what it draws | output |
 |---|---|---|
 | `tomcat_assembly.py` | the whole robot: four legs on the trunk, stance pose | `tomcat_whole.png` |
-| `tomcat_trunk.py` | four rigid bodies, 19 motors in rows along the trunk (M88), each leg and spine row motor + G3 + spool | `tomcat_trunk.png`, `_side.png` |
-| `tomcat_leg_detail.py` | one hind leg as parts: tubes, clevis joints, bearings, 36/34/22 mm sheaves (ADR-0103) | `tomcat_leg_detail.step`, `.png` |
+| `tomcat_trunk.py` | four rigid bodies, 19 motors; each girdle is two rows straddling its hip, spools facing across it (M123), each row motor + G3 + spool | `tomcat_trunk.png`, `_side.png` |
+| `tomcat_leg_detail.py` | one hind leg as parts: tubes, a HOLLOW hip (hub on 40 × 50 bearings over the trunk's stub, ADR-0114), clevis knee and ankle, 36/34/22 mm sheaves (ADR-0103), the Bowden drive | `tomcat_leg_detail.step`, `.png` |
 | `g3_flexure.py` | the series-elastic flexure between rotor and spool, leg and spine variants (ADR-0107/0111) | `g3_flexure.step`, `g3_flexure_spine.step`, `.png` |
 | `tomcat_head.py`, `tomcat_tail.py`, `tomcat_skin.py` | head and neck, tail, the skin cover | `.png` |
+| `tendon_exit.py`, `leg_drive_3d.py` | the leg drive in 3-D, spool to anchor (ADR-0112/0114), and its animation | `leg_drive_3d.gif`, `_still.png` |
 | `girdle_inertia.py`, `link_inertia.py`, `mass_closure.py` | the masses and inertias `params.py` carries, derived from the drawn parts | printed |
 
-Body **4.554 kg**, 19 motors (the GIM3505-9 is a PROXY for envelope and mass;
+Body **4.605 kg**, 19 motors (the GIM3505-9 is a PROXY for envelope and mass;
 the spec it must meet is in ADR-0100/0110).
 
 ⚠️ **Everything below this line is HISTORY** -- the July skeleton and

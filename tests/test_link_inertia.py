@@ -91,7 +91,9 @@ def test_sheave_mass_lands_on_the_distal_link(cad):
     want = {}
     for jn, d in report["joints"].items():
         link = LI.JOINT_TO_LINK[jn]
-        _, sh = LD.grooved(d["arm"], d["planes"], bore=d["bearing"][0])
+        # M123: the hip's sheave rides the hollow hip's HUB, not a shaft
+        bore = d["hub"][0] if "hub" in d else d["bearing"][0]
+        _, sh = LD.grooved(d["arm"], d["planes"], bore=bore)
         want[link] = want.get(link, 0.0) + sum(
             x.volume for x in sh.solids()) * LD.AL_RHO
         if d.get("via"):

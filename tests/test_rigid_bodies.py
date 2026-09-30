@@ -248,7 +248,9 @@ def test_the_mjcf_now_swings_like_the_cad_leg():
     # ⚠️ The CAD side here still uses the ENVELOPE masses, so it reads 8 % heavy
     # against the MJCF's catalogue-calibrated ones. That gap is the finding above,
     # not slack: `test_link_inertia.py` pins the calibrated pair to 2 %.
-    assert M_cad == pytest.approx(M_mj, rel=0.12), (
+    # ⚠️ M123 (ADR-0114): 14 % -- the hollow hip's two 40 x 50 bearings are
+    # drawn as 33 g steel rings against their 22 g catalogue mass.
+    assert M_cad == pytest.approx(M_mj, rel=0.15), (
         f"CAD {1e3 * M_cad:.1f} g vs MJCF {1e3 * M_mj:.1f} g"
     )
 

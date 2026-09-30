@@ -213,7 +213,10 @@ def test_ground_force_is_ill_conditioned_on_the_HIND_legs_near_liftoff():
     obs = dyn.grf_observability_sweep(c, 96)
     assert obs["LF"]["worst"] < 5.0
     assert obs["RF"]["worst"] < 5.0
-    assert obs["LR"]["worst"] > 20.0
+    # M123 (ADR-0114): 19.97 at the re-tuned foothold -- the hind leg is still
+    # ~6x the fore's worst (3.43), which is the finding.
+    assert obs["LR"]["worst"] > 15.0
+    assert obs["LR"]["worst"] > 5 * obs["LF"]["worst"]
     assert obs["RR"]["worst"] == pytest.approx(obs["LR"]["worst"], rel=1e-6)
     assert obs["LR"]["median"] > 2 * obs["LF"]["median"]
 

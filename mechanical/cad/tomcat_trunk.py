@@ -107,6 +107,20 @@ ROWS = {
     # not fit; a third POSITION does. On the centreline it must clear the pair by
     # 2R, so |z| >= 28.0, and at 28.5 it reaches 45.8 against a 56.7 half-height.
     "tri3":     ([(-20.2, 0.0), (20.2, 0.0), (0.0, 28.5)], 40.5),
+    # ✅ **M123 (ADR-0114): the hip-station rows.** A knee or ankle motor sits
+    # AT HIP HEIGHT -- the bottom pair on the hip axis (z = 0) -- so its spool's
+    # two leads leave its top and bottom 8.75 mm either side of the axis and run
+    # straight along it. `pairs4`'s bottom pair sat 3.4 mm low, which put one
+    # lead 13.2 mm off the axis and bent its conduit to 12.4 mm radius on its
+    # way round to the hub. Raised 3.8 mm and the top pair 0.9 (the pairs keep
+    # 37.5 mm between centres, 2R + CLR), the section grows 0.3 mm. Sized on
+    # the same circle `pairs4`'s 43.8 implies (r 20.30); the section hangs
+    # from the dorsal line, so every hip-station row takes this half-width
+    # whatever it holds: `hip2` without the top pair, `hip2top1` with the
+    # tail's motor on the centreline above.
+    "hip4":     ([(-20.2, 21.1), (20.2, 21.1), (-20.2, -16.4), (20.2, -16.4)], 44.09),
+    "hip2":     ([(-20.2, -16.4), (20.2, -16.4)], 44.09),
+    "hip2top1": ([(-20.2, -16.4), (20.2, -16.4), (0.0, 21.1)], 44.09),
 }
 
 #: ⚠️ **A row can hold motors of more than one ROLE, and the check counted
@@ -114,7 +128,7 @@ ROWS = {
 #: the row's role for all three made the drive-train check report "7 motors
 #: on body 0" for a leg that needs 6. Position index -> role, where it is not
 #: the row's own.
-POSITION_ROLE = {("tri3", 2): "tail"}
+POSITION_ROLE = {("tri3", 2): "tail", ("hip2top1", 2): "tail"}
 
 
 #: One row per rigid body, chest to tail. The **waist** is the two-motor row --
@@ -152,13 +166,18 @@ NECK_SPAN = 15.0
 #: 12 leg motors on the two girdle bodies, 6 spine motors beside the joints they
 #: drive: body 1 reaches joints 0 and 1, body 2 reaches joint 2.
 LAYOUT = [
-    # (name, body, x fraction in that body, layout, role)
-    ("fore_a", 3, 1.00, "pairs4", "fore"),
-    ("fore_b", 3, 0.00, "pair2", "fore"),
+    # (name, body, x fraction in that body -- or "front"/"rear" of its HIP,
+    #  layout, role)
+    # ✅ M123 (ADR-0114): each girdle is TWO rows straddling its hip, spools
+    # facing across it. Front of the hip: the hip motors (top pair) and one of
+    # knee/ankle (bottom pair); behind it: the other (bottom pair), and on the
+    # rear girdle the tail's motor.
+    ("fore_f", 3, "front", "hip4", "fore"),
+    ("fore_r", 3, "rear", "hip2", "fore"),
     ("spine_c", 2, 0.50, "stack2", "spine"),
     ("spine_b", 1, 0.50, "diamond4", "spine"),
-    ("hind_a", 0, 1.00, "pairs4", "hind"),
-    ("hind_b", 0, 0.00, "tri3", "hind"),
+    ("hind_f", 0, "front", "hip4", "hind"),
+    ("hind_r", 0, "rear", "hip2top1", "hind"),
 ]
 
 #: Rigid body extent along x. Each end retreats from its joint by half the gap.
@@ -173,18 +192,28 @@ LAYOUT = [
 #: the space between the hip and the joint is free for the knee and ankle
 #: cables to reach the hip axis. Body 0 grows by the offset; the hip-to-row
 #: geometry behind the hip is exactly what it was (`HIP_ROW_GAP`).
+#:
+#: ✅ **M123 (ADR-0114): each girdle is its hip station.** Two rows straddle
+#: each hip, their spools facing across it with ONE bulkhead between them at
+#: the hip, so a knee or ankle spool's two leads run straight along the hip
+#: axis into the hollow hip. The row in front of the hind hip must end clear
+#: of spine joint 0's neck, and the row behind the fore hip start clear of
+#: joint 2's: that puts the hind hips 65 mm behind joint 0 and the fore 10 mm
+#: ahead of the front girdle's origin. Each body is now exactly its two rows.
 REAR_HIP_X = SP.rear_hip_x * MM
-#: The front row of the rear girdle ends this far behind the hind hip -- the
-#: clearance it had when the hip was the body's end (half the joint gap plus
-#: a bulkhead pad).
-HIP_ROW_GAP = JOINT_GAP / 2 + _PAD
+FRONT_HIP_X = (float(sum(SP.segment_lengths)) + SP.front_hip_x) * MM
+HIP_X_OF = {0: REAR_HIP_X, 3: FRONT_HIP_X}
+#: A hip-station row's near end is this far from its hip: half the shared
+#: bulkhead and a 0.5 mm gap.
+HIP_ROW_NEAR = BULKHEAD_T / 2 + 0.5
+#: Where a knee or ankle spool's plane sits, either side of its hip, mm.
+HIP_SPOOL_DX = HIP_ROW_NEAR + TP.SPOOL_L / 2
 
 BODIES = {
-    0: (-(NECK_SPAN + 2 * ROW_L + 4 * _PAD) + REAR_HIP_X, -JOINT_GAP / 2),
+    0: (REAR_HIP_X - HIP_ROW_NEAR - row_len("hind") - _PAD, -JOINT_GAP / 2),
     1: (JOINT_GAP / 2, 75.0 - JOINT_GAP / 2),
     2: (75.0 + JOINT_GAP / 2, 140.0 - JOINT_GAP / 2),
-    3: (140.0 + JOINT_GAP / 2,
-        140.0 + NECK_SPAN + 2 * ROW_L + 4 * _PAD),
+    3: (140.0 + JOINT_GAP / 2, FRONT_HIP_X + HIP_ROW_NEAR + row_len("fore") + _PAD),
 }
 
 
@@ -197,12 +226,13 @@ def _row_x(body, frac, role):
 def _rows():
     """(name, body, absolute x, motors) with the fractions resolved.
 
-    `hind_a`, the rear girdle's front row, is placed from the HIND HIP rather
-    than by fraction: its end sits `HIP_ROW_GAP` behind it (M122)."""
+    M123: a girdle's rows are placed from its HIP ("front"/"rear"), their near
+    ends `HIP_ROW_NEAR` from it."""
     out = []
     for (nm, b, f, n, r) in LAYOUT:
-        if nm == "hind_a":
-            x = REAR_HIP_X - HIP_ROW_GAP - row_len(r) / 2
+        if isinstance(f, str):
+            sgn = 1.0 if f == "front" else -1.0
+            x = HIP_X_OF[b] + sgn * (HIP_ROW_NEAR + row_len(r) / 2)
         else:
             x = _row_x(b, f, r)
         out.append((nm, b, x, n, r))
@@ -376,6 +406,8 @@ def _bulkhead_x(body: int):
     keep = []
     for (xb, n) in xs:
         if keep and abs(xb - keep[-1][0]) < 2 * BULKHEAD_T:
+            # M123: the two rows at a hip share one, centred between them
+            keep[-1] = (0.5 * (xb + keep[-1][0]), keep[-1][1])
             continue
         keep.append((xb, n))
     return keep
@@ -472,40 +504,43 @@ def _unused_bulkheads(body: int):
 
 
 def hip_bosses(body: int):
-    """Hips live on the two girdle bodies only."""
+    """Hips live on the two girdle bodies only.
+
+    ✅ **M123 (ADR-0113): each hip is a hollow STUB** on the hip axis, from
+    inside the girdle's wall out past the femur hub's outer bearing
+    (`LD.STUB_END`), with a flange where it passes the wall. The femur's hub
+    turns on it; the knee and ankle conduits run out through its bore. It
+    replaces M122's boss arm and the tongue a 6 mm shaft ran through."""
     if body not in (0, 3):
         return []
-    x = REAR_HIP_X if body == 0 else 195.0
+    x = HIP_X_OF[body]
+    od, idd = LD.HIP_STUB
     out = []
-    boss_r = HIP_OD / 2 + BOSS_WALL
     for side in (+1.0, -1.0):
-        y_hip = side * TRACK
-        # ⚠️ **The rear hip and the first spine joint are the same station.**
-        # ADR-0006 roots the chain at the trunk origin and the hind legs mount
-        # there too, so the boss lands exactly where the trunk necks down to
-        # bend -- 21 mm of half-width instead of 41.7. Attaching it to the row's
-        # width left it floating; attaching it to the LOCAL width makes it a
-        # 27 mm cantilever off a pinched section.
-        #
-        # A cat does not do this: the sacrum is fused into the pelvis and the
-        # first mobile lumbar joint sits well forward of the hip. Moving the
-        # joint forward is a kinematics change (ADR-0006's segment lengths), so
-        # it is named here rather than made.  `[owed]`
-        # M122: the hind hip is inside its girdle now, so its boss is centred
-        # on it like the fore one; it no longer reaches back off the joint.
-        xa = x
-        inner = _hw_at(xa) - WALL
-        span = max(abs(y_hip) - inner, 1.0)
-        # ⚠️ The REAR hip sits exactly on the first spine joint (x = 0), so a
-        # boss centred there is half in the next rigid body. It reaches back
-        # into its own girdle instead; the tongue stays at x = 0, where the
-        # kinematics puts the hip.
-        arm = Pos(xa, side * (inner + span / 2), 0) * Box(2 * boss_r, span,
-                                                          2 * boss_r)
-        axis = Plane(origin=(x, y_hip, 0), z_dir=(0, side, 0)).location
-        lug = axis * (Cylinder(boss_r, TONGUE_T)
-                      - Cylinder(HIP_BORE / 2, TONGUE_T + 2))
-        out += [arm, lug]
+        inner = _hw_at(x) - WALL
+        y0, y1 = inner - 3.0, TRACK + LD.STUB_END
+        axis = Plane(origin=(x, side * y0, 0), z_dir=(0, side, 0)).location
+        tube = Pos(0, 0, (y1 - y0) / 2) * (Cylinder(od / 2, y1 - y0)
+                                           - Cylinder(idd / 2, y1 - y0 + 2))
+        # the flange: through the wall, bonded to it
+        fl_t = WALL + 3.0 + 1.0
+        flange = Pos(0, 0, fl_t / 2) * (Cylinder(od / 2 + 6.0, fl_t)
+                                        - Cylinder(idd / 2, fl_t + 2))
+        out += [axis * tube, axis * flange]
+    return out
+
+
+def hip_bores(body: int):
+    """The stub's bore through the shell: what the conduits pass."""
+    if body not in (0, 3):
+        return []
+    x = HIP_X_OF[body]
+    out = []
+    for side in (+1.0, -1.0):
+        y0 = _hw_at(x) - WALL - 4.0
+        L = _hw_at(x) + 4.0 - y0
+        out.append(Plane(origin=(x, side * y0, 0), z_dir=(0, side, 0)).location
+                   * (Pos(0, 0, L / 2) * Cylinder(LD.HIP_STUB[1] / 2, L)))
     return out
 
 
@@ -663,6 +698,8 @@ def rigid_body(body: int):
     g = body_shell(body)
     for i, h in enumerate(hip_bosses(body)):
         g = _fuse(g, h, "body %d hip boss %d" % (body, i))
+    for v in hip_bores(body):
+        g = g - v
     # ⚠️ cut the cable clearance BEFORE the posts go in, or the post arrives
     # tangent to the wall and the fuse is the one that eats the body.
     clear = process_clearance(body)
@@ -798,8 +835,8 @@ def report():
         ok = False
     undulation = max(dorsal) - min(dorsal)
     print("  barrel undulates %.1f mm = %.0f %% of the %.1f mm chest depth"
-          % (undulation, 100 * undulation / (2 * _hw("fore_a") * ASPECT),
-             2 * _hw("fore_a") * ASPECT))
+          % (undulation, 100 * undulation / (2 * _hw("fore_f") * ASPECT),
+             2 * _hw("fore_f") * ASPECT))
     print("  belly            %.1f mm at the chest -> %.1f at the waist  (tuck-up %.1f)"
           % (min(belly), max(belly), max(belly) - min(belly)))
     print("  motors           %d of 19  (12 leg + 3 pitch + 3 yaw + 1 tail)"
@@ -808,7 +845,7 @@ def report():
         print("      *** ADR decision F bought 19")
         ok = False
     print("  trunk length     %.0f mm   chest %.1f w x %.1f h   waist %.1f x %.1f"
-          % (hi - lo, 2 * _hw("fore_a"), 2 * _hw("fore_a") * ASPECT,
+          % (hi - lo, 2 * _hw("fore_f"), 2 * _hw("fore_f") * ASPECT,
              2 * _hw("spine_c"), 2 * _hw("spine_c") * ASPECT))
     print("  envelope         %.0f cm3" % (env / 1000.0))
     print("  motors solid     %.0f cm3 = %.1f %% of the envelope"

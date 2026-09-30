@@ -38,7 +38,8 @@ def test_standing_costs_a_THIRD_of_moving_at_the_stance_actually_held():
     st = power.standing_power()
     # ⚠️ M122 (ADR-0112): 0.302 -> 0.371. The hind hips moved 30 mm back
     # behind spine joint 0, so the CoM sits relatively nearer the fore hips.
-    assert st["frac_fore"] == pytest.approx(0.371, abs=0.03), "the MJCF's split"
+    # M123 (ADR-0114): 0.371 -> 0.415, the hind hips 65 mm behind the root.
+    assert st["frac_fore"] == pytest.approx(0.415, abs=0.03), "the MJCF's split"
     old = power.standing_power_worst_pose()
     assert old["legs_w"] > 3.0 * st["legs_w"], "the worst pose overstated it 3x"
 
@@ -114,9 +115,10 @@ def test_NFR6_is_MET_once_the_arms_are_right():
     and copper goes as its square. That recovers more than friction cost.
     """
     r = power.runtime(_trot())
-    assert r["trot_minutes"] == pytest.approx(24.18, abs=0.4)
+    # M123 (ADR-0114): 24.18 -> 23.65, the hollow hip's +104 g.
+    assert r["trot_minutes"] == pytest.approx(23.65, abs=0.4)
     assert r["trot_minutes"] > 14.0, "back under NFR6's floor"
-    assert r["trot_range_m"] == pytest.approx(725.0, abs=15.0)   # M120: 634; M122: 725
+    assert r["trot_range_m"] == pytest.approx(709.0, abs=15.0)   # M120: 634; M122: 725; M123: 709
     assert r["trot_range_m"] > 420.0
     assert r["battery_wh"] == pytest.approx(
         power.BATTERY_KG * power.BATTERY_WH_PER_KG * power.BATTERY_USABLE)

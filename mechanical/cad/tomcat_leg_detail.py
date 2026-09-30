@@ -106,12 +106,37 @@ WEB_T = 1.5                       # lightened sheave centre web    [assumed]
 RIM_T = 1.0                       # metal inboard of the groove    [assumed]
 HUB_T = 3.0                       # metal around the sheave bore   [assumed]
 
+#: ✅ **M123 (ADR-0113): THE HOLLOW HIP.** The hip has no shaft: the trunk
+#: carries a hollow STUB on the hip axis, and the femur's HUB turns on it in two
+#: thin-section bearings. The knee and ankle conduits come out of the trunk
+#: along the axis, inside the stub, and turn in the hub to ferrules seated in
+#: its wall (`tendon_exit`). The hip sheave is an annulus on the hub.
+#: ⚠️ `BEARING["hip"]` stays: it sizes the groove-plane stack (`plane_layout`),
+#: which the hollow hip keeps exactly.
+#: ⚠️ Sized by the conduits, not the loads: in a Ø31 bore the knee conduits
+#: bent to 14.6 mm radius on their way to the hub; in Ø36, 15.7 (ADR-0114).
+HIP_STUB = (40.0, 36.0)          # OD, ID, mm -- the trunk's part
+HUB_BEARING = (40.0, 50.0, 6.0)  # 6708 class (40 x 50 x 6)  [assumed]
+HUB_WALL = 2.0
+HUB_OD = HUB_BEARING[1] + 2 * HUB_WALL
+#: Along the axis, mm from the limb plane: the hub's span (inboard end clears
+#: the girdle's flank, 44.7 mm at the hub's rim, by ~1 mm; outboard it holds
+#: the ankle ferrules),
+#: the two bearings' centres, and where the stub ends (past the outer bearing,
+#: short of the knee conduits' turn -- `test_tendon_exit` checks the bore).
+HUB_Y = (-7.0, 25.0)
+#: The hub's femur root: Ø10 x 1.5, off the rim along the femur, mm.
+HUB_ROOT = 6.0
+HUB_BEARING_Y = (-4.0, 7.5)
+STUB_END = 11.5
+
 #: Catalogue masses for the bearing classes above, grams.
 #: ⚠️ The geometric envelope over-weighs a bearing badly — a solid ring of the
 #: 626 annulus is 12 g against a real ~8 g, because a bearing is mostly balls,
 #: races and air. Envelope is used for FIT, catalogue mass for the BUDGET.
 #: `[assumed: class-typical; exact PNs owed with the BOM]`
-BEARING_G = {"hip": 8.0, "knee": 8.0, "ankle": 2.2}
+BEARING_G = {"hip": 8.0, "knee": 8.0, "ankle": 2.2,
+             "hub": 22.0}   # 6708 class, class-typical  [assumed]
 
 #: Wire volume as a fraction of an extension spring's envelope.  `[assumed]`
 SPRING_FILL = 0.25
@@ -592,14 +617,8 @@ def tendon_drive(q, leg=DEFAULT_LEG, lay=None, role=None):
         if tendon == "hip":
             groups["trunk_ferrule"].append(f2)
         else:
-            # the femur ferrule's bracket: a post from the femur's own axis
-            P = LT.joints(q, leg)
-            a0 = np.array([P[0][0], 0.0, P[0][1]])
-            a1 = np.array([P[1][0], 0.0, P[1][1]])
-            fp = C[-1] - d2 * FERRULE[1] / 2
-            t = float(np.clip((fp - a0) @ (a1 - a0) / ((a1 - a0) @ (a1 - a0)), 0, 1))
+            # ✅ M123: seated in the hub's wall (`build` cuts the seat)
             groups["ferrule"].append(f2)
-            groups["ferrule"].append(_rod(a0 + t * (a1 - a0), fp, 2.0))
         an = r["anchor"]
         groups["anchor"].append(Pos(an[0], y, an[1]) * Sphere(CABLE_D))
     routes["fleet"] = fleet
@@ -621,9 +640,35 @@ def tendon_drive(q, leg=DEFAULT_LEG, lay=None, role=None):
 
 
 def joint_offset(joint: str) -> float:
-    """Tube end to joint centre: the boss around the bearing plus its wall."""
+    """Tube end to joint centre: the boss around the bearing plus its wall.
+    At the hollow hip, the hub: a root tube off the hub's rim, like a
+    clevis's, carries the femur's insert out `HUB_ROOT` beyond it."""
+    if joint == "hip":
+        return HUB_OD / 2 + HUB_ROOT
     _, od, _ = BEARING[joint]
     return od / 2 + BOSS_WALL
+
+
+def hollow_hip():
+    """The hip's parts about its centre, limb plane at y = 0: (hub, [bearings],
+    stub). The hub is the femur's; the stub is the trunk's, drawn here to its
+    outboard end so the leg shows what it turns on."""
+    y0, y1 = HUB_Y
+    hub = Pos(0, (y0 + y1) / 2, 0) * (yaxis((0, 0, 0))
+                                      * (Cylinder(HUB_OD / 2, y1 - y0)
+                                         - Cylinder(HUB_BEARING[1] / 2, y1 - y0 + 2)))
+    brg = [Pos(0, yc, 0) * (yaxis((0, 0, 0)) * bearing(*HUB_BEARING))
+           for yc in HUB_BEARING_Y]
+    return hub, brg
+
+
+def hip_stub(y_in: float):
+    """The trunk's stub from `y_in` (limb-plane frame) to `STUB_END`."""
+    od, idd = HIP_STUB
+    L = STUB_END - y_in
+    return Pos(0, (STUB_END + y_in) / 2, 0) * (yaxis((0, 0, 0))
+                                               * (Cylinder(od / 2, L)
+                                                  - Cylinder(idd / 2, L + 2)))
 
 
 def build(leg=DEFAULT_LEG, role=None):
@@ -647,7 +692,7 @@ def build(leg=DEFAULT_LEG, role=None):
                                ("tube", "insert", "clevis", "sheave",
                                 "bearing", "shaft", "cable", "pad", "tendon",
                                 "motor", "spool", "conduit", "ferrule",
-                                "trunk_ferrule", "anchor")}
+                                "trunk_ferrule", "anchor", "stub")}
     report: dict[str, dict] = {}
 
     # ⚠️ Four links, not three. The first pass stopped at the metatarsus and left
@@ -730,6 +775,28 @@ def build(leg=DEFAULT_LEG, role=None):
         # sheave 6 mm further outboard, which §0.1 charges as femur torsion.
         gap = tongue_t + 2 * TONGUE_CLEAR
 
+        if jname == "hip":
+            # ✅ M123: the hollow hip -- hub, two bearings, the trunk's stub;
+            # no clevis, tongue or shaft, and the sheave rides the hub
+            hub, brg = hollow_hip()
+            hub_solid = Pos(*c) * hub
+            # the femur's root, off the hub's rim, into the femur's insert
+            fu = np.array([pts[1][0] - pts[0][0], 0.0, pts[1][1] - pts[0][1]])
+            fu /= np.linalg.norm(fu)
+            r0, r1 = HUB_OD / 2 - HUB_WALL / 2, HUB_OD / 2 + HUB_ROOT + 2.0
+            hub_solid = hub_solid + (Plane(origin=tuple(c + fu * r0), z_dir=tuple(fu)).location
+                                     * (Pos(0, 0, (r1 - r0) / 2)
+                                        * (Cylinder(5.0, r1 - r0) - Cylinder(3.5, r1 - r0 + 2))))
+            for b in brg:
+                groups["bearing"].append(Pos(*c) * b)
+            planes = LAY[jname]["sheave"]
+            mid, sh = grooved(arms[arm_i], planes, bore=HUB_OD)
+            groups["sheave"].append(Pos(c[0], mid, c[2]) * (yaxis((0, 0, 0)) * sh))
+            report.setdefault("joints", {})[jname] = {
+                "arm": arms[arm_i], "bearing": HUB_BEARING,
+                "lateral_offset": mid, "gap": 0.0, "planes": planes,
+                "clevis_face": LAY[jname]["face"], "hub": (HUB_OD, HUB_Y)}
+            continue
         groups["clevis"].append(Pos(*c) * clevis(b_od, gap, arm_t=b_w))
         groups["clevis"].append(Pos(*c) * tongue(b_od, tongue_t))
         for s in (-1, +1):
@@ -813,6 +880,16 @@ def build(leg=DEFAULT_LEG, role=None):
     drive, routes = tendon_drive(q, leg, lay=LAY, role=role)
     for k, comp in drive.items():
         groups[k].extend(comp.solids())
+    # the hub's wall seats the knee and ankle ferrules: cut their seats
+    for f in drive["ferrule"].solids():
+        hub_solid = hub_solid - f
+    groups["clevis"].append(hub_solid)
+    # the trunk's stub, from inside the girdle's wall
+    import tendon_exit as TE
+    import tomcat_trunk as TT
+    xh = TE.HIP_X[role or ("fore" if leg is DEFAULT_FORELEG else "hind")]
+    y_in = TT._hw_at(xh) - TT.WALL - 3.0 - TRACK_Y
+    groups["stub"].append(Pos(pts[0][0], 0.0, pts[0][1]) * hip_stub(y_in))
     report["routes"] = {f"{t}{'+' if s > 0 else '-'}": r
                         for k, r in routes.items() if isinstance(k, tuple)
                         for (t, s) in [k]}
@@ -878,6 +955,7 @@ def _bearing_mass(comps, report):
     Kind is recorded at build time now; it is not inferred from the shape.
     """
     by_od = {round(od, 2): BEARING_G[j] for j, (b, od, w) in BEARING.items()}
+    by_od[round(HUB_BEARING[1], 2)] = BEARING_G["hub"]      # M123: the hollow hip
     total = sum(sd.volume for sd in comps["shaft"].solids()) * STEEL_RHO
     for sd in comps["bearing"].solids():
         bb = sd.bounding_box()
@@ -1277,7 +1355,7 @@ def render_png(comps, path):
              "sheave": "#5f7285", "bearing": "#3c4a5a", "shaft": "#6b7684", "cable": "#c17a3a",
              "pad": "#4a4a4a", "tendon": "#c17a3a", "motor": "#2f3b49",
              "anchor": "#9aa7b4", "spool": "#c8ccd2", "conduit": "#7b8591",
-             "ferrule": "#d4a642", "trunk_ferrule": "#d4a642"}
+             "ferrule": "#d4a642", "trunk_ferrule": "#d4a642", "stub": "#9aa0a8"}
     fig = plt.figure(figsize=(11, 7))
     ax = fig.add_subplot(111, projection="3d")
     for name, comp in comps.items():

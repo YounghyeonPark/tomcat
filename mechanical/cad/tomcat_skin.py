@@ -139,13 +139,18 @@ def _sections():
 #: aperture with a cuff -- 0.5 mm of flank clearance is nothing on a cover that
 #: deflects. The hole has to pass the femur at every hip angle, so its radius is
 #: the tube radius plus what the ROM sweeps plus a cuff.
-APERTURE_R = LD.TUBE["femur"][0] / 2 + 12.0
+#: ✅ M123 (ADR-0114): and at least the hollow hip's hub, which turns in the
+#: hole with the femur (r 27), plus a 2 mm cuff.
+APERTURE_R = max(LD.TUBE["femur"][0] / 2 + 12.0, LD.HUB_OD / 2 + 2.0)
 
 
 def hip_apertures():
     """One hole per leg, on the limb plane at each hip station."""
     out = []
-    for xh in (0.0, 195.0):
+    # ⚠️ M123: at the trunk's hip stations. This read (0, 195) -- the hips
+    # before M122 moved the hind ones -- so the hind apertures sat 30 mm
+    # forward of their legs through M122.
+    for xh in (TT.REAR_HIP_X, TT.FRONT_HIP_X):
         zc = TT._zc(xh)
         for sgn in (-1.0, +1.0):
             out.append(Pos(xh, sgn * LD.TRACK_Y, zc)
@@ -264,7 +269,7 @@ def report():
     # wrong question for a flexible cover: it deflects, so what matters is the
     # margin. Measured at both hip stations against the femur's inner face.
     inner = LD.TRACK_Y - LD.TUBE["femur"][0] / 2
-    for nm, xh in (("rear", 0.0), ("fore", 195.0)):
+    for nm, xh in (("rear", TT.REAR_HIP_X), ("fore", TT.FRONT_HIP_X)):
         print("  %s hip        femur inner face %.1f vs skin flank %.1f  -> "
               "%+.1f mm, so it leaves through an aperture"
               % (nm, inner, outline(xh)[0], inner - outline(xh)[0]))

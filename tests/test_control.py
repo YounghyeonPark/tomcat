@@ -147,7 +147,10 @@ def test_reach_is_PROJECTED_onto_the_support_line_perpendicular():
     from tomcat_kin import dynamics as dyn
     c = GaitController(params=trot_params())
     p = _plant()
-    assert 0.40 < p.projection < 0.50
+    # M123 (ADR-0114): 0.44 -> 0.365. The hips are 270 mm apart, so the
+    # diagonal runs more fore-aft and a fore-aft foothold buys less of the
+    # perpendicular. Same correction, smaller factor.
+    assert 0.33 < p.projection < 0.40
     # cross-check the projection against the actual support-line geometry
     cyc = dyn.cycle(c, 96)
     _, d = dyn.support_line(cyc, 24)
@@ -258,7 +261,9 @@ def test_spine_is_ROM_limited_not_RATE_limited():
     # mechanism, finding unchanged: `naive > full`, and by a real margin.
     # ⚠️ M111: **6.0 % -> 6.6 %**, the 36/34/22 sheaves putting 21 g a leg back
     # out at the feet -- the same direction M93's heavier leg moved it.
-    assert (naive - full) / naive == pytest.approx(0.066, abs=0.006)
+    # ⚠️ M123: **6.6 % -> 5.7 %** -- dilution again: the hollow hip's 26 g a
+    # leg sits AT the hip, where it adds to the body and not to the lever.
+    assert (naive - full) / naive == pytest.approx(0.057, abs=0.006)
 
 
 def test_envelope_in_physical_units_is_a_real_shove():
@@ -493,8 +498,12 @@ def test_spine_authority_is_ALSO_friction_limited():
     # shift rose 39.8 -> 40.8 mm. mu 0.88 is friction-limited now; NFR16's 0.70
     # still is, by a wide margin.
     assert ctl.StepPlant.from_gait(c, floor_mu=0.88).spine < rom_only.spine
-    assert ctl.StepPlant.from_gait(c, floor_mu=0.90).spine == pytest.approx(
-        rom_only.spine, rel=1e-9), "and ROM takes over by mu 0.90"
+    # ⚠️ M123 (ADR-0114) moved it a sixth time, ~0.895 -> ~0.925: the hips 270
+    # mm apart, the ROM-limited shift 40.8 -> 43.5 mm. NFR16's 0.70 still
+    # friction-limited, by more than before.
+    assert ctl.StepPlant.from_gait(c, floor_mu=0.90).spine < rom_only.spine
+    assert ctl.StepPlant.from_gait(c, floor_mu=0.94).spine == pytest.approx(
+        rom_only.spine, rel=1e-9), "and ROM takes over by mu 0.94"
     assert ctl.StepPlant.from_gait(c, floor_mu=0.4).spine < \
         ctl.StepPlant.from_gait(c, floor_mu=0.7).spine, "and it is monotone in mu"
 

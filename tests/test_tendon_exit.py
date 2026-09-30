@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
 # Copyright 2026 Younghyeon Park
-"""The leg drive, motor to anchor, in 3-D -- M122, ADR-0112."""
+"""The leg drive, motor to anchor, in 3-D -- M122, ADR-0112; the knee and
+ankle along the hip axis -- M123, ADR-0114."""
 from __future__ import annotations
 
 import math
@@ -49,8 +50,9 @@ def test_the_two_cables_of_a_spool_WIND_IT_OPPOSITE_WAYS(role):
         # the extensor leaves in -sf by construction; both leads exist
         m, e = TE.DRIVE[role][t][:2]
         pf, pe = (math.radians(a) for a in TE.DRIVE[role][t][3:5])
-        assert TE.spool_lead(role, m, e, pf, sf) is not None
-        assert TE.spool_lead(role, m, e, pe, -sf) is not None
+        to_y = None if t == "hip" else TE.LEAD_Y
+        assert TE.spool_lead(role, m, e, pf, sf, to_y=to_y) is not None
+        assert TE.spool_lead(role, m, e, pe, -sf, to_y=to_y) is not None
 
 
 def test_no_spool_sits_in_trunk_structure(role):
@@ -82,17 +84,22 @@ def test_no_spool_sits_in_trunk_structure(role):
         assert tuple(TE.DRIVE[role][t][:2]) not in bad
 
 
-def test_every_conduit_bends_gently_and_stays_outside_the_body(role, runs):
+def test_every_conduit_bends_gently_and_stays_where_it_may(role, runs):
+    """The hip pair's conduits outside the body; the knee and ankle pairs'
+    inside the stub's and the hub's bores (M123) -- through the hip range,
+    since they twist with it."""
     for (t, sd), r in runs.items():
         assert r["conduit_rmin"] >= TE.CONDUIT_RMIN - 1e-6, (t, sd, r["conduit_rmin"])
-        assert TE._outside_shell(r["conduit"][4:]), (t, sd)
-    # and through the hip range, the ones that ride the femur
+        if t == "hip":
+            assert TE._outside_shell(r["conduit"][4:]), (t, sd)
+        else:
+            assert TE.in_bore(role, r["conduit"]), (t, sd)
     for t in ("knee", "ankle"):
         m, e, sf, pf, pe, _ha = TE._spec(role, t)
         for sd, sense, phi in ((+1, sf, pf), (-1, -sf, pe)):
-            l3 = TE.spool_lead(role, m, e, phi, sense)
+            l3 = TE.spool_lead(role, m, e, phi, sense, to_y=TE.LEAD_Y)
             w, r = TE.conduit_worst(role, t, sd, l3, None)
-            assert r >= TE.CONDUIT_RMIN - 1e-6 and math.isfinite(w)
+            assert r >= TE.CONDUIT_RMIN - 1e-6 and math.isfinite(w), (t, sd, r)
 
 
 def test_the_hip_pair_ferrules_are_apart_and_outside_the_body(role, runs):
@@ -146,32 +153,42 @@ def test_friction_is_now_a_TENTH_to_a_FIFTH_not_a_half():
     assert was.max() > 1.5
 
 
-def test_KNOWN_DEFECT_the_femur_conduits_cut_the_hip_sheave(role, runs):
-    """⚠️ Asserts the defect (ADR-0112). Reaching a femur ferrule just past the
-    hip sheave's rim, every knee and ankle conduit crosses the sheave's plane
-    inside the rim. Between the trunk wall and the femur the hip's boss, the
-    femur's root and the sheave leave no path at all -- a hip packaging
-    problem. ADR-0113's hollow hip could not be fed from the trunk; the fix
-    moves the knee and ankle spools (`[owed]`). This fails when it lands."""
-    q0 = TE.stance(role)
-    cut = [k for k, r in runs.items()
-           if k[0] != "hip" and not TE._leg_clear(role, r["conduit"], q0, skip_end=4, parts=(0,))]
-    assert len(cut) == 4, cut
+def test_the_knee_and_ankle_leads_run_ALONG_THE_HIP_AXIS(role, runs):
+    """✅ M123 (ADR-0114): their spools face across the hip at hip height, so
+    both leads leave the top and bottom of the spool running straight out
+    along +y, `HIP_SPOOL_DX` either side of the hip and 8.75 mm above and
+    below it -- inside the stub's bore from the start."""
+    xh = TE.HIP_X[role]
+    for t in ("knee", "ankle"):
+        for sd in (+1, -1):
+            T, F1 = runs[(t, sd)]["lead"]
+            d = (F1 - T) / np.linalg.norm(F1 - T)
+            assert d[1] == pytest.approx(1.0, abs=1e-9)
+            assert abs(T[0] - xh) == pytest.approx(TT.HIP_SPOOL_DX, abs=1e-6)
+            assert abs(T[2]) == pytest.approx(TE.LT.SPOOL_R, abs=0.05)
 
 
-def test_KNOWN_DEFECT_and_they_run_through_the_FEMUR_and_the_HIP_BOSS(role):
-    """⚠️ Asserts the defect's larger half (ADR-0113 addendum). The test above
-    looks at the hip sheave at the stance; over the hip's range every knee and
-    ankle conduit also passes through the femur's root and the hip's boss --
-    to reach its plane (y 65-75) from the trunk (y < 45) it crosses the femur's
-    own plane (y 46-60) where the femur sweeps. Stacking the planes in another
-    order does not change it (ADR-0113). This fails when the fix lands."""
-    hits = {}
+def test_the_M122_DEFECT_is_gone_no_conduit_crosses_the_femur_or_the_hip_sheave(role):
+    """ADR-0112 shipped every knee and ankle conduit through the hip sheave,
+    the hip's boss and the femur's root; ADR-0113 measured that no routing AT
+    the hip could fix it. The hollow hip (ADR-0114) keeps them inside the hub
+    until their own planes: outside the hub's rim, over the whole hip range,
+    no conduit comes within `LEG_MARGIN` of the femur, and none is within the
+    hip sheave's slab."""
+    import tomcat_leg_detail as LD
+    xh = TE.HIP_X[role]
+    y_sheave = TE.plane_y("hip")
+    half = LD.FLANGE_W + LD.CABLE_D * 1.15 / 2
     for q in TE.hip_range(role):
         for k, r in TE.drive(role, q=q).items():
             if k[0] == "hip":
                 continue
-            for part, name in ((3, "boss"), (4, "femur")):
-                if not TE._leg_clear(role, r["conduit"], q, skip_end=4, parts=(part,)):
-                    hits.setdefault(k, set()).add(name)
-    assert len(hits) == 4 and all(v == {"boss", "femur"} for v in hits.values()), hits
+            C = r["conduit"]
+            rr = np.hypot(C[:, 0] - xh, C[:, 2])
+            out = C[rr > LD.HUB_OD / 2]
+            assert TE._leg_clear(role, out, q, skip_end=0, parts=(4,)), (k, q)
+            # the sheave is an annulus ON the hub: the conduits pass its plane
+            # inside the hub's bore, never beside it
+            near = ((np.abs(C[:, 1] - y_sheave) < half + TE.CONDUIT_OD / 2 + 0.5)
+                    & (rr > LD.HUB_OD / 2 - TE.CONDUIT_OD / 2))
+            assert not near.any(), (k, float(np.abs(C[:, 1] - y_sheave).min()))
