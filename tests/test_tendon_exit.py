@@ -157,3 +157,21 @@ def test_KNOWN_DEFECT_the_femur_conduits_cut_the_hip_sheave(role, runs):
     cut = [k for k, r in runs.items()
            if k[0] != "hip" and not TE._leg_clear(role, r["conduit"], q0, skip_end=4, parts=(0,))]
     assert len(cut) == 4, cut
+
+
+def test_KNOWN_DEFECT_and_they_run_through_the_FEMUR_and_the_HIP_BOSS(role):
+    """⚠️ Asserts the defect's larger half (ADR-0113 addendum). The test above
+    looks at the hip sheave at the stance; over the hip's range every knee and
+    ankle conduit also passes through the femur's root and the hip's boss --
+    to reach its plane (y 65-75) from the trunk (y < 45) it crosses the femur's
+    own plane (y 46-60) where the femur sweeps. Stacking the planes in another
+    order does not change it (ADR-0113). This fails when the fix lands."""
+    hits = {}
+    for q in TE.hip_range(role):
+        for k, r in TE.drive(role, q=q).items():
+            if k[0] == "hip":
+                continue
+            for part, name in ((3, "boss"), (4, "femur")):
+                if not TE._leg_clear(role, r["conduit"], q, skip_end=4, parts=(part,)):
+                    hits.setdefault(k, set()).add(name)
+    assert len(hits) == 4 and all(v == {"boss", "femur"} for v in hits.values()), hits

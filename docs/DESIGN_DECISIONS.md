@@ -9090,6 +9090,30 @@ The MuJoCo harness moved four numbers, and three of them moved the good way.
     (`test_tendon_exit` asserts it), the conduits' real shape, ports and
     brackets, and mu_c / pulley efficiency on a bench.
 
+- **Addendum — the plane order, and the defect is larger than recorded.**
+  One more in-place fix was measured: stack the hip's plane OUTERMOST, so a
+  knee or ankle conduit reaches its own plane before the hip sheave's. Each
+  conduit's clearance to the hip sheave, knee sheave, knee via, hip boss and
+  femur, over the hip's full range:
+
+  | order | hind: contacts | fore: contacts |
+  |---|---|---|
+  | hip-knee-ankle (shipped) | 12 — femur, boss, sheave on all 4 | 12 — the same |
+  | ankle-knee-hip | 10 — knee conduits through the femur | no conduit layout |
+  | knee-ankle-hip | 6 — knee conduits through the femur | no conduit layout |
+
+  - ⚠️ **The obstacle is the FEMUR, not the hip sheave.** From the trunk
+    (y < 45) to the cable planes (y 65–75) every conduit crosses the femur's
+    own plane (y 46–60) near the hip, where the femur sweeps. The shipped
+    conduits run up to 8 mm into the femur's root and through the hip boss;
+    ADR-0112 recorded only the sheave. `test_tendon_exit` now asserts both.
+  - That is what the hollow hip avoided (it crosses on the axis), and why its
+    leg side closed. Every fix AT the hip has now been measured. The next is
+    the drive's root: where and which way the knee and ankle spools sit.
+  - `plane_layout` now takes a joint's via cables from the anatomy (the distal
+    joints), not the stacking order — identical for the shipped order; any
+    other order put the hip's cable on a via at the ankle.
+
 ---
 
 ---

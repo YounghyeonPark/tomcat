@@ -359,13 +359,24 @@ BAND_GAP = 0.5                    # between two pulleys on one axis
 PLANE_ORDER = ("hip", "knee", "ankle")
 
 
-def plane_layout(gaps, widths, order=PLANE_ORDER):
+#: The joints proximal to distal: a joint's via carries the cables of the
+#: joints AFTER it here, whatever order their planes are stacked in.
+ANATOMY = ("hip", "knee", "ankle")
+
+
+def plane_layout(gaps, widths, order=None):
     """One groove plane per CABLE, monotone outward -- see `PLANE_ORDER`.
 
     Returns `{joint: {"sheave": [...], "via": [...], "face": f}}` in mm from the
     limb plane. The planes are GLOBAL: a run keeps one plane from its spool to
     its anchor, which is what makes the fleet zero.
+
+    ⚠️ Which cables a joint's via carries is ANATOMY (the distal joints'), not
+    the stacking order. The two were one list while the order was
+    hip-knee-ankle; stacked any other way, the via list read off the order
+    would put the hip's cable on a via at the ankle.
     """
+    order = PLANE_ORDER if order is None else order
     half = FLANGE_W + CABLE_D * 1.15 / 2
     face = {j: gaps[j] / 2 + widths[j] for j in gaps}
     cur = max(face.values()) + BAND_GAP
@@ -374,10 +385,10 @@ def plane_layout(gaps, widths, order=PLANE_ORDER):
         plane[nm] = cur + half
         cur += 2 * half + BAND_GAP
     out = {}
-    for j in order:
-        k = order.index(j)
+    for j in ANATOMY:
+        k = ANATOMY.index(j)
         out[j] = {"sheave": [plane[j]],
-                  "via": [plane[n] for n in order[k + 1:]],
+                  "via": [plane[n] for n in ANATOMY[k + 1:]],
                   "face": face[j], "plane": plane}
     return out
 
