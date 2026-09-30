@@ -9279,6 +9279,51 @@ The MuJoCo harness moved four numbers, and three of them moved the good way.
 
 ---
 
+## ADR-0116: the spooled spine cannot perform the righting — the controller outruns its spring, the manoeuvre outruns its cables, and the spring's rate is the lever
+- **Status:** Accepted as findings; the design change is open (the spine
+  spring's rate, M126).
+- **Context:** ADR-0115 found the spooled spine's righting and landing
+  numbers chaotic and named the cause ADR-0075 gave — the kp 300 spine loop
+  saturating its transmission — with a spine controller "that lives inside its
+  transmission" `[owed]`. M125 tried to build one.
+
+- **Findings (measured, `mjcf_tendon` plants, spine spooled):**
+  - **The spine loop is not inside its transmission.** The series spring,
+    seen at a spine joint, is `2 k r_arm²` ≈ 270 N·m/rad sagittal and 120
+    lateral at 150 kN/m; kp 300 is stiffer than both. Its raw cable demand in
+    the righting is ~35 kN — ~150× the 222.9 N rating — and slowing the
+    manoeuvre (period 0.3 → 0.8 s) does not reduce it: the demand is the
+    gain's, not the motion's.
+  - **The manoeuvre is outside the cables too.** 25° / 15° at 3.3 Hz on the
+    spine's ~0.08–0.1 kg·m² effective inertia needs ~640 / 570 N of cable
+    from inertia alone, 2.5–3× the rating.
+  - **The spring's own mode is where the manoeuvre is.** The spine spring
+    against that inertia rings at ~6 Hz (lateral); the manoeuvre runs at 3.3.
+  - **A rating-aware law** — feedforward `M q̈` + bias, feedback at half the
+    spring's joint stiffness with ζ 0.7, a 10–20 Hz command filter and
+    time-scaling instead of clipping — rights the RIGID-spine plant in
+    1.1–1.5 s at 1–3 % saturation, smooth in the start lean. On the SPOOLED
+    plant neither it, a collocated (rotor-side) law, nor a virtual damper
+    across the spring brought saturation under ~35 % or the time under ~3.7 s.
+  - ✅ **The spring's rate is the lever.** With the existing controller the
+    spooled righting takes 4.96 / fails / 2.71 s over start leans 0.95 / 1.00
+    / 1.05 at 150 kN/m, and **1.11 / 1.01 / 0.93 s at 500 kN/m** — the
+    rigid-spine plant's 1.09 / 0.99 / 0.91. At 1500 kN/m, 1.38 / 1.25 / 1.15.
+  - ⚠️ **But at 500 kN/m the landing peak runs away**: 140–660× body weight,
+    growing as the timestep shrinks (2.5e-4 → 1e-4 s) instead of converging,
+    where 150 kN/m reads 14–26× and the rigid spine 8–12× at both 1e-4 and
+    5e-5 s. A peak that grows with resolution is an unresolved impact spike,
+    not yet a force. Which it is decides whether 500 kN/m is available.
+  - ⚠️ The spine spring's rate is ADR-0105's choice, held at the top of
+    ADR-0026's 80–150 N·m/rad balance-compliance band. 500 kN/m is 450 / 200
+    N·m/rad, outside it.
+
+- **Decision:** none on the design yet. The next milestone studies the spine
+  spring at ~500 kN/m, starting with whether its landing spike is numerical.
+  The prototype laws are not shipped.
+
+---
+
 ---
 
 ### How to add an ADR
