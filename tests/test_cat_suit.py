@@ -60,22 +60,36 @@ def test_the_suit_is_OPEN_at_the_soles():
 
 def test_the_FACE_gives_the_skull_what_bone_does_not():
     """✅ M129 (ADR-0120): the traced skull is a dry skull -- its underside
-    runs flat at z 118-128 with no mandible -- so the face is foam: a crown
-    over the cranium, cheeks wider than it, whisker pads and a chin below it."""
+    runs flat at z 118-128 with no mandible -- so the face is foam, with a chin
+    below the bone.
+
+    ⚠️ And it is a WEDGE, not a ball. The first foam face was round all over
+    with small ears, and it read as a cartoon dinosaur. A cat is widest at
+    the cheekbones, narrows to a small muzzle and chin, and its ears -- more
+    than half the face's width tall -- make the head's outline."""
     import tomcat_head as HD
     st = HD._stations()
     skull = [r for r in st if r[0] >= HD.NOSE_X - 0.85 * HD.HEAD_L]
     under = min(r[2] for r in skull)
-    wide = max(r[3] for r in skull)
     face = {nm: (np.asarray(c), np.asarray(r)) for nm, c, r in CS.FACE}
     c, r = face["chin"]
-    assert c[2] - r[2] < under - 5.0, "a chin below the bone"
-    c, r = face["cheek"]
-    assert c[1] + r[1] > wide + 10.0, "cheeks wider than the braincase"
-    c, r = face["crown"]
-    assert c[2] + r[2] > HD.cranium_top() + CS.PAD, "the crown is padded"
-    base, tip, _rb, _rt = CS.EAR
-    assert tip[2] > c[2] + r[2] + 20.0, "the ears stand clear of the crown"
+    assert c[2] - r[2] < under, "a chin below the bone"
+    cheek = face["cheek"][0][1] + face["cheek"][1][1]
+    muzzle = face["muzzle"][1][1]
+    chin = face["chin"][1][1]
+    assert chin < muzzle < cheek, "widest at the cheeks, narrowing to the chin"
+    base, tip, rb, _rt = CS.EAR
+    assert tip[2] - base[2] > 0.55 * cheek * 2 * 0.9, "ears over half the face tall"
+    assert 2 * rb > 0.4 * cheek * 2, "on a broad base"
+    assert CS.EAR_TURN > 0.0, "and opening forward-and-out"
+
+
+def test_the_EYES_look_FORWARD():
+    p0, d0 = CS.EYE
+    d = np.asarray(d0) / np.linalg.norm(d0)
+    assert d[0] > 0.95, "a cat's eyes face forward, not out to the side"
+    dz, wy, hz = CS.EYE_R
+    assert wy > hz > dz, "an almond, wider than tall"
 
 
 def test_the_foam_is_a_SHELL_and_silicone_is_not_an_option():

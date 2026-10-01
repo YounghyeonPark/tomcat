@@ -175,24 +175,55 @@ SLEEVE = (
 #: trunk coordinates, mirrored for the paired ones. The traced skull is a dry
 #: skull: its underside runs flat at z 118-128 from the nose back, with no
 #: mandible, no cheek and no muzzle pad, so a cover drawn over it is a beak.
-#: These are the soft parts a cat's face is mostly made of, and the proportions
-#: are the ones that read as round: a domed crown, cheeks wider than the
-#: braincase, two whisker pads either side of the nose, a chin.  `[assumed]`
+#: ⚠️ M129's first face was a ball -- crown, cheeks and muzzle all round, ears
+#: small -- and it read as a cartoon dinosaur, not a cat. A cat's face is a
+#: WEDGE: the width is at the cheekbones under the eyes, and it narrows to a
+#: small muzzle and a small chin; the ears are what make the head's outline.
+#: Proportions from the owner's cat, read off a frontal photograph (not in the
+#: repo): ears 0.55 of the face's width tall on a base 0.45 of it, eyes 0.38
+#: of it apart, the muzzle 0.35 of it wide.  `[assumed]`
 FACE = (
-    ("crown", (392.0, 0.0, 152.0), (44.0, 46.0, 34.0)),
-    ("cheek", (410.0, 30.0, 132.0), (28.0, 24.0, 22.0)),
-    ("whisker pad", (437.0, 11.0, 131.0), (12.0, 12.0, 11.0)),
-    ("chin", (425.0, 0.0, 121.0), (22.0, 16.0, 12.0)),
-    ("muzzle", (428.0, 0.0, 138.0), (21.0, 18.0, 15.0)),
+    ("crown", (391.0, 0.0, 154.0), (40.0, 41.0, 28.0)),
+    ("cheek", (403.0, 24.0, 145.0), (21.0, 18.0, 15.0)),
+    ("whisker pad", (438.0, 8.0, 131.0), (9.5, 9.0, 8.5)),
+    ("chin", (428.0, 0.0, 122.0), (15.0, 11.0, 9.0)),
+    ("muzzle", (432.0, 0.0, 135.0), (16.0, 15.0, 12.0)),
 )
 #: Blend radius of the face, mm.
-K_FACE = 12.0
-#: ✅ M129: the ears are foam too, `(base, tip, base radius, tip radius)` mm,
-#: thin fore-and-aft by `EAR_THIN`. `tomcat_head`'s ears are 3 mm flaps on
-#: the dry skull and the crown's foam buried them to spikes; a soft ear is a
-#: broad, round-tipped triangle.  `[assumed]`
-EAR = ((386.0, 27.0, 178.0), (380.0, 42.0, 216.0), 17.0, 4.0)
-EAR_THIN = 2.5
+K_FACE = 9.0
+#: The ears, `(base, tip, base radius, tip radius)` mm, thin fore-and-aft by
+#: `EAR_THIN`, and CUPPED: a cat's ear is a scoop open to the front, not a
+#: plate. 52 mm tall on a 42 mm base, leaning out 21 deg -- the owner's
+#: cat's, scaled to this face.  `[assumed]`
+EAR = ((385.0, 25.0, 176.0), (379.0, 45.0, 229.0), 21.0, 4.5)
+EAR_THIN = 3.0
+#: How deep the front of the ear is scooped, mm.
+EAR_CUP = 2.6
+#: How far each ear's opening is turned outward from straight ahead, deg.
+EAR_TURN = 30.0
+
+
+def _ear(P, sgn):
+    """One ear, as a flattened cone with its front scooped out."""
+    base, tip, rb, rt = EAR
+    m = np.array([1.0, sgn, 1.0])
+    b, t = np.asarray(base) * m, np.asarray(tip) * m
+
+    # the ear is thin along the way its opening faces
+    ph = math.radians(EAR_TURN)
+    n = np.array([math.cos(ph), sgn * math.sin(ph), 0.0])
+
+    def squash(X, c0, thin):
+        return X + (thin - 1.0) * (((X - c0) @ n)[..., None]) * n
+
+    def flat(c0, r0, r1, thin):
+        tq = squash(t + (c0 - b), c0, thin)
+        return _round_cone(squash(P, c0, thin), c0, tq, r0, r1) / thin
+
+    outer = flat(b, rb, rt, EAR_THIN)
+    cup = flat(b + (EAR_CUP + 1.0) * n + np.array([0.0, 0.0, 6.0]), rb - 4.0,
+               max(rt - 2.5, 1.0), EAR_THIN)
+    return np.maximum(outer, -cup)
 
 
 def face_field(P):
@@ -202,16 +233,8 @@ def face_field(P):
         for sgn in ((-1.0, 1.0) if c[1] else (1.0,)):
             d = _ellipsoid(P, c * np.array([1.0, sgn, 1.0]), np.asarray(r, float))
             f = d if f is None else _smin(f, d, K_FACE)
-    base, tip, rb, rt = EAR
     for sgn in (-1.0, 1.0):
-        m = np.array([1.0, sgn, 1.0])
-        b, t = np.asarray(base) * m, np.asarray(tip) * m
-        Q = P.copy()
-        Q[..., 0] = b[0] + (P[..., 0] - b[0]) * EAR_THIN
-        tq = t.copy()
-        tq[0] = b[0] + (t[0] - b[0]) * EAR_THIN
-        d = _round_cone(Q, b, tq, rb, rt) / EAR_THIN
-        f = _smin(f, d, 4.0)
+        f = _smin(f, _ear(P, sgn), 4.0)
     return f
 
 
@@ -257,8 +280,13 @@ def cat_field(P):
     f = np.maximum(f, np.maximum(xr - x, x - xf))
     # the neck, from the chest into the back of the head: a ruff, not a stalk
     nb = NECK_BASE + np.array([-10.0, 0.0, -2.0])
-    ne = np.array([384.0, 0.0, 142.0])
-    f = _smin(f, _round_cone(P, nb, ne, 46.0, 40.0), K_BODY)
+    # ⚠️ it ends BEHIND and below the face: carried into the head at 42 mm it
+    # stood out of the jaw on both sides, wider than the cheeks
+    ne = np.array([356.0, 0.0, 122.0])
+    f = _smin(f, _round_cone(P, nb, ne, 50.0, 25.0), K_BODY)
+    # the ruff at the throat, which a cat's neck disappears into
+    f = _smin(f, _ellipsoid(P, np.array([292.0, 0.0, 62.0]), np.array([42.0, 40.0, 48.0])),
+              K_BODY)
     # the face (M129)
     f = _smin(f, face_field(P), K_BODY)
     # the tail sleeve
@@ -653,12 +681,15 @@ def report(cache=None, pd=None, points=None, st=None):
 
 
 # --------------------------------------------------------------------- face
-#: The face set on the foam, `(start inside, direction out, radius)` mm. Each
-#: feature is put where its ray leaves the suit, sunk into it a little.
-#: Eyes a touch bigger than `tomcat_head`'s (8.1 mm) and set low and forward:
-#: the proportion that reads as soft.  `[assumed]`
-EYE = ((406.0, 17.0, 148.0), (0.93, 0.30, 0.17), 11.0)
-NOSE = ((428.0, 0.0, 140.0), (0.93, 0.0, 0.36), 5.5)
+#: The face set on the foam: `(start inside, direction out)` mm, each feature
+#: placed where its ray leaves the suit. The eyes are ALMONDS set into the
+#: face looking forward -- an amber iris, a slit pupil, a dark rim -- and the
+#: nose a small pink wedge with a dark edge: the owner's cat's.  `[assumed]`
+EYE = ((404.0, 15.5, 150.0), (0.99, 0.08, 0.10))
+#: Eye half-sizes, mm: (depth, width, height).
+EYE_R = (4.5, 9.5, 7.2)
+NOSE = ((430.0, 0.0, 139.0), (0.92, 0.0, 0.40))
+NOSE_R = (3.5, 5.5, 3.8)
 
 
 def _surface(F, lo, p0, d, reach=90.0):
@@ -672,54 +703,186 @@ def _surface(F, lo, p0, d, reach=90.0):
     return pts[k], d
 
 
+def _normal(F, lo, p):
+    """Outward normal of the suit at p: the field's gradient."""
+    from scipy import ndimage
+    h = VOXEL
+    g = []
+    for k in range(3):
+        e = np.zeros(3)
+        e[k] = h
+        a = ndimage.map_coordinates(F, (((np.array([p + e, p - e]) - lo) / VOXEL).T), order=1)
+        g.append(a[0] - a[1])
+    g = np.array(g)
+    return g / np.linalg.norm(g)
+
+
+#: How far an eye stands proud of the fur, mm.
+EYE_PROUD = 2.2
+
+
 def face_features(F, lo):
-    """`[(kind, centre, radius)]`: two eyes with their catch-lights, a nose."""
+    """`[(kind, centre, half-sizes, axis, tilt deg)]`: per eye a dark rim, the
+    iris, the slit pupil and a catch-light; then the nose and its edge. Each
+    is an ellipsoid whose first half-size lies along `axis`."""
     out = []
-    p0, d0, r = EYE
+    p0, d0 = EYE
+    dz, wy, hz = EYE_R
     for sgn in (-1.0, 1.0):
         m = np.array([1.0, sgn, 1.0])
-        s, d = _surface(F, lo, np.asarray(p0) * m, np.asarray(d0) * m)
-        c = s - 0.45 * r * d
-        out.append(("eye", c, r))
-        hl = np.array([0.55, 0.30 * sgn, 0.78])
-        out.append(("glint", c + 0.80 * r * hl / np.linalg.norm(hl), 0.24 * r))
-    s, d = _surface(F, lo, *NOSE[:2])
-    out.append(("nose", s - 0.35 * NOSE[2] * d, NOSE[2]))
+        s, _ray = _surface(F, lo, np.asarray(p0) * m, np.asarray(d0) * m)
+        # ⚠️ along the SURFACE's normal, not the ray: an almond 19 mm wide
+        # set along a ray that meets a sloping face is buried but for a sliver
+        d = _normal(F, lo, s)
+        c = s - (dz - EYE_PROUD) * d
+        tilt = -12.0 * sgn                      # the almond's outer corner up
+        out.append(("rim", c - 0.6 * d, (dz, wy + 1.4, hz + 1.2), d, tilt))
+        out.append(("iris", c, (dz, wy, hz), d, tilt))
+        out.append(("pupil", c + 1.5 * d, (dz * 0.8, 1.7, hz * 0.85), d, 0.0))
+        g = c + 0.55 * dz * d + np.array([0.0, -2.8 * sgn, 2.6])
+        out.append(("glint", g, (1.3, 1.6, 1.6), d, 0.0))
+    s, _ray = _surface(F, lo, *NOSE)
+    d = _normal(F, lo, s)
+    out.append(("nose rim", s - 0.6 * NOSE_R[0] * d, tuple(r + 0.8 for r in NOSE_R), d, 0.0))
+    out.append(("nose", s - 0.35 * NOSE_R[0] * d, NOSE_R, d, 0.0))
     return out
 
 
+# --------------------------------------------------------------------- coat
+#: The owner's cat's coat: a brown-grey mackerel tabby with white -- a white
+#: blaze up the nose, a white muzzle, chin, throat, chest and paws -- warm
+#: orange round the eyes, pink inside the ears.  `[assumed]`
+COAT = {
+    "base": (0.50, 0.45, 0.40), "stripe": (0.22, 0.19, 0.17),
+    "white": (0.95, 0.94, 0.92), "orange": (0.78, 0.52, 0.32),
+    "pink": (0.93, 0.71, 0.68),
+}
+
+
+def _noise(P, scale):
+    """A cheap smooth noise: a few incommensurate sines."""
+    x, y, z = P[:, 0] / scale, P[:, 1] / scale, P[:, 2] / scale
+    return (np.sin(1.7 * x + 2.3 * y + 0.5) * np.sin(1.3 * z - 0.9 * x + 1.1)
+            + 0.5 * np.sin(3.1 * y + 2.9 * z + 0.3 * x))
+
+
+def _mix(a, b, w):
+    return a * (1 - w[:, None]) + np.asarray(b) * w[:, None]
+
+
+def coat(P, N):
+    """Per-vertex colour, 0..1, of the suit at points P with outward normals N."""
+    x, y, z = P[:, 0], P[:, 1], P[:, 2]
+    C = np.tile(np.asarray(COAT["base"], float), (len(P), 1))
+    C *= (1.0 + 0.05 * _noise(P, 20.0))[:, None]        # mottling
+    head = x > 330.0
+    # mackerel stripes: across the body (dorsal to ventral), ringing the
+    # legs and the tail, and the forehead's "M" lines on the crown
+    leg = z < -40.0
+    tail = x < TT.BODIES[0][0] - 10.0
+    phase = np.where(tail, x / 17.0, np.where(leg, z / 16.0, x / 26.0))
+    phase = phase + 0.15 * _noise(P, 30.0)
+    crown = head & (z > 152.0) & (x < 412.0)
+    phase = np.where(crown, y / 6.0 + 0.2 * _noise(P, 8.0), phase)
+    band = np.clip((np.sin(2 * np.pi * phase) - 0.45) * 2.6, 0.0, 1.0)
+    band *= np.clip((z + 70.0) / 60.0, 0.0, 1.0) * np.where(head & ~crown, 0.0, 1.0)
+    C = _mix(C, COAT["stripe"], 0.80 * band)
+    # a tabby is darker along the spine
+    C = _mix(C, COAT["stripe"], 0.35 * np.clip((z - 70.0) / 40.0, 0.0, 1.0) * (~head))
+    # the white: belly and chest underneath, throat and chin, the muzzle and
+    # a blaze up the nose between the eyes, and the paws
+    under = np.clip((-30.0 - z) / 16.0, 0.0, 1.0) * np.clip((x - 120.0) / 40.0, 0.0, 1.0) \
+        * np.clip((32.0 - np.abs(y)) / 8.0, 0.0, 1.0) * np.clip((z + 95.0) / 10.0, 0.0, 1.0)
+    throat = np.clip((x - 255.0) / 25.0, 0.0, 1.0) * np.clip((118.0 - z) / 16.0, 0.0, 1.0) \
+        * np.clip((30.0 - np.abs(y)) / 10.0, 0.0, 1.0)
+    muzzle = np.clip((x - 418.0) / 8.0, 0.0, 1.0) * np.clip((140.0 - z) / 6.0, 0.0, 1.0)
+    chin = np.clip((x - 400.0) / 10.0, 0.0, 1.0) * np.clip((128.0 - z) / 6.0, 0.0, 1.0)
+    blaze_w = np.clip(10.0 - 0.32 * (z - 138.0), 2.0, 10.0)      # narrowing upward
+    blaze = np.clip((x - 404.0) / 6.0, 0.0, 1.0) * np.clip((blaze_w - np.abs(y)) / 3.0, 0.0, 1.0) \
+        * np.clip((166.0 - z) / 5.0, 0.0, 1.0) * np.clip((N[:, 0] + 0.2) * 2.0, 0.0, 1.0)
+    paws = np.clip((-155.0 - z) / 6.0, 0.0, 1.0)
+    white = np.clip(np.maximum.reduce([under, throat, muzzle, chin, blaze, paws]), 0.0, 1.0)
+    C = _mix(C, COAT["white"], white)
+    # orange round the eyes and over the cheekbones
+    for sgn in (-1.0, 1.0):
+        d2 = ((x - 410.0) / 14.0) ** 2 + ((y - 24.0 * sgn) / 14.0) ** 2 + ((z - 147.0) / 12.0) ** 2
+        C = _mix(C, COAT["orange"], 0.75 * np.clip(1.4 - d2, 0.0, 1.0) * (1 - white))
+    # the ears: pink in the scoop that faces forward
+    base, tip, _rb, _rt = EAR
+    in_ear = (z > base[2] + 4.0) & (np.abs(np.abs(y) - 0.5 * (base[1] + tip[1])) < 18.0)
+    ph = math.radians(EAR_TURN)
+    facing = N[:, 0] * math.cos(ph) + np.abs(N[:, 1]) * math.sin(ph) * np.sign(y * N[:, 1])
+    front = np.clip((facing - 0.25) * 2.5, 0.0, 1.0)
+    C = _mix(C, COAT["pink"], (in_ear * front * np.clip((z - base[2] - 4.0) / 8.0, 0, 1)))
+    return np.clip(C, 0.0, 1.0)
+
+
 # ------------------------------------------------------------------- render
-FUR = (0.80, 0.56, 0.38)
-COLOUR = {"eye": (0.08, 0.07, 0.07), "glint": (1.0, 1.0, 1.0), "nose": (0.86, 0.52, 0.55)}
+FEATURE = {"rim": (0.10, 0.08, 0.07), "iris": (0.86, 0.60, 0.22),
+           "pupil": (0.04, 0.03, 0.03), "glint": (1.0, 1.0, 1.0),
+           "nose rim": (0.25, 0.16, 0.15), "nose": (0.90, 0.58, 0.56)}
 
 #: `(name, elevation, azimuth, focus, distance)`: the whole cat twice, and the
-#: face close.
+#: face from the front, as the photograph sees it.
 VIEWS = (("3/4", 14, -58, None, 1300.0), ("side", 2, -90, None, 1300.0),
-         ("face", 8, -22, (410.0, 0.0, 160.0), 330.0))
+         ("face", 9, -16, (408.0, 0.0, 165.0), 320.0))
+
+
+def _ellipsoid_actor(c, r, axis, tilt, colour, specular):
+    import vtk
+    import leg_drive_3d as LD3
+    sp = vtk.vtkSphereSource()
+    sp.SetRadius(1.0)                        # ⚠️ the default is 0.5
+    sp.SetThetaResolution(48)
+    sp.SetPhiResolution(48)
+    tf = vtk.vtkTransform()
+    tf.PostMultiply()
+    tf.Scale(*r)
+    tf.RotateX(tilt)                         # the almond's slant, in its own frame
+    a = np.asarray(axis, float) / np.linalg.norm(axis)
+    ang = math.degrees(math.acos(np.clip(a[0], -1.0, 1.0)))
+    ax = np.cross([1.0, 0.0, 0.0], a)
+    if np.linalg.norm(ax) > 1e-9:
+        tf.RotateWXYZ(ang, *ax)
+    tf.Translate(*c)
+    tp = vtk.vtkTransformPolyDataFilter()
+    tp.SetInputConnection(sp.GetOutputPort())
+    tp.SetTransform(tf)
+    tp.Update()
+    return LD3._actor(tp.GetOutput(), colour, specular=specular)
 
 
 def render(pd, path, features=(), views=VIEWS, size=(1000, 760)):
-    """The suited cat with its ears and face; one tile per view."""
+    """The cat in its coat, with its face; one tile per view."""
     import vtk
-    import leg_drive_3d as LD3
     from PIL import Image
     from vtk.util import numpy_support as ns
+    P, _T = mesh_arrays(pd)
+    N = ns.vtk_to_numpy(pd.GetPointData().GetNormals()).astype(float)
+    col = (255 * coat(P, N)).astype(np.uint8)
+    arr = ns.numpy_to_vtk(col, deep=True, array_type=vtk.VTK_UNSIGNED_CHAR)
+    arr.SetName("coat")
+    pd.GetPointData().SetScalars(arr)
     tiles = []
     for name, elev, azim, focus, dist in views:
         ren = vtk.vtkRenderer()
         ren.SetBackground(1.0, 1.0, 1.0)
         ren.SetBackground2(0.90, 0.92, 0.95)
         ren.GradientBackgroundOn()
-        ren.AddActor(LD3._actor(pd, FUR, specular=0.06))
-        for kind, c, r in features:
-            sp = vtk.vtkSphereSource()
-            sp.SetCenter(*c)
-            sp.SetRadius(r)
-            sp.SetThetaResolution(48)
-            sp.SetPhiResolution(48)
-            sp.Update()
-            ren.AddActor(LD3._actor(sp.GetOutput(), COLOUR[kind],
-                                    specular=0.9 if kind == "eye" else 0.2))
+        mp = vtk.vtkPolyDataMapper()
+        mp.SetInputData(pd)
+        mp.SetColorModeToDirectScalars()
+        mp.SetScalarModeToUsePointData()
+        act = vtk.vtkActor()
+        act.SetMapper(mp)
+        pr = act.GetProperty()
+        pr.SetSpecular(0.04)
+        pr.SetAmbient(0.22)
+        pr.SetDiffuse(0.85)
+        ren.AddActor(act)
+        for kind, c, r, axis, tilt in features:
+            ren.AddActor(_ellipsoid_actor(c, r, axis, tilt, FEATURE[kind],
+                                          0.9 if kind in ("iris", "pupil") else 0.15))
         cam = ren.GetActiveCamera()
         if focus is None:
             b = np.array(pd.GetBounds())
@@ -745,8 +908,8 @@ def render(pd, path, features=(), views=VIEWS, size=(1000, 760)):
         w2i.Update()
         im = w2i.GetOutput()
         W, H, _ = im.GetDimensions()
-        arr = ns.vtk_to_numpy(im.GetPointData().GetScalars()).reshape(H, W, -1)[::-1]
-        tiles.append(Image.fromarray(arr[:, :, :3].copy()).resize(size, Image.LANCZOS))
+        a = ns.vtk_to_numpy(im.GetPointData().GetScalars()).reshape(H, W, -1)[::-1]
+        tiles.append(Image.fromarray(a[:, :, :3].copy()).resize(size, Image.LANCZOS))
         win.Finalize()
     out = Image.new("RGB", (sum(t.width for t in tiles), size[1]), "white")
     x = 0

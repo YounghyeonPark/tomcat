@@ -9599,6 +9599,39 @@ The MuJoCo harness moved four numbers, and three of them moved the good way.
     needs forced air. The girdle panels need open-cell foam with vents, or no
     foam over them at all.  `[owed]`
 
+- **⚠️ REVISED the same day: the round face read as a cartoon dinosaur, not a
+  cat.** The owner compared it to Dooly and supplied a frontal photograph of
+  their own cat (a brown tabby with white) as the reference. The photograph is
+  not in the repo. Read off it and applied:
+  - **The face is a wedge, not a ball.** It is widest at the cheekbones, which
+    move up to the eye line (they had sat low and made jowls), and narrows to
+    a small muzzle and chin. The crown is broad between the ears. The neck
+    now ends behind and below the face: carried into the head at 42 mm, it
+    had stood out of the jaw wider than the cheeks.
+  - **The ears make the outline**: 52 mm tall on a 42 mm base (0.55 and 0.45
+    of the face's width, as in the photograph), leaning out 21°, turned 30°
+    to open forward-and-out, and cupped 2.6 mm at the front.
+  - **The eyes are forward-facing almonds**: amber irises 19 × 14 mm with
+    vertical slit pupils, a dark rim and a catch-light. Each sits on the
+    surface normal and stands 2.2 mm proud. Two defects had made them dots:
+    they were set along the placing ray, which buried them in the sloping
+    face, and VTK's sphere source defaults to radius 0.5, which halved
+    every feature.
+  - **The coat**: a brown-grey mackerel tabby (stripes across the body,
+    ringing the legs and the tail, the "M" lines on the forehead, darker along
+    the spine), with white on the belly, chest, throat, muzzle and chin, a
+    white blaze up the nose that narrows between the eyes, white paws, orange
+    round the eyes, and pink inside the ears. The coat is a per-vertex colour
+    map of the knit (`cat_suit.coat`); a print or a dyed knit would carry it.
+  - After the reshaping the foam shell is 3262 cm³ (920 cm³ of it in the head
+    and neck): **98 g of PU foam (28 g in the head)**, 8 % less than the round
+    face. The inertia shares in the table above are that face's, and now
+    upper bounds. Clearance is unchanged at 8.51 mm.
+  - Still not the photograph: the head is carried high on a long neck. That
+    is the head's mass-model posture (`tomcat_head`, from the wildcat trace),
+    which the suit has to cover, not choose. The legs are as thick as the
+    sheaves inside them. And the fur has no whiskers.
+
 ---
 
 ---
