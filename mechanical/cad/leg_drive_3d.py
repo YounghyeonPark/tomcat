@@ -19,6 +19,8 @@ along x, and their spools can be seen; each spool carries a marker that turns
 with it. The camera orbits slowly so the depth reads.
 
     python mechanical/cad/leg_drive_3d.py          # -> leg_drive_3d.gif
+    python mechanical/cad/leg_drive_3d.py --hq     # -> leg_drive_3d.webp, 1600x900
+                                                   #    at 30 fps, 2x supersampled
 
 Rendering is VTK, off-screen.
 """
@@ -72,13 +74,18 @@ def motion(n_each: int = 30):
 BY_BONE = ("tube", "insert", "clevis")
 
 
-def _polydata(solids, tol=0.25):
+#: Mesh tolerance (mm) and cable tube sides; `main(hq=True)` refines both.
+TOL = 0.25
+SIDES = 10
+
+
+def _polydata(solids, tol=None):
     import vtk
     pts = vtk.vtkPoints()
     cells = vtk.vtkCellArray()
     base = 0
     for sd in solids:
-        verts, tris = sd.tessellate(tol)
+        verts, tris = sd.tessellate(TOL if tol is None else tol)
         for v in verts:
             pts.InsertNextPoint(v.X, v.Y, v.Z)
         for t in tris:
@@ -177,13 +184,23 @@ def _tube(points, radius):
     tf = vtk.vtkTubeFilter()
     tf.SetInputData(pd)
     tf.SetRadius(radius)
-    tf.SetNumberOfSides(10)
+    tf.SetNumberOfSides(SIDES)
     tf.CappingOn()
     tf.Update()
     return tf.GetOutput()
 
 
-def main(path=None, size=(1200, 820), fps=16, n_each=30):
+def main(path=None, size=(1200, 820), fps=16, n_each=30, hq=False):
+    """`hq`: 1600x900 at 30 fps, each frame rendered at 2x and downsampled
+    (anti-aliasing a multisample buffer alone does not give thin cables),
+    meshes 3x finer, ambient occlusion, and a full-colour animated WebP rather
+    than a 256-colour GIF."""
+    global TOL, SIDES
+    ss = 1
+    if hq:
+        size, fps, n_each, ss = (1600, 900), 30, 60, 2
+        TOL, SIDES = 0.08, 24
+        path = path or os.path.join(HERE, "leg_drive_3d.webp")
     import vtk
     from PIL import Image
     from vtk.util.numpy_support import vtk_to_numpy
@@ -205,13 +222,15 @@ def main(path=None, size=(1200, 820), fps=16, n_each=30):
     ren.GradientBackgroundOn()
     win = vtk.vtkRenderWindow()
     win.SetOffScreenRendering(1)
-    win.SetSize(*size)
+    win.SetSize(size[0] * ss, size[1] * ss)
     win.SetMultiSamples(8)
     win.AddRenderer(ren)
     ren.SetUseDepthPeeling(1)
     ren.SetMaximumNumberOfPeels(8)
+    if hq:
+        ren.SetUseFXAA(True)
 
-    ga = _actor(_polydata(girdle.solids(), 0.6), (0.62, 0.70, 0.80), opacity=0.18,
+    ga = _actor(_polydata(girdle.solids(), 0.3 if hq else 0.6), (0.62, 0.70, 0.80), opacity=0.18,
                 specular=0.1)
     ren.AddActor(ga)
     for g, sols in fixed.items():
@@ -268,16 +287,16 @@ def main(path=None, size=(1200, 820), fps=16, n_each=30):
         marker[t] = a
 
     text = vtk.vtkTextActor()
-    text.GetTextProperty().SetFontSize(22)
+    text.GetTextProperty().SetFontSize(22 * ss)
     text.GetTextProperty().SetColor(0.15, 0.18, 0.22)
-    text.SetPosition(20, size[1] - 40)
+    text.SetPosition(20 * ss, (size[1] - 40) * ss)
     ren.AddViewProp(text)
     legend = vtk.vtkTextActor()
     legend.SetInput("red / blue / green = hip / knee / ankle cables     THICK = shortening (pulling)\n"
                     "grey = Bowden conduits, gold = their ferrules; motors inside the translucent girdle")
-    legend.GetTextProperty().SetFontSize(16)
+    legend.GetTextProperty().SetFontSize(16 * ss)
     legend.GetTextProperty().SetColor(0.25, 0.28, 0.32)
-    legend.SetPosition(20, 16)
+    legend.SetPosition(20 * ss, 16 * ss)
     ren.AddViewProp(legend)
 
     kit = vtk.vtkLightKit()
@@ -357,16 +376,23 @@ def main(path=None, size=(1200, 820), fps=16, n_each=30):
         img = grab.GetOutput()
         w, h, _ = img.GetDimensions()
         arr = vtk_to_numpy(img.GetPointData().GetScalars()).reshape(h, w, -1)[::-1]
-        frames.append(Image.fromarray(arr[:, :, :3].copy()))
+        im = Image.fromarray(arr[:, :, :3].copy())
+        if ss > 1:
+            im = im.resize(size, Image.LANCZOS)
+        frames.append(im)
         if i % 20 == 0:
             print("frame %d / %d" % (i, n), flush=True)
-    pal = [f.convert("P", palette=Image.ADAPTIVE, colors=255) for f in frames]
-    pal[0].save(path, save_all=True, append_images=pal[1:], duration=int(1000 / fps),
-                loop=0, optimize=True)
+    if path.endswith(".webp"):
+        frames[0].save(path, "WEBP", save_all=True, append_images=frames[1:],
+                       duration=int(round(1000 / fps)), loop=0, quality=88, method=6)
+    else:
+        pal = [f.convert("P", palette=Image.ADAPTIVE, colors=255) for f in frames]
+        pal[0].save(path, save_all=True, append_images=pal[1:], duration=int(1000 / fps),
+                    loop=0, optimize=True)
     frames[len(frames) // 3].save(os.path.splitext(path)[0] + "_still.png")
     print("wrote %s (%d frames)" % (path, len(frames)))
     return path
 
 
 if __name__ == "__main__":
-    main()
+    main(hq="--hq" in sys.argv)

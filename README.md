@@ -10,7 +10,7 @@ not driven by a motor at each joint.
 
 ## How a leg is driven
 
-![a hind leg's drive, in 3-D](docs/figures/leg_drive.gif)
+![a hind leg's drive, in 3-D](docs/figures/leg_drive.webp)
 
 Each joint is an antagonistic cable pair wound on one spool, so one motor
 drives one joint both ways (red / blue / green = hip / knee / ankle; thick =
@@ -72,7 +72,7 @@ pip install numpy pytest mujoco gymnasium build123d vtk matplotlib pillow
 pytest tests --ignore=tests/test_mjcf_tendon.py   # conftest.py puts kinematics/src on the path
 cd thermal && cargo test
 python mechanical/cad/tomcat_assembly.py --render   # the whole-robot picture
-python mechanical/cad/leg_drive_3d.py               # the drive animation
+python mechanical/cad/leg_drive_3d.py --hq          # the drive animation (1600x900, 30 fps)
 ```
 
 > ⚠️ `tests/test_mjcf_tendon.py` needs ~19 GB as one process — run it in

@@ -35,3 +35,4 @@ Felis_silvestris_restoration_&_skeleton.jpg
 
 # MuJoCo writes this next to the working directory on every run.
 MUJOCO_LOG.TXT
+mechanical/cad/leg_drive_3d.webp
