@@ -246,9 +246,17 @@ def structure_solids():
 
 
 def structure_points(cache=None, tol=0.8, spacing=0.6):
-    """Surface samples of `structure_solids`, dense enough for `VOXEL`."""
+    """Surface samples of `structure_solids`, dense enough for `VOXEL`.
+
+    ⚠️ The cache is stale the moment any geometry moves, and a stale one
+    would fit the suit to a skeleton that no longer exists -- silently. It is
+    used only while it is newer than every CAD script and `params.py`."""
     if cache and os.path.exists(cache):
-        return np.load(cache)["p"]
+        src = [os.path.join(HERE, f) for f in os.listdir(HERE) if f.endswith(".py")]
+        src.append(os.path.join(os.path.dirname(HERE), "..", "kinematics", "src",
+                                "tomcat_kin", "params.py"))
+        if os.path.getmtime(cache) > max(os.path.getmtime(f) for f in src):
+            return np.load(cache)["p"]
     rng = np.random.default_rng(0)
     out = []
     for g in structure_solids():
