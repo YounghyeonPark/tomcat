@@ -9423,7 +9423,7 @@ The MuJoCo harness moved four numbers, and three of them moved the good way.
   1.690). The legs, re-measured: hind 216.1 g, fore 217.9 g; body 4.57916 →
   **4.57852 kg**. Trot copper 4.994 W a motor; runtime 23.81 min trotting.
   The figures (`docs/figures/`, `leg_drive_3d`) were drawn before M127 and show
-  the ankle extensor on the old side of the via.
+  the ankle extensor on the old side of the via; re-rendered after M127.
   - The plant without the phantom coupling, each against the old rows on the
     same code:
 

@@ -6,11 +6,11 @@ not driven by a motor at each joint.
 
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
 
-![the whole robot](docs/figures/whole_robot.png)
+![the whole robot](docs/figures/whole_robot_m127.png)
 
 ## How a leg is driven
 
-![a hind leg's drive, in 3-D](docs/figures/leg_drive.webp)
+![a hind leg's drive, in 3-D](docs/figures/leg_drive_m127.webp)
 
 Each joint is an antagonistic cable pair wound on one spool, so one motor
 drives one joint both ways (red / blue / green = hip / knee / ankle; thick =
@@ -31,7 +31,7 @@ the cable pulling).
 
 | One leg, as parts | The trunk: 19 motors in four rigid bodies |
 |---|---|
-| ![leg detail](docs/figures/leg_parts.png) | ![trunk](docs/figures/trunk.png) |
+| ![leg detail](docs/figures/leg_parts_m127.png) | ![trunk](docs/figures/trunk.png) |
 
 ## Key numbers
 
