@@ -6,6 +6,11 @@ not driven by a motor at each joint.
 
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
 
+![the cat in its skin](docs/figures/cat_suit_m128.png)
+
+*In its skin: one knit suit over the whole skeleton ([ADR-0119](docs/DESIGN_DECISIONS.md)).
+Under it, the robot as designed:*
+
 ![the whole robot](docs/figures/whole_robot_m127.png)
 
 ## How a leg is driven
@@ -63,7 +68,7 @@ and a mock-up of the cable bundle that twists inside the hollow hip.
 | `kinematics/` | `tomcat_kin`: kinematics, tendon maps, mass, gait, balance, MuJoCo plants, RL env |
 | `mechanical/cad/` | build123d CAD: trunk, legs, hollow hip, drive, G3 flexure, head, tail, skin |
 | `thermal/` | Rust crate: motor and girdle thermal duty |
-| `tests/` | pytest suite (556 tests) |
+| `tests/` | pytest suite (564 tests) |
 | `docs/` | requirements, architecture, the ADR log, the progress log |
 | `electronics/`, `firmware/` | not started |
 
@@ -73,6 +78,7 @@ pytest tests --ignore=tests/test_mjcf_tendon.py   # conftest.py puts kinematics/
 cd thermal && cargo test
 python mechanical/cad/tomcat_assembly.py --render   # the whole-robot picture
 python mechanical/cad/leg_drive_3d.py --hq          # the drive animation (1600x900, 30 fps)
+python mechanical/cad/cat_suit.py                   # the skin: checks, STL and picture (~7 GB)
 ```
 
 > ⚠️ `tests/test_mjcf_tendon.py` needs ~19 GB as one process — run it in

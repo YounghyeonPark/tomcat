@@ -1,6 +1,6 @@
 # mechanical/cad/
 
-## Current model (M127)
+## Current model (M128)
 
 ![the whole robot](tomcat_whole.png)
 
@@ -14,7 +14,8 @@ PNG when run (`python mechanical/cad/<script>.py`; STLs are git-ignored).
 | `tomcat_trunk.py` | four rigid bodies, 19 motors; each girdle is two rows straddling its hip, spools facing across it (M123), each row motor + G3 + spool | `tomcat_trunk.png`, `_side.png` |
 | `tomcat_leg_detail.py` | one hind leg as parts: tubes, a HOLLOW hip (hub on 40 × 50 bearings over the trunk's stub, ADR-0114), clevis knee and ankle, 36/34/22 mm sheaves (ADR-0103), the Bowden drive | `tomcat_leg_detail.step`, `.png` |
 | `g3_flexure.py` | the series-elastic flexure between rotor and spool, leg and spine variants (ADR-0107/0111) | `g3_flexure.step`, `g3_flexure_spine.step`, `.png` |
-| `tomcat_head.py`, `tomcat_tail.py`, `tomcat_skin.py` | head and neck, tail, the skin cover | `.png` |
+| `tomcat_head.py`, `tomcat_tail.py`, `tomcat_skin.py` | head and neck, tail, the trunk cover's strain analysis (ADR-0094) | `.png` |
+| `cat_suit.py` | the cat's skin: one knit suit over the whole skeleton, its clearance and the slack each joint needs (ADR-0119) | `cat_suit.png`, `cat_suit.stl` |
 | `tendon_exit.py`, `leg_drive_3d.py` | the leg drive in 3-D, spool to anchor (ADR-0112/0114), and its animation | `leg_drive_3d.gif`, `_still.png` |
 | `girdle_inertia.py`, `link_inertia.py`, `mass_closure.py` | the masses and inertias `params.py` carries, derived from the drawn parts | printed |
 

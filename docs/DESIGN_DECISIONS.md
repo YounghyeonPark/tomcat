@@ -9441,12 +9441,92 @@ The MuJoCo harness moved four numbers, and three of them moved the good way.
     the test held (the 0.05 and 0.10 m drops are unchanged at 62 N); it never
     saturates. The policy trained on the old plant learned the old coupling,
     so `[owed]`: the M34 re-run.
-  - ⚠️ Still open from the same audit, for M128: **the spools are 8 mm wide
+  - ⚠️ Still open from the same audit, for M129 (M128 went to the skin): **the spools are 8 mm wide
     and hold about 3 grooves** where the hip needs about 5 (2.74 turns plus
     dead wraps) and the knee and ankle about 4, so widening them moves rows and
     hips. **The spool fleet is 4.8-8.2°** where a groove holds about 2°: the
     lead from spool to conduit (11.3 mm on the hip, 25-28 mm on the knee and
     ankle) is too short for the groove's travel across the spool.
+
+---
+
+## ADR-0119: the cat's skin — one knit suit over the whole skeleton, shaped by the mechanism inside it
+- **Status:** Accepted (M128). Extends [ADR-0094](#adr-0094) from the trunk to
+  the whole robot; its seam and its slack belly stand.
+- **Context:** the skeleton is drawn end to end. ADR-0094 covered only the
+  trunk: a tube from the strain table, with apertures where the legs leave.
+  The owner asked for the cat's skin. Of three constructions (a knit suit, rigid
+  printed panels, or a mix of the two), the knit suit was chosen: it is the
+  lightest, it carries no load, and it moves least of the three between the
+  simulation and the robot.
+
+- **Construction** (`mechanical/cad/cat_suit.py`): one surface, the smooth
+  union of two fields:
+  - **the cat**: a torso lofted through a cat's sections (the chest deepest
+    between the forelegs at z −72, the waist tucked to −27 behind the ribs,
+    the haunches and shoulders round), plus a neck, a sleeve per leg, a knuckle
+    at each ankle and a tail sleeve;
+  - **the structure**: every surface of the trunk, the legs with their drive
+    and harness, the neck and the tail, offset by 3.25 mm (ADR-0094's 2.0 mm
+    plus a grid cell).
+
+  It is meshed on a 1.25 mm grid, with every enclosed void filled. It is open
+  at the soles (the pads touch the ground) and at a collar 80 % up the neck
+  (`tomcat_head` already gives the face). The cat's sections are lower bounds
+  on ADR-0094's cover, so the torso never comes inside a surface that already
+  cleared the structure.
+
+- **Findings:**
+  - ⚠️ **The mechanism is bigger than a cat's leg.** A first pass drew a cat's
+    limb (a 24 mm thigh tapering to 15), and it disappeared inside the
+    structure's offset. The sheaves are 36 / 34 / 22 mm in radius and the
+    cables run on their rims, 30–35 mm off the bone. Each sleeve is therefore
+    the hull of the two sheaves it spans, flattened to the leg's lateral stack
+    (y 42–77 mm). The result is a broad, flat thigh, which a cat also has.
+  - ⚠️ **The haunch and the shoulder are sized by the hip pair's Bowden loops**,
+    which arch out to y 67 and z 67 within 35 mm of each hip. A smaller haunch
+    left them standing on the flank as a bracket.
+  - ✅ **It clears:** at least 2.72 mm from every covered structural point, with
+    every point inside the suit. Area 0.348 m², **87 g** at 250 g/m² for a
+    nylon-elastane power mesh `[assumed]`. ADR-0094's 130 g for the trunk alone
+    priced the cover as solid nylon (1150 g/m²); a knit is mostly air.
+  - ⚠️ **No joint's range fits a taut knit panel.** A fibre on the outside of a
+    joint travels R·Δθ, and the sheaves set R at 25–39 mm. Shared over half of
+    each adjoining link, even a trot asks:
+
+    | | hip | knee | ankle |
+    |---|---|---|---|
+    | fore, trot | 23 % | 40 % | 41 % |
+    | hind, trot | **55 %** | 36 % | 21 % |
+    | slack for the full ROM | 123–151 mm | 83–84 mm | 67–68 mm |
+
+    So **every joint carries gathered slack**, as the belly does (ADR-0094) and
+    as a cat does: loose skin at the flank fold, the stifle and the hock. On the
+    suit's own lines the torso takes 15.6 % dorsally and 42.7 % at the deeper
+    chest keel, so the belly panel is gathered, as ADR-0094 already made it.
+  - The stance pose alone proves the clearance. Every part on a leg is fixed to
+    one link, and every free cable run lies between two circles fixed to one
+    link (it leaves each sheave on a tangent), so a sleeve that clears its
+    link's parts at the stance clears them at every pose. What moves with pose
+    is the fabric at the joints, and the table above covers that.
+
+- **Consequences:**
+  - The suit is not in `params.py` yet. Its 87 g (against ADR-0094's 130 g,
+    which was never counted) goes in with M129's mass re-baseline, split by
+    region: about two thirds on the trunk and the rest on the legs.  `[owed]`
+  - **Thermal `[owed]`:** NFR18 already requires forced air over the girdles,
+    and a knit over them is a second wall. It needs mesh (open-knit) panels over
+    both girdles, and the girdle temperature has to be re-checked with the suit
+    on.
+  - **Cable wear `[owed]`:** the suit stands at least 2.7 mm off every cable at
+    the stance, but the gathered fabric at the joints folds inward when it pays
+    in. A liner, or a guard over each sheave, has to keep the fold off the
+    moving cables.
+  - `tomcat_skin` remains the strain analysis behind the torso, and the
+    assembly still draws its tube; the suit is drawn by `cat_suit.py`.
+  - The full build samples every surface of the robot (4.9 M points) and needs
+    ~7 GB, so it runs as a script that prints its checks; `tests/test_cat_suit.py`
+    pins the rules it is built from.
 
 ---
 
