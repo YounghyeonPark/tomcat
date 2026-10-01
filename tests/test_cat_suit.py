@@ -58,30 +58,32 @@ def test_the_suit_is_OPEN_at_the_soles():
     assert p[3][1] < CS.SOLE_Z < p[2][1], "the pads show; the ankle is covered"
 
 
-def test_the_FACE_gives_the_skull_what_bone_does_not():
-    """✅ M129 (ADR-0120): the traced skull is a dry skull -- its underside
-    runs flat at z 118-128 with no mandible -- so the face is foam, with a chin
-    below the bone.
+def test_the_HEAD_is_a_cat_s_not_the_skull_s():
+    """✅ M129 (ADR-0120): the head is drawn as a cat's head and the skull only
+    has to fit inside it.
 
-    ⚠️ And it is a WEDGE, not a ball. The first foam face was round all over
-    with small ears, and it read as a cartoon dinosaur. A cat is widest at
-    the cheekbones, narrows to a small muzzle and chin, and its ears -- more
-    than half the face's width tall -- make the head's outline."""
+    ⚠️ Two faces drawn OVER the traced skull -- a dry skull with no mandible --
+    came out too small and the wrong shape (one round, one a narrow wedge),
+    because a cover follows what is under it. In the head the structure's
+    offset is faded out and `FACE` alone makes the shape: bigger than the
+    skull all round, widest at the cheeks, a small muzzle and chin, big ears."""
     import tomcat_head as HD
     st = HD._stations()
     skull = [r for r in st if r[0] >= HD.NOSE_X - 0.85 * HD.HEAD_L]
     under = min(r[2] for r in skull)
+    wide = max(r[3] for r in skull)
     face = {nm: (np.asarray(c), np.asarray(r)) for nm, c, r in CS.FACE}
+    hc, hr = face["head"]
+    assert hr[1] > wide + 15.0, "the head is well wider than the skull"
+    assert hc[2] + hr[2] > HD.cranium_top() + 25.0, "a round forehead above it"
     c, r = face["chin"]
     assert c[2] - r[2] < under, "a chin below the bone"
     cheek = face["cheek"][0][1] + face["cheek"][1][1]
-    muzzle = face["muzzle"][1][1]
-    chin = face["chin"][1][1]
-    assert chin < muzzle < cheek, "widest at the cheeks, narrowing to the chin"
+    assert face["chin"][1][1] < face["muzzle"][1][1] < hr[1] < cheek, (
+        "widest at the cheeks, a small muzzle and a smaller chin")
     base, tip, rb, _rt = CS.EAR
-    assert tip[2] - base[2] > 0.55 * cheek * 2 * 0.9, "ears over half the face tall"
-    assert 2 * rb > 0.4 * cheek * 2, "on a broad base"
-    assert CS.EAR_TURN > 0.0, "and opening forward-and-out"
+    assert tip[2] - base[2] > 50.0 and 2 * rb > 45.0, "big ears"
+    assert CS.HEAD_FREE_X > HD.BASE_X, "the skull stops shaping it only in the head"
 
 
 def test_the_EYES_look_FORWARD():

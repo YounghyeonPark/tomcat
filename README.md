@@ -8,8 +8,8 @@ not driven by a motor at each joint.
 
 ![the cat in its skin](docs/figures/cat_suit_m129.png)
 
-*In its skin: a plush knit on a soft foam shell, in a brown tabby-and-white
-coat, with a face made of foam where the skull has no jaw ([ADR-0119](docs/DESIGN_DECISIONS.md),
+*In its skin: a charcoal-grey plush knit on a soft foam shell, and a cat's
+head made of foam round a skull that has no jaw ([ADR-0119](docs/DESIGN_DECISIONS.md),
 [ADR-0120](docs/DESIGN_DECISIONS.md)). Under it, the robot as designed:*
 
 ![the whole robot](docs/figures/whole_robot_m127.png)

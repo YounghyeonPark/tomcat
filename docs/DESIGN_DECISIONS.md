@@ -9631,6 +9631,30 @@ The MuJoCo harness moved four numbers, and three of them moved the good way.
     is the head's mass-model posture (`tomcat_head`, from the wildcat trace),
     which the suit has to cover, not choose. The legs are as thick as the
     sheaves inside them. And the fur has no whiskers.
+- **⚠️ REVISED again: one colour, and a head that is a cat's, not the
+  skull's.** The owner's reading of the tabby version:
+  - **The pattern went.** A tabby done roughly looks creepy, and worse than
+    no pattern at all. The coat is one charcoal grey (0.27, 0.27, 0.29), with
+    pink inside the ears.
+  - **The head no longer follows the bone.** Both faces before this one were
+    drawn OVER the traced skull, which has no mandible, and both came out too
+    small and the wrong shape: a cover follows what is under it. In the head
+    (forward of x 360, fading in over 20 mm, above z 90) the structure's offset
+    is switched off, and `FACE` alone makes the shape. That shape is a head
+    56 × 60 × 51 mm in half-size, 120 mm across where the skull is 74; a round
+    forehead 33 mm above the cranium; cheeks set back and wide (to y ±62); a
+    small muzzle, whisker pads and a chin. The ears are 56 mm tall on a 50 mm
+    base. The eyes are 25 × 22 mm almonds with a wide oval pupil (a slit read
+    as fierce), on the surface normal. The skull only has to fit inside, and
+    the clearance check holds it: **8.56 mm** at least, everywhere.
+  - Cost: the bigger head is mostly foam on the longest lever. The foam shell
+    is 4146 cm³ (1799 in the head and neck), **124 g of PU foam, of which the
+    head is 54 g**, adding **+16.3 %** of the body's pitch inertia (the head
+    alone +11.1 %). The knit is 117 g and +11.2 %. Together the skin is now
+    **~240 g and ~27 % of the body's pitch inertia**. If the righting does not
+    close with it (M130), the head's foam is the lever to trim.
+  - Built at a 1.5 mm grid (`CAT_SUIT_VOXEL`) because the machine had 3.6 GB
+    free. 1.25 mm remains the default.
 
 ---
 
