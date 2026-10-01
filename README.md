@@ -6,7 +6,7 @@ not driven by a motor at each joint.
 
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
 
-![the whole robot](mechanical/cad/tomcat_whole.png)
+![the whole robot](docs/figures/whole_robot.png)
 
 ## How a leg is driven
 
@@ -31,7 +31,7 @@ the cable pulling).
 
 | One leg, as parts | The trunk: 19 motors in four rigid bodies |
 |---|---|
-| ![leg detail](mechanical/cad/tomcat_leg_detail.png) | ![trunk](mechanical/cad/tomcat_trunk.png) |
+| ![leg detail](docs/figures/leg_parts.png) | ![trunk](docs/figures/trunk.png) |
 
 ## Key numbers
 
