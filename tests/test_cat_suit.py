@@ -1,4 +1,5 @@
-"""M128 / ADR-0119: the cat's skin, one knit suit over the whole skeleton.
+"""M128 / ADR-0119, M129 / ADR-0120: the cat's skin -- a plush knit suit
+over the whole skeleton.
 
 The full build -- every surface of the robot sampled, a field on a 1.25 mm grid,
 the clearance measured on the mesh -- takes minutes and ~7 GB, so it runs as
@@ -52,16 +53,43 @@ def test_each_sleeve_SPANS_THE_SHEAVES_inside_it():
             assert sl[j][3] >= arms[j + 1] + SK.CLEAR, "distal end clears the next"
 
 
-def test_the_suit_is_OPEN_at_the_soles_and_the_collar():
+def test_the_suit_is_OPEN_at_the_soles():
     p, _q = CS.leg_points(False)
     assert p[3][1] < CS.SOLE_Z < p[2][1], "the pads show; the ankle is covered"
-    assert CS.COLLAR[0] > TT.BODIES[3][1], "the collar is up the neck, past the trunk"
+
+
+def test_the_FACE_gives_the_skull_what_bone_does_not():
+    """✅ M129 (ADR-0120): the traced skull is a dry skull -- its underside
+    runs flat at z 118-128 with no mandible -- so the face is foam: a crown
+    over the cranium, cheeks wider than it, whisker pads and a chin below it."""
+    import tomcat_head as HD
+    st = HD._stations()
+    skull = [r for r in st if r[0] >= HD.NOSE_X - 0.85 * HD.HEAD_L]
+    under = min(r[2] for r in skull)
+    wide = max(r[3] for r in skull)
+    face = {nm: (np.asarray(c), np.asarray(r)) for nm, c, r in CS.FACE}
+    c, r = face["chin"]
+    assert c[2] - r[2] < under - 5.0, "a chin below the bone"
+    c, r = face["cheek"]
+    assert c[1] + r[1] > wide + 10.0, "cheeks wider than the braincase"
+    c, r = face["crown"]
+    assert c[2] + r[2] > HD.cranium_top() + CS.PAD, "the crown is padded"
+    base, tip, _rb, _rt = CS.EAR
+    assert tip[2] > c[2] + r[2] + 20.0, "the ears stand clear of the crown"
+
+
+def test_the_foam_is_a_SHELL_and_silicone_is_not_an_option():
+    """The stuffed cat was priced and rejected: the foam is `PAD` under the
+    knit with air inside, and only the face is solid. At silicone foam's
+    density even the shell would weigh most of a kilogram."""
+    assert CS.PAD == pytest.approx(6.0)
+    assert CS.FOAM_RHO["PU foam"] < 50.0 < CS.FOAM_RHO["silicone foam"]
 
 
 def test_every_JOINT_needs_GATHERED_fabric():
     """✅ The finding: no joint's ROM fits a knit panel taut. A fibre on the
     outside of a joint travels R * dtheta, and with the sheaves setting R at
-    25-39 mm, even a trot asks 21-55 % of the fabric round it. So every joint
+    31-45 mm with the foam (M129), even a trot asks 26-64 % of the fabric round it. So every joint
     carries gathered slack, as the belly does (ADR-0094) and as a cat does."""
     rows = CS.joint_strain()
     assert len(rows) == 6
@@ -69,4 +97,5 @@ def test_every_JOINT_needs_GATHERED_fabric():
         assert slack > 50.0, (leg, jn, slack)
         assert e > CS.KNIT_WORKING, (leg, jn, e)
     hind_hip = [r for r in rows if r[0] == "hind" and r[1] == "hip"][0]
-    assert hind_hip[5] == pytest.approx(0.554, abs=0.02)
+    # M129: 0.554 -> 0.638, the foam puts the knit 6 mm further out
+    assert hind_hip[5] == pytest.approx(0.638, abs=0.02)

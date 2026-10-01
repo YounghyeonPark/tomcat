@@ -6,10 +6,11 @@ not driven by a motor at each joint.
 
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
 
-![the cat in its skin](docs/figures/cat_suit_m128.png)
+![the cat in its skin](docs/figures/cat_suit_m129.png)
 
-*In its skin: one knit suit over the whole skeleton ([ADR-0119](docs/DESIGN_DECISIONS.md)).
-Under it, the robot as designed:*
+*In its skin: a plush knit on a soft foam shell, with a face made of foam where
+the skull has no jaw ([ADR-0119](docs/DESIGN_DECISIONS.md),
+[ADR-0120](docs/DESIGN_DECISIONS.md)). Under it, the robot as designed:*
 
 ![the whole robot](docs/figures/whole_robot_m127.png)
 
@@ -68,7 +69,7 @@ and a mock-up of the cable bundle that twists inside the hollow hip.
 | `kinematics/` | `tomcat_kin`: kinematics, tendon maps, mass, gait, balance, MuJoCo plants, RL env |
 | `mechanical/cad/` | build123d CAD: trunk, legs, hollow hip, drive, G3 flexure, head, tail, skin |
 | `thermal/` | Rust crate: motor and girdle thermal duty |
-| `tests/` | pytest suite (564 tests) |
+| `tests/` | pytest suite (566 tests) |
 | `docs/` | requirements, architecture, the ADR log, the progress log |
 | `electronics/`, `firmware/` | not started |
 

@@ -17,8 +17,14 @@ along the tail, in a cat's shape rather than the structure's.
   bigger than a cat -- the 36/34/22 mm sheaves, the hollow hip's hub, the
   Bowden conduits -- the suit goes round it rather than through it.
 
-The suit is open at the soles (the pads touch the ground) and at a collar
-behind the head, which `tomcat_head` already gives a cat's face.
+The suit is open at the soles (the pads touch the ground).
+
+✅ **M129 (ADR-0120): soft, round and plump.** The knit is laminated to a soft
+foam (`PAD`), so the suit stands further off the structure, its blends are
+wider, and the paws are round. And the suit now covers the HEAD: the skull
+`tomcat_head` traced is a dry skull with no lower jaw, so the face read as a
+beak. The foam gives it what bone does not -- a round crown, cheeks, two
+whisker pads and a chin -- and the eyes and nose sit on that surface.
 
 ⚠️ **What the stance pose proves, and why it is enough.** Every part on a leg
 is fixed to one link, and every free cable run lies between two circles fixed
@@ -27,7 +33,7 @@ clears its link's parts at the stance clears them at every pose. What changes
 with pose is the fabric at the JOINTS, and that is `joint_strain`.
 
 ⚠️ It is a cover, not a structure: it carries no load. Its mass is reported
-and NOT yet in `params.py` -- M129 (the spools) re-baselines the masses anyway.  `[owed]`
+and NOT yet in `params.py` -- M130 (the spools) re-baselines the masses anyway.  `[owed]`
 """
 
 from __future__ import annotations
@@ -58,8 +64,20 @@ VOXEL = 1.25
 OFFSET = 2.0 + VOXEL
 #: The clearance the checks hold the finished surface to, mm.
 CLEAR = SK.CLEAR
+#: ✅ M129: the soft layer under the knit, mm -- an open-cell polyether foam,
+#: the kind a plush toy is stuffed with. It makes the cat round, and it is
+#: what the face is made of.  `[assumed]`
+PAD = 6.0
+#: The deepest the foam is laid, mm: the face's cheeks and chin, the chest.
+FOAM_MAX = 25.0
+#: How much the structure's offset is blurred before the foam follows it, mm.
+SMOOTH = 4.0
+#: Foam densities priced, kg/m^3: the soft PU foam chosen, and a silicone foam
+#: for what a squishier, heavier skin would cost.  `[assumed]`
+FOAM_RHO = {"PU foam": 30.0, "silicone foam": 250.0}
 #: Blend radii, mm: how softly the torso, the legs and the structure merge.
-K_BODY, K_LEG, K_STRUCT = 18.0, 9.0, 5.0
+#: M129: wider (18 / 9 / 5 before) -- rounder.
+K_BODY, K_LEG, K_STRUCT = 24.0, 13.0, 8.0
 #: Areal mass of the knit, g/m^2 -- a nylon-elastane power mesh, ~1 mm.
 #: `[assumed]`: 200-300 g/m^2 is the range such knits are sold in.
 #: ⚠️ ADR-0094's 130 g priced the trunk cover as SOLID nylon 1 mm thick
@@ -72,12 +90,14 @@ KNIT_WORKING = 0.15
 LEGS = (("LF", True, +1.0), ("RF", True, -1.0), ("LR", False, +1.0), ("RR", False, -1.0))
 HIP_X = {True: TT.FRONT_HIP_X, False: TT.REAR_HIP_X}
 
-#: The collar: the suit ends round the neck, this far up it from its base.
-COLLAR_AT = 0.80
 NECK_DIR = np.array([math.cos(math.radians(HD.RISE_DEG)), 0.0,
                      math.sin(math.radians(HD.RISE_DEG))])
 NECK_BASE = np.array([HD.BASE_X, 0.0, HD.BASE_Z])
-COLLAR = NECK_BASE + COLLAR_AT * HD.NECK_L * NECK_DIR
+
+#: Where the head's mass model puts the body's CoM and its pitch inertia, for
+#: pricing the foam's lever (`tomcat_tail`'s figures).
+BODY_COM = (109.0, 15.0)
+BODY_IYY = TL.BODY_IYY
 
 
 def leg_points(fore):
@@ -97,19 +117,21 @@ SOLE_Z = float(leg_points(False)[0][3][1]) + 1.5
 #: chest is deepest between the forelegs, the waist tucks up behind the
 #: ribs, the haunches are wide. Each is a LOWER bound -- `section()` never
 #: lets the cat inside `tomcat_skin.outline`, which clears the structure.
+#: M129: plumper all round -- 5-6 mm wider, 4-6 higher and deeper, and the
+#: waist tucked less: a soft cat, not a lean one.
 CAT = (
-    (-150.0, 6.0, 64.0, 46.0),   # the rump's end, rounding into the tail
-    (-128.0, 38.0, 84.0, 4.0),
-    (-95.0, 54.0, 90.0, -40.0),  # the haunches
-    (-55.0, 54.0, 91.0, -46.0),
-    (-15.0, 48.0, 89.0, -40.0),
-    (35.0, 44.0, 87.0, -34.0),   # the loin
-    (90.0, 41.0, 86.0, -27.0),   # the waist, tucked
-    (140.0, 46.0, 87.0, -48.0),
-    (185.0, 52.0, 88.0, -68.0),  # the chest, deepest between the forelegs
-    (230.0, 51.0, 87.0, -72.0),
-    (262.0, 44.0, 85.0, -56.0),
-    (292.0, 22.0, 80.0, -12.0),  # the chest's front, under the neck
+    (-158.0, 8.0, 66.0, 44.0),   # the rump's end, rounding into the tail
+    (-134.0, 44.0, 90.0, -2.0),
+    (-95.0, 60.0, 96.0, -46.0),  # the haunches
+    (-55.0, 60.0, 97.0, -52.0),
+    (-15.0, 54.0, 95.0, -46.0),
+    (35.0, 50.0, 93.0, -42.0),   # the loin
+    (90.0, 47.0, 92.0, -36.0),   # the waist, tucked a little
+    (140.0, 52.0, 93.0, -54.0),
+    (185.0, 58.0, 94.0, -74.0),  # the chest, deepest between the forelegs
+    (230.0, 57.0, 93.0, -78.0),
+    (262.0, 50.0, 91.0, -62.0),
+    (298.0, 26.0, 84.0, -14.0),  # the chest's front, under the neck
 )
 
 
@@ -143,11 +165,54 @@ def section(x):
 #: sheaves it spans, flattened to the leg's lateral stack (y 42-77 mm on the
 #: thigh and shank, measured): a broad, flat thigh -- which a cat has.
 SLEEVE = (
-    (36.0 + OFFSET, 34.0 + OFFSET, 59.5, 20.0),   # thigh: hip sheave to knee sheave
-    (34.0 + OFFSET, 22.0 + OFFSET, 60.5, 19.0),   # shank: knee to ankle
-    (22.0 + OFFSET, 9.0, 53.0, 10.0),             # metatarsus: ankle to paw
-    (9.0, 7.5, 53.0, 11.0),                       # paw
+    (36.0 + OFFSET + PAD, 34.0 + OFFSET + PAD, 59.5, 20.0 + PAD),  # thigh: hip to knee sheave
+    (34.0 + OFFSET + PAD, 22.0 + OFFSET + PAD, 60.5, 19.0 + PAD),  # shank: knee to ankle
+    (22.0 + OFFSET + PAD, 9.0 + PAD, 53.0, 10.0 + PAD),            # metatarsus: ankle to paw
+    (9.0 + PAD, 7.5 + PAD, 53.0, 11.0 + PAD),                      # paw
 )
+
+#: ✅ M129: the face the skull does not have, `(name, centre, radii)` mm in
+#: trunk coordinates, mirrored for the paired ones. The traced skull is a dry
+#: skull: its underside runs flat at z 118-128 from the nose back, with no
+#: mandible, no cheek and no muzzle pad, so a cover drawn over it is a beak.
+#: These are the soft parts a cat's face is mostly made of, and the proportions
+#: are the ones that read as round: a domed crown, cheeks wider than the
+#: braincase, two whisker pads either side of the nose, a chin.  `[assumed]`
+FACE = (
+    ("crown", (392.0, 0.0, 152.0), (44.0, 46.0, 34.0)),
+    ("cheek", (410.0, 30.0, 132.0), (28.0, 24.0, 22.0)),
+    ("whisker pad", (437.0, 11.0, 131.0), (12.0, 12.0, 11.0)),
+    ("chin", (425.0, 0.0, 121.0), (22.0, 16.0, 12.0)),
+    ("muzzle", (428.0, 0.0, 138.0), (21.0, 18.0, 15.0)),
+)
+#: Blend radius of the face, mm.
+K_FACE = 12.0
+#: ✅ M129: the ears are foam too, `(base, tip, base radius, tip radius)` mm,
+#: thin fore-and-aft by `EAR_THIN`. `tomcat_head`'s ears are 3 mm flaps on
+#: the dry skull and the crown's foam buried them to spikes; a soft ear is a
+#: broad, round-tipped triangle.  `[assumed]`
+EAR = ((386.0, 27.0, 178.0), (380.0, 42.0, 216.0), 17.0, 4.0)
+EAR_THIN = 2.5
+
+
+def face_field(P):
+    f = None
+    for _nm, c, r in FACE:
+        c = np.asarray(c, float)
+        for sgn in ((-1.0, 1.0) if c[1] else (1.0,)):
+            d = _ellipsoid(P, c * np.array([1.0, sgn, 1.0]), np.asarray(r, float))
+            f = d if f is None else _smin(f, d, K_FACE)
+    base, tip, rb, rt = EAR
+    for sgn in (-1.0, 1.0):
+        m = np.array([1.0, sgn, 1.0])
+        b, t = np.asarray(base) * m, np.asarray(tip) * m
+        Q = P.copy()
+        Q[..., 0] = b[0] + (P[..., 0] - b[0]) * EAR_THIN
+        tq = t.copy()
+        tq[0] = b[0] + (t[0] - b[0]) * EAR_THIN
+        d = _round_cone(Q, b, tq, rb, rt) / EAR_THIN
+        f = _smin(f, d, 4.0)
+    return f
 
 
 def sleeves(fore):
@@ -190,18 +255,20 @@ def cat_field(P):
     f = (r - 1.0) * np.minimum(a, hh)
     xr, xf = CAT[0][0], CAT[-1][0]
     f = np.maximum(f, np.maximum(xr - x, x - xf))
-    # the neck, from the chest up to (and past) the collar
+    # the neck, from the chest into the back of the head: a ruff, not a stalk
     nb = NECK_BASE + np.array([-10.0, 0.0, -2.0])
-    ne = NECK_BASE + 1.05 * HD.NECK_L * NECK_DIR
-    f = _smin(f, _round_cone(P, nb, ne, 30.0, 24.0), K_BODY)
+    ne = np.array([384.0, 0.0, 142.0])
+    f = _smin(f, _round_cone(P, nb, ne, 46.0, 40.0), K_BODY)
+    # the face (M129)
+    f = _smin(f, face_field(P), K_BODY)
     # the tail sleeve
     cur = np.asarray(TL.spine_curve(), float)
     pts3 = np.column_stack([cur[:, 0], np.zeros(len(cur)), cur[:, 1]])
     ts = np.linspace(0.0, 1.0, len(cur))
     tail = None
     for i in range(len(cur) - 1):
-        ri = TL.radius_at(ts[i]) + 3.0
-        rj = TL.radius_at(ts[i + 1]) + 3.0
+        ri = TL.radius_at(ts[i]) + 3.0 + PAD
+        rj = TL.radius_at(ts[i + 1]) + 3.0 + PAD
         d = _round_cone(P, pts3[i], pts3[i + 1], ri, rj)
         tail = d if tail is None else np.minimum(tail, d)
     f = _smin(f, tail, 8.0)
@@ -214,14 +281,19 @@ def cat_field(P):
         # to y 67 and up to z 67 within 35 mm of the hip (measured), and a
         # smaller haunch left them standing on the flank as a bracket.
         sh = _ellipsoid(P, np.array([hx + (4.0 if fore else 0.0), side * 48.0, 20.0]),
-                        np.array([58.0, 34.0, 68.0]))
+                        np.array([58.0 + PAD, 34.0 + PAD, 68.0 + PAD]))
         f = _smin(f, sh, K_BODY)
         # the ankle (hock / wrist): its sheave stack is 32 mm across (y 45-77)
         # where the metatarsus is 12, so it gets its own flattened knuckle
         pa, _q = leg_points(fore)
         ank = _ellipsoid(P, np.array([hx + pa[2][0], side * 61.0, pa[2][1]]),
-                         np.array([27.0, 21.5, 27.0]))
+                         np.array([27.0 + PAD, 21.5 + PAD, 27.0 + PAD]))
         f = _smin(f, ank, K_LEG)
+        # M129: a round paw -- a cat stands on a soft ball, not a blade; the
+        # sole cut leaves its pad bare
+        paw = _ellipsoid(P, np.array([hx + 0.5 * (pa[3][0] + pa[4][0]), side * 53.0,
+                                      pa[3][1] + 3.0]), np.array([22.0, 15.0, 13.0]))
+        f = _smin(f, paw, K_LEG)
         leg = None
         for p0, p1, r0, r1, yc, hy in sleeves(fore):
             # flattened: the lateral axis scaled so the cone's mean radius
@@ -239,7 +311,7 @@ def cat_field(P):
 
 def structure_solids():
     """Everything the suit must cover: trunk, four legs with their drive, the
-    neck (the head's solid, cut at the collar), the tail."""
+    head and neck (`tomcat_head`'s solid, all of it since M129), the tail."""
     import tomcat_assembly as A
     bodies, legs, _soft = A.assembly(soft=False)
     return bodies + legs + [HD.whole(), TL.tail()]
@@ -252,7 +324,10 @@ def structure_points(cache=None, tol=0.8, spacing=0.6):
     would fit the suit to a skeleton that no longer exists -- silently. It is
     used only while it is newer than every CAD script and `params.py`."""
     if cache and os.path.exists(cache):
-        src = [os.path.join(HERE, f) for f in os.listdir(HERE) if f.endswith(".py")]
+        # (this file draws the suit, not the structure: its own edits do not
+        # stale the samples)
+        src = [os.path.join(HERE, f) for f in os.listdir(HERE)
+               if f.endswith(".py") and f != os.path.basename(__file__)]
         src.append(os.path.join(os.path.dirname(HERE), "..", "kinematics", "src",
                                 "tomcat_kin", "params.py"))
         if os.path.getmtime(cache) > max(os.path.getmtime(f) for f in src):
@@ -284,31 +359,35 @@ def structure_points(cache=None, tol=0.8, spacing=0.6):
     return p
 
 
-def _collar_dist(P):
-    """Signed distance past the collar plane (> 0 is the head side)."""
-    return (P - COLLAR) @ NECK_DIR
-
-
 def grid(points):
     lo = points.min(0) - 25.0
     hi = points.max(0) + 25.0
+    # the foam ears stand above everything structural (M129)
+    hi[2] = max(hi[2], EAR[1][2] + EAR[3] + 10.0)
     lo[2] = SOLE_Z - 3.0 * VOXEL
     n = np.ceil((hi - lo) / VOXEL).astype(int) + 1
     return lo, n
 
 
-def field(points):
-    """The suit's field on the grid: `(F, lo, n)`; F < 0 is inside the suit."""
+def field(points, stats=None):
+    """The suit's field on the grid: `(F, lo, n)`; F < 0 is inside the suit.
+
+    `stats`, a dict, receives the foam: where it is laid and what it weighs."""
     from scipy import ndimage
     lo, n = grid(points)
-    # the structure, pushed out by OFFSET: distance to the nearest sample
+    # the structure, pushed out by OFFSET and the foam: distance to the
+    # nearest sample
     occ = np.zeros(n, bool)
     ij = np.round((points - lo) / VOXEL).astype(int)
     ok = np.all((ij >= 0) & (ij < n), axis=1)
     occ[tuple(ij[ok].T)] = True
     dist = ndimage.distance_transform_edt(~occ).astype(np.float32) * VOXEL
-    F = dist - OFFSET
-    del dist, occ
+    del occ
+    # M129: the offset is BLURRED before it is cut, so the foam reads as one
+    # soft surface rather than the process tips and the sheave rims showing
+    # through it. Blurring a distance field pulls it in round sharp features,
+    # and the clearance check measures what that costs.
+    F = ndimage.gaussian_filter(dist, SMOOTH / VOXEL) - (OFFSET + PAD)
     # the cat, one x-slab at a time
     ys = lo[1] + VOXEL * np.arange(n[1])
     zs = lo[2] + VOXEL * np.arange(n[2])
@@ -318,23 +397,75 @@ def field(points):
         P = np.stack([np.full_like(Y, x), Y, Z], axis=-1)
         c = cat_field(P).astype(np.float32)
         F[i] = _smin(c, F[i], K_STRUCT)
-        # open at the collar and at the soles
-        F[i] = np.maximum(F[i], _collar_dist(P).astype(np.float32))
+        # open at the soles
         F[i] = np.maximum(F[i], (SOLE_Z - Z).astype(np.float32))
     # nothing hollow inside: a void enclosed by the suit is suit
     solid = F < 0
     filled = ndimage.binary_fill_holes(solid)
     F[filled & ~solid] = -VOXEL
+    if stats is not None:
+        stats["dist"] = dist
     return F, lo, n
 
 
-def suit_mesh(points=None, cache=None):
-    """The suit's outer surface as `vtkPolyData`, open at the collar and soles."""
+def foam(pd, dist, lo):
+    """The soft layer, measured from the knit inward: at every point of the
+    suit, how far in the foam goes before it meets the structure (within
+    `CLEAR` of a structural surface) or `FOAM_MAX`. Volume, and its pitch
+    inertia about the body's CoM -- the head's part apart, because the head is
+    on the longest lever there is.
+
+    ⚠️ A volume count (inside the suit and outside the structure) was the
+    first version, and it read 6.8 L: the trunk's rigid bodies are open
+    shells, so their insides were counted as foam."""
+    from scipy import ndimage
+    from vtk.util import numpy_support as ns
+    P, T = mesh_arrays(pd)
+    N = ns.vtk_to_numpy(pd.GetPointData().GetNormals()).astype(float)
+    A = P[T]
+    tri = 0.5 * np.linalg.norm(np.cross(A[:, 1] - A[:, 0], A[:, 2] - A[:, 0]), axis=1)
+    area = np.zeros(len(P))
+    for k in range(3):
+        np.add.at(area, T[:, k], tri / 3.0)
+    ts = np.arange(0.0, FOAM_MAX + 1e-9, 0.5)
+    thick = np.empty(len(P))
+    for i0 in range(0, len(P), 40000):
+        p, n = P[i0:i0 + 40000], N[i0:i0 + 40000]
+        s = p[:, None, :] - ts[None, :, None] * n[:, None, :]
+        v = ndimage.map_coordinates(dist, ((s.reshape(-1, 3) - lo) / VOXEL).T,
+                                    order=1, mode="nearest").reshape(len(p), len(ts))
+        hit = v <= CLEAR
+        k = np.where(hit.any(1), np.argmax(hit, 1), len(ts) - 1)
+        thick[i0:i0 + 40000] = ts[k]
+    head = P[:, 0] > HD.BASE_X + 0.5 * HD.NECK_L * NECK_DIR[0]
+    r2k = (P[:, 0] - BODY_COM[0]) ** 2 + (P[:, 2] - BODY_COM[1]) ** 2
+    out = {"knit_r2_mm4": float((area * r2k).sum())}
+    # ✅ the design: a PADDED SHELL -- `PAD` of foam under the knit, with air
+    # inside it, and only the face stuffed solid. Stuffing the whole cat
+    # ("stuffed") is priced beside it.
+    for nm, t in (("shell", np.where(head, thick, np.minimum(thick, PAD))),
+                  ("stuffed", thick)):
+        vol = area * t
+        mid = P - 0.5 * t[:, None] * N
+        r2 = (mid[:, 0] - BODY_COM[0]) ** 2 + (mid[:, 2] - BODY_COM[1]) ** 2
+        out[nm] = {"foam_mm3": float(vol.sum()), "head_mm3": float(vol[head].sum()),
+                   "r2_mm5": float((vol * r2).sum()),
+                   "head_r2_mm5": float((vol * r2)[head].sum()),
+                   "mean_mm": float(vol.sum() / area.sum())}
+    return out
+
+
+def suit_mesh(points=None, cache=None, out=None):
+    """The suit's outer surface as `vtkPolyData`, open at the soles.
+
+    `out`, a dict, receives the field (`F`, `lo`) and the foam's figures."""
     import vtk
     from vtk.util import numpy_support as ns
     if points is None:
         points = structure_points(cache)
-    F, lo, n = field(points)
+    st = {} if out is None else out
+    F, lo, n = field(points, stats=st)
+    st["F"], st["lo"] = F, lo
     img = vtk.vtkImageData()
     img.SetDimensions(*[int(v) for v in n])
     img.SetSpacing(VOXEL, VOXEL, VOXEL)
@@ -373,14 +504,14 @@ def suit_mesh(points=None, cache=None):
 
 
 def _open_cuts(pd):
-    """Drop the flat caps the collar and the sole planes leave: the suit is
-    OPEN there, which is what lets the pads touch and the face show."""
+    """Drop the flat caps the sole plane leaves: the suit is OPEN there,
+    which is what lets the pads touch the ground."""
     import vtk
     from vtk.util import numpy_support as ns
     P = ns.vtk_to_numpy(pd.GetPoints().GetData()).astype(float)
     polys = ns.vtk_to_numpy(pd.GetPolys().GetData()).reshape(-1, 4)[:, 1:]
     C = P[polys].mean(axis=1)
-    on = (np.abs(C[:, 2] - SOLE_Z) < 0.35 * VOXEL) | (np.abs(_collar_dist(C)) < 0.35 * VOXEL)
+    on = np.abs(C[:, 2] - SOLE_Z) < 0.35 * VOXEL
     keep = polys[~on]
     legacy = np.column_stack([np.full(len(keep), 3), keep]).astype(np.int64).ravel()
     cells = vtk.vtkCellArray()
@@ -410,7 +541,7 @@ def clearance(pd, points):
     the suit, mm, and whether every such point is INSIDE it."""
     import vtk
     from scipy.spatial import cKDTree
-    covered = (points[:, 2] > SOLE_Z + CLEAR) & (_collar_dist(points) < -CLEAR)
+    covered = points[:, 2] > SOLE_Z + CLEAR
     Q = points[covered]
     P, _T = mesh_arrays(pd)
     d, i = cKDTree(P).query(Q, workers=-1)
@@ -469,20 +600,38 @@ def torso_strain(pd):
             for nm, z in (("dorsal line", top), ("chest keel", bot))]
 
 
-def report(cache=None, pd=None, points=None):
+def report(cache=None, pd=None, points=None, st=None):
     ok = True
     if points is None:
         points = structure_points(cache)
     if pd is None:
-        pd = suit_mesh(points)
+        st = {}
+        pd = suit_mesh(points, out=st)
     P, T = mesh_arrays(pd)
-    print("CAT SUIT -- one knit over the whole skeleton (ADR-0119)\n")
+    print("CAT SUIT -- a plush knit over the whole skeleton (ADR-0119, ADR-0120)\n")
     bb = P.min(0), P.max(0)
     print("surface        %d triangles, nose-to-tail %.0f mm, %.0f wide, %.0f high"
           % (len(T), bb[1][0] - bb[0][0], bb[1][1] - bb[0][1], bb[1][2] - bb[0][2]))
     a = area_mm2(pd) * 1e-6
-    print("area           %.3f m2 -> %.0f g at %.0f g/m2 (knit, [assumed])"
+    print("area           %.3f m2 -> knit %.0f g at %.0f g/m2 ([assumed])"
           % (a, a * AREAL_G_M2, AREAL_G_M2))
+    if st and "dist" in st:
+        st["foam"] = foam(pd, st["dist"], st["lo"])
+        Ik = AREAL_G_M2 * 1e-3 * st["foam"].pop("knit_r2_mm4") * 1e-12
+        print("  the knit's pitch inertia +%.2e kg m2 = %.1f %% of the body's"
+              % (Ik, 100 * Ik / BODY_IYY))
+        for build, fs in st["foam"].items():
+            fv, hv = fs["foam_mm3"] * 1e-3, fs["head_mm3"] * 1e-3
+            print("foam, %-8s %5.0f cm3, %4.1f mm deep on average (%.0f cm3 in the "
+                  "head and neck)" % (build, fv, fs["mean_mm"], hv))
+            for nm, rho in FOAM_RHO.items():
+                m = fv * rho * 1e-3
+                I = rho * 1e-9 * fs["r2_mm5"] * 1e-6
+                Ih = rho * 1e-9 * fs["head_r2_mm5"] * 1e-6
+                print("  %-14s %4.0f kg/m3: %5.0f g (head %4.0f g), pitch inertia "
+                      "+%.2e kg m2 = %5.1f %% of the body's (head %4.1f %%)"
+                      % (nm, rho, m, hv * rho * 1e-3, I, 100 * I / BODY_IYY,
+                         100 * Ih / BODY_IYY))
     dmin, where, outside = clearance(pd, points)
     print("clearance      %.2f mm to the structure, least at (%.0f, %.0f, %.0f)"
           % (dmin, *where))
@@ -503,57 +652,91 @@ def report(cache=None, pd=None, points=None):
     return ok
 
 
+# --------------------------------------------------------------------- face
+#: The face set on the foam, `(start inside, direction out, radius)` mm. Each
+#: feature is put where its ray leaves the suit, sunk into it a little.
+#: Eyes a touch bigger than `tomcat_head`'s (8.1 mm) and set low and forward:
+#: the proportion that reads as soft.  `[assumed]`
+EYE = ((406.0, 17.0, 148.0), (0.93, 0.30, 0.17), 11.0)
+NOSE = ((428.0, 0.0, 140.0), (0.93, 0.0, 0.36), 5.5)
+
+
+def _surface(F, lo, p0, d, reach=90.0):
+    """Where the ray `p0 + t d` first leaves the suit (F crosses 0)."""
+    from scipy import ndimage
+    d = np.asarray(d, float) / np.linalg.norm(d)
+    t = np.arange(0.0, reach, 0.2)
+    pts = np.asarray(p0, float) + t[:, None] * d
+    v = ndimage.map_coordinates(F, ((pts - lo) / VOXEL).T, order=1)
+    k = int(np.argmax(v >= 0.0))
+    return pts[k], d
+
+
+def face_features(F, lo):
+    """`[(kind, centre, radius)]`: two eyes with their catch-lights, a nose."""
+    out = []
+    p0, d0, r = EYE
+    for sgn in (-1.0, 1.0):
+        m = np.array([1.0, sgn, 1.0])
+        s, d = _surface(F, lo, np.asarray(p0) * m, np.asarray(d0) * m)
+        c = s - 0.45 * r * d
+        out.append(("eye", c, r))
+        hl = np.array([0.55, 0.30 * sgn, 0.78])
+        out.append(("glint", c + 0.80 * r * hl / np.linalg.norm(hl), 0.24 * r))
+    s, d = _surface(F, lo, *NOSE[:2])
+    out.append(("nose", s - 0.35 * NOSE[2] * d, NOSE[2]))
+    return out
+
+
 # ------------------------------------------------------------------- render
 FUR = (0.80, 0.56, 0.38)
+COLOUR = {"eye": (0.08, 0.07, 0.07), "glint": (1.0, 1.0, 1.0), "nose": (0.86, 0.52, 0.55)}
+
+#: `(name, elevation, azimuth, focus, distance)`: the whole cat twice, and the
+#: face close.
+VIEWS = (("3/4", 14, -58, None, 1300.0), ("side", 2, -90, None, 1300.0),
+         ("face", 8, -22, (410.0, 0.0, 160.0), 330.0))
 
 
-def render(pd, path, views=(("3/4", 14, -58), ("side", 2, -90)), size=(1000, 760),
-           skeleton=None):
-    """The suited cat, opaque, with the head and its face; one tile per view."""
+def render(pd, path, features=(), views=VIEWS, size=(1000, 760)):
+    """The suited cat with its ears and face; one tile per view."""
     import vtk
     import leg_drive_3d as LD3
     from PIL import Image
     from vtk.util import numpy_support as ns
-    head = LD3._polydata([HD.whole()], 0.5)
-    fs = sorted(HD.features().solids(), key=lambda sd: -sd.volume)
-    ears = LD3._polydata(fs[:2], 0.3)          # the two largest are the ears
-    face = LD3._polydata(fs[2:], 0.3)          # eyes and nose
     tiles = []
-    for name, elev, azim in views:
+    for name, elev, azim, focus, dist in views:
         ren = vtk.vtkRenderer()
         ren.SetBackground(1.0, 1.0, 1.0)
         ren.SetBackground2(0.90, 0.92, 0.95)
         ren.GradientBackgroundOn()
-        op = 0.35 if skeleton is not None else 1.0
-        ren.AddActor(LD3._actor(pd, FUR, opacity=op, specular=0.08))
-        ren.AddActor(LD3._actor(head, FUR, specular=0.08))
-        ren.AddActor(LD3._actor(ears, FUR, specular=0.08))
-        ren.AddActor(LD3._actor(face, (0.12, 0.10, 0.09), specular=0.6))
-        if skeleton is not None:
-            ren.AddActor(LD3._actor(skeleton, (0.45, 0.52, 0.62)))
-        if skeleton is not None:
-            ren.SetUseDepthPeeling(1)
-            ren.SetMaximumNumberOfPeels(8)
+        ren.AddActor(LD3._actor(pd, FUR, specular=0.06))
+        for kind, c, r in features:
+            sp = vtk.vtkSphereSource()
+            sp.SetCenter(*c)
+            sp.SetRadius(r)
+            sp.SetThetaResolution(48)
+            sp.SetPhiResolution(48)
+            sp.Update()
+            ren.AddActor(LD3._actor(sp.GetOutput(), COLOUR[kind],
+                                    specular=0.9 if kind == "eye" else 0.2))
         cam = ren.GetActiveCamera()
-        b = np.array(pd.GetBounds())
-        hb = np.array(head.GetBounds())
-        b[1::2] = np.maximum(b[1::2], hb[1::2])
-        b[0::2] = np.minimum(b[0::2], hb[0::2])
-        c = np.array([(b[0] + b[1]) / 2, (b[2] + b[3]) / 2, (b[4] + b[5]) / 2])
+        if focus is None:
+            b = np.array(pd.GetBounds())
+            c = np.array([(b[0] + b[1]) / 2, (b[2] + b[3]) / 2, (b[4] + b[5]) / 2])
+        else:
+            c = np.asarray(focus, float)
         el, az = math.radians(elev), math.radians(azim)
-        d = 1300.0
         cam.SetFocalPoint(*c)
-        cam.SetPosition(*(c + d * np.array([math.cos(el) * math.cos(az),
-                                            math.cos(el) * math.sin(az), math.sin(el)])))
+        cam.SetPosition(*(c + dist * np.array([math.cos(el) * math.cos(az),
+                                               math.cos(el) * math.sin(az), math.sin(el)])))
         cam.SetViewUp(0, 0, 1)
         cam.SetViewAngle(30)
         ren.ResetCameraClippingRange()
         win = vtk.vtkRenderWindow()
         win.SetOffScreenRendering(1)
         win.SetSize(2 * size[0], 2 * size[1])
-        win.SetMultiSamples(0 if skeleton is not None else 8)
-        if skeleton is not None:
-            win.SetAlphaBitPlanes(1)
+        win.SetMultiSamples(8)
         win.AddRenderer(ren)
         ren.SetUseFXAA(True)
         win.Render()
@@ -587,7 +770,8 @@ def write_stl(pd, path):
 if __name__ == "__main__":
     cache = os.path.join(HERE, "cat_suit_points.npz")
     pts = structure_points(cache)
-    suit = suit_mesh(pts)
-    report(pd=suit, points=pts)
+    st = {}
+    suit = suit_mesh(pts, out=st)
+    report(pd=suit, points=pts, st=st)
     write_stl(suit, os.path.join(HERE, "cat_suit.stl"))
-    render(suit, os.path.join(HERE, "cat_suit.png"))
+    render(suit, os.path.join(HERE, "cat_suit.png"), face_features(st["F"], st["lo"]))

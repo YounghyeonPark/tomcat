@@ -9441,7 +9441,7 @@ The MuJoCo harness moved four numbers, and three of them moved the good way.
     the test held (the 0.05 and 0.10 m drops are unchanged at 62 N); it never
     saturates. The policy trained on the old plant learned the old coupling,
     so `[owed]`: the M34 re-run.
-  - ⚠️ Still open from the same audit, for M129 (M128 went to the skin): **the spools are 8 mm wide
+  - ⚠️ Still open from the same audit, for M130 (M128 and M129 went to the skin): **the spools are 8 mm wide
     and hold about 3 grooves** where the hip needs about 5 (2.74 turns plus
     dead wraps) and the knee and ankle about 4, so widening them moves rows and
     hips. **The spool fleet is 4.8-8.2°** where a groove holds about 2°: the
@@ -9512,7 +9512,7 @@ The MuJoCo harness moved four numbers, and three of them moved the good way.
 
 - **Consequences:**
   - The suit is not in `params.py` yet. Its 87 g (against ADR-0094's 130 g,
-    which was never counted) goes in with M129's mass re-baseline, split by
+    which was never counted) goes in with M130's mass re-baseline, split by
     region: about two thirds on the trunk and the rest on the legs.  `[owed]`
   - **Thermal `[owed]`:** NFR18 already requires forced air over the girdles,
     and a knit over them is a second wall. It needs mesh (open-knit) panels over
@@ -9527,6 +9527,77 @@ The MuJoCo harness moved four numbers, and three of them moved the good way.
   - The full build samples every surface of the robot (4.9 M points) and needs
     ~7 GB, so it runs as a script that prints its checks; `tests/test_cat_suit.py`
     pins the rules it is built from.
+
+---
+
+## ADR-0120: the skin goes soft — a plush knit on a foam shell, and a face made of foam
+- **Status:** Accepted (M129). Builds on [ADR-0119](#adr-0119).
+- **Context:** the owner found the face not cute, and identified the cause:
+  the head has no lower jaw. `tomcat_head` traces a DRY skull (Reighard &
+  Jennings, figs. 39–40) whose underside runs flat at z 118–128 from the nose
+  back, with no mandible, no cheek and no muzzle pad. ADR-0119's suit stopped
+  at a collar and left that skull as the face, which made it a beak. The owner
+  asked for a slightly soft material and a round, plump skin.
+
+- **Decision** (`mechanical/cad/cat_suit.py`):
+  - **A 6 mm soft foam laminated under the knit** (`PAD`; an open-cell
+    polyether foam at 30 kg/m³, the stuffing of a plush toy `[assumed]`). The
+    suit stands 9.25 mm off the structure instead of 3.25. The structure's
+    offset is blurred over 4 mm before the knit follows it, so the process tips
+    and the sheave rims no longer show through. The blends are wider (24 / 13 /
+    8 mm, were 18 / 9 / 5) and the torso sections are 4–6 mm fuller.
+  - **The suit covers the head.** The face is foam, built where the bone is
+    missing: a domed crown (44 × 46 × 34 mm), cheeks out to y ±54 (the
+    braincase is ±37), two whisker pads either side of the nose, a chin 9 mm
+    below the bone, a short round muzzle, and a neck as thick as the head.
+  - **The ears are foam too**: broad, round-tipped triangles, 17 mm at the root
+    and 2.5× thinner fore and aft. `tomcat_head`'s 3 mm flaps were buried by the
+    crown's foam and stood out only as spikes.
+  - **The eyes and nose sit on that surface.** Each feature is placed where a
+    ray leaves the suit. The eyes are larger (11 mm, were 8.1), set low and
+    facing forward, with a catch-light; the nose is pink.
+  - **Round paws**: a 22 × 15 × 13 mm ball over each foot, cut at the sole so
+    the pad still meets the ground.
+  - **A padded shell, not a stuffed cat.** The foam is 6 mm thick under the
+    knit with air inside; only the head and neck are filled solid.
+
+- **What it costs**, measured by casting a ray inward from every point of the
+  knit to the structure (a first count by volume read 6.8 L, because the
+  trunk's rigid bodies are open shells and their insides were counted as foam).
+  Each mass is followed by the share of the body's pitch inertia it adds
+  (4.20e-2 kg m²), about the body's CoM:
+
+  | | PU foam, 30 kg/m³ | silicone foam, 250 kg/m³ |
+  |---|---|---|
+  | **shell, face solid** (the design) | **106 g, +11.5 %** (head 36 g, +6.2 %) | 885 g, +95 % |
+  | stuffed throughout | 255 g, +20 % | 2126 g, +169 % |
+
+  The knit is 113 g on 0.454 m² and adds **+10.2 %** (ADR-0119 had 87 g and did
+  not price its inertia). Together the soft skin is **~220 g and ~22 % of the
+  body's pitch inertia**. The righting reflex is already short of authority
+  (ADR-0093), so this is not a finish detail. ⚠️ Most of the cost is LEVER,
+  not mass: the head's 36 g of foam is 6.2 % on its own, because it sits
+  290 mm ahead of the CoM.
+  - ⚠️ **Silicone is ruled out**: even as a shell it would weigh almost as much
+    as the four legs together.
+  - Clearance: at least **8.51 mm** to every covered structural point.
+  - The joints need more slack than before, because the foam puts the knit
+    6 mm further out. A trot asks 26–64 % of the fabric round a joint (the hind
+    hip 64 %), and the gathered slack is 86–176 mm over the full range of
+    motion.
+
+- **Consequences:**
+  - `[owed]`: fold the skin into the mass model with M130, both its mass
+    (~220 g) and its inertia. The righting must be re-run with it; the face's
+    foam is the first thing to trim if the righting does not close.
+  - `[owed]`: the foam at the joints has to be cut back on the flexion side
+    (a gusset) so the gathered fabric can fold. A foam layer cannot gather.
+  - `[owed]`: the MuJoCo plant's collision shapes are the bare skeleton. A
+    cat that is 9 mm fatter all round lands on foam, which is softer and
+    larger; the fall tests should see that.
+  - Thermal: a foam layer over the girdles insulates them, and NFR18 already
+    needs forced air. The girdle panels need open-cell foam with vents, or no
+    foam over them at all.  `[owed]`
 
 ---
 
