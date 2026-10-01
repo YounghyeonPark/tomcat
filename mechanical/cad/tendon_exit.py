@@ -106,13 +106,13 @@ CONDUIT_MU = 0.07
 HUB_F2_R = 30.0
 #: ...and begin inside the trunk: F1 where the lead reaches this |y|, mm.
 LEAD_Y = 31.5
-#: ⚠️ **The ankle pair's two cables leave the hip on ONE line** -- both reach
-#: the knee via on the same side, so their rays from the hip coincide and so
-#: did their ferrules (on the femur in M122, in the hub in M123). Staggered
-#: along the axis by this much either side of the cable's plane, mm: a ferrule's
-#: width and a gap. Each cable then enters its groove ~100 mm away at a 1.5 deg
-#: fleet, inside the ~2 deg a groove holds.
-ANKLE_STAGGER = 2.6
+#: ~~The ankle pair's ferrules, staggered ±2.6 mm along the axis~~ (M124): the
+#: two cables left the hip on ONE line because both took the same side of the
+#: knee via -- the defect `pair_senses` fixes (M127). On opposite sides their
+#: rays part by 10-11 deg and their ferrules by 5.3-5.8 mm at `HUB_F2_R`, so there is
+#: nothing to stagger; and the stagger's own fleet was 2.1-2.5 deg, not the
+#: 1.5 M124 claimed, over the real 60-70 mm run to the via.
+ANKLE_STAGGER = 0.0
 #: (F1's ferrule body, 2 mm behind F1, clears its own spool's flange from
 #: |y| 31.1 -- the flange is 10.9 mm round an axis 8.75 from the lead.)
 #: What a conduit keeps from the leg, mm (beyond its own radius).
@@ -190,12 +190,48 @@ def _seg_clear(P, H, C, r):
     return float((np.linalg.norm(C - (P + t[:, None] * d), axis=1) - r).min())
 
 
+_PAIR_SENSES = {}
+
+
+def pair_senses(role, tendon):
+    """✅ M127 (ADR-0118): the wrap senses of a pair's two cables, FIXED by the
+    design and the same at every pose -- a cable cannot change sides of a
+    pulley as the leg moves.
+
+    ⚠️ **A pair's two cables must pass every via on OPPOSITE sides.** The
+    router chose each cable's senses for its own least wrap, and both ankle
+    cables took the SAME side of the knee via: they lay on top of each other in
+    one groove, and the pair's total length changed **21 mm** over the knee's
+    range -- slack or, through G3, kilonewtons -- for a pair wound on ONE spool,
+    which can only take up their difference. Opposite sides hold the total to
+    0.00 mm and put the knee's 2 x 8.75 mm/rad into the difference, where the
+    ankle's spool follows it (`mjcf_tendon.pair_rows` always assumed this).
+    The flexor keeps its least-wrap senses at the stance; the extensor takes its
+    own, with every via flipped to the flexor's other side."""
+    key = (role, tendon)
+    if key not in _PAIR_SENSES:
+        lg, q = leg(role), stance(role)
+        kw = dict(side=None, leg=lg, spools={tendon: (0.0, 0.0)}, lead_r=1e-3, entry="axis")
+        f = LT.route(q, tendon, **dict(kw, side=+1))["senses"]
+        e = list(LT.route(q, tendon, **dict(kw, side=-1))["senses"])
+        st = LT.stations(q, tendon, -1, lg, spools={tendon: (0.0, 0.0)}, lead_r=1e-3,
+                         entry="axis")
+        # the vias are the stations between the entry and the joint's own sheave
+        for i in range(1, len(st) - 1):
+            e[i] = -f[i]
+        _PAIR_SENSES[key] = {+1: list(f), -1: e}
+    return _PAIR_SENSES[key]
+
+
 def leg_run(role, tendon, side, q=None, start=None, senses=None):
     """The in-plane run to the anchored sheave: for the hip pair from the trunk
     ferrule `start` = (x, z) hip frame; for the knee and ankle pairs from the
-    hip axis (the hub ferrule sits on that ray, `HUB_F2_R` out)."""
+    hip axis (the hub ferrule sits on that ray, `HUB_F2_R` out), on the pair's
+    fixed senses (`pair_senses`) unless `senses` says otherwise."""
     lg = leg(role)
     q = stance(role) if q is None else q
+    if tendon != "hip" and senses is None:
+        senses = pair_senses(role, tendon)[side]
     if tendon == "hip":
         return LT.route(q, tendon, side=side, leg=lg, spools={tendon: start},
                         lead_r=1e-3, senses=senses)
@@ -320,7 +356,7 @@ def hub_ferrule(role, tendon, side_c, q, lr_side=+1.0):
     run = leg_run(role, tendon, side_c, q)
     p = run["points"]
     u = (p[1] - p[0]) / np.linalg.norm(p[1] - p[0])
-    dy = lr_side * side_c * ANKLE_STAGGER if tendon == "ankle" else 0.0
+    dy = lr_side * side_c * ANKLE_STAGGER if tendon == "ankle" else 0.0   # 0 since M127
     return (np.array([HIP_X[role] + HUB_F2_R * u[0], plane_y(tendon, lr_side) + dy,
                       HUB_F2_R * u[1]]), np.array([u[0], 0.0, u[1]]))
 

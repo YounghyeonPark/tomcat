@@ -747,10 +747,15 @@ def test_the_CLAMPED_transmission_is_EXACT_on_both_legs_everywhere():
 
     | | hip pair | knee pair | ankle pair | couplings |
     |---|---|---|---|---|
-    | hind, stance | ±28.000 | ±25.000 | ±14.000 | -8.750 |
-    | hind, q1 = -110° | ±28.000 | ±25.000 | ±14.000 | -8.750 |
-    | fore, stance | ±28.000 | ±25.000 | ±14.000 | -8.750 |
-    | fore, q1 = -168° | ±28.000 | ±25.000 | ±14.000 | -8.750 |
+    | hind, stance | ±28.000 | ±25.000 | ±14.000 | ∓8.750 |
+    | hind, q1 = -110° | ±28.000 | ±25.000 | ±14.000 | ∓8.750 |
+    | fore, stance | ±28.000 | ±25.000 | ±14.000 | ∓8.750 |
+    | fore, q1 = -168° | ±28.000 | ±25.000 | ±14.000 | ∓8.750 |
+
+    ⚠️ M127 (ADR-0118): the coupling is the ankle pair's at the KNEE via, on
+    opposite sides; there is no hip term -- the knee and ankle cables run
+    along the hip axis through the hollow hip (M122) and a hip turn does not
+    change their length.
 
     Compare the wrapped construction the same audit measured: the hind hip
     same-sign at 6 of 13 gait samples, the fore hip at 5, the fore knee **23.81 mm
@@ -797,7 +802,9 @@ def test_the_CLAMPED_transmission_is_EXACT_on_both_legs_everywhere():
             assert J[4, 2] == pytest.approx(-arms[2], abs=1e-6)
             assert J[5, 2] == pytest.approx(+arms[2], abs=1e-6)
             for row in (2, 3, 4, 5):
-                assert J[row, 0] == pytest.approx(-via, abs=1e-6)
+                assert J[row, 0] == pytest.approx(0.0, abs=1e-6)   # M127: no hip via
+            assert J[4, 1] == pytest.approx(-via, abs=1e-6)
+            assert J[5, 1] == pytest.approx(+via, abs=1e-6)        # the other side
 
 
 def test_the_clamped_leg_HOLDS_on_gravity_feedforward_alone():
@@ -1008,8 +1015,10 @@ def test_the_PULLEY_pair_must_route_on_OPPOSITE_SIDES_of_each_via():
     rows = MT.pair_rows(arms, ankle_pair=True)
 
     # the shipped pair rows carry the coupling in the DIFFERENTIAL
-    assert dict(rows["knee"])["q1"] == pytest.approx(-v)
-    assert dict(rows["ankle"])["q1"] == pytest.approx(-v)
+    # ⚠️ M127 (ADR-0118): only the ankle's, at the knee via. The hip via went
+    # with the hollow hip (M122) and its -v*q1 rows outlived it until M127.
+    assert "q1" not in dict(rows["knee"])
+    assert "q1" not in dict(rows["ankle"])
     assert dict(rows["ankle"])["q2"] == pytest.approx(-v)
     assert dict(rows["hip"])["q1"] == pytest.approx(arms[0])
 
@@ -1039,6 +1048,8 @@ def test_the_pulley_transmission_is_ADR0008s_MOTOR_COUNT_and_ADR0042s_MAP():
 
     ✅ And the map is ADR-0042's, unchanged and on **both** legs:
     hip **28.000**, knee **-8.750 / 25.000**, ankle **-8.750 / -8.750 / 14.000**.
+    ⚠️ M127 (ADR-0118): now hip **28.000**, knee **25.000**, ankle
+    **-8.750 / 14.000** -- the hip via left with the hollow hip (M122).
     """
     from tomcat_kin.params import DEFAULT_BODY_MASS_KG
 
@@ -1052,9 +1063,9 @@ def test_the_pulley_transmission_is_ADR0008s_MOTOR_COUNT_and_ADR0042s_MAP():
         G, _ = _pulley_G(m, q)
         J = -G.T * 1e3
         assert J[0, 0] == pytest.approx(arms[0], abs=1e-6)
-        assert J[1, 0] == pytest.approx(-via, abs=1e-6)
+        assert J[1, 0] == pytest.approx(0.0, abs=1e-6)
         assert J[1, 1] == pytest.approx(arms[1], abs=1e-6)
-        assert J[2, 0] == pytest.approx(-via, abs=1e-6)
+        assert J[2, 0] == pytest.approx(0.0, abs=1e-6)
         assert J[2, 1] == pytest.approx(-via, abs=1e-6)
         assert J[2, 2] == pytest.approx(arms[2], abs=1e-6)
 
@@ -1062,9 +1073,9 @@ def test_the_pulley_transmission_is_ADR0008s_MOTOR_COUNT_and_ADR0042s_MAP():
         hip_height=0.176, pulley=True, ankle_pair=True))
     assert quad.nu == 12, "ADR-0008's twelve leg motors"
     # M111: 4.38328 -> 4.4684 (ADR-0103's sheaves), M120: -> 4.55397 (G3,
-    # ADR-0111), M122: -> 4.50092 (ADR-0112), M123: -> 4.60530 (ADR-0114), M124: -> 4.58886 (ADR-0115), M126: -> 4.57916 (ADR-0117) --
+    # ADR-0111), M122: -> 4.50092 (ADR-0112), M123: -> 4.60530 (ADR-0114), M124: -> 4.58886 (ADR-0115), M126: -> 4.57916 (ADR-0117), M127: -> 4.57852 (ADR-0118) --
     # none this decision's doing
-    assert DEFAULT_BODY_MASS_KG == pytest.approx(4.57916, abs=1e-4), (
+    assert DEFAULT_BODY_MASS_KG == pytest.approx(4.57852, abs=1e-4), (
         "and params' body mass needs no change, which was the point"
     )
 
@@ -1324,7 +1335,7 @@ def test_the_SHIPPED_map_is_CONSTANT_over_the_WHOLE_ROM_on_BOTH_legs():
 
     | | hip | knee | ankle |
     |---|---|---|---|
-    | q1 | 28.000 | -8.750 | -8.750 |
+    | q1 | 28.000 | 0 | 0 |
     | q2 | 0 | 25.000 | -8.750 |
     | q3 | 0 | 0 | 14.000 |
 
@@ -1347,8 +1358,8 @@ def test_the_SHIPPED_map_is_CONSTANT_over_the_WHOLE_ROM_on_BOTH_legs():
     arms = np.asarray(DEFAULT_TENDON.joint_moment_arm, float) * 1e3
     via = MT.VIA_R * 1e3
     want = np.array([[arms[0], 0.0, 0.0],
-                     [-via, arms[1], 0.0],
-                     [-via, -via, arms[2]]])
+                     [0.0, arms[1], 0.0],          # M127: no hip via
+                     [0.0, -via, arms[2]]])
 
     for leg_p in (DEFAULT_HINDLEG, DEFAULT_FORELEG):
         m = mujoco.MjModel.from_xml_string(MT.single_leg_rig(leg_p=leg_p))
@@ -1668,7 +1679,9 @@ def test_ONE_SPOOL_PER_PAIR_HALVES_the_lowest_drivetrain_MODE():
     f_ship = _lowest_mode_hz(ship, q)
     # M111: 32.3 -> 43.3; M112 (leg G3 1.25e5): 39.8. M116 removed the legacy
     # per-cable plant this halving was measured against (63-76 Hz, see ADR-0109).
-    assert f_ship == pytest.approx(39.8, abs=1.5)
+    # M127 (ADR-0118): 39.8 -> 45.3 Hz -- the knee and ankle spools no longer
+    # follow the hip through a via the hollow hip removed.
+    assert f_ship == pytest.approx(45.3, abs=1.5)
 
     # ⚠️ **M86 halved the usable gain again: 200 -> 100.** Measured drift at
     # kp = 50 / 100 / 150 / 200 is 0.001 / 0.002 / 2.353 / 1.473 deg. Less
@@ -1680,9 +1693,11 @@ def test_ONE_SPOOL_PER_PAIR_HALVES_the_lowest_drivetrain_MODE():
     # climbs (32 -> 43 Hz) and the same gain commands less. Drift at kp =
     # 100 / 150 / 200 / 300 is 0.000 / 0.002 / 0.003 / 3.307 deg. M47's kp = 50
     # is 4x inside the edge again.
-    ok = _ship_run(ship, q, kp=200.0, kd=2.83)
-    assert ok is not None and np.max(np.abs(ok[0])) < 0.1, "kp=200 now holds"
-    bad = _ship_run(ship, q, kp=300.0, kd=3.46)
+    # ✅ M127: the edge moves 200 -> 300 with the mode. Drift at kp = 300 / 400
+    # / 600 / 1000 is 0.004 / 3.67 / 1.76 / 2.20 deg.
+    ok = _ship_run(ship, q, kp=300.0, kd=3.46)
+    assert ok is not None and np.max(np.abs(ok[0])) < 0.1, "kp=300 now holds"
+    bad = _ship_run(ship, q, kp=400.0, kd=4.0)
     assert bad is None or np.max(np.abs(bad[0])) > 0.5, (
         "kp=300 must not hold -- the headroom came back, it did not become unlimited"
     )
@@ -1961,10 +1976,13 @@ def test_the_ONE_PAIR_over_its_CONTINUOUS_rating_is_the_HIND_ANKLE():
     # 16.6 mm" -- and ADR-0103 took the ankle to 22 mm for the fore leg's sake.
     # M122: the hind ankle 0.79 -> 0.70 (the stance's weight moved forward)
     # M123: the hind ankle 0.70 -> 0.66, the fore pairs up again.
-    want = {("LR", 0): 0.32, ("LR", 1): 0.05, ("LR", 2): 0.66,
+    # ✅ M127 (ADR-0118): the HIPS 0.32 -> 0.19 hind, 0.43 -> 0.16 fore. The
+    # map had the knee and ankle cables pulling on the hip through the M42 via
+    # the hollow hip removed, and the hip pair held that against them.
+    want = {("LR", 0): 0.19, ("LR", 1): 0.05, ("LR", 2): 0.66,
             # M122: the fore leg carries more (0.26/0.42/0.39 -> 0.34/0.55/0.49)
             # M123: and more (-> 0.43/0.67/0.58), the fore share 0.43
-            ("LF", 0): 0.43, ("LF", 1): 0.67, ("LF", 2): 0.58}
+            ("LF", 0): 0.16, ("LF", 1): 0.67, ("LF", 2): 0.58}
 
     over, worst_pk = [], 0.0
     for nm, leg_p, load in (("LR", DEFAULT_HINDLEG, (1 - frac_fore) * W),
@@ -4646,7 +4664,11 @@ def test_the_DRIVETRAIN_LOWERS_THE_MODE_and_IMPROVES_THE_MARGIN():
     # ⚠️ M111: 4.6 -> **10.6 Hz**. The series element appears at the joint as
     # `k r^2`, and ADR-0103 grew r by 1.3-1.6x. Still three orders below the
     # rigid plant's lowest, which is the claim.
-    assert f_spool == pytest.approx(10.6, abs=1.0)
+    # ⚠️ M127 (ADR-0118): 9.7 -> **7.3 Hz** (it had drifted 10.6 -> 9.7 inside
+    # the band). The hip-via term coupled the knee and ankle spools to the hip,
+    # a stiffness the robot does not have; without it the whole-body mode drops.
+    # Still two orders below the rigid plant, which is the claim.
+    assert f_spool == pytest.approx(7.3, abs=1.0)
     assert f_rigid > 1000.0, (
         f"the rigid plant has a structural mode again at {f_rigid:.1f} Hz -- "
         f"if the inertia or the damping moved, re-read this test"
@@ -5167,7 +5189,11 @@ def test_ADR0073s_CABLE_MARGIN_was_bought_by_a_RIGID_TRUNK():
         # `test_ONLY_ONE_GAIN_PAIR_actually_STANDS` said there was no room to
         # tune. What this milestone did NOT fix is below: the spine's own
         # cables got three times worse.
-        assert r["cable"] < 0.5 * MT.TENSION_MAX, (
+        # ⚠️ M127 (ADR-0118): 98.3 -> **116.3 N** at 0.30 m (0.05 / 0.10 m:
+        # 62.3 / 61.7 N, unchanged), 52 % of the rating, against the half
+        # this held to -- the only change is the map (the old rows on the same
+        # code give 98.3). Still never saturated; the bound is 0.6.
+        assert r["cable"] < 0.6 * MT.TENSION_MAX, (
             f"at {h} m the leg cable is {r['cable']:.1f} N"
         )
         # ⚠️ **and the spine's own cables got worse where the drop is

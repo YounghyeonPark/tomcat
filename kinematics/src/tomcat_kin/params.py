@@ -216,7 +216,9 @@ class LegParams:
     # clevis, tongue, 6 mm shaft and two 626s; the conduit ferrules sit in the
     # hub's wall. M124: -5 g -- the hub lightened to a ring and a ferrule arc,
     # the bearing at its catalogue 22.8 g (6708).
-    link_mass: tuple[float, float, float, float] = (0.09783, 0.07472, 0.03612,
+    # M127 (ADR-0118): +-0.2 g re-measured -- the ankle extensor now passes the
+    # knee via on the flexor's other side, and the ankle ferrule stagger is gone.
+    link_mass: tuple[float, float, float, float] = (0.09762, 0.07491, 0.03597,
                                                     0.00759)
 
     # Fraction of each link's LENGTH, measured from that link's PROXIMAL joint,
@@ -228,15 +230,15 @@ class LegParams:
     # at 6-8 %**: the mass is joint hardware sitting ON the proximal joint, not
     # a belly part-way down a bone. The paw is the opposite (87 %) because the
     # pad is at its tip.  `[derived: cad/link_inertia.py]`
-    link_com_frac: tuple[float, float, float, float] = (0.0758, 0.0695, 0.1834, 0.8743)
+    link_com_frac: tuple[float, float, float, float] = (0.0753, 0.0710, 0.1832, 0.8743)
 
     #: Centre of mass in the link's OWN body frame (m), +x along the link from
     #: its proximal joint. The full vector `link_com_frac` cannot carry: the
     #: sheaves stand ~4 mm off the limb plane in +y.  `[derived: cad/link_inertia.py]`
     link_com: tuple[tuple[float, float, float], ...] = (
-        (0.006825, 0.004709, 0.000332),       # femur
-        (0.006604, 0.007078, 0.000091),       # tibia
-        (0.012836, 0.006910, -0.000181),      # meta
+        (0.006779, 0.004674, 0.000266),       # femur
+        (0.006747, 0.007114, 0.000006),       # tibia
+        (0.012822, 0.006851, -0.000134),      # meta
         (0.021858, 0.000000, -0.002353),      # paw
     )
 
@@ -249,9 +251,9 @@ class LegParams:
     #: joint hardware sitting at its joints; a capsule spreads it down the bone.
     #: `[derived: cad/link_inertia.py]`
     link_inertia: tuple[tuple[float, ...], ...] = (
-        (3.4380e-05, 8.8907e-05, 6.5664e-05, 1.1040e-07, -8.1458e-08, -1.6826e-07),
-        (1.6209e-05, 4.5039e-05, 4.3403e-05, 2.7332e-06, 1.7834e-07, 1.4016e-07),
-        (5.9258e-06, 2.1280e-05, 2.3210e-05, 3.1287e-06, 9.1186e-08, 3.3537e-08),
+        (3.4271e-05, 8.8677e-05, 6.5411e-05, 1.8528e-07, 1.1318e-07, -5.8439e-08),
+        (1.6305e-05, 4.5878e-05, 4.4227e-05, 2.5772e-06, 5.4507e-07, 2.3318e-07),
+        (5.8660e-06, 2.1247e-05, 2.3175e-05, 3.1362e-06, 8.9332e-08, 8.3249e-09),
         (3.0802e-07, 7.2523e-07, 9.1886e-07, 0.0, 5.6145e-08, 0.0),
     )
 
@@ -444,7 +446,7 @@ class TendonParams:
     #: to the hub; the hip pair's from the new hip-station row.
     conduit_bend: tuple = ((2.1221, 2.4463),  # hip   122 / 140 deg
                            (1.6911, 1.6908),  # knee   97 /  97 deg
-                           (1.7257, 1.6898))  # ankle  99 /  97 deg (M124: ferrules staggered)
+                           (1.7122, 1.7120))  # ankle  98 /  98 deg (M127: opposite sides of the via)
     #: Running pulleys between spool and anchored sheave: the knee via, on the
     #: ankle pair, and nothing else (ADR-0112).
     pulley_count: tuple = ((0, 0), (0, 0), (1, 1))
@@ -853,8 +855,10 @@ class LoadCase:
     # body is 26 mm shorter and the tail with it)
     # -> 4.58886 (M124: the hub lightened, the bearing at catalogue mass,
     # the fore radius Ø14).
-    # -> **4.57916** (M126: the spine's G3 at 350 kN/m is 10 g lighter).
-    body_mass_kg: float = 4.57916
+    # -> 4.57916 (M126: the spine's G3 at 350 kN/m is 10 g lighter).
+    # -> **4.57852** (M127: the legs re-measured with the ankle pair on
+    # opposite sides of the knee via, -0.6 g).
+    body_mass_kg: float = 4.57852
     n_stance_legs: int = 2             # legs sharing the load (e.g. trot => 2).
     dynamic_factor: float = 1.5        # peak/static impact multiplier.  ❓ TBD
 
@@ -954,20 +958,21 @@ DEFAULT_FORELEG = LegParams(
     # ⚠️ M124: +1.9 g on the radius -- Ø14 x 1, not the hind leg's Ø12: at the
     # fore knee's 18.4 N.m landing torque the Ø12 was SF 1.76 (never checked;
     # every SF had been computed on the hind leg's loads).
-    link_mass=(0.09823, 0.07666, 0.03559, 0.00759),
+    # ⚠️ M127: re-measured, as the hind leg.
+    link_mass=(0.09813, 0.07638, 0.03582, 0.00759),
     # ⚠️ Re-derived at the FORE link lengths, not copied from the hind leg:
     # the same hardware on shorter links moves the fractions.
-    link_com_frac=(0.0761, 0.0816, 0.1799, 0.8743),
+    link_com_frac=(0.0765, 0.0793, 0.1803, 0.8743),
     link_com=(
-        (0.007614, 0.004640, -0.000099),      # humerus
-        (0.007346, 0.006995, -0.000088),      # radius
-        (0.011696, 0.006862, -0.000109),      # metacarpus
+        (0.007650, 0.004623, -0.000162),      # humerus
+        (0.007137, 0.006939, -0.000035),      # radius
+        (0.011720, 0.006957, -0.000118),      # metacarpus
         (0.021858, 0.000000, -0.002353),      # paw
     ),
     link_inertia=(
-        (3.4306e-05, 9.6984e-05, 7.3745e-05, 5.3557e-07, -2.7538e-07, -1.3515e-07),
-        (1.6401e-05, 4.6014e-05, 4.4640e-05, 2.9168e-06, -3.3484e-09, -4.8680e-08),
-        (5.8584e-06, 1.8346e-05, 2.0201e-05, 2.8569e-06, 9.1982e-08, -2.6682e-08),
+        (3.4238e-05, 9.7484e-05, 7.4244e-05, 4.7441e-07, -5.9764e-08, -3.0288e-08),
+        (1.6252e-05, 4.4814e-05, 4.3462e-05, 3.1528e-06, -1.7827e-07, -1.0845e-07),
+        (5.9597e-06, 1.8405e-05, 2.0261e-05, 2.8442e-06, 9.5986e-08, -2.2037e-08),
         (3.0802e-07, 7.2523e-07, 9.1886e-07, 0.0, 5.6145e-08, 0.0),
     ),
 )

@@ -387,13 +387,22 @@ def drivetrain_xml(prefix: str, ankle_pair: bool, k_series: float,
 #: at the ankle, worth **1716 N and 3090 N** of co-contraction swing against a 638 N
 #: cable rating. Opposite sides put it back in the differential and leave the common
 #: mode at exactly zero.
+#:
+#: ✅ M127 (ADR-0118): **no hip term.** Since the hollow hip (M122, ADR-0113) the
+#: knee and ankle cables run ALONG the hip axis, through the stub's bore, and a
+#: hip rotation only twists them -- the CAD measures 0.0 mm of length per hip
+#: radian. The `-v*q1` rows this map kept were the M42 hip via-pulley, which the
+#: robot has not had since; they told the plant and the estimator that the knee
+#: and ankle spools must follow the hip at 8.75 mm/rad when the hardware does
+#: not. The ankle keeps its knee-via term: it does pass the knee's via, and
+#: M127 put its two cables on opposite sides of it (`tendon_exit.pair_senses`).
 def pair_rows(arms, ankle_pair: bool = True):
     r_hip, r_knee, r_ankle = (float(a) for a in arms)
     v = VIA_R
     rows = {"hip": [("q1", r_hip)],
-            "knee": [("q1", -v), ("q2", r_knee)]}
+            "knee": [("q2", r_knee)]}
     if ankle_pair:
-        rows["ankle"] = [("q1", -v), ("q2", -v), ("q3", r_ankle)]
+        rows["ankle"] = [("q2", -v), ("q3", r_ankle)]
     return rows
 
 
@@ -491,12 +500,14 @@ def clamped_tendons(name: str, arms, ankle_pair: bool = True) -> str:
     rows = {
         "hip_flex": [("q1", +r_hip)],
         "hip_ext": [("q1", -r_hip)],
-        "knee_flex": [("q1", -v), ("q2", +r_knee)],
-        "knee_ext": [("q1", -v), ("q2", -r_knee)],
-        "ankle": [("q1", -v), ("q2", -v), ("q3", -r_ankle)],
+        # M127: no hip via since the hollow hip; the ankle pair on opposite
+        # sides of the knee via
+        "knee_flex": [("q2", +r_knee)],
+        "knee_ext": [("q2", -r_knee)],
+        "ankle": [("q2", -v), ("q3", -r_ankle)],
     }
     if ankle_pair:
-        rows["ankle_ext"] = [("q1", -v), ("q2", -v), ("q3", +r_ankle)]
+        rows["ankle_ext"] = [("q2", +v), ("q3", +r_ankle)]
     out = []
     for tname in tendon_names(name, ankle_pair):
         short = tname.split("_", 1)[1]

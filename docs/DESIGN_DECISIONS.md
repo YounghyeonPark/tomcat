@@ -9379,6 +9379,77 @@ The MuJoCo harness moved four numbers, and three of them moved the good way.
 
 ---
 
+## ADR-0118: a pair's two cables pass every via on opposite sides; the plant loses the hip via it no longer has
+- **Status:** Accepted. Corrects [ADR-0115](#adr-0115)'s ankle ferrule stagger
+  and the pair map `mjcf_tendon.pair_rows` has carried since M42.
+- **Context:** an audit of the tendon layout (M127) checked each antagonistic
+  pair the way its spool sees it: one spool winds one cable in while paying the
+  other out, so it can take up only their DIFFERENCE. The pair's SUM must stay
+  constant over every pose, or the change goes into cable stretch -- slack one
+  way, kilonewtons through G3 the other.
+
+- **Findings:**
+  - ⚠️ **Both ankle cables took the SAME side of the knee via.** The router
+    (`leg_tendons.route`) picked each cable's wrap senses for its own least
+    wrap, and both came out the same. Over the knee's range the pair's sum
+    changed by **21 mm**, and the two cables lay in one groove of the via.
+    M124's ferrule stagger (±2.6 mm) was a symptom: the two rays coincided
+    because the cables did. The stagger's own fleet was 2.1-2.5°, not the
+    1.5° ADR-0115 claimed.
+  - ✅ On opposite sides the sum is constant to **0.00 mm** on both legs, and
+    the knee's coupling, 2 × 8.75 = 17.5 mm/rad, moves into the difference,
+    where the ankle spool follows it. The knee pair was already right (it
+    passes no via).
+  - ⚠️ **The simulated plant still had the hip via.** `pair_rows` gave the
+    knee and ankle pairs a `-8.75 mm/rad · q1` term, the M42 via-pulley on the
+    hip axis. That pulley went with the hollow hip (M122, ADR-0113): the knee
+    and ankle cables run along the hip axis through the stub's bore, and the
+    CAD measures 0.0 mm of length change per hip radian. The plant, the RL
+    env's joint estimator (`env.pair_map`) and the WBC were all told the knee
+    and ankle spools must follow the hip.
+
+- **Decision:**
+  - **`tendon_exit.pair_senses`** fixes each pair's wrap senses by design, the
+    same at every pose (a cable cannot change sides of a pulley as the leg
+    moves): the flexor's least-wrap senses at the stance, and the extensor's
+    with every via flipped to the flexor's other side. `leg_run` uses them.
+  - **`ANKLE_STAGGER` 2.6 → 0.** The ankle rays now part by 10-11°, and the
+    ferrules by 5.3-5.8 mm at the hub wall (r 30).
+  - **`pair_rows`:** hip `28·q1`, knee `25·q2`, ankle `-8.75·q2 + 14·q3` (mm).
+    `clamped_tendons` follows: no hip term, and the ankle extensor at `+v` on
+    the knee.
+
+- **Consequences:** the ankle conduit bends are 1.712 / 1.712 rad (were 1.726 /
+  1.690). The legs, re-measured: hind 216.1 g, fore 217.9 g; body 4.57916 →
+  **4.57852 kg**. Trot copper 4.994 W a motor; runtime 23.81 min trotting.
+  The figures (`docs/figures/`, `leg_drive_3d`) were drawn before M127 and show
+  the ankle extensor on the old side of the via.
+  - The plant without the phantom coupling, each against the old rows on the
+    same code:
+
+    | | old map | M127 |
+    |---|---|---|
+    | hip pair, trot RMS / continuous rating, hind / fore | 0.32 / 0.43 | **0.19 / 0.16** |
+    | one leg's lowest drivetrain mode | 39.8 Hz | **45.3 Hz** |
+    | one leg's usable outer `kp` (drift < 0.1°) | 200 | **300** (400 drifts 3.7°) |
+    | whole body's lowest spooled mode | 9.7 Hz | **7.3 Hz** |
+    | leg cable, 0.30 m held drop | 98.3 N | **116.3 N** (52 % of 222.9) |
+
+    The hips were spending a third to two thirds of their continuous load
+    holding the knee and ankle cables' pull through a via that is not there.
+    ⚠️ The drop is the cost: 116 N at 0.30 m is past the half-rating margin
+    the test held (the 0.05 and 0.10 m drops are unchanged at 62 N); it never
+    saturates. The policy trained on the old plant learned the old coupling,
+    so `[owed]`: the M34 re-run.
+  - ⚠️ Still open from the same audit, for M128: **the spools are 8 mm wide
+    and hold about 3 grooves** where the hip needs about 5 (2.74 turns plus
+    dead wraps) and the knee and ankle about 4, so widening them moves rows and
+    hips. **The spool fleet is 4.8-8.2°** where a groove holds about 2°: the
+    lead from spool to conduit (11.3 mm on the hip, 25-28 mm on the knee and
+    ankle) is too short for the groove's travel across the spool.
+
+---
+
 ---
 
 ### How to add an ADR
