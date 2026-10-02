@@ -388,7 +388,8 @@ def test_default_com_sits_forward_of_mid_body_because_the_cat_is_front_heavy():
     # M122: 18.5 -> 19.1 mm -- the legs lost 13 g each below the hip axis.
     # M123: 19.1 -> 18.2 mm -- the girdles' CoM dropped (the leg motors now
     # sit at hip height, ADR-0114) and the legs gained 26 g each.
-    assert c.z == pytest.approx(0.0182, abs=5e-4)
+    # M129 (ADR-0121): 18.2 -> 17.3 mm, the head carried 30 mm lower.
+    assert c.z == pytest.approx(0.0173, abs=5e-4)
 
 
 def test_arching_the_spine_moves_the_com_up_and_rearward():

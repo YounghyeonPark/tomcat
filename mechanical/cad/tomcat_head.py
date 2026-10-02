@@ -192,10 +192,20 @@ def _skull_sections():
 
 
 #: Where the skull sits. ⚠️ The plates give the skull's SHAPE and cannot give
-#: its posture; that still comes from the wildcat topline -- the skull crowning
-#: about 0.96 head-lengths above the back line.  `[owed]`
-#: Nose-to-withers span in head-lengths, from the wildcat trace.
-U_WITHERS = 2.0
+#: its posture; that came from the wildcat topline -- the skull crowning
+#: 0.96 head-lengths above the back line, the nose 2.0 ahead of the withers.
+#:
+#: ✅ M129 (ADR-0121): **carried back and lower, the neck 40 % shorter.**
+#: The wildcat trace is an ALERT posture, head up on a long neck (139 mm from
+#: the withers to the occiput), and under the cat's skin (ADR-0120) it read as
+#: a long neck. At 1.5 head-lengths ahead and 0.65 high the neck is 84 mm and
+#: the head sits on the shoulders, still 61 mm above the back -- and the
+#: 240 g lump's lever about the body's CoM falls 259 -> 231 mm, so its share
+#: of the pitch inertia 36.7 -> 27.7 %.
+#: Nose-to-withers span in head-lengths.
+U_WITHERS = 1.5
+#: Crown height above the back line, in head-lengths.
+CROWN_AT = 0.65
 
 NOSE_X = 0.0
 HEAD_Z = 0.0
@@ -207,7 +217,7 @@ def _place():
     NOSE_X = BASE_X + U_WITHERS * HEAD_L
     lat, _d = _skull()
     top = max(t for _u, t, _b in lat) + FLESH
-    HEAD_Z = TT.Z_DORSAL + (0.96 - top) * HEAD_L
+    HEAD_Z = TT.Z_DORSAL + (CROWN_AT - top) * HEAD_L
 
 
 def _stations():

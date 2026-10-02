@@ -12,7 +12,7 @@ not driven by a motor at each joint.
 head made of foam round a skull that has no jaw ([ADR-0119](docs/DESIGN_DECISIONS.md),
 [ADR-0120](docs/DESIGN_DECISIONS.md)). Under it, the robot as designed:*
 
-![the whole robot](docs/figures/whole_robot_m127.png)
+![the whole robot](docs/figures/whole_robot_m129.png)
 
 ## How a leg is driven
 

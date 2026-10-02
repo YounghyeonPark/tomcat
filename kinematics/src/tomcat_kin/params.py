@@ -749,7 +749,9 @@ class SpineParams:
     # root now (ADR-0112), and the G3 flexures at their spools' row ends.
     # M123 (ADR-0114): each girdle's motor bank rides its hip, now 65 mm
     # behind the spine root and 10 mm ahead of the front girdle's origin.
-    front_girdle_com: tuple[float, float] = (0.03556, 0.03703)
+    # M129 (ADR-0121): the head carried back 48 mm and down 30, the neck 40 %
+    # shorter -- the front girdle's CoM moves (35.6, 37.0) -> (30.4, 33.7) mm.
+    front_girdle_com: tuple[float, float] = (0.03044, 0.03371)
     rear_girdle_com: tuple[float, float] = (-0.07392, 0.01879)
 
     #: MJCF `fullinertia` about each girdle's CoM, in its own frame
@@ -779,8 +781,10 @@ class SpineParams:
     #: rear girdle plus 20 g of structure, agreeing to 0.5 % on Ixz.
     #: `[derived: cad/girdle_inertia.py]`
     #: M120: with the leg G3 flexures (`girdle_inertia.g3_parts`).
+    #: ✅ M129 (ADR-0121): the head closer in, **Iyy 7.9601e-03 -> 5.6392e-03
+    #: (-29 %)**.
     front_girdle_inertia: tuple[float, ...] = (
-        3.2362e-03, 7.9601e-03, 5.6473e-03, 0.0, -3.1408e-03, -1.7442e-05)
+        2.5115e-03, 5.6392e-03, 4.0584e-03, 0.0, -2.0628e-03, -1.7442e-05)
     rear_girdle_inertia: tuple[float, ...] = (
         1.0084e-03, 1.0870e-03, 9.5915e-04, 0.0, 2.2677e-04, -1.7442e-05)
 

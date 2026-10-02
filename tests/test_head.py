@@ -87,8 +87,11 @@ def test_placing_the_240_g_costs_a_THIRD_of_the_pitch_inertia():
     # outline running out at the occiput, 13 mm across; fattening it to a
     # braincase plus muscle moves mass back toward the body and shortens the
     # lever from **267 to 255 mm**, against 81 lumped.
-    assert a["frac"] == pytest.approx(0.36, abs=0.03)
-    assert a["dcom"] == pytest.approx(8.4, abs=0.8)
+    # ✅ M129 (ADR-0121): **36 % -> 28 %**, the neck 40 % shorter. The head
+    # carried back 48 mm and down 30 under the cat's skin; the lever falls
+    # 259 -> 231 mm. The first move in this list that the SHAPE paid for.
+    assert a["frac"] == pytest.approx(0.28, abs=0.02)
+    assert a["dcom"] == pytest.approx(7.3, abs=0.5)
     assert a["lever_after"] > 2.5 * a["lever_before"], (
         "lever %.0f -> %.0f mm" % (a["lever_before"], a["lever_after"])
     )
@@ -123,11 +126,17 @@ def test_the_head_is_carried_a_HEAD_LENGTH_above_the_back():
     in this file has been wrong twice."""
     top = HD.cranium_top()
     # ⚠️ 1.14 head-lengths was the EAR tip; the skull plates have no ears, so
-    # the crown is placed at the traced 0.96 and the ears are owed as features.
-    assert top - TT.Z_DORSAL == pytest.approx(0.96 * HD.HEAD_L, rel=0.06), (
-        "the skull tops out %.0f mm above the back; the trace says %.0f"
-        % (top - TT.Z_DORSAL, 0.96 * HD.HEAD_L)
+    # the crown was placed at the traced 0.96 and the ears are owed as features.
+    # ✅ M129 (ADR-0121): **0.96 -> 0.65.** The trace is an ALERT wildcat, head
+    # up on a 139 mm neck, and under the cat's skin that read as a long neck;
+    # carried back and lower the neck is 84 mm and the crown still 61 mm above
+    # the back -- above it, which is what this test is about.
+    assert HD.CROWN_AT == pytest.approx(0.65)
+    assert top - TT.Z_DORSAL == pytest.approx(HD.CROWN_AT * HD.HEAD_L, rel=0.06), (
+        "the skull tops out %.0f mm above the back; the posture says %.0f"
+        % (top - TT.Z_DORSAL, HD.CROWN_AT * HD.HEAD_L)
     )
+    assert top - TT.Z_DORSAL > 0.6 * HD.HEAD_L, "still above the back, not on it"
     nose = max(x for x, _t, _b, _w in HD._stations())
     assert nose == pytest.approx(TT.BODIES[3][1] + HD.U_WITHERS * HD.HEAD_L,
                                  abs=1.0)

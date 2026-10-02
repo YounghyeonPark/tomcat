@@ -173,21 +173,21 @@ pub mod from_power_py {
     //        into params.py at last
 
     /// Copper loss per leg motor at the 50 cm/s trot, W. (`copper_w / 12`)
-    pub const TROT_W: f64 = 4.9939;
+    pub const TROT_W: f64 = 4.9683;
     /// Per-motor draw HOLDING a stance, W. Higher than trotting — a cable can only
     /// pull, so posture costs current. (`legs_w / 12`)
-    pub const STAND_W: f64 = 2.3745;
+    pub const STAND_W: f64 = 2.3618;
     /// Minutes of trotting on the 300 g pack.
-    pub const TROT_RUNTIME_MIN: f64 = 23.8070;
+    pub const TROT_RUNTIME_MIN: f64 = 23.8938;
     /// Minutes standing on the pack, brake OFF.
-    pub const STAND_RUNTIME_MIN: f64 = 57.9387;
+    pub const STAND_RUNTIME_MIN: f64 = 58.1433;
     /// Whole-robot electrical draw at the trot, W. (`gait_power()["total_w"]`)
     ///
     /// ⚠️ M40: this lived as a bare `const TOTAL_W` inside two functions and was
     /// therefore **outside** the pytest guard, so it could go stale silently — which
     /// it did: it still read 83.5607 after the copper-loss correction, and only the
     /// emergent-runtime cross-check caught it. Guarded now.
-    pub const TOTAL_W: f64 = 105.8512;
+    pub const TOTAL_W: f64 = 105.4667;
 }
 
 /// Room air. Everything is quoted as a rise, so this only sets the absolute scale.

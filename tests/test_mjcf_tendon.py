@@ -2646,7 +2646,8 @@ def test_the_SWAY_ADR0009_BOUGHT_needs_the_FEET_TO_SLIDE():
     # than by design, and it is worth saying so rather than letting an unchanged
     # number imply nothing happened.
     # M123 (ADR-0114): 72.7 -> 61.1 mm, the sway re-tuned to 8.75 deg.
-    assert analytic == pytest.approx(61.1, abs=1.0), (
+    # M129 (ADR-0121): 61.1 -> 60.0 mm, the head carried back and lower.
+    assert analytic == pytest.approx(60.0, abs=1.0), (
         f"the analytic model promises {analytic:.1f} mm of sway"
     )
 
@@ -3078,7 +3079,10 @@ def test_the_LATERAL_ARM_buys_COST_not_SWAY():
     # ⚠️ M123 (ADR-0114): **1.76x -> 1.15x** (2.17 vs 1.88 mm). With the hips
     # 270 mm apart and the 8.75 deg sway the plain foot moves the body nearly as
     # far; the directional pad's advantage has mostly gone.
-    assert runs["aniso20"]["sway"] > 1.1 * runs["plain20"]["sway"], (
+    # ⚠️ M129 (ADR-0121): **1.15x -> 1.07x** (2.19 vs 2.05 mm), the head
+    # carried back and lower. The advantage is now within what the plain foot
+    # varies by between builds; the claim is reduced to "no worse".
+    assert runs["aniso20"]["sway"] > runs["plain20"]["sway"], (
         f"the pad must dominate the sway: {runs['aniso20']['sway']:.2f} vs "
         f"{runs['plain20']['sway']:.2f} mm"
     )
@@ -3272,7 +3276,9 @@ def test_ONLY_ONE_GAIN_PAIR_actually_STANDS():
     assert none["track"] < shipped["track"], (
         "even though the spine tracks its reference BETTER, which is the point"
     )
-    assert none["tilt"] > 20.0, f"and it is not standing at all: {none['tilt']:.1f}"
+    # M129 (ADR-0121): 20+ -> 19.8 deg, the head carried lower. A 20 deg
+    # lean is not standing either; the bound is 15.
+    assert none["tilt"] > 15.0, f"and it is not standing at all: {none['tilt']:.1f}"
 
 
 # ==========================================================================
@@ -4831,7 +4837,8 @@ def test_COMPLIANCE_leaves_the_SWAY_alone_exactly_as_ADR0072_ASSUMED():
     # ⚠️ M111: 2.99 -> 2.78 mm, the heavier legs (ADR-0103's sheaves).
     # ⚠️ M122: 2.78 -> 3.19 mm, the hips 225 mm apart and the legs 13 g lighter.
     # ⚠️ M123: 3.19 -> 1.88 mm, the walk's sway re-tuned 11 -> 8.75 deg.
-    assert out["rigid"]["sway"] == pytest.approx(1.88, abs=0.15)
+    # M129 (ADR-0121): 1.88 -> 2.05 mm, the head carried back and lower.
+    assert out["rigid"]["sway"] == pytest.approx(2.05, abs=0.15)
     for label in ("legs", "legs+spine"):
         # ⚠️ **M93 REVERSED the direction.** The compliant plants used to sway
         # slightly MORE than the rigid one (4.66 against 4.60 mm) and now sway
@@ -4848,7 +4855,9 @@ def test_COMPLIANCE_leaves_the_SWAY_alone_exactly_as_ADR0072_ASSUMED():
         # At the re-tuned 8.75 deg the command asks the spine for less travel
         # and the compliant leg no longer gives it back -- ADR-0072's
         # assumption nearly holds again, as it did before M93.
-        assert out[label]["sway"] == pytest.approx(1.98, abs=0.20), (
+        # M129 (ADR-0121): 1.98 -> 2.23 mm (+9 % on the rigid 2.05), the head
+        # carried back and lower. Still inside the 10 % below.
+        assert out[label]["sway"] == pytest.approx(2.23, abs=0.20), (
             f"{label} swayed {out[label]['sway']:.2f} mm"
         )
         assert abs(out[label]["sway"] / out["rigid"]["sway"] - 1.0) < 0.10
@@ -4934,7 +4943,11 @@ def test_COMPLIANCE_costs_the_RIGHTING_a_FACTOR_OF_THREE_when_the_SPINE_has_it()
     # `test_CLOSING_THE_LOOP_rights_the_robot_but_from_TWENTY_TWO_METRES`.
     # ⚠️ M122 (ADR-0112): 1.35 -> 1.08 s -- the longer body rights faster.
     # M123 (ADR-0114): 1.08 -> 0.99 s -- the longer wheelbase rights faster.
-    assert rigid_t == pytest.approx(0.99, abs=0.05)
+    # ⚠️ M129 (ADR-0121): 0.99 -> 1.06 s, the head carried back and lower --
+    # a quarter less pitch inertia, and a righting 7 % SLOWER: the roll the
+    # righting is made of does not run on pitch inertia, and the head lower
+    # sits nearer the roll axis, where it helps the spine's twist less.
+    assert rigid_t == pytest.approx(1.06, abs=0.05)
     assert legs_t is not None and legs_t == pytest.approx(1.089, abs=0.10), (
         f"the shipped drivetrain rights in {legs_t} s"
     )
@@ -4958,7 +4971,9 @@ def test_COMPLIANCE_costs_the_RIGHTING_a_FACTOR_OF_THREE_when_the_SPINE_has_it()
     # mass; the multiple of the rating is the finding, not the newtons.
     # ⚠️ M122: 6022 -> 6479 N, 29x -- the longer body, and the same caveat.
     # ⚠️ M123: 6479 -> 8996 N, 40x -- the longer wheelbase, and the same caveat.
-    assert rigid_peak == pytest.approx(8996.0, rel=0.05)
+    # ✅ M129 (ADR-0121): 8996 -> 6670 N, 30x -- the head carried back and
+    # lower, the same caveat.
+    assert rigid_peak == pytest.approx(6670.0, rel=0.05)
     assert rigid_peak > 20.0 * MT.TENSION_MAX
 
     # ⚠️ and with the spine spooled the same manoeuvre takes longer again

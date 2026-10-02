@@ -9658,6 +9658,71 @@ The MuJoCo harness moved four numbers, and three of them moved the good way.
 
 ---
 
+## ADR-0121: the head is carried back and lower — a neck 40 % shorter, and a quarter less pitch inertia from the head
+- **Status:** Accepted (M129). Revises [ADR-0097](#adr-0097)'s posture
+  (`tomcat_head`); the skull's shape is unchanged.
+- **Context:** under the cat's skin (ADR-0120) the owner saw a neck that was
+  too long. The head's posture came from a traced side view of a wildcat:
+  nose 2.0 head-lengths ahead of the withers, crown 0.96 head-lengths above
+  the back. That is an ALERT posture, the head held up on a neck of 139 mm
+  from the withers to the occiput. The head is also the 240 g lump of the
+  mass model, so where it sits is a dynamics decision as well as a look.
+
+- **Options**, each with the cute head and the suit drawn over it (previews):
+
+  | posture (nose ahead, crown) | neck | crown above back | head's share of body Iyy |
+  |---|---|---|---|
+  | 2.0, 0.96 (was) | 139 mm | 91 mm | 36.7 % |
+  | A: 1.65, 0.80 | 104 mm (−25 %) | 76 mm | 30.8 % |
+  | **B: 1.5, 0.65** | **84 mm (−40 %)** | **61 mm** | **27.7 %** |
+
+- **Decision: B** (the owner's choice). `U_WITHERS` 2.0 → 1.5 and the new
+  `CROWN_AT` 0.96 → 0.65. The head moves 48 mm back and 30 mm down, and sits
+  on the shoulders, still above the back. The fore leg is not touched (the
+  head check measures 0.0 mm³).
+  - The suit's head shapes (`FACE`, the ears, the eyes, the nose, the neck's
+    end) are now carried with the skull from where they were drawn
+    (`cat_suit.FACE_REF`), so a future move of the head moves the face too.
+  - `cat_suit`'s structure cache is split into the head and the rest. Sampling
+    the legs is what needs ~8 GB, and the head moves on its own, so this
+    rebuild resampled only the head. The 1.25 mm build then needed ~1 GB.
+
+- **Consequences** (re-baselined):
+  - Front girdle CoM (35.6, 37.0) → **(30.4, 33.7) mm**. Its **Iyy 7.96e-3 →
+    5.64e-3 kg m² (−29 %)**; Ixx −22 %, Izz −28 %, Ixz −3.14e-3 → −2.06e-3.
+  - The head's lever about the body's CoM is 259 → 231 mm. Its pitch-inertia
+    cost falls 36.7 → 27.7 % of the body's. The body's CoM is 7.3 mm forward
+    of where the lumped mass put it (was 8.6), and 17.3 mm above the hip axis
+    (was 18.2).
+  - The skin's cost falls with it, because the foam face rides the same
+    shorter lever. Foam 120 g, of which the head is 50 g: +12.8 % of the body's
+    pitch inertia, with the head's part 11.1 → 7.6 %. The knit is 113 g and
+    +9.8 % (was 11.2 %).
+  - The exact viable worst case is 30.65 → 30.13 mm. With the spine's
+    authority it is 65.3 → 64.2 mm, against NFR15's 48 mm. Trot copper is
+    4.968 W a motor; runtime 23.9 min trotting.
+  - The MuJoCo plant reads the girdle from `params.py`; the righting and
+    landing results are re-measured below.
+  - Re-measured in the plant:
+
+    | | before | M129 |
+    |---|---|---|
+    | rigid righting, start lean 1.0 | 0.99 s | **1.06 s** |
+    | the spine's own cable demand in it | 8996 N | 6670 N |
+    | the walk's sway, analytic / rigid / compliant legs | 61.1 / 1.88 / 1.98 mm | 60.0 / 2.05 / 2.23 mm |
+    | directional foot pad's sway advantage | 1.15x | **1.07x** |
+    | stance tilt with no attitude term | > 20° | 19.8° |
+
+    ⚠️ **A quarter less pitch inertia from the head, and a righting 7 %
+    slower.** The righting is a ROLL manoeuvre about the body's long axis, so
+    it does not run on pitch inertia. With the head lower and closer, the twist
+    the spine puts into the forequarter turns less mass far from that axis.
+    The spooled spine still rights within 15 % of the rigid one. The foot
+    pad's advantage is now within build-to-build noise, so its claim is
+    reduced to "no worse".
+
+---
+
 ---
 
 ### How to add an ADR

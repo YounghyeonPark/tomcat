@@ -231,6 +231,29 @@ def _ear(P, sgn):
     return np.maximum(outer, -cup)
 
 
+#: The nose and head height `FACE`, `EAR`, `EYE` and `NOSE` were drawn at.
+#: ✅ M129 (ADR-0121): they are carried with the head wherever `tomcat_head`
+#: puts it -- the head moved back 48 mm and down 30 when the neck shortened.
+FACE_REF = (446.157, 143.175)
+#: Where the neck ends, behind and below the face, at `FACE_REF`.
+NECK_END = np.array([356.0, 0.0, 122.0])
+
+
+def _carry_head():
+    global FACE, EAR, HEAD_FREE_X, NECK_END
+    HD._place()
+    D = np.array([HD.NOSE_X - FACE_REF[0], 0.0, HD.HEAD_Z - FACE_REF[1]])
+    FACE = tuple((nm, tuple(np.asarray(c) + D), r) for nm, c, r in FACE)
+    b, t, rb, rt = EAR
+    EAR = (tuple(np.asarray(b) + D), tuple(np.asarray(t) + D), rb, rt)
+    HEAD_FREE_X = HEAD_FREE_X + D[0]
+    NECK_END = NECK_END + D
+    return D
+
+
+HEAD_SHIFT = _carry_head()
+
+
 def face_field(P):
     f = None
     for _nm, c, r in FACE:
@@ -287,7 +310,7 @@ def cat_field(P):
     nb = NECK_BASE + np.array([-10.0, 0.0, -2.0])
     # ⚠️ it ends BEHIND and below the face: carried into the head at 42 mm it
     # stood out of the jaw on both sides, wider than the cheeks
-    ne = np.array([356.0, 0.0, 122.0])
+    ne = NECK_END
     f = _smin(f, _round_cone(P, nb, ne, 50.0, 25.0), K_BODY)
     # the ruff at the throat, which a cat's neck disappears into
     f = _smin(f, _ellipsoid(P, np.array([292.0, 0.0, 62.0]), np.array([42.0, 40.0, 48.0])),
@@ -342,32 +365,9 @@ def cat_field(P):
     return f
 
 
-def structure_solids():
-    """Everything the suit must cover: trunk, four legs with their drive, the
-    head and neck (`tomcat_head`'s solid, all of it since M129), the tail."""
-    import tomcat_assembly as A
-    bodies, legs, _soft = A.assembly(soft=False)
-    return bodies + legs + [HD.whole(), TL.tail()]
-
-
-def structure_points(cache=None, tol=0.8, spacing=0.6):
-    """Surface samples of `structure_solids`, dense enough for `VOXEL`.
-
-    ⚠️ The cache is stale the moment any geometry moves, and a stale one
-    would fit the suit to a skeleton that no longer exists -- silently. It is
-    used only while it is newer than every CAD script and `params.py`."""
-    if cache and os.path.exists(cache):
-        # (this file draws the suit, not the structure: its own edits do not
-        # stale the samples)
-        src = [os.path.join(HERE, f) for f in os.listdir(HERE)
-               if f.endswith(".py") and f != os.path.basename(__file__)]
-        src.append(os.path.join(os.path.dirname(HERE), "..", "kinematics", "src",
-                                "tomcat_kin", "params.py"))
-        if os.path.getmtime(cache) > max(os.path.getmtime(f) for f in src):
-            return np.load(cache)["p"]
-    rng = np.random.default_rng(0)
+def _sample(solids, tol, spacing, rng):
     out = []
-    for g in structure_solids():
+    for g in solids:
         for f in g.faces():
             try:
                 verts, tris = f.tessellate(tol)
@@ -385,11 +385,48 @@ def structure_points(cache=None, tol=0.8, spacing=0.6):
                 flip = u.sum(1) > 1
                 u[flip] = 1 - u[flip]
                 Tb = T[idx]
-                out.append(Tb[:, 0] + u[:, :1] * (Tb[:, 1] - Tb[:, 0]) + u[:, 1:] * (Tb[:, 2] - Tb[:, 0]))
-    p = np.concatenate(out).astype(np.float32)
-    if cache:
-        np.savez_compressed(cache, p=p)
-    return p
+                out.append(Tb[:, 0] + u[:, :1] * (Tb[:, 1] - Tb[:, 0])
+                           + u[:, 1:] * (Tb[:, 2] - Tb[:, 0]))
+    return np.concatenate(out).astype(np.float32)
+
+
+def structure_points(cache=None, tol=0.8, spacing=0.6):
+    """Surface samples of everything the suit must cover, dense enough for `VOXEL`.
+
+    ⚠️ The cache is stale the moment any geometry moves, and a stale one
+    would fit the suit to a skeleton that no longer exists -- silently. It is
+    used only while it is newer than every script its part is drawn by.
+
+    ✅ M129: in TWO parts, because sampling the legs is what costs the memory
+    (~8 GB, every face tessellated in Python) and the head moves on its own:
+    `<cache>_head.npz` (the head and neck, `tomcat_head`) and
+    `<cache>_rest.npz` (trunk, legs and drive, tail -- everything else)."""
+    here = [os.path.join(HERE, f) for f in os.listdir(HERE)
+            if f.endswith(".py") and f != os.path.basename(__file__)]
+    params = os.path.join(os.path.dirname(HERE), "..", "kinematics", "src",
+                          "tomcat_kin", "params.py")
+    head_src = [os.path.join(HERE, "tomcat_head.py"), os.path.join(HERE, "tomcat_trunk.py"),
+                params]
+    rest_src = [f for f in here if os.path.basename(f) != "tomcat_head.py"] + [params]
+
+    def rest_solids():
+        import tomcat_assembly as A
+        bodies, legs, _soft = A.assembly(soft=False)
+        return bodies + legs + [TL.tail()]
+
+    parts = []
+    for name, solids, src in (("rest", rest_solids, rest_src),
+                              ("head", lambda: [HD.whole()], head_src)):
+        path = None if not cache else cache.replace(".npz", "_%s.npz" % name)
+        if path and os.path.exists(path) and \
+                os.path.getmtime(path) > max(os.path.getmtime(f) for f in src):
+            parts.append(np.load(path)["p"])
+            continue
+        p = _sample(solids(), tol, spacing, np.random.default_rng(0))
+        if path:
+            np.savez_compressed(path, p=p)
+        parts.append(p)
+    return np.concatenate(parts)
 
 
 def grid(points):
@@ -702,6 +739,8 @@ EYE = ((424.0, 24.0, 155.0), (0.99, 0.12, 0.05))
 EYE_R = (5.0, 12.5, 11.0)
 NOSE = ((440.0, 0.0, 140.0), (0.90, 0.0, 0.43))
 NOSE_R = (3.5, 6.0, 4.0)
+EYE = (tuple(np.asarray(EYE[0]) + HEAD_SHIFT), EYE[1])
+NOSE = (tuple(np.asarray(NOSE[0]) + HEAD_SHIFT), NOSE[1])
 
 
 def _surface(F, lo, p0, d, reach=90.0):
@@ -793,7 +832,7 @@ FEATURE = {"rim": (0.10, 0.08, 0.07), "iris": (0.86, 0.60, 0.22),
 #: `(name, elevation, azimuth, focus, distance)`: the whole cat twice, and the
 #: face from the front, as the photograph sees it.
 VIEWS = (("3/4", 14, -58, None, 1300.0), ("side", 2, -90, None, 1300.0),
-         ("face", 8, -16, (410.0, 0.0, 165.0), 380.0))
+         ("face", 8, -16, tuple(np.array([410.0, 0.0, 165.0]) + HEAD_SHIFT), 380.0))
 
 
 def _ellipsoid_actor(c, r, axis, tilt, colour, specular):
