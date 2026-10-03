@@ -75,6 +75,16 @@ SMOOTH = 4.0
 #: Foam densities priced, kg/m^3: the soft PU foam chosen, and a silicone foam
 #: for what a squishier, heavier skin would cost.  `[assumed]`
 FOAM_RHO = {"PU foam": 30.0, "silicone foam": 250.0}
+#: ✅ M129 (ADR-0122): the FACE has a firm foam skin -- a high-resilience
+#: polyurethane, kg/m^3 -- and the body stays soft. The face's chin, muzzle,
+#: whisker pads and cheeks stand out of the head with nothing behind them,
+#: and the knit, stretched over them, squashes a soft foam flat; a firmer
+#: one holds them. Chosen over a bone or a 1 mm shell former behind the
+#: face, which would cost more on the head's long lever.  `[assumed]`
+FOAM_FIRM = ("HR foam", 55.0)
+#: How deep the firm foam goes under the knit, mm; the face's core stays soft.
+#: What holds a shape against the knit's tension is its outer layer.
+FIRM_DEPTH = 10.0
 #: Blend radii, mm: how softly the torso, the legs and the structure merge.
 #: M129: wider (18 / 9 / 5 before) -- rounder.
 K_BODY, K_LEG, K_STRUCT = 24.0, 13.0, 8.0
@@ -515,6 +525,7 @@ def foam(pd, dist, lo):
         k = np.where(hit.any(1), np.argmax(hit, 1), len(ts) - 1)
         thick[i0:i0 + 40000] = ts[k]
     head = P[:, 0] > HD.BASE_X + 0.5 * HD.NECK_L * NECK_DIR[0]
+    face = P[:, 0] > HEAD_FREE_X              # where FACE alone shapes the head
     r2k = (P[:, 0] - BODY_COM[0]) ** 2 + (P[:, 2] - BODY_COM[1]) ** 2
     out = {"knit_r2_mm4": float((area * r2k).sum())}
     # ✅ the design: a PADDED SHELL -- `PAD` of foam under the knit, with air
@@ -528,6 +539,10 @@ def foam(pd, dist, lo):
         out[nm] = {"foam_mm3": float(vol.sum()), "head_mm3": float(vol[head].sum()),
                    "r2_mm5": float((vol * r2).sum()),
                    "head_r2_mm5": float((vol * r2)[head].sum()),
+                   "face_mm3": float(vol[face].sum()),
+                   "face_r2_mm5": float((vol * r2)[face].sum()),
+                   "face_skin_mm3": float((area * np.minimum(t, FIRM_DEPTH))[face].sum()),
+                   "face_skin_r2_mm5": float((area * np.minimum(t, FIRM_DEPTH) * r2)[face].sum()),
                    "mean_mm": float(vol.sum() / area.sum())}
     return out
 
@@ -709,6 +724,30 @@ def report(cache=None, pd=None, points=None, st=None):
                       "+%.2e kg m2 = %5.1f %% of the body's (head %4.1f %%)"
                       % (nm, rho, m, hv * rho * 1e-3, I, 100 * I / BODY_IYY,
                          100 * Ih / BODY_IYY))
+        # the design: the shell, soft on the body and firm in the face
+        fs = st["foam"]["shell"]
+        soft_rho, (fnm, firm_rho) = FOAM_RHO["PU foam"], FOAM_FIRM
+        # firm in the face's outer FIRM_DEPTH, soft everywhere else
+        fv = fs["face_skin_mm3"] * 1e-3
+        bv = (fs["foam_mm3"] - fs["face_skin_mm3"]) * 1e-3
+        mf, mb = fv * firm_rho * 1e-3, bv * soft_rho * 1e-3
+        If = firm_rho * 1e-9 * fs["face_skin_r2_mm5"] * 1e-6
+        Ib = soft_rho * 1e-9 * (fs["r2_mm5"] - fs["face_skin_r2_mm5"]) * 1e-6
+        all_firm = (fs["face_mm3"] * 1e-3 * firm_rho * 1e-3
+                    + (fs["foam_mm3"] - fs["face_mm3"]) * 1e-3 * soft_rho * 1e-3)
+        all_I = (firm_rho * fs["face_r2_mm5"]
+                 + soft_rho * (fs["r2_mm5"] - fs["face_r2_mm5"])) * 1e-15
+        print("  (the face firm all through: %.0f g, +%.1f %%)"
+              % (all_firm, 100 * all_I / BODY_IYY))
+        st["design"] = {"face_g": mf, "body_g": mb, "I": If + Ib, "I_face": If, "knit_I": Ik}
+        print("\nTHE DESIGN: the shell, soft PU (%.0f kg/m3), and %s (%.0f) the "
+              "face's outer %.0f mm" % (soft_rho, fnm, firm_rho, FIRM_DEPTH))
+        print("  soft foam %4.0f cm3 %5.0f g | firm foam %4.0f cm3 %5.0f g | total %.0f g"
+              % (bv, mb, fv, mf, mb + mf))
+        print("  pitch inertia +%.2e kg m2 = %.1f %% of the body's (the face %.1f %%); "
+              "with the knit %.1f %%"
+              % (If + Ib, 100 * (If + Ib) / BODY_IYY, 100 * If / BODY_IYY,
+                 100 * (If + Ib + Ik) / BODY_IYY))
     dmin, where, outside = clearance(pd, points)
     print("clearance      %.2f mm to the structure, least at (%.0f, %.0f, %.0f)"
           % (dmin, *where))

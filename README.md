@@ -69,7 +69,7 @@ and a mock-up of the cable bundle that twists inside the hollow hip.
 | `kinematics/` | `tomcat_kin`: kinematics, tendon maps, mass, gait, balance, MuJoCo plants, RL env |
 | `mechanical/cad/` | build123d CAD: trunk, legs, hollow hip, drive, G3 flexure, head, tail, skin |
 | `thermal/` | Rust crate: motor and girdle thermal duty |
-| `tests/` | pytest suite (567 tests) |
+| `tests/` | pytest suite (568 tests) |
 | `docs/` | requirements, architecture, the ADR log, the progress log |
 | `electronics/`, `firmware/` | not started |
 

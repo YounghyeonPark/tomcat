@@ -9723,6 +9723,47 @@ The MuJoCo harness moved four numbers, and three of them moved the good way.
 
 ---
 
+## ADR-0122: no jaw bone — the face holds its shape with a firm foam skin
+- **Status:** Accepted (M129). Builds on [ADR-0120](#adr-0120).
+- **Context:** the traced skull has no mandible, and the owner asked whether
+  the robot needs one. In ADR-0120 the face is drawn as a cat's head
+  independent of the skull, so the chin, the muzzle, the whisker pads and the
+  lower cheeks are foam with nothing rigid behind them. Their own weight is
+  ~1 g and they do not sag. The risk is the knit: a power mesh is fitted
+  stretched, and its tension squashes a soft foam's protruding features flat.
+  Handling squashes them too.
+
+- **Options:**
+  - A jaw bone (articulated, or a rigid anatomical mandible). It has no
+    function (the robot does not eat or bite), and it adds mass on the
+    longest lever in the body (the head sits 231 mm from the CoM).
+  - A 1 mm TPU former shaped like the lower face, inside the foam: about
+    10–15 g, which on that lever is roughly +2 % of the body's pitch inertia
+    `[estimated]`.
+  - **A firmer foam where the face's shape is.** Chosen.
+
+- **Decision:** the face, where `FACE` alone shapes the head (forward of
+  `HEAD_FREE_X`), is laid in a high-resilience polyurethane foam at 55 kg/m³
+  (`FOAM_FIRM` `[assumed]`), but only its outer `FIRM_DEPTH` = 10 mm. What
+  holds a shape against the knit's tension is the outer layer. The face's
+  core and the whole body stay in the soft 30 kg/m³ foam.
+
+  | face foam | foam mass | foam's share of the body's Iyy |
+  |---|---|---|
+  | soft throughout (was) | 120 g | +12.9 % |
+  | **firm outer 10 mm** | **132 g** (474 cm³ firm, 26 g) | **+15.0 %** (the face +4.6 %) |
+  | firm throughout | 152 g | +18.4 % |
+
+  With the knit the skin is ~245 g and +24.8 % of the body's pitch inertia.
+  The clearance is unchanged at 8.51 mm.
+
+- **Consequences:** if a prototype face still loses its shape, the former is
+  the next step (`[owed]`: its mass and inertia priced the same way). The
+  skin's mass and inertia go into the mass model with M130, and the righting
+  is re-run there.
+
+---
+
 ---
 
 ### How to add an ADR

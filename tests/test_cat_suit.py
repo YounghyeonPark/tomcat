@@ -115,3 +115,16 @@ def test_every_JOINT_needs_GATHERED_fabric():
     hind_hip = [r for r in rows if r[0] == "hind" and r[1] == "hip"][0]
     # M129: 0.554 -> 0.638, the foam puts the knit 6 mm further out
     assert hind_hip[5] == pytest.approx(0.638, abs=0.02)
+
+
+def test_the_FACE_is_FIRM_where_it_holds_its_shape():
+    """✅ M129 (ADR-0122): the face's outer `FIRM_DEPTH` is a firm foam, the
+    rest of the skin soft. The chin, muzzle and cheeks stand out of the head
+    with nothing behind them, and the knit stretched over them squashes a soft
+    foam; it is the outer layer that holds a shape, so only that is firm --
+    132 g of foam and +15.0 % of the body's pitch inertia, where a face firm
+    all through is 152 g and +18.4 %."""
+    name, rho = CS.FOAM_FIRM
+    assert 45.0 < rho < 70.0, "a high-resilience foam, not a solid"
+    assert rho > CS.FOAM_RHO["PU foam"]
+    assert 5.0 <= CS.FIRM_DEPTH <= 15.0, "a skin, not the whole face"
