@@ -44,11 +44,11 @@ the cable pulling).
 | | |
 |---|---|
 | Mass | **4.58 kg** (19 motors: 12 leg, 6 spine, 1 tail) |
-| Trunk / hips apart | 372 mm / 270 mm |
+| Trunk / hips apart | 384 mm / 276 mm |
 | Joint moment arms (hip / knee / ankle) | 36 / 34 / 22 mm |
-| Motor demand (peak / continuous) | 1.65 / 0.57 N·m per motor |
+| Motor demand (peak / continuous) | 1.70 / 0.58 N·m per motor |
 | Trot | 50 cm/s |
-| Runtime, trotting | 18–24 min (~710 m) on a 300 g pack |
+| Runtime, trotting | 17–23 min (~700 m) on a 300 g pack |
 | Righting from upside down | ~1.0 s (simulated) |
 
 Every number is computed from the live model, not typed in: the CAD, the

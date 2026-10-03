@@ -114,7 +114,8 @@ def test_the_MECHANISM_emits_a_MOTOR_SPEC_rather_than_fitting_one(closed):
     # conduit's slide now, not a capstan on anchored and running pulleys.
     # M123 (ADR-0114): -> 1.656 under the hollow hip's +26 g a leg, the hips
     # 270 mm apart, and the hip pair's conduits from their new row.
-    assert req["peak"] == pytest.approx(1.656, abs=0.03)
+    # M130 (ADR-0123): -> 1.698, the floating ferrules' S on every conduit.
+    assert req["peak"] == pytest.approx(1.698, abs=0.03)
     # ⚠️ M115: 0.646 (worst pose) -> 0.624 N.m -- the larger of the stance hold
     # (0.495) and the walked trot's RMS (0.624, the fore ankle). Thermal is the
     # load actually carried.
@@ -131,9 +132,11 @@ def test_the_MECHANISM_emits_a_MOTOR_SPEC_rather_than_fitting_one(closed):
     fore_peak = max(req["fore_per_joint"], key=lambda k: req["fore_per_joint"][k][1])
     # M122: the fore HIP (1.623) edges the knee (1.618) -- 0.3 % apart; the
     # knee's capstan share was the larger, and it is gone.
+    # M130 (ADR-0123): the hip by 1.3 % -- the floating ferrule's S is
+    # largest on the hip conduit (25 deg against 15).
     assert fore_peak in ("hip", "knee"), f"the fore trot is sized by {fore_peak}"
     assert req["fore_per_joint"]["hip"][1] == pytest.approx(
-        req["fore_per_joint"]["knee"][1], rel=0.01)
+        req["fore_per_joint"]["knee"][1], rel=0.02)
     assert req["peak"] < req["proxy_peak"] and req["continuous"] < req["proxy_rated"]
     # ⚠️ and the axis the proxy fails on now
     # M122: 665 -> 629 rpm -- the swing's torque fell with the friction, and

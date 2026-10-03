@@ -84,8 +84,10 @@ def test_the_motor_holds_on_TORQUE_again_and_the_arms_are_why(duty):
     # the conduit's slide, not a capstan on every degree of wrap.
     # M123 (ADR-0114): 1.57 -> 1.66 N.m, 85 % of peak -- the hollow hip's
     # +104 g of body and the hip pair's conduits from their new row.
-    assert d["trot_motor"] == pytest.approx(1.66, abs=0.05)
-    assert 0.75 < d["vs_peak"] < 0.87, f"trot at {100 * d['vs_peak']:.0f} % of peak"
+    # M130 (ADR-0123): 1.66 -> 1.70 N.m, 87 % of peak -- the floating
+    # ferrules' S on every conduit.
+    assert d["trot_motor"] == pytest.approx(1.70, abs=0.05)
+    assert 0.75 < d["vs_peak"] < 0.89, f"trot at {100 * d['vs_peak']:.0f} % of peak"
     assert d["stand_vs_rated"] < 1.0, "standing must be inside the CONTINUOUS rating"
 
 

@@ -62,11 +62,13 @@ def test_every_row_FITS_its_body_with_G3_and_the_bodies_did_not_grow():
     # M122 (ADR-0112) did lengthen body 0, by the 30 mm between the hind hip
     # and spine joint 0 -- not G3's doing. M123 (ADR-0114) made it exactly its
     # two hip-station rows and pads: 109.2 mm.
-    assert TT.BODIES[0][1] - TT.BODIES[0][0] == pytest.approx(109.16, abs=0.05)
+    # M130 (ADR-0123): 109.2 -> 115.2 mm -- the hip 4 mm further back and the
+    # row behind it 2 mm longer, both for the wider drums. G3 still did not.
+    assert TT.BODIES[0][1] - TT.BODIES[0][0] == pytest.approx(115.21, abs=0.05)
     assert TT.BODIES[2][1] - TT.BODIES[2][0] == pytest.approx(51.0, abs=0.05)
     for (_nm, b, x, _n, ro) in TT._rows():
         x0, x1 = TT.BODIES[b]
-        h = TT.row_len(ro) / 2 + TT._PAD
+        h = TT.row_len(ro, _nm) / 2 + TT._PAD
         assert x0 - 1e-6 <= x - h and x + h <= x1 + 1e-6, (_nm, x - h - x0, x1 - x - h)
 
 

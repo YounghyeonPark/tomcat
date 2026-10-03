@@ -156,10 +156,29 @@ def motors(role: str, side: float = +1.0):
     return own
 
 
-def spool_x_of(role, m, end, side=+1.0):
+def joint_of(role, m, end):
+    """The joint whose pair a motor drives at that end, or None."""
+    for t, spec in DRIVE[role].items():
+        if tuple(spec[:2]) == (m, end):
+            return t
+    return None
+
+
+def spool_len_of(role, m, end):
+    """✅ M130 (ADR-0123): the drum at that end, as wide as its joint needs;
+    a motor at an end no drive uses gets its row's widest."""
     TT = _trunk()
-    x = motors(role, side)[m][1]
-    return x + end * (TT.row_len(role) / 2 - TP.SPOOL_L / 2)
+    t = joint_of(role, m, end)
+    if t is not None:
+        return TP.spool_len(t)
+    return TT.row_spool(role, motors(role)[m][0])
+
+
+def spool_x_of(role, m, end, side=+1.0):
+    """The drum's centre along x: at its row's `end`, flush with the row's end."""
+    TT = _trunk()
+    row, x = motors(role, side)[m][:2]
+    return x + end * (TT.row_len(role, row) / 2 - spool_len_of(role, m, end) / 2)
 
 
 def cans(role, side=+1.0):
@@ -170,7 +189,7 @@ def cans(role, side=+1.0):
     for (_nm, b, x, n, ro) in TT._rows():
         if b != body:
             continue
-        L = TT.row_len(ro if ro in ("hind", "fore", "spine") else "hind")
+        L = TT.row_len(ro if ro in ("hind", "fore", "spine") else "hind", _nm)
         for (y, z) in TT.ROWS[n][0]:
             out.append((x - L / 2, x + L / 2, y, TT._zc(x) + z))
     return out
@@ -617,9 +636,40 @@ def conduit_bend(role: str = "hind"):
         for sd, sense, phi in ((+1, sf, pf), (-1, -sf, pe)):
             l3 = spool_lead(role, m, e, phi, sense, to_y=None if t == "hip" else LEAD_Y)
             w, _r = conduit_worst(role, t, sd, l3, None if ha is None else ha[0 if sd > 0 else 1])
-            row.append(w)
+            # M130: plus the floating ferrule's S at the end of its travel
+            row.append(w + float_tail(t)["bend"])
         out.append(tuple(row))
     return tuple(out)
+
+
+#: ✅ M130 (ADR-0123): **F1 floats.** As a drum winds, the point where its
+#: cable leaves walks along the drum by a groove pitch a turn -- 5.5 mm on a
+#: hip drum over the joint's range -- and a fixed F1 11-28 mm away turned that
+#: into 4.8-8.2 deg of fleet where a groove holds about 2: the cable would
+#: climb out of its groove. F1 rides a slot along the drum's axis instead,
+#: carried by the cable's own exit point, so the lead stays square to the
+#: drum (zero fleet by construction) and the conduit behind it, clamped
+#: `FLOAT_L` further on, takes the offset as a gentle S.
+#: Free conduit between the floating F1 and its clamp, mm.  `[assumed]`
+FLOAT_L = 25.0
+
+
+def lead_walk(t):
+    """How far a cable's exit point walks along its drum over the joint's
+    whole range, mm: the travel's turns at one groove pitch each."""
+    turns = TP.cable_travel(t) / (2 * math.pi * float(LT.SPOOL_R))
+    return turns * TP.GROOVE_PITCH
+
+
+def float_tail(t):
+    """The floating F1's slot and the conduit's S behind it: `slot` (mm, the
+    ferrule's travel), `offset` (the S's offset, half the slot, either way of
+    the clamp), `radius` (mm) and `bend` (its total turning, rad)."""
+    slot = lead_walk(t)
+    d = slot / 2.0
+    th = 2.0 * math.atan2(d, FLOAT_L)          # each of the S's two arcs
+    R = FLOAT_L / (2.0 * math.sin(th)) if th > 0 else float("inf")
+    return {"slot": slot, "offset": d, "radius": R, "bend": 2.0 * th}
 
 
 def drive(role: str, side: float = +1.0, q=None, senses=None):

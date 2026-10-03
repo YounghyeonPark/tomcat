@@ -9764,6 +9764,85 @@ The MuJoCo harness moved four numbers, and three of them moved the good way.
 
 ---
 
+## ADR-0123: each drum as wide as its cable travel, and a ferrule that floats with the lead
+- **Status:** Accepted (M130). Closes the two findings [ADR-0118](#adr-0118)
+  left open.
+- **Context:** the tendon layout audit (M127) found two defects at the spools.
+  - **The drums were too narrow.** Every spool was 8 mm, about three grooves.
+    A pair on one drum winds one cable on as the other pays off. It needs the
+    travel of its joint's whole range, plus each cable's anchoring turns. The
+    hip's 240° on a 36 mm sheave is 151 mm of cable, 2.74 turns of the 8.75 mm
+    drum. At 8 mm a cable ran out of groove before the joint reached its stop.
+  - **The fleet was 4.8–8.2°**, where a groove holds about 2°. As a drum
+    winds, the point where its cable leaves walks along the drum, one groove
+    pitch per turn. A fixed first ferrule (F1) 11–28 mm away turned that walk
+    into an angle, and the cable would climb out of its groove.
+
+- **Decision:**
+  - **Each drum is sized by its own joint** (`tomcat_packaging.spool_len`).
+    Grooves = ⌈travel turns + 2 × `DEAD_TURNS` (1.0)⌉, at a 1.15 D pitch
+    (2.01 mm), plus two 1 mm end flanges:
+
+    | drum | cable travel | grooves | length (was 8.0) |
+    |---|---|---|---|
+    | hip | 151 mm (2.74 turns) | 5 | **12.06 mm** |
+    | knee | 89 mm | 4 | **10.05 mm** |
+    | ankle (with the knee via's coupling) | 92 mm | 4 | **10.05 mm** |
+    | spine, pitch and yaw | 26 / 10 mm | 3 | **8.04 mm** |
+    | tail | — | — | 8.0 (unchanged) |
+
+    A row of motors is as long as its widest drum. A narrower drum in the
+    same row sits at the hip end, flush with the shared bulkhead
+    (`tomcat_trunk.ROW_SPOOL`, `row_len(role, name)`).
+  - **The hips move to make room.** The row in front of the hind hip holds the
+    hip drums and must end clear of spine joint 0's neck, so the hind hip goes
+    **−65 → −69 mm**. The row behind the fore hip holds knee or ankle drums and
+    must start clear of joint 2's neck, so the fore hip goes **+10 → +12 mm**.
+    The hips are now **276 mm apart** (were 270). The trunk is 384 mm, 6 mm
+    longer, and the tail grows 0.2 g with it.
+  - **F1 floats** (`tendon_exit.float_tail`). It rides a slot along the drum's
+    axis, carried by the cable's own exit point, so the lead stays square to
+    the drum and its fleet is zero by construction. The conduit behind it is
+    clamped `FLOAT_L` = 25 mm further on and takes the walk as a gentle S:
+
+    | drum | slot (the walk) | S radius (min 15) | extra conduit bend |
+    |---|---|---|---|
+    | hip | 5.52 mm | 57 mm | 25.2° |
+    | knee | 3.26 mm | 96 mm | 14.9° |
+    | ankle | 3.37 mm | 93 mm | 15.4° |
+
+    The extra bend is charged at its worst (the drum at the end of its travel)
+    on top of each conduit's own worst bend, a conservative sum, and it goes
+    into `TendonParams.conduit_bend`.
+
+- **Consequences** (re-baselined):
+  - **Friction cost.** The S adds 3 % to the hip conduit's capstan factor, so
+    the motor peak goes **1.656 → 1.698 N·m** and the hind trot uses 87 % of
+    the proxy's peak. ⚠️ The moment arms are pinned at the shipped size again:
+    0.85× was 99 % of peak and is now 101 %. Trot copper loss is 4.97 → 5.18
+    W a motor, and the runtime is **17.5–23.3 min (~700 m)**.
+  - Mass is 4.57852 → **4.57869 kg** (the tail). The wider drums add about
+    15 g of aluminium across 18 drums `[estimated]`. Drums are not modelled
+    apart from the girdle's structure budget, which absorbs them.
+  - The girdles' CoMs ride their hips: front (30.4 → 33.3, 33.7) mm, rear
+    (−73.9 → −78.1, 18.8) mm, with Iyy +3.5 % and +2.1 %.
+  - The trot's foothold is re-bisected on `_roll_drift`: **0.01383 →
+    0.01309 m**. With the head carried back (M129) and the hips wider, the
+    drift at 0.01383 had gone to −0.027 rad/s per cycle.
+  - The diagonals' topple axes are 42.9 → 42.0° apart. The belly's pitch
+    strain is 34.7 → 33.6 %.
+  - ⚠️ **The MuJoCo balance harness:** the compliant legs' advantage over
+    stiff servos is 1.5× → **1.01×** on its baseline, and the phase-to-phase
+    spread is 7.1 → 10.9 mm. The finding that balance needs compliant legs is
+    not reproduced on this harness any more, and the claim is reduced to
+    "compliance costs nothing". The harness re-tune was already `[owed]`
+    (M123) and is now due.
+  - The cat suit's cached structure is stale, because the trunk is longer. It
+    is rebuilt on the next `cat_suit.py` run, which resamples the legs and
+    needs ~8 GB. The README picture predates M130 by 6 mm of trunk.
+
+---
+
 ---
 
 ### How to add an ADR

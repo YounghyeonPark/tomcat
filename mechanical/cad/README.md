@@ -1,6 +1,6 @@
 # mechanical/cad/
 
-## Current model (M129)
+## Current model (M130)
 
 ![the whole robot](tomcat_whole.png)
 

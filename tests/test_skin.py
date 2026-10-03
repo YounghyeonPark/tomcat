@@ -97,7 +97,7 @@ def test_the_BELLY_cannot_be_a_stretch_panel():
     dorsal = [r for r in rows if r[0].startswith("dorsal")][0]
     belly = [r for r in rows if "chest" in r[0]][0]
     assert dorsal[4] == pytest.approx(0.126, abs=0.01)
-    assert belly[4] == pytest.approx(0.347, abs=0.01)   # M122: 32.1 %; M123: 34.7 %
+    assert belly[4] == pytest.approx(0.336, abs=0.01)   # M122: 32.1 %; M123: 34.7 %; M130: 33.6 %
     assert belly[4] > 2.5 * dorsal[4], (
         "the belly is %.0f %% against the dorsal %.0f %% -- if the ratio closes, "
         "re-read the fold" % (100 * belly[4], 100 * dorsal[4])

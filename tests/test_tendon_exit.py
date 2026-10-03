@@ -68,7 +68,8 @@ def test_no_spool_sits_in_trunk_structure(role):
         for m, (_nm, x, y, z) in enumerate(TE.motors(role, side)):
             for end in (+1, -1):
                 xs = TE.spool_x_of(role, m, end, side)
-                sp = LD.xaxis_can(xs - TP.SPOOL_L / 2, xs + TP.SPOOL_L / 2, y, z,
+                sl = TE.spool_len_of(role, m, end)     # M130: as wide as its joint
+                sp = LD.xaxis_can(xs - sl / 2, xs + sl / 2, y, z,
                                   TE.LT.SPOOL_R + LD.GROOVE_R + LD.FLANGE_H)
                 inter = body.intersect(sp)
                 v = 0.0

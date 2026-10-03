@@ -259,7 +259,7 @@ def report():
             x, y, z = motors[("hip", "knee", "ankle").index(t)]
             T, F1 = r["lead"]
             off_spool = max(off_spool, abs(_np.hypot(T[1] - y, T[2] - z) - LT.SPOOL_R))
-            half = TT.row_len(role) / 2
+            half = TT.row_len(role) / 2      # the role's longest row: a bound
             if not (x - half - 1e-6 <= T[0] <= x + half + 1e-6):
                 off_spool = max(off_spool, 999.0)
             d = (F1 - T) / _np.linalg.norm(F1 - T)

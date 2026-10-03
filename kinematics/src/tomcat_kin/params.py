@@ -444,9 +444,11 @@ class TendonParams:
     #: `[derived: mechanical/cad/tendon_exit.py]`
     #: ✅ M123 (ADR-0114): the knee and ankle conduits run along the hip axis
     #: to the hub; the hip pair's from the new hip-station row.
-    conduit_bend: tuple = ((2.1221, 2.4463),  # hip   122 / 140 deg
-                           (1.6911, 1.6908),  # knee   97 /  97 deg
-                           (1.7122, 1.7120))  # ankle  98 /  98 deg (M127: opposite sides of the via)
+    #: ✅ M130 (ADR-0123): each plus the floating F1's S behind its drum --
+    #: 25 deg on a hip conduit, 15 on a knee or ankle -- at the end of travel.
+    conduit_bend: tuple = ((2.5572, 2.8999),  # hip   147 / 166 deg
+                           (1.9671, 1.9669),  # knee  113 / 113 deg
+                           (1.9961, 1.9959))  # ankle 114 / 114 deg
     #: Running pulleys between spool and anchored sheave: the knee via, on the
     #: ankle pair, and nothing else (ADR-0112).
     pulley_count: tuple = ((0, 0), (0, 0), (1, 1))
@@ -523,12 +525,16 @@ class SpineParams:
     #: along the hip axis into a hollow hip (`tendon_exit`). The rear girdle's
     #: motors are two rows straddling the hip, and the one in FRONT of it has to
     #: end clear of spine joint 0's neck -- which puts the hip 65 mm behind it.
-    rear_hip_x: float = -0.065
+    #: ✅ M130 (ADR-0123): **69 mm** -- that row holds the hip drums, now 12.1 mm
+    #: wide (were 8), and still ends 0.9 mm clear of the neck.
+    rear_hip_x: float = -0.069
     #: Where the FORE hips sit ahead of the front girdle frame's origin (the
     #: spine's last joint station, `sum(segment_lengths)`), m. M123 (ADR-0114):
     #: the row BEHIND the fore hip has to start clear of spine joint 2's neck.
     #: The hips are 195 + 65 + 10 = 270 mm apart.
-    front_hip_x: float = 0.010
+    #: M130 (ADR-0123): 12 mm -- that row's knee/ankle drums are 10.1 mm (were
+    #: 8); the hips are 195 + 69 + 12 = **276 mm** apart.
+    front_hip_x: float = 0.012
 
     # Per-segment sagittal joint-angle limits (rad), (min, max).  ❓ TBD.
     # ±25° per joint -> ~±75° whole-spine sagittal range.
@@ -659,7 +665,7 @@ class SpineParams:
     #: ⚠️ **M120: each girdle carries its six leg G3 flexures**, 6 x 5.20 g,
     #: between motor and spool (ADR-0107, drawn in `g3_flexure.py`).
     front_girdle_mass: float = 1.15318
-    rear_girdle_mass: float = 1.07512     # M123: the tail shrank with the rear body
+    rear_girdle_mass: float = 1.07529     # M123: the tail shrank with the rear body; M130: +0.2 g, the trunk 6 mm longer and the tail with it
 
     #: Girdle housing, full extents (m), and the height of its centre above the
     #: girdle mount vertebra.
@@ -751,8 +757,10 @@ class SpineParams:
     # behind the spine root and 10 mm ahead of the front girdle's origin.
     # M129 (ADR-0121): the head carried back 48 mm and down 30, the neck 40 %
     # shorter -- the front girdle's CoM moves (35.6, 37.0) -> (30.4, 33.7) mm.
-    front_girdle_com: tuple[float, float] = (0.03044, 0.03371)
-    rear_girdle_com: tuple[float, float] = (-0.07392, 0.01879)
+    # M130 (ADR-0123): the hips 4 mm back (rear) and 2 mm forward (fore), the
+    # wider drums -- each girdle's CoM rides its hip.
+    front_girdle_com: tuple[float, float] = (0.03333, 0.03371)
+    rear_girdle_com: tuple[float, float] = (-0.07807, 0.01879)
 
     #: MJCF `fullinertia` about each girdle's CoM, in its own frame
     #: (ixx iyy izz ixy ixz iyz, kg m²).
@@ -784,9 +792,9 @@ class SpineParams:
     #: ✅ M129 (ADR-0121): the head closer in, **Iyy 7.9601e-03 -> 5.6392e-03
     #: (-29 %)**.
     front_girdle_inertia: tuple[float, ...] = (
-        2.5115e-03, 5.6392e-03, 4.0584e-03, 0.0, -2.0628e-03, -1.7442e-05)
+        2.5115e-03, 5.8355e-03, 4.2547e-03, 0.0, -2.1297e-03, -1.7442e-05)
     rear_girdle_inertia: tuple[float, ...] = (
-        1.0084e-03, 1.0870e-03, 9.5915e-04, 0.0, 2.2677e-04, -1.7442e-05)
+        1.0084e-03, 1.1094e-03, 9.8141e-04, 0.0, 2.2945e-04, -1.7442e-05)
 
     #: Per-segment `fullinertia`, or `None` to derive it from the segment box.
     #:
@@ -862,7 +870,9 @@ class LoadCase:
     # -> 4.57916 (M126: the spine's G3 at 350 kN/m is 10 g lighter).
     # -> **4.57852** (M127: the legs re-measured with the ankle pair on
     # opposite sides of the knee via, -0.6 g).
-    body_mass_kg: float = 4.57852
+    # -> **4.57869** (M130: the trunk 6 mm longer for the wider drums, and
+    # the tail 0.2 g longer with it).
+    body_mass_kg: float = 4.57869
     n_stance_legs: int = 2             # legs sharing the load (e.g. trot => 2).
     dynamic_factor: float = 1.5        # peak/static impact multiplier.  ❓ TBD
 

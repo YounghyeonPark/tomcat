@@ -158,7 +158,10 @@ def test_the_moment_arms_cannot_be_REDUCED_the_motor_peak_binds():
     # ⚠️ M122 REVERSED this: 0.85x now fits (93 % of peak); 0.70x does not
     # (122 %). M123: 99 % and 130 % -- 0.85x fits by 1 %. The motor still pins the arms from below, but at ~0.8x -- and
     # there the cable's own floor (ADR-0106, ~25 mm at the hip) is close.
-    assert rows[0.85]["mot_frac"] < 1.0, "0.85x fits the motor since M122"
+    # ⚠️ M130 (ADR-0123): **101 %** -- 0.85x no longer fits. The floating
+    # ferrules' S adds 15-25 deg to every conduit, and the arms are pinned
+    # from below at the shipped size again.
+    assert rows[0.85]["mot_frac"] == pytest.approx(1.01, abs=0.03)
     assert rows[0.70]["mot_frac"] > 1.0, "0.70x must still exceed motor peak"
     assert rows[0.70]["sheave_g"] < rows[1.0]["sheave_g"], "smaller arms are lighter"
 

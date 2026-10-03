@@ -78,9 +78,25 @@ G3_STACK = {r: G3F.stack("spine" if r == "spine" else "leg")
             for r in ("hind", "fore", "spine")}
 
 
-def row_len(role: str) -> float:
-    """A row's length along x: motor, G3 and spool, mm."""
-    return ROW_L + G3_STACK.get(role, 0.0)
+#: ✅ M130 (ADR-0123): which spool sets each row's length. A row holds
+#: motors of one length; its drums are as wide as their joints need
+#: (`tomcat_packaging.spool_len`), so the row is as long as its widest -- a
+#: hip row (the hip drums, 12.1 mm) or a knee/ankle row (10.1) -- and a
+#: narrower drum in it sits at the hip end, flush with the shared bulkhead.
+ROW_SPOOL = {"fore_f": "hip", "fore_r": "knee", "hind_f": "hip", "hind_r": "knee",
+             "spine_c": "spine_pitch", "spine_b": "spine_pitch"}
+ROLE_SPOOL = {"hind": "hip", "fore": "hip", "spine": "spine_pitch"}
+
+
+def row_spool(role: str, name: str | None = None) -> float:
+    """The drum length that sets a row's length, mm."""
+    return TP.spool_len(ROW_SPOOL.get(name, ROLE_SPOOL.get(role, "hip")))
+
+
+def row_len(role: str, name: str | None = None) -> float:
+    """A row's length along x: motor, G3 and its widest spool, mm. Without a
+    row `name`, the longest row a `role` has."""
+    return TP.MOTOR_L + row_spool(role, name) + G3_STACK.get(role, 0.0)
 Z0 = SP.girdle_offset_z * MM
 
 #: Solved symmetric layouts: (centres, outer half-width) for a row of N.
@@ -207,19 +223,19 @@ HIP_X_OF = {0: REAR_HIP_X, 3: FRONT_HIP_X}
 #: bulkhead and a 0.5 mm gap.
 HIP_ROW_NEAR = BULKHEAD_T / 2 + 0.5
 #: Where a knee or ankle spool's plane sits, either side of its hip, mm.
-HIP_SPOOL_DX = HIP_ROW_NEAR + TP.SPOOL_L / 2
+HIP_SPOOL_DX = HIP_ROW_NEAR + TP.spool_len("knee") / 2
 
 BODIES = {
-    0: (REAR_HIP_X - HIP_ROW_NEAR - row_len("hind") - _PAD, -JOINT_GAP / 2),
+    0: (REAR_HIP_X - HIP_ROW_NEAR - row_len("hind", "hind_r") - _PAD, -JOINT_GAP / 2),
     1: (JOINT_GAP / 2, 75.0 - JOINT_GAP / 2),
     2: (75.0 + JOINT_GAP / 2, 140.0 - JOINT_GAP / 2),
-    3: (140.0 + JOINT_GAP / 2, FRONT_HIP_X + HIP_ROW_NEAR + row_len("fore") + _PAD),
+    3: (140.0 + JOINT_GAP / 2, FRONT_HIP_X + HIP_ROW_NEAR + row_len("fore", "fore_f") + _PAD),
 }
 
 
-def _row_x(body, frac, role):
+def _row_x(body, frac, role, name=None):
     x0, x1 = BODIES[body]
-    L = row_len(role)
+    L = row_len(role, name)
     return x0 + L / 2 + _PAD + frac * max((x1 - x0) - L - 2 * _PAD, 0.0)
 
 
@@ -232,9 +248,9 @@ def _rows():
     for (nm, b, f, n, r) in LAYOUT:
         if isinstance(f, str):
             sgn = 1.0 if f == "front" else -1.0
-            x = HIP_X_OF[b] + sgn * (HIP_ROW_NEAR + row_len(r) / 2)
+            x = HIP_X_OF[b] + sgn * (HIP_ROW_NEAR + row_len(r, nm) / 2)
         else:
-            x = _row_x(b, f, r)
+            x = _row_x(b, f, r, nm)
         out.append((nm, b, x, n, r))
     return out
 
@@ -359,7 +375,7 @@ def body_shell(body: int):
 def motors(body: int):
     """(x, y, z, r) of every motor bore assigned to this rigid body."""
     out = []
-    for (name, b, x, n, _r) in _rows():
+    for (_rn, b, x, n, _r) in _rows():
         if b != body:
             continue
         for (y, z) in ROWS[n][0]:
@@ -390,11 +406,11 @@ def _bulkhead_x(body: int):
     """
     x0, x1 = BODIES[body]
     xs = []
-    for (_name, b, x, n, _r) in _rows():
+    for (_rn, b, x, n, _r) in _rows():
         if b != body:
             continue
         for sx in (-1.0, 1.0):
-            xb = x + sx * (row_len(_r) / 2 + BULKHEAD_T / 2)
+            xb = x + sx * (row_len(_r, _rn) / 2 + BULKHEAD_T / 2)
             # ⚠️ M122: clamped to `x0 + BULKHEAD_T` the end bulkhead spanned
             # 0.8-2.4 mm in from the body's end, and `_PAD` starts the row at
             # 2.1 -- 0.3 mm of bulkhead inside the row. Harmless while rows
@@ -469,7 +485,7 @@ def bulkheads(body: int):
         slab = Pos(xb, 0, Z_DORSAL) * Box(BULKHEAD_T, 400, 400)
         cap = solid & slab
         row = [r for (_nm, b, x, r, _ro) in _rows()
-               if b == body and abs(x - xb) < row_len(_ro)]
+               if b == body and abs(x - xb) < row_len(_ro, _nm)]
         for k in set(row):
             for (y, z) in ROWS[k][0]:
                 cap -= (Pos(xb, y, _zc(xb) + z)
@@ -482,11 +498,11 @@ def bulkheads(body: int):
 def _unused_bulkheads(body: int):
     x0, x1 = BODIES[body]
     caps = []
-    for (name, b, x, n, _r) in _rows():
+    for (_rn, b, x, n, _r) in _rows():
         if b != body:
             continue
         for sx in (-1.0, 1.0):
-            xb = x + sx * (row_len(_r) / 2 + BULKHEAD_T / 2)
+            xb = x + sx * (row_len(_r, _rn) / 2 + BULKHEAD_T / 2)
             xb = min(max(xb, x0 + _END_BH), x1 - _END_BH)
             # ⚠️ Sized to the SHELL's local inner surface, not to the row's own
             # section. The shell tapers between rows, so a bulkhead cut to the
@@ -777,14 +793,14 @@ def report():
     # bodies did not
     for (_nm, b, x, _n, ro) in _rows():
         x0, x1 = BODIES[b]
-        h = row_len(ro) / 2 + _PAD
+        h = row_len(ro, _nm) / 2 + _PAD
         if not (x0 - 1e-6 <= x - h and x + h <= x1 + 1e-6):
             print("  *** a row at x=%.1f straddles body %d (%.0f..%.0f)"
                   % (x, b, x0, x1))
             ok = False
 
     # ⚠️ no two motors may interpenetrate
-    allm = [(x, y, _zc(x) + z, row_len(ro)) for (_nm, _b, x, n, ro) in _rows()
+    allm = [(x, y, _zc(x) + z, row_len(ro, _nm)) for (_nm, _b, x, n, ro) in _rows()
             for (y, z) in ROWS[n][0]]
     for i in range(len(allm)):
         for j in range(i + 1, len(allm)):

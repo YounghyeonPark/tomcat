@@ -199,7 +199,8 @@ def test_the_two_diagonals_topple_along_different_axes():
     # ⚠️ M122 (ADR-0112): the hips went 195 -> 225 mm apart, so the diagonals
     # come back together -- 57.1 -> 50.5 deg. Same geometry, other direction.
     # M123 (ADR-0114): 225 -> 270 mm apart, 50.5 -> 42.9 deg.
-    assert angle == pytest.approx(42.9, abs=0.5)
+    # M130 (ADR-0123): 270 -> 276 mm apart, 42.9 -> 42.0 deg.
+    assert angle == pytest.approx(42.0, abs=0.5)
 
 
 def test_lateral_spine_sway_matches_the_analytical_model(rig):

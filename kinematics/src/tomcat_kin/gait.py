@@ -215,7 +215,9 @@ def trot_params(period: float = 0.4, stride_length: float = 0.10,
         # ⚠️ M123 (ADR-0114): 0.00722 -> 0.01383. The hips moved apart again
         # (hind 65 mm behind the root, fore 10 mm ahead of the front girdle);
         # at 0.00722 the drift is +0.242 rad/s per cycle. Bisected.
-        nominal_foot=(0.01383, -0.17),
+        # M130 (ADR-0123): 0.01383 -> 0.01309. The head carried back (M129)
+        # and the hips 276 mm apart; at 0.01383 the drift is -0.027. Bisected.
+        nominal_foot=(0.01309, -0.17),
         step_height=0.02,
         lateral_amplitude=0.0,     # a trot does not sway; the diagonal does the work
     )

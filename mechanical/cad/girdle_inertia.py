@@ -190,7 +190,7 @@ def g3_parts(role: str):
             mi, end = TE.DRIVE[role][t][:2]
             _nm, _x, y, z = own[mi]
             xs = TE.spool_x_of(role, mi, end, side)
-            xg = xs - end * (TP.SPOOL_L / 2 + stack / 2)
+            xg = xs - end * (TE.spool_len_of(role, mi, end) / 2 + stack / 2)
             out.append((m, np.array([xg * 1e-3 - x_org, y * 1e-3, z * 1e-3]), I))
     return out
 

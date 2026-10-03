@@ -45,7 +45,57 @@ BONE_R = 6.0
 # Note it is ~39% LONGER than the placeholder, and the banks stack along z, so
 # this pushes directly into girdle HEIGHT.
 MOTOR_D, MOTOR_L = 34.5, 36.1
-SPOOL_D, SPOOL_L = 16.0, 8.0   # variable-radius pulley (ADR-0008)
+SPOOL_D, SPOOL_L = 16.0, 8.0   # variable-radius pulley (ADR-0008); the TAIL's now
+
+#: ✅ M130 (ADR-0123): **each spool is as wide as its pair's cable travel.**
+#: Every spool was 8 mm, and an 8 mm drum holds about three grooves where a
+#: hip pair needs five: two cables wound in opposite senses, each anchored
+#: under `DEAD_TURNS` and between them the travel of the joint's whole range
+#: (the hip's 240 deg on a 36 mm sheave is 151 mm, 2.74 turns of the 8.75 mm
+#: drum). At 8 mm a cable ran out of groove before the joint reached its stop.
+CABLE_D = 1.75
+#: Helical groove pitch: 1.15 cable diameters.
+GROOVE_PITCH = 1.15 * CABLE_D
+#: Turns each cable keeps on the drum at its full pay-out, so the anchor sees
+#: e^(mu * 2 pi) less than the cable.  `[assumed]`
+DEAD_TURNS = 1.0
+#: Axial thickness of each end flange, mm.  `[assumed]`
+END_FLANGE = 1.0
+
+
+def cable_travel(joint: str) -> float:
+    """One cable's travel over its joint's full range, mm, the worse of the
+    two legs. The ankle pair also follows the knee through the knee's via
+    (2 x 8.75 mm/rad in the difference, ADR-0118); the spine's pitch pair is
+    on its 30 mm arm and the yaw on its 20."""
+    from tomcat_kin.params import DEFAULT_HINDLEG
+    arms = LEG_ARMS
+    legs = (DEFAULT_HINDLEG, DEFAULT_FORELEG)
+    rom = lambda j: max(float(lg.q_max[j] - lg.q_min[j]) for lg in legs)
+    if joint == "hip":
+        return arms[0] * rom(0)
+    if joint == "knee":
+        return arms[1] * rom(1)
+    if joint == "ankle":
+        return arms[2] * rom(2) + 8.75 * rom(1)
+    sp = DEFAULT_SPINE
+    if joint == "spine_pitch":
+        return SPINE_ARM * float(sp.q_max[0] - sp.q_min[0])
+    if joint == "spine_yaw":
+        return SPINE_LAT_ARM * float(sp.lateral_q_max[0] - sp.lateral_q_min[0])
+    raise ValueError(joint)
+
+
+def grooves(joint: str) -> int:
+    turns = cable_travel(joint) / (2 * np.pi * float(DEFAULT_TENDON.motor_spool_radius) * MM)
+    return int(np.ceil(turns + 2 * DEAD_TURNS - 1e-9))
+
+
+def spool_len(joint: str) -> float:
+    """The drum's axial length, mm: its grooves and two end flanges."""
+    if joint == "tail":
+        return SPOOL_L
+    return grooves(joint) * GROOVE_PITCH + 2 * END_FLANGE
 FOOT_Z, FOOT_PITCH = -0.17, 0.0     # paw flat on the ground (digitigrade)
 FRONT_FOOT_X, REAR_FOOT_X = 0.06, 0.04
 TENDON_R = 1.6

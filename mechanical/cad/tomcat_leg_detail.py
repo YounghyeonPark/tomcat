@@ -654,13 +654,15 @@ def tendon_drive(q, leg=DEFAULT_LEG, lay=None, role=None):
         x, yy, zz = r["seat"]
         xs = r["spool_x"]
         end = 1.0 if xs > x else -1.0
-        x_far = x - end * TT.row_len(role) / 2
+        mi, _e = TE.DRIVE[role][t][:2]
+        x_far = x - end * TT.row_len(role, TE.motors(role)[mi][0]) / 2
+        sl = TE.spool_len_of(role, mi, end)            # M130: as wide as its joint
         groups["motor"].append(xaxis_can(x_far - hx, x_far - hx + end * TP.MOTOR_L,
                                          yy - TRACK_Y, zz, TP.MOTOR_D / 2))
         groups["spool"].append(
-            xaxis_can(xs - hx - TP.SPOOL_L / 2, xs - hx + TP.SPOOL_L / 2,
+            xaxis_can(xs - hx - sl / 2, xs - hx + sl / 2,
                       yy - TRACK_Y, zz, LT.SPOOL_R + GROOVE_R + FLANGE_H)
-            - xaxis_can(xs - hx - TP.SPOOL_L, xs - hx + TP.SPOOL_L, yy - TRACK_Y, zz, 3.0))
+            - xaxis_can(xs - hx - sl, xs - hx + sl, yy - TRACK_Y, zz, 3.0))
     return {k: Compound(v) for k, v in groups.items() if v}, routes
 
 
