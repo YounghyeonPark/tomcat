@@ -86,8 +86,9 @@ def test_the_motor_holds_on_TORQUE_again_and_the_arms_are_why(duty):
     # +104 g of body and the hip pair's conduits from their new row.
     # M130 (ADR-0123): 1.66 -> 1.70 N.m, 87 % of peak -- the floating
     # ferrules' S on every conduit.
-    assert d["trot_motor"] == pytest.approx(1.70, abs=0.05)
-    assert 0.75 < d["vs_peak"] < 0.89, f"trot at {100 * d['vs_peak']:.0f} % of peak"
+    # M130 (ADR-0124): 1.70 -> 1.79 N.m, 92 % of peak -- the cat's skin.
+    assert d["trot_motor"] == pytest.approx(1.79, abs=0.05)
+    assert 0.75 < d["vs_peak"] < 0.93, f"trot at {100 * d['vs_peak']:.0f} % of peak"
     assert d["stand_vs_rated"] < 1.0, "standing must be inside the CONTINUOUS rating"
 
 
@@ -127,7 +128,8 @@ def test_the_THERMAL_duty_is_fine_and_the_workspace_peak_is_not_the_duty():
     square. Peak current is back inside too: 3.51 A at Kt 0.35 against 4.19.
     """
     # M122: 0.935 / 1.175 A -> 0.852 / 1.072 A under the conduit friction model
-    for kt, expect in ((PW.KT, 0.852), (MR.SPEC["vendor_kt"], 1.072)):
+    # M130 (ADR-0123/0124): -> 0.939 / 1.180 A -- the ferrules' S and the skin
+    for kt, expect in ((PW.KT, 0.939), (MR.SPEC["vendor_kt"], 1.180)):
         d = MR.gait_duty(kt, MR.SPOOL_SPEC)
         assert d["rms_a"] == pytest.approx(expect, abs=0.05)
         assert d["rms_a"] < MR.SPEC["rated_current"], (
@@ -162,8 +164,8 @@ def test_NFR6s_runtime_SURVIVES_once_the_arms_are_right(duty):
     pess = MR.gait_duty(MR.SPEC["vendor_kt"], MR.SPOOL_SPEC)
     t_opt = 60.0 * wh / opt["total_w"]
     t_pess = 60.0 * wh / pess["total_w"]
-    assert t_opt == pytest.approx(23.65, abs=0.4)     # M122 24.18; M123 23.65
-    assert t_pess == pytest.approx(17.78, abs=0.4)    # M122 18.24; M123 17.78
+    assert t_opt == pytest.approx(21.21, abs=0.4)     # M122 24.18; M123 23.65; M130 21.21
+    assert t_pess == pytest.approx(15.76, abs=0.4)    # M122 18.24; M123 17.78; M130 15.76
     assert t_pess > 14.0, "the pessimistic corner is back inside NFR6"
     assert t_opt < 30.0, "if this clears 30 min again, NFR6 was re-derived"
     assert t_pess / t_opt < 0.80, "the Kt question alone is worth >20 % of runtime"
@@ -183,7 +185,8 @@ def test_the_robot_is_more_than_half_motor_by_mass():
     # share FALLS, 0.581 -> 0.571; M111's heavier sheaves take it to 0.560.
     # M120: G3's 85.6 g takes it to 0.549; M122's lighter legs to 0.556;
     # M123's hollow hip (+104 g) to 0.543.
-    assert m["frac"] == pytest.approx(0.543, abs=0.005)
+    # M130 (ADR-0124): the cat's skin (244 g) to 0.518.
+    assert m["frac"] == pytest.approx(0.518, abs=0.005)
     assert m["rest_kg"] > 1.5, "there must be room left for the structure"
     stale = 19 * 0.072 / 3.0
     assert stale == pytest.approx(0.456, abs=0.002), "ADR-0008's basis, reproduced"
@@ -357,8 +360,8 @@ def test_the_runtime_bracket_is_SIXTEEN_to_TWENTY_TWO_minutes():
     lo = MR.gait_duty_rigorous(MR.SPEC["vendor_kt"], three_phase=True)
     t_hi = 60.0 * wh / hi["total_w"]
     t_lo = 60.0 * wh / lo["total_w"]
-    assert t_hi == pytest.approx(23.65, abs=0.4)      # M123 (ADR-0114)
-    assert t_lo == pytest.approx(17.78, abs=0.4)
+    assert t_hi == pytest.approx(21.21, abs=0.4)      # M123 23.65; M130 21.21 (ADR-0124)
+    assert t_lo == pytest.approx(15.76, abs=0.4)      # M130: still over NFR6's 14
     assert t_lo > 14.0, "both corners clear NFR6's re-stated floor"
     assert t_hi < 30.0, "NFR6's published ~30 min does not survive either corner"
 

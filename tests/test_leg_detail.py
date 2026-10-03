@@ -52,12 +52,13 @@ def test_the_spec_torque_table_is_stale_by_the_WHOLE_mass_history(loads):
     milestone's correction became the next one's staleness.
     """
     tau, T = loads["land"]["tau"][0], loads["land"]["T"][0]
-    assert tau == pytest.approx(18.91, abs=0.05)
+    # M130 (ADR-0124): 18.91 -> 19.92, the cat's skin's 244 g and the Ø16 tubes.
+    assert tau == pytest.approx(19.92, abs=0.05)
     # ⚠️ M111: the tension FELL while the torque rose, 650 -> 516 N -- the
     # 36 mm hip arm carries the same torque on less cable. Torque tracks mass;
     # tension tracks mass over arm, so it is no longer a pure mass snapshot.
-    assert T == pytest.approx(529.1, abs=2.0)          # M120: 526.2; M122: 520.1; M123: 532.1; M126: 529.1
-    assert tau / 12.36 == pytest.approx(4.57916 / 3.0, rel=0.02), (
+    assert T == pytest.approx(558.2, abs=2.0)          # M120: 526.2; M122: 520.1; M123: 532.1; M126: 529.1; M130: 558.2 (the skin)
+    assert tau / 12.36 == pytest.approx(4.83385 / 3.0, rel=0.02), (
         "the discrepancy should be exactly the body-mass ratio; if it is not, "
         "something other than body mass moved and this needs re-diagnosing"
     )
@@ -104,8 +105,10 @@ def test_the_shipped_tube_sections_do_NOT_make_SF_2_at_the_live_loads(loads):
     # ⚠️ M120: G3's 85.6 g takes the femur 2.59 -> 2.54, 0.04 above the 2.5
     # line -- the thinnest margin in the leg, and the next mass increase
     # crosses it.
-    assert got[0] == pytest.approx(2.54, abs=0.03)
-    assert got[2] == pytest.approx(3.65, abs=0.05)
+    # ✅ M130 (ADR-0124): **it crossed, and the tube stepped up.** The cat's
+    # skin put 244 g on the body; at Ø14 the femur was SF 2.40. Ø16: 3.21.
+    assert got[0] == pytest.approx(3.21, abs=0.03)
+    assert got[2] == pytest.approx(3.44, abs=0.05)
 
 
 def test_one_step_up_in_stock_tube_restores_the_margin_cheaply():
@@ -118,7 +121,8 @@ def test_one_step_up_in_stock_tube_restores_the_margin_cheaply():
     # now runs at 21.7 mm rather than 9.2 -- it has to pass outboard of two via
     # pulleys -- so the sizer asks for Ø12 there. Read from the layout, not
     # written down.
-    assert [p["od"] for p in picks] == [14.0, 12.0, 12.0]
+    # M130 (ADR-0124): the femur Ø16 under the skin's landing load.
+    assert [p["od"] for p in picks] == [16.0, 12.0, 12.0]
     assert all(p["sf"] >= 2.5 for p in picks)
 
     def area(od, wall):
@@ -152,7 +156,9 @@ def test_the_moment_arms_cannot_be_REDUCED_the_motor_peak_binds():
     # is gone; friction is the conduit's slide. The arms are still pinned
     # from below -- see the step down.
     # M123 (ADR-0114): 0.74 -> 0.79 under the hollow hip's +104 g of body.
-    assert rows[1.0]["mot_frac"] == pytest.approx(0.79, abs=0.04), (
+    # M130 (ADR-0123/0124): 0.79 -> 0.87 -- the floating ferrules' S, then
+    # the skin's 244 g.
+    assert rows[1.0]["mot_frac"] == pytest.approx(0.87, abs=0.04), (
         "the shipped arms sit at ~79 % of motor peak in this re-sized-cable what-if"
     )
     # ⚠️ M122 REVERSED this: 0.85x now fits (93 % of peak); 0.70x does not
@@ -161,7 +167,8 @@ def test_the_moment_arms_cannot_be_REDUCED_the_motor_peak_binds():
     # ⚠️ M130 (ADR-0123): **101 %** -- 0.85x no longer fits. The floating
     # ferrules' S adds 15-25 deg to every conduit, and the arms are pinned
     # from below at the shipped size again.
-    assert rows[0.85]["mot_frac"] == pytest.approx(1.01, abs=0.03)
+    # M130 (ADR-0124): 109 % with the cat's skin on.
+    assert rows[0.85]["mot_frac"] == pytest.approx(1.09, abs=0.03)
     assert rows[0.70]["mot_frac"] > 1.0, "0.70x must still exceed motor peak"
     assert rows[0.70]["sheave_g"] < rows[1.0]["sheave_g"], "smaller arms are lighter"
 

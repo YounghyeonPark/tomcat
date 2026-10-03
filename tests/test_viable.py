@@ -180,7 +180,8 @@ def test_the_spine_authority_is_sufficient_for_NFR15(setup):
     # the margin widened, so the conclusion is unchanged and stronger.
     # M122: 66.4 -> 65.3 mm; still well over NFR15's 48.
     # M129: 65.3 -> 64.2 mm, the head carried back and lower.
-    assert worst == pytest.approx(0.0642, abs=1e-3)
+    # M130: 64.2 -> 65.3 mm, the skin and the re-tuned sway.
+    assert worst == pytest.approx(0.0653, abs=1e-3)
     assert worst > 0.048, "NFR15 would be unachievable — recheck before publishing"
 
     quoted = control.self_consistent_envelope(c)["envelope"]

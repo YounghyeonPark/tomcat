@@ -6,7 +6,7 @@ not driven by a motor at each joint.
 
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
 
-![the cat in its skin](docs/figures/cat_suit_m129.png)
+![the cat in its skin](docs/figures/cat_suit_m130.png)
 
 *In its skin: a charcoal-grey plush knit on a soft foam shell, and a cat's
 head made of foam round a skull that has no jaw ([ADR-0119](docs/DESIGN_DECISIONS.md),
@@ -43,12 +43,12 @@ the cable pulling).
 
 | | |
 |---|---|
-| Mass | **4.58 kg** (19 motors: 12 leg, 6 spine, 1 tail) |
+| Mass | **4.83 kg** with its skin (19 motors: 12 leg, 6 spine, 1 tail) |
 | Trunk / hips apart | 384 mm / 276 mm |
 | Joint moment arms (hip / knee / ankle) | 36 / 34 / 22 mm |
-| Motor demand (peak / continuous) | 1.70 / 0.58 N·m per motor |
+| Motor demand (peak / continuous) | 1.79 / 0.61 N·m per motor |
 | Trot | 50 cm/s |
-| Runtime, trotting | 17–23 min (~700 m) on a 300 g pack |
+| Runtime, trotting | 16–21 min (~640 m) on a 300 g pack |
 | Righting from upside down | ~1.0 s (simulated) |
 
 Every number is computed from the live model, not typed in: the CAD, the
@@ -69,7 +69,7 @@ and a mock-up of the cable bundle that twists inside the hollow hip.
 | `kinematics/` | `tomcat_kin`: kinematics, tendon maps, mass, gait, balance, MuJoCo plants, RL env |
 | `mechanical/cad/` | build123d CAD: trunk, legs, hollow hip, drive, G3 flexure, head, tail, skin |
 | `thermal/` | Rust crate: motor and girdle thermal duty |
-| `tests/` | pytest suite (568 tests) |
+| `tests/` | pytest suite (569 tests) |
 | `docs/` | requirements, architecture, the ADR log, the progress log |
 | `electronics/`, `firmware/` | not started |
 

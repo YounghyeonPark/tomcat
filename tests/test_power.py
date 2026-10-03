@@ -116,9 +116,10 @@ def test_NFR6_is_MET_once_the_arms_are_right():
     """
     r = power.runtime(_trot())
     # M123 (ADR-0114): 24.18 -> 23.65, the hollow hip's +104 g.
-    assert r["trot_minutes"] == pytest.approx(23.65, abs=0.4)
+    # M130 (ADR-0123/0124): 23.65 -> 21.21, the ferrules' S and the skin.
+    assert r["trot_minutes"] == pytest.approx(21.21, abs=0.4)
     assert r["trot_minutes"] > 14.0, "back under NFR6's floor"
-    assert r["trot_range_m"] == pytest.approx(709.0, abs=15.0)   # M120: 634; M122: 725; M123: 709
+    assert r["trot_range_m"] == pytest.approx(636.0, abs=15.0)   # M120: 634; M122: 725; M123: 709; M130: 636
     assert r["trot_range_m"] > 420.0
     assert r["battery_wh"] == pytest.approx(
         power.BATTERY_KG * power.BATTERY_WH_PER_KG * power.BATTERY_USABLE)

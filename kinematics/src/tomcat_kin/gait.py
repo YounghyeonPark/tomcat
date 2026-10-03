@@ -217,7 +217,9 @@ def trot_params(period: float = 0.4, stride_length: float = 0.10,
         # at 0.00722 the drift is +0.242 rad/s per cycle. Bisected.
         # M130 (ADR-0123): 0.01383 -> 0.01309. The head carried back (M129)
         # and the hips 276 mm apart; at 0.01383 the drift is -0.027. Bisected.
-        nominal_foot=(0.01309, -0.17),
+        # M130 (ADR-0124): 0.01309 -> 0.01567 with the skin's 244 g on, the
+        # head's foam forward; at 0.01309 the drift is +0.092. Bisected.
+        nominal_foot=(0.01567, -0.17),
         step_height=0.02,
         lateral_amplitude=0.0,     # a trot does not sway; the diagonal does the work
     )
@@ -398,7 +400,16 @@ class GaitParams:
     #      9.5    10.03   yes
     #     11.0     3.87   yes   <- the M102 default
     #     12.0    -0.09   NO
-    lateral_amplitude: float = math.radians(8.75)
+    #
+    # ⚠️ M130 (ADR-0124): **8.75 -> 8.1 deg.** The cat's skin put 244 g on the
+    # body, 88 g of it on the head's long lever, and the curve moved again:
+    #
+    #     deg    ZMP mm
+    #      7.5    11.95
+    #      8.1    13.90   <- the new optimum
+    #      8.75   11.10   <- the M123 default
+    #     10.0     5.59
+    lateral_amplitude: float = math.radians(8.1)
     # Swing-return profile: "matched" (default, C1/C2 -- end velocities equal the
     # stance sweep so the foot lands without scuffing and the transition carries
     # no acceleration impulse) or "cycloid" (the legacy M2 profile, C0 only).

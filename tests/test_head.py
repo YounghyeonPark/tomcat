@@ -108,15 +108,25 @@ def test_the_lump_is_where_params_said_it_was_and_M102_moved_it():
     from tomcat_kin.params import DEFAULT_SPINE as SP
     assert HD.LUMPED_AT[0] == pytest.approx(195.0 + HD.LUMPED_GIRDLE_COM[0] * 1e3)
     assert HD.LUMPED_AT[1] == pytest.approx(HD.LUMPED_GIRDLE_COM[1] * 1e3)
+    import json as _json
+    import os as _os
+    _skin = _json.load(open(_os.path.join(_os.path.dirname(__file__), "..", "mechanical",
+                                          "cad", "skin_mass.json"), encoding="utf-8"))
+    # M130 (ADR-0124): params' front girdle carries the skin too; take it off
+    ms = _skin["front"]["mass"]
+    sx, sz = (_skin["front"]["com"][0] - 0.195) * 1e3, _skin["front"]["com"][2] * 1e3
+    Mg = SP.front_girdle_mass
+    gx = (Mg * SP.front_girdle_com[0] * 1e3 - ms * sx) / (Mg - ms)
+    gz = (Mg * SP.front_girdle_com[1] * 1e3 - ms * sz) / (Mg - ms)
     m, (cx, cz), _own = HD.mass_props()
-    share = (m * 1e-3) / SP.front_girdle_mass
+    share = (m * 1e-3) / (Mg - ms)
     ox, oz = (v * 1e3 for v in HD.LUMPED_GIRDLE_COM)
     now = (ox + share * ((cx - 195.0) - ox), oz + share * (cz - oz))
     # M123 (ADR-0114): the rest of the girdle rides the fore hip, now
     # `front_hip_x` ahead of the frame's origin
     now = (now[0] + (1.0 - share) * SP.front_hip_x * 1e3, now[1])
-    assert now[0] == pytest.approx(SP.front_girdle_com[0] * 1e3, abs=1.5)
-    assert now[1] == pytest.approx(SP.front_girdle_com[1] * 1e3, abs=1.5)
+    assert now[0] == pytest.approx(gx, abs=1.5)
+    assert now[1] == pytest.approx(gz, abs=1.5)
 
 def test_the_head_is_carried_a_HEAD_LENGTH_above_the_back():
     """⚠️ Measured off a side-view cat, and it was the biggest error in the

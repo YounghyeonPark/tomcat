@@ -82,7 +82,10 @@ TUBE = {
     # it. §3.5's Ø12/Ø10/Ø8 gave 1.83/1.94/1.75 at the offsets the routing
     # actually produces, and the metatarsus takes an extra step because the
     # ankle cable must run outboard of two vias.
-    "femur": (14.0, 1.0), "tibia": (12.0, 1.0), "meta": (12.0, 1.0),
+    # ✅ M130 (ADR-0124): the femur Ø14 -> **Ø16**. The cat's skin put 244 g on
+    # the body and the landing moment with it; at Ø14 the femur was SF 2.40,
+    # under the 2.5 line M120 said the next mass increase would cross.
+    "femur": (16.0, 1.0), "tibia": (12.0, 1.0), "meta": (12.0, 1.0),
     # ✅ The paw keeps the SMALL section. Its spigot is drawn separately and
     # sized from the metatarsus bore, so the stub itself has no reason to grow
     # with it -- and it is the most distal mass in the leg, where NFR9 is
@@ -96,7 +99,7 @@ TUBE = {
 #: fore leg's radius -- the same Ø12 x 1 -- is **SF 1.76** at landing: the
 #: fore knee carries 18.4 N.m against the hind's 11.4. Ø14 x 1 is the lightest
 #: stock that reaches the 2.5 the others were sized to (2.48).
-TUBE_FORE = dict(TUBE, tibia=(14.0, 1.0))
+TUBE_FORE = dict(TUBE, tibia=(16.0, 1.0))      # M130: Ø14 was SF 2.36 with the skin
 
 
 def tubes(role):
@@ -814,9 +817,15 @@ def build(leg=DEFAULT_LEG, role=None):
             fu = np.array([pts[1][0] - pts[0][0], 0.0, pts[1][1] - pts[0][1]])
             fu /= np.linalg.norm(fu)
             r0, r1 = HUB_OD / 2 - HUB_WALL / 2, HUB_OD / 2 + HUB_ROOT + 2.0
+            # ⚠️ M130: the root is a spigot into the femur insert's BORE, so it
+            # is sized from the femur tube. It was a fixed r 5.0 -- which met the
+            # Ø14 tube's insert bore (r 4.95) and missed the Ø16's (5.95), and
+            # the leg came apart at the hip in two pieces.
+            fid = TUBES["femur"][0] - 2 * TUBES["femur"][1]
+            ro = (fid - BOND_GAP) / 2 - INSERT_WALL + 0.05
             hub_solid = hub_solid + (Plane(origin=tuple(c + fu * r0), z_dir=tuple(fu)).location
                                      * (Pos(0, 0, (r1 - r0) / 2)
-                                        * (Cylinder(5.0, r1 - r0) - Cylinder(3.5, r1 - r0 + 2))))
+                                        * (Cylinder(ro, r1 - r0) - Cylinder(ro - 1.5, r1 - r0 + 2))))
             for b in brg:
                 groups["bearing"].append(Pos(*c) * b)
             planes = LAY[jname]["sheave"]
@@ -1096,7 +1105,12 @@ def checks(comps, report):
         "cable": vol(comps["cable"]) * STEEL_RHO * SPRING_FILL if "cable" in comps else 0.0,
     }
     total = sum(mass.values())
-    budget = sum((DEFAULT_FORELEG if report.get("role") == "fore" else DEFAULT_LEG).link_mass) * 1e3
+    # M130 (ADR-0124): params' links carry the cat's skin too; this check is of
+    # the hardware, so the skin comes off the params side
+    import skin_mass as SM
+    skin_g = 1e3 * sum(SM.leg_link_masses(report.get("role", "hind")))
+    lp = DEFAULT_FORELEG if report.get("role") == "fore" else DEFAULT_LEG
+    budget = sum(lp.link_mass) * 1e3 - skin_g
     # ⚠️ **This is a CONSISTENCY check, not a budget, and it used to read as
     # one.** `LegParams.link_mass` is not an allowance the leg has to fit: M86
     # calibrated it FROM this same measurement, so the line compared a number

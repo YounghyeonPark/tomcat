@@ -58,9 +58,12 @@ def test_the_body_mass_closes_ABOVE_NFR5(closed):
     # ⚠️ M120: -> 4.554 kg, the eighteen G3 flexures (ADR-0111).
     # ⚠️ M122: -> 4.501 kg, the leg drive redrawn (ADR-0112).
     # ⚠️ M123: -> 4.605 kg, the hollow hip (ADR-0114); M124: 4.589; M126: **4.579**.
-    assert closed["body"] == pytest.approx(4.579, abs=0.02)
-    # ⚠️ NFR5 (4.045 kg) is exceeded by 13.2 % now (13.9 at M123, 11.3 at M122).
-    assert closed["body"] / old == pytest.approx(1.132, abs=0.01)
+    # ⚠️ M130 (ADR-0124): -> **4.834 kg** -- the cat's skin (244 g) and the
+    # femur tubes Ø16 for the landing it adds.
+    assert closed["body"] == pytest.approx(4.834, abs=0.02)
+    # ⚠️ NFR5 (4.045 kg) is exceeded by **19.5 %** now -- the cat's skin
+    # (13.2 at M126, 13.9 at M123, 11.3 at M122).
+    assert closed["body"] / old == pytest.approx(1.195, abs=0.01)
 
 
 def test_the_spiral_still_CONVERGES_and_every_design_gate_holds(closed):
@@ -115,13 +118,15 @@ def test_the_MECHANISM_emits_a_MOTOR_SPEC_rather_than_fitting_one(closed):
     # M123 (ADR-0114): -> 1.656 under the hollow hip's +26 g a leg, the hips
     # 270 mm apart, and the hip pair's conduits from their new row.
     # M130 (ADR-0123): -> 1.698, the floating ferrules' S on every conduit.
-    assert req["peak"] == pytest.approx(1.698, abs=0.03)
+    # M130 (ADR-0124): -> 1.789, the cat's skin. 92 % of the proxy's peak.
+    assert req["peak"] == pytest.approx(1.789, abs=0.03)
     # ⚠️ M115: 0.646 (worst pose) -> 0.624 N.m -- the larger of the stance hold
     # (0.495) and the walked trot's RMS (0.624, the fore ankle). Thermal is the
     # load actually carried.
     # M122: 0.624 -> 0.575 N.m under the conduit friction model.
     # M123: 0.575 -> 0.570 (the trot re-tuned, ADR-0114).
-    assert req["continuous"] == pytest.approx(0.570, abs=0.02)   # after the M123 trot re-tune
+    # M130 (ADR-0123/0124): 0.570 -> 0.611 N.m, 86 % of the 0.71 rating.
+    assert req["continuous"] == pytest.approx(0.611, abs=0.02)
     assert req["trot_rms"] > req["stance_hold"], "the trot, not standing, sets it"
     # ⚠️ M123: a TIE. Both hips now drive off the same kind of row with the
     # same conduit (122 / 140 deg), so the hind hip's trot peak equals the

@@ -9843,6 +9843,76 @@ The MuJoCo harness moved four numbers, and three of them moved the good way.
 
 ---
 
+## ADR-0124: the cat's skin is in the plant — 244 g, a stouter femur, and what it costs
+- **Status:** Accepted (M130). Closes ADR-0119/0120/0122's `[owed]`: the
+  skin's mass was priced and never carried.
+- **Context:** the skin has been ~245 g and about a quarter of the body's
+  pitch inertia since ADR-0120, and none of it was in `params.py`. A plant that
+  trains a policy has to weigh what the robot weighs.
+
+- **Decision:**
+  - **`skin_mass.py` deals the skin to the plant's bodies.** It builds the suit
+    and turns every vertex into point masses: the knit at its 250 g/m², and
+    the foam at the middle of its own depth (the 6 mm shell, the stuffed head,
+    the face's firm skin). Each mass goes to the body it rides on. Forward of
+    the trunk (head and neck) goes to the front girdle, and behind it (the
+    tail) to the rear girdle. The trunk splits by x: the rear girdle behind
+    joint 0, the three segments between the joints, the front girdle ahead.
+    Each leg sleeve's mass goes to its nearest link, judged against the
+    trunk's own envelope. The result is written to `skin_mass.json`, because
+    the suit takes minutes to build. `girdle_inertia`, `link_inertia`,
+    `mass_closure` and `tomcat_leg_detail`'s consistency check read it.
+
+    | body | skin |
+    |---|---|
+    | front girdle (head, neck, chest) | 88.5 g |
+    | rear girdle (haunch, tail) | 30.8 g |
+    | spine segments 0 / 1 / 2 | 12.1 / 7.3 / 4.7 g |
+    | each fore leg: femur / tibia / meta / paw | 12.7 / 9.0 / 3.3 / 0.8 g |
+    | each hind leg | 11.5 / 8.7 / 3.4 / 0.9 g |
+    | **total** | **244.3 g** |
+
+    A sleeve is fabric over a joint, not part of one link, so nearest-link is
+    the plain approximation of a skin that slides. In the spine segments the
+    skin's height off the spine axis is dropped (the segment CoM has only an
+    x fraction): about 0.2 mm of body CoM.
+  - **The femur tubes go Ø14 → Ø16 on both legs, and the fore radius too.**
+    The skin's landing load took the femur to SF 2.40 and the fore radius to
+    2.36, under the 2.5 line that ADR-0093 sized to and that M120 predicted the
+    next mass increase would cross. At Ø16 they are 3.22 and 3.16, for about
+    2 g a bone. The hub's root spigot is now sized from the femur insert's
+    bore. At a fixed r 5 mm it met the Ø14 tube's insert (r 4.95) and missed
+    the Ø16's (5.95), and the leg came apart at the hip, which the
+    leg-is-one-piece check caught.
+  - **The walk's sway is re-tuned 8.75 → 8.1°** (ZMP margin 11.1 → 13.9 mm),
+    and the trot's foothold re-bisected **0.01309 → 0.01567 m**.
+
+- **Consequences:**
+  - Body **4.579 → 4.834 kg**, so NFR5's 4.045 kg is exceeded by **19.5 %**.
+    The legs are 242 / 248 g; the hind leg's swing inertia about the hip is
+    **+17 %**.
+  - Motor peak **1.698 → 1.789 N·m (92 % of the proxy)**; continuous 0.611
+    N·m (86 % of the rating); RMS current 0.94 / 1.18 A at the two Kt corners
+    (the rating is 1.60). Trot copper loss is 5.90 W a motor; the runtime is
+    **15.8–21.2 min (~640 m)**, still over NFR6's 14 min.
+  - ⚠️ **Three claims reverse:**
+    - The base spine joint's quiet-stand load is **0.679 N·m**, past the tuned
+      model's 0.57. The real clusters no longer load it less.
+    - The 20 mm lateral spine post is load-critical again: at 15 mm the yaw
+      would ask 2.00 N·m of a 1.95 N·m part.
+    - Moment arms at 0.85× are now 109 % of peak (they were 99 % before M130).
+  - The rigid righting is 0.99 s, and the spine's own cables ask 9277 N in it
+    (42×). The spooled spine still rights within 15 % of the rigid one.
+  - The MuJoCo balance harness: compliant drift 8.6 mm, the baseline 15.4 mm.
+    A soft spine no longer fells the baseline, the survival boundary at 120°
+    moves out one step (0.24 m/s), and a 40 ms latency reaches 74 % of the
+    cable rating rather than 90 %. Its re-tune is overdue.
+  - `[owed]`: the righting's success with the skin's inertia is shown only on
+    the rigid and spooled plants above. A sleeve that slides is not a rigid
+    link mass, and the policy should see this mass randomised (sim2real).
+
+---
+
 ---
 
 ### How to add an ADR

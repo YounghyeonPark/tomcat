@@ -128,3 +128,19 @@ def test_the_FACE_is_FIRM_where_it_holds_its_shape():
     assert 45.0 < rho < 70.0, "a high-resilience foam, not a solid"
     assert rho > CS.FOAM_RHO["PU foam"]
     assert 5.0 <= CS.FIRM_DEPTH <= 15.0, "a skin, not the whole face"
+
+
+def test_the_SKIN_is_IN_the_plant():
+    """✅ M130 (ADR-0124): the skin's mass, dealt to the bodies it rides on
+    (`skin_mass.json`), is in `params.py` -- the front girdle carries the head's
+    foam, each leg its sleeves -- and the body total is the sum."""
+    import skin_mass as SM
+    from tomcat_kin.params import DEFAULT_BODY_MASS_KG, DEFAULT_FORELEG, DEFAULT_HINDLEG
+    data = SM.load()
+    total = sum(v["mass"] for k, v in data.items() if "." not in k) \
+        + 2 * sum(v["mass"] for k, v in data.items() if "." in k)
+    assert total == pytest.approx(0.2443, abs=0.003)
+    assert data["front"]["mass"] > data["rear"]["mass"], "the head's foam is the most"
+    for role, lg in (("hind", DEFAULT_HINDLEG), ("fore", DEFAULT_FORELEG)):
+        assert sum(SM.leg_link_masses(role)) < 0.2 * sum(lg.link_mass)
+    assert DEFAULT_BODY_MASS_KG == pytest.approx(4.83385, abs=1e-5)

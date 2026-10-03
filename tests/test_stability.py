@@ -412,7 +412,9 @@ def test_the_lateral_moment_arm_buys_margin_but_is_no_longer_load_critical():
     t20 = max(r["motor_torque"] for r in c.body.lateral_spine_loads(REFERENCE_FAST_ACCEL))
     assert t20 < t15                       # the post still helps
     assert t15 > 1.10                      # ...it WOULD have busted the class target
-    assert t15 < 1.95                      # ...but the real part swallows it anyway
+    # ⚠️ M130 (ADR-0124): **REVERSED -- the 20 mm post is load-critical again.**
+    # With the cat's skin on, 15 mm would ask 2.00 N.m of the 1.95 N.m part.
+    assert t15 > 1.95                      # ...and now the real part would not
     assert t20 / t15 == pytest.approx(0.015 / 0.020, rel=1e-6)   # T = tau/r, exactly
 
 

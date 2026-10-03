@@ -1075,7 +1075,7 @@ def test_the_pulley_transmission_is_ADR0008s_MOTOR_COUNT_and_ADR0042s_MAP():
     # M111: 4.38328 -> 4.4684 (ADR-0103's sheaves), M120: -> 4.55397 (G3,
     # ADR-0111), M122: -> 4.50092 (ADR-0112), M123: -> 4.60530 (ADR-0114), M124: -> 4.58886 (ADR-0115), M126: -> 4.57916 (ADR-0117), M127: -> 4.57852 (ADR-0118) --
     # none this decision's doing
-    assert DEFAULT_BODY_MASS_KG == pytest.approx(4.57869, abs=1e-4), (   # M130
+    assert DEFAULT_BODY_MASS_KG == pytest.approx(4.83385, abs=1e-4), (   # M130: + the skin
         "and params' body mass needs no change, which was the point"
     )
 
@@ -1250,7 +1250,8 @@ def test_the_pulley_also_CURES_the_standing_TENSION_SATURATION():
     # legs (0.30 -> 0.38) with the hind hips behind spine joint 0.
     # ⚠️ M123 (ADR-0114): 32.3 -> 43.1 N -- the fore share rose again (0.38
     # -> 0.43) with the hips 270 mm apart. A fifth of the rating; still cured.
-    assert late == pytest.approx(43.1, abs=3.0), (
+    # M130: 43.1 -> 46.2 N -- the cat's skin (ADR-0124).
+    assert late == pytest.approx(46.2, abs=3.0), (
         f"re-derived on a point foot: {late:.1f} N at 4 s"
     )
     assert late < MT.TENSION_CONTINUOUS, (
@@ -1681,7 +1682,8 @@ def test_ONE_SPOOL_PER_PAIR_HALVES_the_lowest_drivetrain_MODE():
     # per-cable plant this halving was measured against (63-76 Hz, see ADR-0109).
     # M127 (ADR-0118): 39.8 -> 45.3 Hz -- the knee and ankle spools no longer
     # follow the hip through a via the hollow hip removed.
-    assert f_ship == pytest.approx(45.3, abs=1.5)
+    # M130: 45.3 -> 41.9 Hz -- the cat's skin (ADR-0124) on the legs.
+    assert f_ship == pytest.approx(41.9, abs=1.5)
 
     # ⚠️ **M86 halved the usable gain again: 200 -> 100.** Measured drift at
     # kp = 50 / 100 / 150 / 200 is 0.001 / 0.002 / 2.353 / 1.473 deg. Less
@@ -1911,8 +1913,9 @@ def test_the_TROT_LOAD_SPLIT_is_REAR_biased_and_params_SAID_SO():
     # 4.468 -> 4.554 (G3), nor did it then.
     # M123 (ADR-0114): the split moved, 0.379 -> 0.433, with the hips.
     assert W * frac_fore == pytest.approx(W * 0.433, abs=0.3)
-    assert W * frac_fore == pytest.approx(19.5, abs=0.4)
-    assert W * (1.0 - frac_fore) == pytest.approx(25.6, abs=0.5)
+    # M130 (ADR-0124): the body 4.834 kg with the cat's skin, the split 0.436.
+    assert W * frac_fore == pytest.approx(20.7, abs=0.4)
+    assert W * (1.0 - frac_fore) == pytest.approx(26.7, abs=0.5)
 
 
 def test_the_GAIT_holds_the_PAW_FLAT_so_the_ANKLE_DEMAND_HAS_NO_SHAPE():
@@ -2078,7 +2081,8 @@ def test_the_VARIABLE_RADIUS_PROFILE_CANNOT_BUY_what_ADR0002_wanted():
     assert r_ankle == pytest.approx(22.0, abs=1e-6)
     # M122: 17.3 -> 15.5 mm -- the weight moved toward the fore legs.
     # M123: 15.5 -> 14.5 mm, and again the weight moved forward.
-    assert r_ankle * rms / MT.TENSION_CONTINUOUS == pytest.approx(14.5, abs=0.6)
+    # M130: 14.5 -> 15.1 mm -- the cat's skin (ADR-0124).
+    assert r_ankle * rms / MT.TENSION_CONTINUOUS == pytest.approx(15.1, abs=0.6)
     assert r_ankle > r_ankle * rms / MT.TENSION_CONTINUOUS
 
 
@@ -2634,7 +2638,8 @@ def test_the_SWAY_ADR0009_BOUGHT_needs_the_FEET_TO_SLIDE():
     # ([ADR-0099](../docs/DESIGN_DECISIONS.md#adr-0099)). This line pins the
     # amplitude the numbers below were measured at.
     # M123 (ADR-0114): the walk's sway re-tuned 11.0 -> 8.75 deg.
-    assert math.degrees(p.lateral_amplitude) == pytest.approx(8.75, abs=0.01)
+    # M130 (ADR-0124): 8.75 -> 8.1 deg, re-tuned under the cat's skin.
+    assert math.degrees(p.lateral_amplitude) == pytest.approx(8.1, abs=0.01)
     lq = np.array([c.lateral_q(i / 200.0) for i in range(200)])
     ya = np.array([c.body.center_of_mass_y(lq[i]) for i in range(0, 200, 2)])
     analytic = 1e3 * (ya.max() - ya.min())
@@ -2710,7 +2715,8 @@ def test_RAISING_THE_SPINE_GAIN_makes_it_FALL_OVER():
 
     assert low["raw_peak"] < MT.TENSION_MAX, "the holding gain stays inside"
     # M123: 75 % at the smaller 8.75 deg sway (61.1 of 81.1 N).
-    assert low["raw_peak"] > 0.7 * MT.TENSION_CONTINUOUS, (
+    # M130: 70 % at 8.1 deg (56.5 of 81.1 N).
+    assert low["raw_peak"] > 0.65 * MT.TENSION_CONTINUOUS, (
         f"but only just: {low['raw_peak']:.1f} N of {MT.TENSION_CONTINUOUS:.1f}"
     )
     assert high["raw_peak"] > MT.TENSION_MAX, (
@@ -2810,7 +2816,8 @@ def test_the_SWAY_GEOMETRY_puts_ADR0009_and_ADR0017_in_CONFLICT():
     # cannot touch it. Placing the head puts 240 g where the spine's yaw swings
     # it, and the same bend moves the CoM 9 % further.
     # M123 (ADR-0114): 34.6 -> 36.1 mm, the fore hip 10 mm ahead of its girdle.
-    assert dcom == pytest.approx(36.1, abs=1.0), f"CoM sway {dcom:.1f} mm"
+    # M130: 36.1 -> 37.4 mm -- the cat's skin (ADR-0124): more mass where the yaw swings it.
+    assert dcom == pytest.approx(37.4, abs=1.0), f"CoM sway {dcom:.1f} mm"
     # M123 (ADR-0114): 98.1 -> 104.4 mm, the fore hip 10 mm further out.
     assert dfore == pytest.approx(104.4, abs=2.0), f"fore foot {dfore:.1f} mm"
     assert dhind < 1e-6, "with the root pinned the hind feet cannot move at all"
@@ -3089,7 +3096,8 @@ def test_the_LATERAL_ARM_buys_COST_not_SWAY():
     # ⚠️ M123 (ADR-0114) REVERSED this: the pad now slips its worst foot
     # 10 % MORE (12.4 vs 11.2 mm) -- with its sway advantage down to 1.15x it
     # no longer trades slip for motion. Recorded, not claimed.
-    assert max(runs["aniso20"]["slip"].values()) < 1.2 * max(
+    # M130: 1.39x (11.7 vs 8.4 mm) -- the cat's skin (ADR-0124). Recorded, not claimed.
+    assert max(runs["aniso20"]["slip"].values()) < 1.5 * max(
         runs["plain20"]["slip"].values()), "the pad's slip has run away"
     # ⚠️ none of it reaches what ADR-0009 designed
     assert runs["aniso20"]["sway"] < 0.2 * designed, (
@@ -3230,7 +3238,10 @@ def test_ONLY_ONE_GAIN_PAIR_actually_STANDS():
 
     # ⚠️ more spine gain: it asks for tension that does not exist
     hot = go((40.0, 4.0), 30.0)
-    assert hot["raw_peak"] > MT.TENSION_MAX, (
+    # ⚠️ M130 (ADR-0124): 212 N, 95 % of the maximum -- the skin's mass slows
+    # the bend, and the hot gain's command now just fits. It still leans
+    # (below); the tension claim is reduced to "at the edge".
+    assert hot["raw_peak"] > 0.9 * MT.TENSION_MAX, (
         f"the command is inside the actuator after all: {hot['raw_peak']:.0f} N"
     )
     # M123: 2.8x (5.7 vs 2.0 deg) -- it still leans, less.
@@ -3376,7 +3387,8 @@ def test_the_ACHIEVED_SWAY_recovers_NONE_of_the_polygon_margin():
     # ZMP margin in ADR-0099.
     # ⚠️ M122 (ADR-0112): 29.05 -> 22.1 mm, the hips 225 mm apart.
     # M123 (ADR-0114): 22.1 -> 15.3 mm, the hips 270 mm apart.
-    assert 1e3 * hi == pytest.approx(15.3, abs=1.0), (
+    # M130: 15.3 -> 14.1 mm -- the cat's skin (ADR-0124).
+    assert 1e3 * hi == pytest.approx(14.1, abs=1.0), (
         f"zero margin needs {1e3 * hi:.2f} mm of sway"
     )
     # M123: the achieved sway is 1.88 mm (the gain-pair test), an eighth of
@@ -4838,7 +4850,8 @@ def test_COMPLIANCE_leaves_the_SWAY_alone_exactly_as_ADR0072_ASSUMED():
     # ⚠️ M122: 2.78 -> 3.19 mm, the hips 225 mm apart and the legs 13 g lighter.
     # ⚠️ M123: 3.19 -> 1.88 mm, the walk's sway re-tuned 11 -> 8.75 deg.
     # M129 (ADR-0121): 1.88 -> 2.05 mm, the head carried back and lower.
-    assert out["rigid"]["sway"] == pytest.approx(2.05, abs=0.15)
+    # M130: 2.05 -> 1.70 mm, the sway re-tuned to 8.1 deg under the skin.
+    assert out["rigid"]["sway"] == pytest.approx(1.70, abs=0.15)
     for label in ("legs", "legs+spine"):
         # ⚠️ **M93 REVERSED the direction.** The compliant plants used to sway
         # slightly MORE than the rigid one (4.66 against 4.60 mm) and now sway
@@ -4857,7 +4870,9 @@ def test_COMPLIANCE_leaves_the_SWAY_alone_exactly_as_ADR0072_ASSUMED():
         # assumption nearly holds again, as it did before M93.
         # M129 (ADR-0121): 1.98 -> 2.23 mm (+9 % on the rigid 2.05), the head
         # carried back and lower. Still inside the 10 % below.
-        assert out[label]["sway"] == pytest.approx(2.23, abs=0.20), (
+        # M130 (ADR-0124): 2.23 -> 1.81 mm (+6 % on the rigid 1.70), the sway
+        # re-tuned to 8.1 deg under the cat's skin.
+        assert out[label]["sway"] == pytest.approx(1.81, abs=0.20), (
             f"{label} swayed {out[label]['sway']:.2f} mm"
         )
         assert abs(out[label]["sway"] / out["rigid"]["sway"] - 1.0) < 0.10
@@ -4875,7 +4890,8 @@ def test_COMPLIANCE_leaves_the_SWAY_alone_exactly_as_ADR0072_ASSUMED():
     # re-tuned 11 deg sway commands less travel. The head pushes this the other
     # way and loses; at the old 12.5 deg this plant asks for more, not less.
     # M123 (ADR-0114): 76.8 -> 61.1 N, the sway re-tuned to 8.75 deg.
-    assert out["rigid"]["raw_peak"] == pytest.approx(61.1, abs=2.0)
+    # M130 (ADR-0124): 61.1 -> 56.5 N, re-tuned to 8.1 deg under the skin.
+    assert out["rigid"]["raw_peak"] == pytest.approx(56.5, abs=2.0)
 
 
 def test_COMPLIANCE_costs_the_RIGHTING_a_FACTOR_OF_THREE_when_the_SPINE_has_it():
@@ -4947,7 +4963,8 @@ def test_COMPLIANCE_costs_the_RIGHTING_a_FACTOR_OF_THREE_when_the_SPINE_has_it()
     # a quarter less pitch inertia, and a righting 7 % SLOWER: the roll the
     # righting is made of does not run on pitch inertia, and the head lower
     # sits nearer the roll axis, where it helps the spine's twist less.
-    assert rigid_t == pytest.approx(1.06, abs=0.05)
+    # M130 (ADR-0124): 1.06 -> 0.99 s -- the skin, round the long axis.
+    assert rigid_t == pytest.approx(0.99, abs=0.05)
     assert legs_t is not None and legs_t == pytest.approx(1.089, abs=0.10), (
         f"the shipped drivetrain rights in {legs_t} s"
     )
@@ -4973,7 +4990,9 @@ def test_COMPLIANCE_costs_the_RIGHTING_a_FACTOR_OF_THREE_when_the_SPINE_has_it()
     # ⚠️ M123: 6479 -> 8996 N, 40x -- the longer wheelbase, and the same caveat.
     # ✅ M129 (ADR-0121): 8996 -> 6670 N, 30x -- the head carried back and
     # lower, the same caveat.
-    assert rigid_peak == pytest.approx(6670.0, rel=0.05)
+    # ⚠️ M130 (ADR-0124): 6670 -> 9277 N, 42x -- the cat's skin, a quarter
+    # more pitch inertia and the head's foam out on its lever. Same caveat.
+    assert rigid_peak == pytest.approx(9277.0, rel=0.05)
     assert rigid_peak > 20.0 * MT.TENSION_MAX
 
     # ⚠️ and with the spine spooled the same manoeuvre takes longer again
@@ -5151,7 +5170,8 @@ def test_ADR0073s_CABLE_MARGIN_was_bought_by_a_RIGID_TRUNK():
     # ⚠️ M93: the rigid-box baseline moved 59.6 -> 71.4 N with the heavier leg.
     # ⚠️ M111: 71.4 -> 45.7 N -- the same joint torque on ADR-0103's bigger arms.
     # M123 (ADR-0114): 45.7 -> 44.3 N.
-    assert box["cable"] == pytest.approx(44.3, rel=0.02), (
+    # M130: 44.3 -> 48.0 N -- the cat's skin (ADR-0124).
+    assert box["cable"] == pytest.approx(48.0, rel=0.02), (
         "the rigid-box baseline must reproduce"
     )
 
@@ -5641,7 +5661,9 @@ def test_NFR12s_LATENCY_BUDGET_holds_on_the_plant_at_last():
     assert budget["peak"] < 0.4 * MT.TENSION_MAX
 
     # ⚠️ and the boundary is real: at 40 ms the cable saturates
-    assert over["peak"] > 0.9 * MT.TENSION_MAX, (
+    # ✅ M130 (ADR-0124): 40 ms now reaches 166 N, 74 % -- the skin's mass
+    # slows the response the latency acts on. The boundary has moved out.
+    assert over["peak"] > 0.7 * MT.TENSION_MAX, (
         f"40 ms runs the cable to the edge: {over['peak']:.1f} N of "
         f"{MT.TENSION_MAX:.1f}"
     )

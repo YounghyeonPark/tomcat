@@ -231,7 +231,10 @@ def front():
     # M123: the lump rides the fore hip, `front_hip_x` ahead of the frame
     m, c, I = front_without_head()
     c = c + np.array([SP.front_hip_x, 0.0, 0.0])
-    M, c, I = combine([(m, c, I), head()] + g3_parts("fore"))
+    import skin_mass as SM
+    # M130 (ADR-0124): and the cat's skin on it -- the head's foam, the neck
+    M, c, I = combine([(m, c, I), head(), SM.part("front", (0.195, 0.0, 0.0))]
+                      + g3_parts("fore"))
     return M, (c[0], c[2]), _mat_to_full(I)
 
 
@@ -245,7 +248,10 @@ def rear():
     m = M101["rear_mass"]
     c = np.array([M101["rear_com"][0] + SP.rear_hip_x, 0.0, M101["rear_com"][1]])
     I = _full_to_mat(M101["rear_inertia"])
-    M, cc, II = combine([(m, c, I), tail_motor(), tail()] + g3_parts("hind"))
+    import skin_mass as SM
+    # M130 (ADR-0124): and the cat's skin on it, the tail's sleeve with it
+    M, cc, II = combine([(m, c, I), tail_motor(), tail(), SM.part("rear")]
+                        + g3_parts("hind"))
     return M, (cc[0], cc[2]), _mat_to_full(II)
 
 

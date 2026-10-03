@@ -528,6 +528,9 @@ def foam(pd, dist, lo):
     face = P[:, 0] > HEAD_FREE_X              # where FACE alone shapes the head
     r2k = (P[:, 0] - BODY_COM[0]) ** 2 + (P[:, 2] - BODY_COM[1]) ** 2
     out = {"knit_r2_mm4": float((area * r2k).sum())}
+    # per vertex, for `skin_mass`: where each bit of knit and foam is
+    out["_per_vertex"] = {"P": P, "N": N, "area": area, "thick": thick,
+                          "head": head, "face": face}
     # ✅ the design: a PADDED SHELL -- `PAD` of foam under the knit, with air
     # inside it, and only the face stuffed solid. Stuffing the whole cat
     # ("stuffed") is priced beside it.
@@ -710,6 +713,7 @@ def report(cache=None, pd=None, points=None, st=None):
     if st and "dist" in st:
         st["foam"] = foam(pd, st["dist"], st["lo"])
         Ik = AREAL_G_M2 * 1e-3 * st["foam"].pop("knit_r2_mm4") * 1e-12
+        st["per_vertex"] = st["foam"].pop("_per_vertex")
         print("  the knit's pitch inertia +%.2e kg m2 = %.1f %% of the body's"
               % (Ik, 100 * Ik / BODY_IYY))
         for build, fs in st["foam"].items():

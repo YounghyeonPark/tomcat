@@ -243,6 +243,26 @@ def about_hip(links, hip=None):
     return I
 
 
+def with_skin(links, role):
+    """✅ M130 (ADR-0124): each link plus the cat's skin that rides on it
+    (`skin_mass`, the same hip frame)."""
+    import skin_mass as SM
+    out = {}
+    for b, (m, com, I) in links.items():
+        ms, cs, Is = SM.part("%s.%s" % (role, b))
+        if ms <= 0.0:
+            out[b] = (m, com, I)
+            continue
+        M = m + ms
+        c = (m * np.asarray(com) + ms * cs) / M
+        J = np.zeros((3, 3))
+        for mm, cc, II in ((m, np.asarray(com), I), (ms, cs, Is)):
+            r = cc - c
+            J += II + mm * (float(r @ r) * np.eye(3) - np.outer(r, r))
+        out[b] = (M, c, J)
+    return out
+
+
 def mjcf_table(leg=None):
     """`{link: (mass, com_in_body_frame, fullinertia)}` ready for `<inertial>`.
 
@@ -250,7 +270,8 @@ def mjcf_table(leg=None):
     """
     comps, report, _ = LD.build() if leg is None else LD.build(leg)
     out = {}
-    for b, (m, com, I) in in_link_frames(per_link(comps, report), report).items():
+    for b, (m, com, I) in in_link_frames(with_skin(per_link(comps, report), report["role"]),
+                                         report).items():
         out[b] = (m, com, (I[0, 0], I[1, 1], I[2, 2],
                            I[0, 1], I[0, 2], I[1, 2]))
     return out

@@ -219,6 +219,10 @@ def test_the_mjcf_now_swings_like_the_cad_leg():
             mm, com, I = LI._props(sd, rho)
             if mm > 0:
                 parts.append((mm, com, I))
+    # M130 (ADR-0124): and the cat's skin on each link, which the MJCF carries
+    import skin_mass as SM
+    for lk in ("femur", "tibia", "meta", "paw"):
+        parts.append(SM.part("hind." + lk))
     M_cad, com_cad, I_cad = BI.combine(parts)
     d = com_cad - hip
     I_cad_hip = I_cad + M_cad * (np.dot(d, d) * np.eye(3) - np.outer(d, d))
@@ -266,8 +270,11 @@ def test_the_mjcf_now_swings_like_the_cad_leg():
     # 1.3816e-3. The MJCF and the CAD still AGREE to 1e-4, which is the whole
     # point of this test; only the literal was stale.
     # ⚠️ M111's 36/34/22 sheaves: 1.3816e-3 -> 1.5398e-3 (+11.4 %). Still agree.
-    assert I_mj_hip[1, 1] == pytest.approx(1.5398e-3, rel=0.02), (
-        f"MJCF swing inertia {I_mj_hip[1, 1]:.4e}, CAD says 1.5398e-3"
+    # ⚠️ M130 (ADR-0124): 1.5398e-3 -> **1.8040e-3 (+17 %)** -- the cat's
+    # skin on the legs (its sleeves are the sheaves' hull, 24.5 g a hind leg)
+    # and the femur Ø16. The leg the tendon drive keeps light is now dressed.
+    assert I_mj_hip[1, 1] == pytest.approx(1.8040e-3, rel=0.02), (
+        f"MJCF swing inertia {I_mj_hip[1, 1]:.4e}, CAD says 1.8040e-3"
     )
 
     # ⚠️ because most of the leg is joint hardware sitting AT the joints.

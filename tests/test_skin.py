@@ -138,7 +138,9 @@ def test_the_legs_leave_through_an_APERTURE_not_a_gap():
     cover that deflects -- so the check that merely asked "does it foul" was the
     wrong question. Each leg leaves through a hole with a cuff."""
     inner = LD.TRACK_Y - LD.TUBE["femur"][0] / 2
-    assert 0.0 < inner - SK.outline(0.0)[0] < 3.0, (
+    # ⚠️ M130: -0.4 mm -- the femur is Ø16 now (ADR-0124) and its inner face
+    # stands inside the cover's flank. It always left through its aperture.
+    assert -1.0 < inner - SK.outline(0.0)[0] < 3.0, (
         "the rear flank clears the femur by %.1f mm -- if that has become real "
         "clearance the aperture may be reconsidered"
         % (inner - SK.outline(0.0)[0])

@@ -69,11 +69,14 @@ PRE_M41_BODY = 4.045
 
 
 def measured_leg_mass(leg_params):
-    """Per-link hardware mass (kg) for one leg, from the manufacturing model."""
+    """Per-link mass (kg) for one leg: the manufacturing model's hardware and,
+    since M130 (ADR-0124), the cat's skin over it (`skin_mass`)."""
+    import skin_mass as SM
     comps, report, _ = LD.build(leg_params)
     per_link, _ = LD.per_link_mass(comps, report)
     order = ("femur", "tibia", "meta", "paw")
-    return np.array([per_link[k] for k in order]) * 1e-3
+    hw = np.array([per_link[k] for k in order]) * 1e-3
+    return hw + np.array(SM.leg_link_masses(report["role"]))
 
 
 def loads_at(body_kg: float):

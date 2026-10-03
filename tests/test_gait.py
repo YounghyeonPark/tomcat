@@ -274,7 +274,7 @@ def test_gait_state_reports_com_and_stability():
     st = ctrl.state(0.3)
     assert st.com is not None and st.stability is not None
     assert st.com.mass == pytest.approx(ctrl.body.total_mass)
-    assert st.com.mass == pytest.approx(4.57869)     # ADR-0093 -> M111 -> M120 -> M122 -> M123 -> M124 -> M126 -> M127 -> M130
+    assert st.com.mass == pytest.approx(4.83385)     # ... -> M127 -> M130 (spools) -> M130 (the cat's skin, ADR-0124)
     # The state's convenience flag agrees with the margin object.
     assert st.is_statically_stable == st.stability.is_stable
     assert ctrl.stability(0.3).margin == pytest.approx(st.stability.margin)
