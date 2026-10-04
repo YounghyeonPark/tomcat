@@ -72,7 +72,8 @@ XFAIL_M92 = (
 
 @pytest.fixture(scope="module")
 def controller():
-    return gait.GaitController(gait.trot_params())
+    # M131 (ADR-0125): on the harness's own MuJoCo-measured foothold
+    return mjsim.harness_controller()
 
 
 def _harness(controller, kp):
@@ -179,7 +180,8 @@ def test_balance_needs_compliant_legs(controller):
     soft_late = _mean_dcm(soft, slice(-8, None))
     # M123: the baseline's floor rose (see the gate above) -- 7.0 mm.
     # M130 (ADR-0124): 8.6 mm, with the skin on. The harness re-tune is due.
-    assert soft_late < 0.009, f"compliant drift {1000 * soft_late:.1f} mm"
+    # ✅ M131 (ADR-0125): 6.2 mm on the harness's own foothold.
+    assert soft_late < 0.007, f"compliant drift {1000 * soft_late:.1f} mm"
     if len(stiff) == 24:
         # M123: 1.5x (10.8 against 7.0 mm) -- the compliant gain still wins,
         # by less, on the higher floor.
@@ -188,7 +190,13 @@ def test_balance_needs_compliant_legs(controller):
         # lose on this harness's floor -- the finding is not reproduced HERE.
         # This harness's re-tune is the standing `[owed]` (the gate above);
         # the claim is reduced to "compliance costs nothing".
-        assert _mean_dcm(stiff, slice(-8, None)) > 0.95 * soft_late
+        # ✅ **M131 (ADR-0125): RESTORED, 5.5x (34.1 against 6.2 mm).** On the
+        # analytic foothold the compliant legs were drifting nearly as much as
+        # the stiff ones, so the finding vanished into the floor; on the
+        # plant's own foothold the floor drops and the stiff servos are
+        # plainly worse again -- and over 50 steps they fall at most
+        # footholds where the compliant legs hold.
+        assert _mean_dcm(stiff, slice(-8, None)) > 3.0 * soft_late
 
 
 # ⚠️ M87 (ADR-0089) moved WHICH directions are best and worst, not the
@@ -659,8 +667,10 @@ def test_survival_has_HOLES_so_no_bisection_measures_an_envelope(controller):
     # asserts the boundary is monotone, and fails if the holes come back.
     # M130 (ADR-0124): the edge moved one step out with the skin's mass --
     # 0.02-0.24 o, 0.26-0.40 x. Still one clean boundary.
-    assert all(survives(d) for d in (0.10, 0.14, 0.18, 0.22, 0.24)), "a hole below the edge"
-    assert not any(survives(d) for d in (0.26, 0.30)), "survives past the edge"
+    # M131 (ADR-0125): on the harness's own foothold, one step further --
+    # 0.02-0.26 o, 0.28-0.48 x. Still one clean boundary.
+    assert all(survives(d) for d in (0.10, 0.14, 0.18, 0.22, 0.26)), "a hole below the edge"
+    assert not any(survives(d) for d in (0.28, 0.32)), "survives past the edge"
 
 
 def test_the_sim_SURVIVES_past_the_viable_bound_in_its_TIGHTEST_direction(controller):
@@ -720,9 +730,16 @@ def test_the_sim_SURVIVES_past_the_viable_bound_in_its_TIGHTEST_direction(contro
             ok = not fell and len(hist) == 16
         lo, hi = (mid, hi) if ok else (lo, mid)
     survived = lo / h.omega
-    assert survived > 1.3 * per[tight], (
-        f"survival {1000 * survived:.1f} mm is back near the viable bound "
-        f"{1000 * per[tight]:.1f} mm -- the discrepancy closed; re-read this test"
+    # ✅ **M131 (ADR-0125): THE GAP CLOSED -- by fixing the harness.** On its
+    # own MuJoCo-measured foothold the harness survives 34.1 mm at 255 deg
+    # against the viable set's 31.6: **108 %**, where it was 147-190 %. The
+    # harness had been balancing on the analytic foothold, 5.7 mm from the
+    # plant's own, and the drift that bought the robot "survival" past the
+    # recovery bound was that error. Survival and recovery now agree to 8 %,
+    # so this test asserts the agreement and fails if the gap reopens.
+    assert 0.9 * per[tight] < survived < 1.3 * per[tight], (
+        f"survival {1000 * survived:.1f} mm against the viable bound "
+        f"{1000 * per[tight]:.1f} mm -- the gap has reopened; re-read this test"
     )
 
 

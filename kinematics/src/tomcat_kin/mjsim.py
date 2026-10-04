@@ -61,6 +61,34 @@ DIAGONALS = {"A": ("LF", "RR"), "B": ("RF", "LR")}
 #: the foot separation cannot supply.
 COP_GAIN = 1.0
 
+#: ✅ M131 (ADR-0125): **the harness's own foothold, measured in MuJoCo, m.**
+#: The trot's `nominal_foot` is the ANALYTIC optimum -- bisected on the
+#: line-support roll drift (`test_trot._roll_drift`), 0.01567 since M130 --
+#: and the harness had always borrowed it. Swept in this plant, undisturbed,
+#: 50 steps at `kp` 80 (mean / worst DCM, mm):
+#:
+#:     x mm     mean   worst
+#:      6.0     25.9    92.9   <- a cliff below ~7.5
+#:      8.0      4.7    21.3   quietest on average, 1 mm from the cliff
+#:     10.0      6.0    16.0   <- this: quiet, and 3 mm clear of the cliff
+#:     12.0      6.8    15.8
+#:     15.67     7.8    18.3   the analytic optimum the harness had used
+#:     25.0     17.6   102.5
+#:
+#: The two optima differ by 5.7 mm. The analytic model has no contact
+#: dynamics, and that gap is a sim-to-real fact worth randomising over, not a
+#: defect in either.
+HARNESS_FOOT_X = 0.010
+
+
+def harness_controller(**overrides):
+    """The trot the MuJoCo harness balances: the shipped trot on the harness's
+    own foothold (`HARNESS_FOOT_X`)."""
+    from . import gait
+    kw = {"nominal_foot": (HARNESS_FOOT_X, gait.trot_params().nominal_foot[1])}
+    kw.update(overrides)
+    return gait.GaitController(gait.trot_params(**kw))
+
 #: Metres of differential stance-leg extension per metre of CoP error.
 #:
 #: ⚠️ **Re-measured on COMPLIANT legs (M27), and the sign is negative.** M21 measured

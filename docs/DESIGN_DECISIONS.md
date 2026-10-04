@@ -9913,6 +9913,55 @@ The MuJoCo harness moved four numbers, and three of them moved the good way.
 
 ---
 
+## ADR-0125: the MuJoCo balance harness stands on its own foothold
+- **Status:** Accepted (M131). Closes the harness re-tune `[owed]` since M123.
+- **Context:** the balance harness (`mjsim.BalanceHarness`) borrowed the
+  trot's `nominal_foot`. That foothold is the ANALYTIC optimum, bisected on the
+  line-support roll drift, and it had moved with every mass change: 0.00722 →
+  0.01383 → 0.01309 → 0.01567 m. In MuJoCo the undisturbed baseline rose with
+  it, from 0.7 to 6.6, then 7.8 mm mean. By M130 several harness findings had
+  sunk into that floor:
+  - the compliant legs' advantage over stiff servos had fallen to 1.01×;
+  - the drift limits had to be loosened to 8.6 / 15.4 mm;
+  - the robot "survived" pushes 1.5–1.9× past the viable set's recovery bound.
+
+- **Measured:** the undisturbed baseline, 50 steps at leg `kp` 80, by foothold:
+
+  | foothold mm | mean | worst |
+  |---|---|---|
+  | 6.0 | 25.9 | 92.9 |
+  | 7.0 | 6.7 | 46.7 |
+  | 8.0 | 4.7 | 21.3 |
+  | **10.0** | **6.0** | **16.0** |
+  | 12.0 | 6.8 | 15.8 |
+  | 15.67 (analytic, was) | 7.8 | 18.3 |
+  | 25.0 | 17.6 | 102.5 |
+
+  Below ~7.5 mm the baseline falls off a cliff. Leg `kp` 80 stays the best
+  gain: 50 and 65 drift 9–13 mm, and 120 and 150 fall. The CoP gain is inert
+  with `regulate_along_line` off.
+
+- **Decision:** `mjsim.HARNESS_FOOT_X` = **0.010 m**, quiet and 3 mm clear of
+  the cliff. `mjsim.harness_controller()` is the shipped trot on that foothold,
+  and `test_mjsim` balances it. The trot's own foothold stays the analytic
+  optimum. ⚠️ The two optima differ by 5.7 mm because the analytic model has no
+  contact dynamics. That gap is worth randomising over in training (sim2real),
+  rather than a defect in either model.
+
+- **Consequences:**
+  - ✅ **Balance needs compliant legs, restored at 5.5×** (stiff 34.1 mm
+    against compliant 6.2 mm over 24 steps; over 50 steps the stiff servos fall
+    at most footholds). The bound goes back to 3×, and the compliant drift
+    bound tightens from 9 to 7 mm.
+  - ✅ **Survival and recovery agree.** At the viable set's tightest direction
+    (255°) the harness survives 34.1 mm against a 31.6 mm recovery bound, 108 %
+    where it was 147–190 %. The drift that had bought the robot "survival"
+    past the bound was the harness's foothold error. The test now asserts the
+    agreement and fails if the gap reopens.
+  - The survival boundary at 120° is one clean edge at 0.26–0.28 m/s.
+
+---
+
 ---
 
 ### How to add an ADR
