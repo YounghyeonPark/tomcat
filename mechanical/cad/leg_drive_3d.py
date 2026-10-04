@@ -223,7 +223,10 @@ def main(path=None, size=(1200, 820), fps=16, n_each=30, hq=False):
     win = vtk.vtkRenderWindow()
     win.SetOffScreenRendering(1)
     win.SetSize(size[0] * ss, size[1] * ss)
-    win.SetMultiSamples(8)
+    # M131: no multisampling when supersampled -- the 2x downsample already
+    # anti-aliases, and 8 samples on a 3200 x 1800 buffer was what ran the
+    # machine out of memory
+    win.SetMultiSamples(0 if ss > 1 else 8)
     win.AddRenderer(ren)
     ren.SetUseDepthPeeling(1)
     ren.SetMaximumNumberOfPeels(8)
@@ -312,6 +315,11 @@ def main(path=None, size=(1200, 820), fps=16, n_each=30, hq=False):
     A0 = _angles(LT.joints(q0, DEFAULT_HINDLEG))
     J0 = LT.joints(q0, DEFAULT_HINDLEG)
     frames = []
+    # M131: in HQ the frames go to disk as they are rendered and are read back
+    # only once the renderer is gone -- holding 300 full-colour frames beside
+    # the scene's meshes ran a 5 GB-free machine out of memory
+    import tempfile
+    spill = tempfile.mkdtemp(prefix="leg_drive_") if hq else None
     prev = None
     grab = vtk.vtkWindowToImageFilter()
     grab.SetInput(win)
@@ -353,7 +361,7 @@ def main(path=None, size=(1200, 820), fps=16, n_each=30, hq=False):
             xs = r["spool_x"]
             end = 1.0 if xs > x else -1.0
             ang = -(lens[(t, +1)] - L0[(t, +1)]) / LT.SPOOL_R
-            face = xs + end * 4.3
+            face = xs + end * (TE.TP.spool_len(t) / 2 + 0.3)   # M130: drums by joint
             rr = LT.SPOOL_R + 1.5
             marker[t].GetMapper().SetInputData(
                 _tube([(face, y, z), (face, y + rr * math.cos(ang), z + rr * math.sin(ang))], 1.1))
@@ -379,9 +387,20 @@ def main(path=None, size=(1200, 820), fps=16, n_each=30, hq=False):
         im = Image.fromarray(arr[:, :, :3].copy())
         if ss > 1:
             im = im.resize(size, Image.LANCZOS)
-        frames.append(im)
+        if spill:
+            fp = os.path.join(spill, "f%04d.png" % i)
+            im.save(fp)
+            frames.append(fp)
+        else:
+            frames.append(im)
         if i % 20 == 0:
             print("frame %d / %d" % (i, n), flush=True)
+    if spill:
+        win.Finalize()
+        del win, ren
+        import gc
+        gc.collect()
+        frames = [Image.open(fp) for fp in frames]
     if path.endswith(".webp"):
         frames[0].save(path, "WEBP", save_all=True, append_images=frames[1:],
                        duration=int(round(1000 / fps)), loop=0, quality=88, method=6)
@@ -391,6 +410,11 @@ def main(path=None, size=(1200, 820), fps=16, n_each=30, hq=False):
                     loop=0, optimize=True)
     frames[len(frames) // 3].save(os.path.splitext(path)[0] + "_still.png")
     print("wrote %s (%d frames)" % (path, len(frames)))
+    if spill:
+        import shutil
+        for f in frames:
+            f.close()
+        shutil.rmtree(spill, ignore_errors=True)
     return path
 
 
