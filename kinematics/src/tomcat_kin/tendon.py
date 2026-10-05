@@ -196,8 +196,8 @@ class TendonMap:
         239.4 extending -- so a scalar could not have carried them anyway.
 
         ✅ M133 (ADR-0127): `q`, a leg pose (shape `(..., 3)`), charges the
-        knee crossing at that pose's knee instead of the stop
-        (`params.crossing_slope`); the result then has shape `(..., 3)`.
+        ankle pair's knee crossing at that pose's knee instead of its worst
+        (`params.crossing_bend`); the result then has shape `(..., 3)`.
         Without it, the worst over the ROM, as before.
 
         ⚠️ **`wrap_angle` OVERRIDES, it does not fall back.** A first version
@@ -217,11 +217,12 @@ class TendonMap:
         # pulley, nothing on the anchored sheave or the spool.
         if getattr(self.params, "friction_model", "capstan") == "drive":
             bend = np.array([float(row[k]) for row in self.params.conduit_bend])
-            slope = getattr(self.params, "crossing_slope", None)
-            if q is not None and slope is not None:
+            tab = getattr(self.params, "crossing_bend", None)
+            if q is not None and tab is not None:
                 knee = np.abs(np.asarray(q, dtype=float)[..., 1])
-                off = np.clip(float(self.params.crossing_ref) - knee, 0.0, None)
-                bend = bend - np.asarray(slope, float) * off[..., None]
+                row = np.asarray(tab[k], float)
+                at = np.interp(knee, np.asarray(self.params.crossing_knee, float), row)
+                bend = bend + (at - row.max())[..., None] * np.array([0.0, 0.0, 1.0])
             n = np.array([float(row[k]) for row in self.params.pulley_count])
             eta = float(self.params.pulley_efficiency)
             return (np.exp(sign * float(self.params.conduit_mu) * bend)

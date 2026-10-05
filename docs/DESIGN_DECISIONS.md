@@ -9963,7 +9963,8 @@ The MuJoCo harness moved four numbers, and three of them moved the good way.
 ---
 
 ## ADR-0126: the ankle conduit crosses the knee, and the knee via is gone
-- **Status:** Accepted (M132).
+- **Status:** Accepted (M132). The crossing's slack is settled by
+  [ADR-0128](#adr-0128-the-knee-crossing-is-one-conduit-length-outside-the-fold).
 - **Context:** in the M131 drive render the ankle pair's two cables were drawn
   as one line between the knee via and the ankle sheave. Two defects were
   behind it:
@@ -10096,6 +10097,80 @@ The MuJoCo harness moved four numbers, and three of them moved the good way.
   - ⚠️ **Thermal:** trot copper is 6.80 W a motor (was 7.58). Forced air at
     h = 15 settles at 85.5 °C, still over the 80 °C line; h = 25 holds.
   - The MuJoCo plant carries no friction, so nothing there moves.
+
+---
+
+## ADR-0128: the knee crossing is one conduit length, outside the fold
+- **Status:** Accepted (M134). Closes ADR-0126's open slack question.
+- **Context:** the M132 model let the crossing's length follow its gentlest
+  shape: 100 mm with the knee straight, 36 mm at the 150° stop. A conduit is
+  one length.
+  - Clamped on the bone lines, its path cuts the folding corner and shortens
+    by 64 mm.
+  - A 100 mm conduit forced into that corner has nowhere to put the excess.
+    Solved as an elastica (below), it bends at 0.5–12 mm.
+  - At 15 mm minimum radius the crossing could not be built as drawn.
+- **Model:** `tendon_exit.elastica`, the least-bending-energy curve of a
+  fixed length between two clamped ends, in the ankle's plane. It is solved
+  once over the knee's range (`_knee_table`) and warm-started at each pose.
+- **Options swept** (hind and fore, 25 knee poses; trot-mean bend, minimum
+  radius, and the furthest the conduit gets from the bones):
+  - Ends on the bone lines, any length: r ≥ 11.6 mm at best, and an S-bend
+    of up to +90° over the knee's own angle.
+  - **Ends offset to the side the knee does not fold to.** The conduit rounds
+    the outside of the knee, as a cable over a kneecap does, and its natural
+    length barely moves.
+  - **Each ferrule aimed along its own cable.** The ankle's sheave is fixed in
+    the tibia, so the line from a ferrule to it is fixed too. The 29° the
+    cable turned at the mouth now happens once, in the conduit, and the two
+    cables' turns differ: one turns *with* the knee's fold (~40° more than
+    the knee), the other *against* it (about the knee's own angle).
+  - The two conduits are separate, so they need not share a clamp.
+- **Decision:** per cable (`LT.KNEE_CROSSING`: offset, length):
+
+  | cable | offset | length | shortest it can be | min radius | from the bones |
+  |---|---|---|---|---|---|
+  | turns *with* the fold | 6 mm | 106 mm | ~101.5 | ≥ 16.4 mm | ≤ 21 mm |
+  | turns *against* it | 15 mm | 107 mm | ≤ 105.5 | ≥ 18 mm | ≤ 31 mm |
+
+  - Both ends sit `KNEE_FERRULE_D` = 50 mm from the knee. The femur gains a
+    clamp on a standoff, and the tibia ferrule's standoff lengthens.
+  - The skin's sleeve is 43 mm at the knee, so both conduits fit inside it.
+  - The friction table is no longer linear: one length bows into an S near a
+    straight knee, so the bend is least mid-range. `params` carries it per
+    cable (`crossing_knee`, `crossing_bend`).
+- **⚠️ Found on the way: the budgets charged the HIND drive to all four
+  legs.** ADR-0102 found this for the motor budget; `power` kept doing it.
+  The cable that turns with the fold is the hind *flexor* and the fore
+  *extensor*, and the trot loads every ankle's flexor. The hind table
+  overcharged both fore ankles by ~50°.
+  - `params.DEFAULT_TENDON_FORE` and `tendon_for(leg)` now carry the fore
+    leg's drive, and `power` charges each leg its own.
+  - `mass_closure`'s fore budget builds on it.
+- **Consequences:**
+  - ✅ **The crossing can be built:** one length, r ≥ 16.4 mm over the whole
+    range of motion, inside the skin. Before it was 12.9 mm at the stop, on a
+    length no conduit has.
+  - ✅ **NFR6 at 19.68 / 14.43 min** (was 19.49 / 14.26), ~590 m.
+    - The vendor-Kt corner now holds to conduit μ ≈ 0.076 (was 0.073); at
+      0.08 it is 13.74 min.
+    - With the hind table on all four legs it would read 19.20 / 14.03 min.
+      The fore leg's own drive is worth 0.4 min, more than the corner's whole
+      margin.
+  - ✅ Motor continuous 0.644 N·m, 91 % of the rating (was 0.671). RMS current
+    0.999 / 1.256 A; efficiency 29.0 %. The peak is unchanged at 1.821 N·m.
+  - +2.7 g a leg (the femur clamp and the standoffs). Body **4.825 kg**; the
+    femur's share of the leg is 48.1 %.
+  - Thermal: 6.69 W a motor; h = 15 settles at 84.6 °C, still over the line.
+  - The worst pose-free factor is ×1.46, the hind flexor's 310° at the stop.
+    No trot pose reaches it.
+  - ⚠️ **The MuJoCo harness moved with +2.7 g a leg:**
+    - Stiff legs against compliant are 2.9× (17.5 against 6.1 mm), not
+      ADR-0125's 5.5×. The stiff servos sit at the edge of falling, and
+      their drift swings with grams.
+    - M123's "the short stance is quieter" is now a tie (10.6 against
+      10.6 mm), as mass-sensitive as M34's "it doubles". Both are worth
+      randomising over rather than citing.
 
 ---
 

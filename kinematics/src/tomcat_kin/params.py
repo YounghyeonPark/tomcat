@@ -220,7 +220,7 @@ class LegParams:
     # knee via on the flexor's other side, and the ankle ferrule stagger is gone.
     # M130 (ADR-0124): + the cat's skin on each link (`skin_mass`), and the
     # femur tube Ø14 -> Ø16 (SF 2.40 under the skin's landing load).
-    link_mass: tuple[float, float, float, float] = (0.11279, 0.07649, 0.03952,
+    link_mass: tuple[float, float, float, float] = (0.11552, 0.07651, 0.03952,
                                                     0.00852)
 
     # Fraction of each link's LENGTH, measured from that link's PROXIMAL joint,
@@ -232,15 +232,15 @@ class LegParams:
     # at 6-8 %**: the mass is joint hardware sitting ON the proximal joint, not
     # a belly part-way down a bone. The paw is the opposite (87 %) because the
     # pad is at its tip.  `[derived: cad/link_inertia.py]`
-    link_com_frac: tuple[float, float, float, float] = (0.1260, 0.1203, 0.1965, 0.8997)
+    link_com_frac: tuple[float, float, float, float] = (0.1366, 0.1204, 0.1963, 0.8997)
 
     #: Centre of mass in the link's OWN body frame (m), +x along the link from
     #: its proximal joint. The full vector `link_com_frac` cannot carry: the
     #: sheaves stand ~4 mm off the limb plane in +y.  `[derived: cad/link_inertia.py]`
     link_com: tuple[tuple[float, float, float], ...] = (
-        (0.011337, 0.005631, -0.000201),       # femur
-        (0.011428, 0.006755, 0.000944),       # tibia
-        (0.013757, 0.005804, -0.000534),      # meta
+        (0.012293, 0.005834, -0.000262),       # femur
+        (0.011443, 0.006758, 0.000958),       # tibia
+        (0.013739, 0.005801, -0.000551),      # meta
         (0.022492, -0.000012, -0.001033),      # paw
     )
 
@@ -253,9 +253,9 @@ class LegParams:
     #: joint hardware sitting at its joints; a capsule spreads it down the bone.
     #: `[derived: cad/link_inertia.py]`
     link_inertia: tuple[tuple[float, ...], ...] = (
-        (5.7537e-05, 1.6056e-04, 1.2573e-04, 4.3116e-06, 4.6361e-06, -4.6413e-07),
-        (2.3207e-05, 7.7494e-05, 7.3170e-05, -7.7317e-07, 1.4496e-06, -5.4864e-07),
-        (7.8845e-06, 2.5092e-05, 2.7394e-05, 2.9641e-06, -3.8382e-08, -1.3133e-07),
+        (5.9362e-05, 1.6766e-04, 1.3169e-04, 3.3184e-06, 5.9801e-06, -5.2329e-07),
+        (2.3229e-05, 7.7598e-05, 7.3259e-05, -7.9037e-07, 1.3889e-06, -5.6480e-07),
+        (7.8963e-06, 2.5108e-05, 2.7394e-05, 2.9752e-06, -4.7436e-08, -1.2021e-07),
         (6.1006e-07, 1.0067e-06, 1.2186e-06, 0.0000e+00, 1.2709e-08, 0.0000e+00),
     )
 
@@ -452,23 +452,32 @@ class TendonParams:
     #: there at the knee's full flexion (with the cable's turn out of the
     #: tibia ferrule) is added -- conservative: the trot never reaches it.
     #: The hip pair re-placed with the tangents solved right (147 / 164 deg).
+    #: ✅ M134 (ADR-0128): the crossing is one conduit LENGTH, rounding the
+    #: outside of the knee with its ferrule aimed along its cable; the flexor
+    #: turns with the fold (307 deg at the stop), the extensor against it.
     conduit_bend: tuple = ((2.8669, 2.5572),  # hip   164 / 147 deg
                            (1.9656, 1.9654),  # knee  113 / 113 deg
-                           (5.0812, 5.0810))  # ankle 291 / 291 deg
+                           (5.4062, 4.8974))  # ankle 310 / 281 deg
     #: Running pulleys between spool and anchored sheave: the knee via, on the
     #: ankle pair, and nothing else (ADR-0112).
     #: M132: none -- the knee via is gone.
     pulley_count: tuple = ((0, 0), (0, 0), (0, 0))
-    #: ✅ M133 (ADR-0127): **the knee crossing is charged at the pose.** Its
-    #: bend is LINEAR in the knee -- `crossing_slope` rad of bend per rad of
-    #: |q_knee|, 29-33 deg at a straight knee, to 0.12 deg over the ROM on both
-    #: legs -- and `conduit_bend` carries it at `crossing_ref`, the knee's stop.
-    #: `TendonMap.capstan_factor(q=...)` takes off
-    #: `slope * (crossing_ref - |q_knee|)`; without a pose the worst stands.
-    #: The rest of each bend moves 5-10 deg over the hip range and stays at
-    #: its worst. `[derived: mechanical/cad/tendon_exit.py]`
-    crossing_slope: tuple = (0.0, 0.0, 0.98285)
-    crossing_ref: float = 2.61799
+    #: ✅ M133 (ADR-0127): **the knee crossing is charged at the pose.**
+    #: `conduit_bend` carries it at its worst; `TendonMap.capstan_factor(q=...)`
+    #: swaps that for the crossing's bend at the pose's |q_knee|, read off
+    #: this table (the ankle pair's, flexor and extensor). Without a pose the
+    #: worst stands. The rest of each bend moves 5-10 deg over the hip range
+    #: and stays at its worst.
+    #: M134 (ADR-0128): a TABLE, no longer a slope -- one conduit length
+    #: bows into an S near a straight knee, so the bend is least mid-range.
+    #: `[derived: mechanical/cad/tendon_exit.knee_crossing_table]`
+    crossing_knee: tuple = (0.0, 0.2182, 0.4363, 0.6545, 0.8727, 1.0908, 1.309,
+                            1.5272, 1.7453, 1.9635, 2.1817, 2.3998, 2.618)
+    crossing_bend: tuple = (
+        (1.3916, 1.2320, 1.1950, 1.3020, 1.5111, 1.7293, 1.9504,      # flexor
+         2.1813, 2.4222, 2.6680, 2.9162, 3.1647, 3.4111),
+        (2.3055, 1.5683, 0.9724, 0.6847, 0.7654, 0.9581, 1.1857,      # extensor
+         1.4289, 1.6867, 1.9659, 2.2671, 2.5801, 2.9025))
 
     # Series cable compliance: model the tendon as a linear spring of stiffness
     # k_cable (N/m). Under tension T it stretches dL = T / k_cable, so the motor
@@ -895,7 +904,10 @@ class LoadCase:
     # and the fore radius, Ø16 for the landing it adds).
     # -> **4.81358** (M132, ADR-0126: the knee via, its bearing and the
     # shaft that reached it gone, 5 g a leg; a tibia ferrule bracket added).
-    body_mass_kg: float = 4.81358
+    # -> **4.82454** (M134, ADR-0128: the knee crossing's conduits clamped
+    # outside the fold -- a femur clamp, its standoff, a longer tibia
+    # standoff, two conduits' worth: +2.7 g a leg).
+    body_mass_kg: float = 4.82454
     n_stance_legs: int = 2             # legs sharing the load (e.g. trot => 2).
     dynamic_factor: float = 1.5        # peak/static impact multiplier.  ❓ TBD
 
@@ -960,6 +972,30 @@ class WholeBodyLoadCase:
 # Convenience singletons used by the demo and tests.
 DEFAULT_LEG = LegParams()
 DEFAULT_TENDON = TendonParams()
+#: ✅ M134 (ADR-0128): **the FORE leg's drive, which the budgets had never
+#: seen.** ADR-0102 found the motor budget had only ever looked at the hind
+#: leg; `power` went on charging the hind leg's conduits to all four. They were
+#: close enough until the knee crossing: the conduit that turns WITH the
+#: knee's fold is the hind leg's FLEXOR and the fore leg's EXTENSOR, and the
+#: trot loads every ankle's flexor -- so the hind table overcharged both fore
+#: ankles by ~50 deg. `[derived: mechanical/cad/tendon_exit.py, role "fore"]`
+DEFAULT_TENDON_FORE = TendonParams(
+    conduit_bend=((2.8669, 2.5572),        # hip   164 / 147 deg
+                  (1.9664, 1.9673),        # knee  113 / 113 deg
+                  (4.9153, 5.3993)),       # ankle 282 / 309 deg
+    crossing_bend=(
+        (2.3314, 1.5965, 1.0028, 0.7095, 0.7772, 0.9628, 1.1898,      # flexor
+         1.4343, 1.6953, 1.9785, 2.2818, 2.5962, 2.9194),
+        (1.4313, 1.2665, 1.2285, 1.3785, 1.5966, 1.8148, 2.0330,      # extensor
+         2.2521, 2.4807, 2.7214, 2.9662, 3.2116, 3.4550)),
+)
+
+
+def tendon_for(leg_name: str) -> "TendonParams":
+    """The drive of leg `leg_name` ("LF", "RF", "LR", "RR"), M134."""
+    return DEFAULT_TENDON_FORE if leg_name[1] == "F" else DEFAULT_TENDON
+
+
 DEFAULT_SPINE = SpineParams()
 
 # Cats are NOT fore/hind symmetric. The nominal DEFAULT_LEG doubles as the
@@ -997,20 +1033,20 @@ DEFAULT_FORELEG = LegParams(
     # every SF had been computed on the hind leg's loads).
     # ⚠️ M127: re-measured, as the hind leg.
     # ⚠️ M130: + the skin, as the hind leg; the humerus and the radius Ø16.
-    link_mass=(0.11459, 0.08025, 0.03919, 0.00843),
+    link_mass=(0.11731, 0.08024, 0.03921, 0.00843),
     # ⚠️ Re-derived at the FORE link lengths, not copied from the hind leg:
     # the same hardware on shorter links moves the fractions.
-    link_com_frac=(0.1348, 0.1440, 0.1957, 0.8799),
+    link_com_frac=(0.1467, 0.1439, 0.1959, 0.8799),
     link_com=(
-        (0.013483, 0.005502, 0.000366),      # humerus
-        (0.012963, 0.006426, -0.001062),      # radius
-        (0.012720, 0.005928, -0.000131),      # metacarpus
+        (0.014670, 0.005705, 0.000345),      # humerus
+        (0.012954, 0.006424, -0.001067),      # radius
+        (0.012730, 0.005936, -0.000133),      # metacarpus
         (0.021998, -0.000008, -0.001044),      # paw
     ),
     link_inertia=(
-        (6.2541e-05, 1.8858e-04, 1.5131e-04, 5.5825e-06, -6.3316e-06, 8.4071e-07),
-        (2.4236e-05, 8.0499e-05, 7.5740e-05, 0.0000e+00, 2.2505e-08, 7.0268e-07),
-        (8.2978e-06, 2.1450e-05, 2.3265e-05, 2.8235e-06, -3.3172e-07, -5.1168e-08),
+        (6.3868e-05, 1.9794e-04, 1.6004e-04, 4.3532e-06, -7.5832e-06, 9.8712e-07),
+        (2.4241e-05, 8.0461e-05, 7.5692e-05, 9.9362e-09, 3.5128e-08, 7.0886e-07),
+        (8.3005e-06, 2.1445e-05, 2.3267e-05, 2.8170e-06, -3.2402e-07, -4.9543e-08),
         (6.1316e-07, 9.5458e-07, 1.1547e-06, 0.0000e+00, 4.8073e-08, 0.0000e+00),
     ),
 )

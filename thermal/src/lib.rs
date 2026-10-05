@@ -173,21 +173,21 @@ pub mod from_power_py {
     //        into params.py at last
 
     /// Copper loss per leg motor at the 50 cm/s trot, W. (`copper_w / 12`)
-    pub const TROT_W: f64 = 6.8022;
+    pub const TROT_W: f64 = 6.6895;
     /// Per-motor draw HOLDING a stance, W. Higher than trotting — a cable can only
     /// pull, so posture costs current. (`legs_w / 12`)
-    pub const STAND_W: f64 = 3.2556;
+    pub const STAND_W: f64 = 3.2381;
     /// Minutes of trotting on the 300 g pack.
-    pub const TROT_RUNTIME_MIN: f64 = 19.4852;
+    pub const TROT_RUNTIME_MIN: f64 = 19.6782;
     /// Minutes standing on the pack, brake OFF.
-    pub const STAND_RUNTIME_MIN: f64 = 46.6089;
+    pub const STAND_RUNTIME_MIN: f64 = 46.7906;
     /// Whole-robot electrical draw at the trot, W. (`gait_power()["total_w"]`)
     ///
     /// ⚠️ M40: this lived as a bare `const TOTAL_W` inside two functions and was
     /// therefore **outside** the pytest guard, so it could go stale silently — which
     /// it did: it still read 83.5607 after the copper-loss correction, and only the
     /// emergent-runtime cross-check caught it. Guarded now.
-    pub const TOTAL_W: f64 = 129.3287;
+    pub const TOTAL_W: f64 = 128.0602;
 }
 
 /// Room air. Everything is quoted as a rise, so this only sets the absolute scale.
@@ -523,7 +523,7 @@ mod tests {
         // ankle pair's conduit crosses the knee and its friction put trot copper
         // at 7.58 W a motor (was 5.90). The airflow has to be real again.
         // M133 (ADR-0127): 85.5 C with the crossing charged at the pose (6.80 W)
-        // -- better, still over.
+        // -- better, still over. M134 (ADR-0128): 84.6 C (6.69 W).
         assert!(h15 > 80.0, "h=15 is no longer enough since M132, got {h15}");
         assert!(h25 < 80.0, "h=25 must still recover it, got {h25}");
     }

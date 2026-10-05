@@ -77,6 +77,22 @@ def battery_wh(kg: float = BATTERY_KG, wh_per_kg: float = BATTERY_WH_PER_KG,
     return kg * wh_per_kg * usable
 
 
+def _leg_capstan(tau, q, legs):
+    """The capstan factor on the loaded side of each sample, `(n, 4, 3)`,
+    at its pose, on its leg's drive."""
+    from . import TendonMap
+    from .params import tendon_for
+
+    cap = np.ones_like(tau)
+    for j, nm in enumerate(legs):
+        tm = TendonMap(tendon_for(nm))
+        cap[:, j] = np.where(
+            tau[:, j] >= 0.0,
+            np.asarray(tm.capstan_factor(side=+1, q=q[:, j]), dtype=float),
+            np.asarray(tm.capstan_factor(side=-1, q=q[:, j]), dtype=float))
+    return cap
+
+
 def gait_power(controller, n: int = 96) -> dict:
     """Mean electrical power (W) of the 12 leg motors over one gait cycle.
 
@@ -119,12 +135,9 @@ def gait_power(controller, n: int = 96) -> dict:
     # The factor is per joint AND per side: the loaded cable is the flexor
     # where `tau >= 0` and the extensor below it, and the two sides of one pair
     # carry different wraps (the hip's are 135.6 and 239.4 deg).
-    from . import TendonMap
-    tmap = TendonMap(DEFAULT_TENDON)
     # ✅ M133 (ADR-0127): each sample's friction at its own pose.
-    cap = np.where(tau >= 0.0,
-                   np.asarray(tmap.capstan_factor(side=+1, q=q), dtype=float),
-                   np.asarray(tmap.capstan_factor(side=-1, q=q), dtype=float))
+    # ✅ M134 (ADR-0128): and on its own leg's drive (`params.tendon_for`).
+    cap = _leg_capstan(tau, q, legs)
     # ⚠️ **The capstan belongs on the CURRENT path only.** A first version of
     # this multiplied `mot_tau` once, before splitting, so `p_mech` carried the
     # factor too -- friction booked as useful work. It shows up as efficiency
@@ -190,10 +203,7 @@ def walked_trajectory(controller, n: int = 400):
             else:
                 tau[i, j] = dyn.swing_joint_torque(controller, nm, i / n, n)
     qd = (np.roll(q, -1, axis=0) - np.roll(q, 1, axis=0)) / (2.0 * dt)
-    tmap = TendonMap(DEFAULT_TENDON)
-    cap = np.where(tau >= 0.0,                        # M133: at each pose
-                   np.asarray(tmap.capstan_factor(side=+1, q=q), dtype=float),
-                   np.asarray(tmap.capstan_factor(side=-1, q=q), dtype=float))
+    cap = _leg_capstan(tau, q, legs)                  # M133/M134: pose, leg
     return tau, qd, cap
 
 
@@ -261,7 +271,7 @@ def standing_power(n_legs: int = 4, foot=(0.04, -0.17)) -> dict:
     """
     from . import GaitController, gait
     from . import LegModel, TendonMap
-    from .params import DEFAULT_TENDON, GRAVITY
+    from .params import DEFAULT_TENDON, GRAVITY, tendon_for
 
     body = GaitController(gait.trot_params()).body
     names = ("LF", "RF", "LR", "RR")
@@ -277,13 +287,13 @@ def standing_power(n_legs: int = 4, foot=(0.04, -0.17)) -> dict:
 
     arms = np.asarray(DEFAULT_TENDON.joint_moment_arm, dtype=float)
     R = DEFAULT_TENDON.motor_spool_radius
-    tmap = TendonMap(DEFAULT_TENDON)
     per_leg = {}
     motor = {}
     for nm in names:
         F = (frac_fore if nm[1] == "F" else 1.0 - frac_fore) * W / 2.0
         tau = body.leg_model_for(nm).jacobian(q[nm]).T @ np.array([0.0, F, 0.0])
-        cap = np.where(tau >= 0.0,                    # M133: at the stance
+        tmap = TendonMap(tendon_for(nm))              # M133/M134: pose, leg
+        cap = np.where(tau >= 0.0,
                        np.asarray(tmap.capstan_factor(side=+1, q=q[nm]), float),
                        np.asarray(tmap.capstan_factor(side=-1, q=q[nm]), float))
         m_nm = np.abs(tau) / arms * R * cap

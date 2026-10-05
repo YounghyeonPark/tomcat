@@ -58,7 +58,7 @@ def test_the_spec_torque_table_is_stale_by_the_WHOLE_mass_history(loads):
     # 36 mm hip arm carries the same torque on less cable. Torque tracks mass;
     # tension tracks mass over arm, so it is no longer a pure mass snapshot.
     assert T == pytest.approx(555.9, abs=2.0)          # M120: 526.2; M122: 520.1; M123: 532.1; M126: 529.1; M130: 558.2 (the skin); M132: 555.9
-    assert tau / 12.36 == pytest.approx(4.81358 / 3.0, rel=0.02), (
+    assert tau / 12.36 == pytest.approx(4.82454 / 3.0, rel=0.02), (
         "the discrepancy should be exactly the body-mass ratio; if it is not, "
         "something other than body mass moved and this needs re-diagnosing"
     )

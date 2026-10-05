@@ -1080,7 +1080,7 @@ def test_the_pulley_transmission_is_ADR0008s_MOTOR_COUNT_and_ADR0042s_MAP():
     # M111: 4.38328 -> 4.4684 (ADR-0103's sheaves), M120: -> 4.55397 (G3,
     # ADR-0111), M122: -> 4.50092 (ADR-0112), M123: -> 4.60530 (ADR-0114), M124: -> 4.58886 (ADR-0115), M126: -> 4.57916 (ADR-0117), M127: -> 4.57852 (ADR-0118) --
     # none this decision's doing
-    assert DEFAULT_BODY_MASS_KG == pytest.approx(4.81358, abs=1e-4), (   # M130: + the skin
+    assert DEFAULT_BODY_MASS_KG == pytest.approx(4.82454, abs=1e-4), (   # M130: + the skin
         "and params' body mass needs no change, which was the point"
     )
 

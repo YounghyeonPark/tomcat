@@ -129,7 +129,7 @@ def stations(q, tendon: str, side: int = +1, leg=DEFAULT_LEG, spools=None,
         # ✅ M132 (ADR-0126): the ankle pair's conduits run on ACROSS the knee
         # to a ferrule on the tibia, so the free cable starts there and there
         # is no knee via: the pair's length no longer depends on the knee
-        return [(tibia_ferrule(q, leg), 1e-3, s), (ankle, ARMS[2], s)]
+        return [(tibia_ferrule(q, leg, s), 1e-3, s), (ankle, ARMS[2], s)]
 
     if tendon == "knee":
         return [(spool, lead_r, s), (hip, VIA_R, s), (knee, ARMS[1], s)]
@@ -148,13 +148,70 @@ def stations(q, tendon: str, side: int = +1, leg=DEFAULT_LEG, spools=None,
 #: and over 15 everywhere the knee works.
 KNEE_FERRULE_D = 50.0
 
+#: ✅ M134 (ADR-0128): **the conduit is one length, so the crossing must be.**
+#: Clamped on the bone lines, its path ran 64 mm shorter at the knee's stop
+#: than straight -- it cut the folding corner -- and a conduit of fixed length
+#: had nowhere to put that: forced into the corner it bent at 0.5-12 mm. Both
+#: ends sit out on the side the knee does NOT fold to, so the conduit rounds
+#: the outside of the knee, as a cable over a kneecap does, and the knee only
+#: re-shapes it. Per cable, (offset mm, conduit length mm), by which way the
+#: cable turns as it leaves its ferrule for the ankle's sheave:
+#:   - "with" the knee's fold: it turns ~40 deg more than the knee, and the
+#:     less it is offset the less it turns (128 deg mean over the hind trot at
+#:     6 mm, 134 at 12); r >= 16 mm, 4.5 mm longer than it must be;
+#:   - "against" it: it turns about the knee's own angle, further out
+#:     (r >= 18 mm), 1.5 mm longer than it must be.
+#: Both stay within 31 mm of the bones, inside the skin's 43 mm sleeve.
+#: `[derived: tendon_exit.knee_conduit; the sweep is in ADR-0128]`
+KNEE_CROSSING = {"with": (6.0, 106.0), "against": (15.0, 107.0)}
 
-def tibia_ferrule(q, leg=DEFAULT_LEG):
-    """The ankle pair's tibia ferrule at `q`, (x, z) hip frame, mm."""
+
+def knee_cable(side, leg=DEFAULT_LEG) -> str:
+    """"with" or "against": which way the ankle pair's `side` cable turns,
+    relative to the knee's fold, leaving its tibia ferrule (the flexor of the
+    hind leg turns with it; `test_tendon_exit` checks the sign)."""
+    return "with" if float(side) * knee_fold(leg) < 0 else "against"
+
+
+def knee_offset(side, leg=DEFAULT_LEG) -> float:
+    return KNEE_CROSSING[knee_cable(side, leg)][0]
+
+
+def knee_conduit_length(side, leg=DEFAULT_LEG) -> float:
+    return KNEE_CROSSING[knee_cable(side, leg)][1]
+
+
+def knee_fold(leg=DEFAULT_LEG) -> float:
+    """+1 or -1: which way the knee folds, as the sign of femur x tibia in
+    the leg's plane over its range of motion."""
+    q = np.zeros(len(leg.q_min))
+    q[1] = 0.5 * (float(leg.q_min[1]) + float(leg.q_max[1]))
+    p = joints(q, leg)
+    uf, ut = p[1] - p[0], p[2] - p[1]
+    return 1.0 if uf[0] * ut[1] - uf[1] * ut[0] > 0 else -1.0
+
+
+def _outside(u, leg):
+    """The unit normal to a bone direction `u` on the side the knee does not
+    fold to."""
+    return -knee_fold(leg) * np.array([-u[1], u[0]])
+
+
+def femur_clamp(q, leg=DEFAULT_LEG, side=+1):
+    """Where the ankle pair's `side` conduit is clamped to the femur above the
+    knee, and the femur's direction there: ((x, z), unit), hip frame, mm."""
+    p = joints(q, leg)
+    hip, knee = p[0], p[1]
+    u = (knee - hip) / np.linalg.norm(knee - hip)
+    return knee - KNEE_FERRULE_D * u + knee_offset(side, leg) * _outside(u, leg), u
+
+
+def tibia_ferrule(q, leg=DEFAULT_LEG, side=+1):
+    """The ankle pair's `side` tibia ferrule at `q`, (x, z) hip frame, mm."""
     p = joints(q, leg)
     knee, ankle = p[1], p[2]
     u = (ankle - knee) / np.linalg.norm(ankle - knee)
-    return knee + KNEE_FERRULE_D * u
+    return knee + KNEE_FERRULE_D * u + knee_offset(side, leg) * _outside(u, leg)
 
 
 def _pin(joint, distal, arm: float, side: float):

@@ -659,10 +659,16 @@ def tendon_drive(q, leg=DEFAULT_LEG, lay=None, role=None):
             d3 = (Ck[-1] - Ck[-2]) / np.linalg.norm(Ck[-1] - Ck[-2])
             groups["ferrule"].append(_rod(Ck[-1] - d3 * (FERRULE[1] - 1), Ck[-1] + d3 * 1,
                                           FERRULE[0]))
-            # ...and the ferrule is clamped to the tibia: a bracket from the
-            # tube, across to the ankle's plane (21.7 mm outboard)
+            # ...and each end stands off its bone (M134, ADR-0128: outside the
+            # knee's fold): a bracket from the tube's axis to the ferrule
+            # (tibia) and to the clamp (femur), across to the ankle's plane
+            fem, tib = r["knee_feet"]
             fb = Ck[-1] - d3 * (FERRULE[1] / 2)
-            groups["ferrule"].append(_rod(np.array([fb[0], 0.0, fb[2]]), fb, 2.0))
+            groups["ferrule"].append(_rod(np.array([tib[0], 0.0, tib[1]]), fb, 2.0))
+            d0 = (Ck[1] - Ck[0]) / np.linalg.norm(Ck[1] - Ck[0])
+            groups["ferrule"].append(_rod(Ck[0] - d0 * 1, Ck[0] + d0 * (FERRULE[1] - 1),
+                                          FERRULE[0]))
+            groups["ferrule"].append(_rod(np.array([fem[0], 0.0, fem[1]]), Ck[0], 2.0))
         an = r["anchor"]
         groups["anchor"].append(Pos(an[0], y, an[1]) * Sphere(CABLE_D))
     routes["fleet"] = fleet

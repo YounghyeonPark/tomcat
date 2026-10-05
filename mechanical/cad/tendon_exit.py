@@ -560,33 +560,141 @@ def conduit_worst(role, tendon, side_c, lead3, F2spec, lr_side=+1.0):
 #: ends at a ferrule as far below it on the tibia. Its length is fixed, so the
 #: pair's is too, whatever the knee does; the price is the crossing's bend,
 #: charged to the conduit's friction.
-def knee_conduit(role, q, side_c, lr_side=+1.0, n=60):
-    """The ankle conduit's crossing of the knee at pose `q`: (polyline trunk
-    mm, bend rad, tightest radius mm, length mm). Clamped along the femur and
-    ended along the tibia `LT.KNEE_FERRULE_D` either side of the knee, in the
-    gentlest shape between them (`conduit_shape`). `bend` adds where the free
-    cable leaves the ferrule's mouth for its sheave: the turn the cable makes
-    there rubs as the conduit's does. Its LENGTH moves with the knee, and
-    `knee_crossing_worst` reports by how much: a real conduit is one length,
-    so that is the slack it carries and bows out at the other end of the
-    range."""
+#: ✅ M134 (ADR-0128): **and it is ONE length.** Until here the crossing took
+#: whatever length its gentlest shape had -- 100 mm straight, 36 at the stop --
+#: which a conduit cannot do. Now its ends sit outside the fold and it is one
+#: length at every pose (`LT.KNEE_CROSSING`, per cable), in the shape a
+#: flexible rod of that length takes between two clamps: the least bending
+#: energy, an elastica (`elastica`).
+def _turn(a, b):
+    """Signed angle from 2-vector `a` to `b`, rad, in (-pi, pi]."""
+    return math.atan2(a[0] * b[1] - a[1] * b[0], float(a @ b))
+
+
+def elastica(P0, u0, P1, u1, L, k0=None, nk=14, m=240, dth=None):
+    """The least-bending-energy curve of length `L` from `P0` along `u0` to
+    `P1` along `u1`, in a plane (2-vectors, mm): (xy polyline, curvature
+    knots, bend rad, tightest radius mm), or None. `k0` warm-starts it;
+    `dth` is its net turning when that may pass +-180 deg."""
+    from scipy.optimize import minimize
+
+    th0 = math.atan2(u0[1], u0[0])
+    if dth is None:
+        dth = _turn(u0, u1)
+    s_ = np.linspace(0.0, L, m + 1)
+    knots = np.linspace(0.0, L, nk)
+    ds = L / m
+
+    def curve(k):
+        kn = np.interp(s_, knots, k)
+        th = th0 + np.concatenate([[0.0], np.cumsum(0.5 * (kn[1:] + kn[:-1]) * ds)])
+        mid = 0.5 * (th[1:] + th[:-1])
+        xy = P0 + np.concatenate(
+            [[[0.0, 0.0]], np.cumsum(np.c_[np.cos(mid), np.sin(mid)] * ds, 0)])
+        return xy, th, kn
+
+    def cons(k):
+        xy, th, _ = curve(k)
+        return np.r_[xy[-1] - P1, th[-1] - th0 - dth]
+
+    if k0 is not None:
+        guesses = [np.asarray(k0, float)]
+    else:
+        flat = np.full(nk, dth / L)
+        wig = np.sin(np.linspace(0.0, 2.0 * np.pi, nk))
+        guesses = [flat] + [flat + a * wig for a in (0.05, -0.05, 0.1, -0.1)]
+    best = None
+    for g in guesses:
+        r = minimize(lambda k: float(np.mean(k ** 2)), g, method="SLSQP",
+                     constraints=[{"type": "eq", "fun": cons}],
+                     options={"maxiter": 400, "ftol": 1e-10})
+        if np.max(np.abs(cons(r.x))) > 1e-3:
+            continue
+        if best is None or r.fun < best.fun:
+            best = r
+    if best is None:
+        return None
+    xy, th, kn = curve(best.x)
+    return (xy, best.x, float(np.sum(np.abs(np.diff(th)))),
+            1.0 / max(float(np.max(np.abs(kn))), 1e-9))
+
+
+_KNEE_TAB = {}
+
+
+def _knee_ends(role, q, side_c):
+    """The crossing's clamp on the femur and ferrule on the tibia, each with
+    the direction the conduit has there. ✅ M134: the ferrule is AIMED along
+    its own cable, the line from it tangent to the ankle's sheave -- which is
+    fixed in the tibia, so the aim is too -- and the cable leaves it straight:
+    the turn it used to make at the mouth (29 deg; 11-47 with the ferrule
+    outside the fold) happens once, in the conduit, where it is no worse."""
     lg = leg(role)
+    K, uf = LT.femur_clamp(q, lg, side_c)
     pj = LT.joints(q, lg)
-    hip, knee, ankle = pj[0], pj[1], pj[2]
-    uf = (knee - hip) / np.linalg.norm(knee - hip)
-    ut = (ankle - knee) / np.linalg.norm(ankle - knee)
-    D = LT.KNEE_FERRULE_D
-    K, F3 = knee - D * uf, knee + D * ut
-    run = leg_run(role, "ankle", side_c, q)
-    p = run["points"]
+    ut = (pj[2] - pj[1]) / np.linalg.norm(pj[2] - pj[1])
+    p = leg_run(role, "ankle", side_c, q)["points"]
     d3 = (p[1] - p[0]) / np.linalg.norm(p[1] - p[0])
+    # the net turn, unwrapped: the knee's, then the tibia to the cable's
+    return K, uf, LT.tibia_ferrule(q, lg, side_c), d3, _turn(uf, ut) + _turn(ut, d3)
+
+
+def _knee_table(role, side_c=+1, n=31):
+    """The crossing's curvature profile over the knee's range, solved once:
+    marching out from mid-range, each pose warm-started from its neighbour."""
+    key = (role, side_c)
+    if key not in _KNEE_TAB:
+        lg = leg(role)
+        ks = np.linspace(float(lg.q_min[1]), float(lg.q_max[1]), n)
+        prof = [None] * n
+        q0 = stance(role)
+        mid = n // 2
+        for order in (range(mid, n), range(mid, -1, -1)):
+            k0 = None if prof[mid] is None else prof[mid]
+            for i in order:
+                q = np.array(q0, float)
+                q[1] = ks[i]
+                K, uf, F, ut, dth = _knee_ends(role, q, side_c)
+                sol = elastica(K, uf, F, ut, LT.knee_conduit_length(side_c, lg), k0=k0, dth=dth)
+                if sol is None and k0 is not None:
+                    sol = elastica(K, uf, F, ut, LT.knee_conduit_length(side_c, lg), dth=dth)
+                if sol is None:
+                    raise RuntimeError("%s: no %.0f mm conduit across the knee at %.1f deg"
+                                       % (role, LT.knee_conduit_length(side_c, lg),
+                                          math.degrees(ks[i])))
+                prof[i] = sol[1]
+                k0 = sol[1]
+        _KNEE_TAB[key] = (ks, np.array(prof))
+    return _KNEE_TAB[key]
+
+
+def knee_conduit(role, q, side_c, lr_side=+1.0):
+    """The ankle conduit's crossing of the knee at pose `q`: (polyline trunk
+    mm, bend rad, tightest radius mm, length mm). Clamped `LT.KNEE_FERRULE_D`
+    up the femur and ended as far down the tibia, both outside the fold, one
+    length (`LT.KNEE_CROSSING`) in its `elastica` shape, the ferrule
+    aimed along its cable (`_knee_ends`)."""
+    ks, prof = _knee_table(role, side_c)
+    K, uf, F, ut, dth = _knee_ends(role, q, side_c)
+    k0 = np.array([np.interp(float(q[1]), ks, prof[:, j]) for j in range(prof.shape[1])])
+    Lc = LT.knee_conduit_length(side_c, leg(role))
+    sol = elastica(K, uf, F, ut, Lc, k0=k0, dth=dth)
+    if sol is None:
+        sol = elastica(K, uf, F, ut, Lc, dth=dth)
+    xy, _k, b, r = sol
     xh, y = HIP_X[role], plane_y("ankle", lr_side)
-    to3 = lambda v: np.array([xh + v[0], y, v[1]])
-    C, b, r, L = conduit_shape(to3(K), np.array([uf[0], 0.0, uf[1]]),
-                               to3(F3), np.array([ut[0], 0.0, ut[1]]),
-                               handles=BORE_HANDLES)
-    mouth = math.acos(float(np.clip(ut @ d3, -1.0, 1.0)))
-    return C, b + mouth, r, L
+    C = np.c_[xh + xy[:, 0], np.full(len(xy), y), xy[:, 1]]
+    return C, b, r, LT.knee_conduit_length(side_c, leg(role))
+
+
+def knee_crossing_table(role, n=13, side_c=+1):
+    """(|knee| rad, crossing bend rad) over the knee's range -- what
+    `TendonParams.crossing_knee` / `crossing_bend` carry (the hind leg's)."""
+    out = []
+    for q in knee_range(role, n):
+        out.append((abs(float(q[1])), knee_conduit(role, q, side_c)[1]))
+    out.sort()
+    return tuple(a for a, _ in out), tuple(b for _, b in out)
 
 
 def knee_range(role, n=13):
@@ -603,7 +711,8 @@ def knee_range(role, n=13):
 
 def knee_crossing_worst(role, side_c=+1, qs=None):
     """(worst bend rad, tightest radius mm, length swing mm) of the ankle
-    conduit's knee crossing, over the knee's whole range or `qs`."""
+    conduit's knee crossing, over the knee's whole range or `qs`. M134: the
+    swing is zero -- the conduit is one length (`LT.KNEE_CROSSING`)."""
     w, rmin, Ls = 0.0, np.inf, []
     for q in (knee_range(role) if qs is None else qs):
         _C, b, r, L = knee_conduit(role, q, side_c)
@@ -780,8 +889,15 @@ def drive(role: str, side: float = +1.0, q=None, senses=None):
                 F2, _d2 = hub_ferrule(role, t, sd, q, side)
                 run = dict(leg_run(role, t, sd, q, senses=sn))
                 Ck, bk, rk, Lk = knee_conduit(role, q, sd, side)
+                pj = LT.joints(q, leg(role))
+                uf = (pj[1] - pj[0]) / np.linalg.norm(pj[1] - pj[0])
+                ut = (pj[2] - pj[1]) / np.linalg.norm(pj[2] - pj[1])
+                D = LT.KNEE_FERRULE_D
+                # M134: where the clamp and the ferrule stand off their bones
+                # (hip frame (x, z), on the bone's axis)
                 run.update({"conduit_knee": Ck, "knee_bend": bk, "knee_rmin": rk,
-                            "knee_conduit_length": Lk, "F3": Ck[-1]})
+                            "knee_conduit_length": Lk, "F3": Ck[-1],
+                            "knee_feet": (pj[1] - D * uf, pj[1] + D * ut)})
             else:
                 F2, _d2 = hub_ferrule(role, t, sd, q, side)
                 run = dict(leg_run(role, t, sd, q, senses=sn))

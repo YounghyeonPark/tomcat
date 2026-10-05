@@ -35,7 +35,8 @@ from tomcat_kin import LegModel  # noqa: E402
 from tomcat_kin.tendon import TendonMap  # noqa: E402
 from tomcat_kin.torque_budget import evaluate as budget  # noqa: E402
 from tomcat_kin.params import (  # noqa: E402
-    DEFAULT_FORELEG, DEFAULT_HINDLEG, DEFAULT_SPINE, DEFAULT_TENDON, LoadCase,
+    DEFAULT_FORELEG, DEFAULT_HINDLEG, DEFAULT_SPINE, DEFAULT_TENDON,
+    DEFAULT_TENDON_FORE, LoadCase,
 )
 
 #: GIM3505-9 peak joint-side torque, N.m `[sourced: motor-reality-check]`
@@ -182,8 +183,9 @@ def motor_requirement(b):
     # ✅ M122 (ADR-0112): the fore leg's friction is its OWN conduits' bend
     # (and the knee via on its ankle pair), from the drive it actually has.
     import tendon_exit as TE
+    # M134 (ADR-0128): from the fore leg's own drive, crossing table and all
     tm_f = TendonMap(dataclasses.replace(
-        DEFAULT_TENDON, conduit_bend=TE.conduit_bend("fore"),
+        DEFAULT_TENDON_FORE, conduit_bend=TE.conduit_bend("fore"),
         pulley_count=TE.pulley_count("fore"),
         pair_wrap=_routed_wraps("fore", DEFAULT_FORELEG, LT, TT)))
     fore = {}

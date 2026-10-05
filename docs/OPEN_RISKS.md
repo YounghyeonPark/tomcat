@@ -281,8 +281,10 @@ Small, and honestly at the point of diminishing returns:
 - ~~**the knee crossing is charged at its WORST bend**~~ — **closed by M133**
   ([ADR-0127](DESIGN_DECISIONS.md)). The crossing's bend is linear in the knee
   and is now charged at each pose: vendor-Kt runtime 13.2 → **14.3 min**, back
-  over NFR6's 14 by 0.26 min. ⚠️ That is the thinnest NFR6 margin yet, so the
-  bench conduit μ (`[assumed]` 0.07) now decides it: at 0.075 the vendor-Kt corner is 13.9 min, at 0.08 13.55.
+  over NFR6's 14. M134 ([ADR-0128](DESIGN_DECISIONS.md)) made the crossing one
+  conduit length and charged each leg its own drive: **14.4 min**. ⚠️ The
+  bench conduit μ (`[assumed]` 0.07) now decides NFR6: the vendor-Kt corner
+  holds to μ ≈ 0.076, and at 0.08 it is 13.7 min.
 
 ---
 

@@ -152,43 +152,94 @@ def test_friction_is_now_a_TENTH_to_a_FIFTH_not_a_half():
     was = np.r_[old.capstan_factor(side=+1), old.capstan_factor(side=-1)]
     # ⚠️ M132 (ADR-0126): the ankle pair x1.43 -- its conduit crosses the knee
     # (177 deg more at the knee's full flexion, the worst case charged).
-    assert now.min() > 1.10 and now.max() < 1.45
+    # M134 (ADR-0128): x1.46 on the hind flexor, 310 deg at the stop -- one
+    # conduit length, turning with the fold. At a pose it is charged there.
+    assert now.min() > 1.10 and now.max() < 1.50
     assert was.max() > 1.5
 
 
 @pytest.mark.parametrize("role", ["hind", "fore"])
-def test_the_knee_crossing_is_LINEAR_in_the_knee_and_params_carry_it(role):
-    """✅ M133 (ADR-0127): the ankle conduit's bend over the knee is
-    `slope * |q_knee| + c` to 0.12 deg over the whole ROM, on both legs, with
-    the slope `params.crossing_slope` carries; and `conduit_bend` charges it at
-    `crossing_ref`, the knee's stop."""
-    ks = TE.knee_range(role)
-    x = np.array([abs(float(q[1])) for q in ks])
-    y = np.array([TE.knee_conduit(role, q, +1)[1] for q in ks])
-    slope, c = np.polyfit(x, y, 1)
-    assert np.max(np.abs(slope * x + c - y)) < np.radians(0.2), "linear"
-    assert DEFAULT_TENDON.crossing_slope[2] == pytest.approx(slope, abs=1e-4)
-    assert DEFAULT_TENDON.crossing_slope[:2] == (0.0, 0.0)
-    assert DEFAULT_TENDON.crossing_ref == pytest.approx(x.max(), abs=1e-4)
+def test_the_knee_crossing_is_ONE_LENGTH_and_bends_gently_everywhere(role):
+    """✅ M134 (ADR-0128): the ankle conduit's crossing of the knee is one
+    length at every pose -- a conduit cannot be anything else -- and at that
+    length it bends no tighter than `CONDUIT_RMIN` over the knee's whole range,
+    within 32 mm of the bones (the skin's sleeve is 43 at the knee).
+
+    ⚠️ M132/M133 let its length follow its gentlest shape: 100 mm straight,
+    36 at the stop. Forced to one length on the bone lines it bent at 0.5 mm."""
+    import leg_tendons as LT
+    lg = TE.leg(role)
+    for sd in (+1, -1):
+        Ls = []
+        for q in TE.knee_range(role, 25):
+            C, b, r, L = TE.knee_conduit(role, q, sd)
+            seg = float(np.linalg.norm(np.diff(C, axis=0), axis=1).sum())
+            Ls.append(seg)
+            assert r >= TE.CONDUIT_RMIN, (role, sd, math.degrees(q[1]), r)
+            pj = LT.joints(q, lg)
+            xy = np.c_[C[:, 0] - TE.HIP_X[role], C[:, 2]]
+            for a, bb in ((pj[0], pj[1]), (pj[1], pj[2])):
+                u = (bb - a) / np.linalg.norm(bb - a)
+                v = xy - a
+                t = np.clip(v @ u, 0.0, np.linalg.norm(bb - a))
+                d = np.linalg.norm(v - t[:, None] * u, axis=1)
+                assert d.min() < 40.0
+            assert TE.knee_crossing_worst(role, sd, qs=[q])[2] == pytest.approx(0.0)
+        assert max(Ls) - min(Ls) < 0.5, "one length"
+        assert np.mean(Ls) == pytest.approx(LT.knee_conduit_length(sd, lg), abs=0.5)
 
 
-def test_friction_at_a_POSE_takes_off_only_the_crossing_it_does_not_reach():
-    """✅ M133 (ADR-0127): at the knee's stop the pose-charged factor IS the
-    worst; at a straight knee the ankle's bend falls by the whole crossing's
-    swing, and the hip and knee pairs do not move."""
+@pytest.mark.parametrize("role", ["hind", "fore"])
+def test_the_flexor_turns_WITH_the_fold_on_the_hind_leg_and_AGAINST_on_the_fore(role):
+    """✅ M134 (ADR-0128): which way each ankle cable turns leaving its
+    aimed ferrule decides its crossing's offset and length
+    (`LT.KNEE_CROSSING`). The hind flexor turns with the knee's fold and
+    the fore flexor against it -- and the trot loads every ankle's flexor,
+    which is why the fore leg's drive must be its own (`DEFAULT_TENDON_FORE`)."""
+    import leg_tendons as LT
+    lg = TE.leg(role)
+    q = TE.stance(role)
+    for sd in (+1, -1):
+        K, uf, F, d3, dth = TE._knee_ends(role, q, sd)
+        knee_turn = TE._turn(uf, (LT.joints(q, lg)[2] - LT.joints(q, lg)[1]))
+        mouth = dth - knee_turn
+        with_fold = mouth * LT.knee_fold(lg) > 0
+        assert with_fold == (LT.knee_cable(sd, lg) == "with"), (role, sd, math.degrees(mouth))
+    assert LT.knee_cable(+1, lg) == ("with" if role == "hind" else "against")
+
+
+@pytest.mark.parametrize("role", ["hind", "fore"])
+def test_params_carry_each_legs_crossing_table(role):
+    """✅ M133/M134: `crossing_bend` is the crossing at each |q_knee| of
+    `crossing_knee`, flexor and extensor, and `conduit_bend` charges its
+    worst -- for the hind leg in `DEFAULT_TENDON`, the fore in
+    `DEFAULT_TENDON_FORE`."""
+    from tomcat_kin.params import DEFAULT_TENDON_FORE
+    tp = DEFAULT_TENDON if role == "hind" else DEFAULT_TENDON_FORE
+    assert np.allclose(tp.conduit_bend, TE.conduit_bend(role), atol=1e-3)
+    for k, sd in ((0, +1), (1, -1)):
+        kn, b = TE.knee_crossing_table(role, side_c=sd)
+        assert np.allclose(tp.crossing_knee, kn, atol=1e-3)
+        assert np.allclose(tp.crossing_bend[k], b, atol=2e-3)
+
+
+def test_friction_at_a_POSE_charges_the_crossing_there_and_the_worst_without_one():
+    """✅ M133 (ADR-0127): with a pose, the ankle pair's crossing is charged at
+    that pose's knee (`crossing_bend`); at the bend's worst knee that IS the
+    pose-free factor; the hip and knee pairs do not move; sign of the knee is
+    immaterial, and it vectorises over a trajectory."""
     from tomcat_kin.tendon import TendonMap
     tm = TendonMap(DEFAULT_TENDON)
     mu = DEFAULT_TENDON.conduit_mu
-    ref = DEFAULT_TENDON.crossing_ref
-    for side in (+1, -1):
+    kn = np.asarray(DEFAULT_TENDON.crossing_knee)
+    for k, side in ((0, +1), (1, -1)):
+        row = np.asarray(DEFAULT_TENDON.crossing_bend[k])
         worst = np.asarray(tm.capstan_factor(side=side))
-        at_stop = np.asarray(tm.capstan_factor(side=side, q=[0.0, -ref, 0.0]))
-        straight = np.asarray(tm.capstan_factor(side=side, q=[0.0, 0.0, 0.0]))
-        assert np.allclose(at_stop, worst)
-        assert np.allclose(straight[:2], worst[:2])
-        assert straight[2] / worst[2] == pytest.approx(
-            np.exp(-mu * DEFAULT_TENDON.crossing_slope[2] * ref))
-        # and vectorised over a trajectory, sign of the knee immaterial
+        at_worst = np.asarray(tm.capstan_factor(side=side, q=[0.0, -kn[row.argmax()], 0.0]))
+        mid = np.asarray(tm.capstan_factor(side=side, q=[0.0, -kn[6], 0.0]))
+        assert np.allclose(at_worst, worst)
+        assert np.allclose(mid[:2], worst[:2])
+        assert mid[2] / worst[2] == pytest.approx(np.exp(mu * (row[6] - row.max())))
         Q = np.array([[0.0, -1.0, 0.0], [0.0, 1.0, 0.0]])
         many = np.asarray(tm.capstan_factor(side=side, q=Q))
         assert many.shape == (2, 3) and np.allclose(many[0], many[1])

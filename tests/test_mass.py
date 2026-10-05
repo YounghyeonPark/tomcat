@@ -75,7 +75,7 @@ def _symmetric_trunk_body(leg_mass=0.0):
 def test_default_body_totals_the_load_case_body_mass():
     # The apportionment in params.py is built to reproduce the 3.0 kg that every
     # LoadCase / WholeBodyLoadCase already assumed.
-    assert DEFAULT_BODY_MASS_KG == pytest.approx(4.81358, abs=1e-9)  # ... -> M130: + the cat's skin and the Ø16 tubes (ADR-0124)
+    assert DEFAULT_BODY_MASS_KG == pytest.approx(4.82454, abs=1e-9)  # ... -> M130: + the cat's skin and the Ø16 tubes (ADR-0124)
     assert _body().total_mass == pytest.approx(LoadCase("x").body_mass_kg, abs=1e-9)
 
 
@@ -111,8 +111,9 @@ def test_the_fore_hind_leg_ASYMMETRY_has_vanished():
     # M130 (ADR-0124): + the cat's skin (24.5 g hind, 25.8 fore) and the femur
     # tubes Ø16 (the fore radius too).
     # M132: -5 g each, the knee via, its bearing and shaft gone.
-    assert DEFAULT_HINDLEG.mass == pytest.approx(0.23732, abs=5e-4)
-    assert DEFAULT_FORELEG.mass == pytest.approx(0.24246, abs=5e-4)
+    # M134: +2.7 g each, the knee crossing's clamps outside the fold.
+    assert DEFAULT_HINDLEG.mass == pytest.approx(0.24007, abs=5e-4)
+    assert DEFAULT_FORELEG.mass == pytest.approx(0.24519, abs=5e-4)
     # M124: 1.8 g apart, the fore radius Ø14 -- 0.04 % of the body, not an
     # asymmetry F2's split would notice. M130: 5.2 g -- the fore sleeve is the
     # bigger and its radius the thicker; 0.1 % of the body.
@@ -172,7 +173,7 @@ def test_fore_hind_split_is_near_balanced_not_sixty_forty():
     # change was symmetric — which is itself the point: the split is set by the
     # girdles and the head, not by the limbs.
     q = _body().mass_budget()
-    assert q.total == pytest.approx(4.81358, abs=1e-9)   # M130: + the skin (ADR-0124)
+    assert q.total == pytest.approx(4.82454, abs=1e-9)   # M130: + the skin (ADR-0124)
     assert q.fore + q.hind == pytest.approx(q.total, abs=1e-12)
     assert q.fore_fraction == pytest.approx(0.543, abs=0.02)
     assert q.hind_fraction == pytest.approx(0.457, abs=0.02)
@@ -364,7 +365,7 @@ def test_symmetric_body_with_legs_shifts_by_exactly_the_leg_offset():
 def test_default_com_sits_forward_of_mid_body_because_the_cat_is_front_heavy():
     body = _body()
     c = body.center_of_mass(STRAIGHT, STAND)
-    assert c.mass == pytest.approx(4.81358)   # M130: + the skin (ADR-0124)
+    assert c.mass == pytest.approx(4.82454)   # M130: + the skin (ADR-0124)
     # Forward of the point midway between the HIPS, but still between them.
     # (M123, ADR-0114: that was the mid-spine point while the hips sat on the
     # spine's ends; they are now 65 mm behind it and 10 mm ahead of it, and the
@@ -555,4 +556,4 @@ def test_total_matches_the_revised_NFR5_target():
     # target, and 19 of them do not fit inside 3 kg. See the motor-reality-check
     # note. A domestic cat is 4-5 kg, so the new figure is if anything more
     # biomimetic -- but it was forced by hardware, not chosen.
-    assert _body().mass_budget().total == pytest.approx(4.81358, abs=1e-9)   # M130: + the skin (ADR-0124)
+    assert _body().mass_budget().total == pytest.approx(4.82454, abs=1e-9)   # M130: + the skin (ADR-0124)
