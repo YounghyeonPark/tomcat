@@ -121,9 +121,10 @@ def gait_power(controller, n: int = 96) -> dict:
     # carry different wraps (the hip's are 135.6 and 239.4 deg).
     from . import TendonMap
     tmap = TendonMap(DEFAULT_TENDON)
+    # ✅ M133 (ADR-0127): each sample's friction at its own pose.
     cap = np.where(tau >= 0.0,
-                   np.asarray(tmap.capstan_factor(side=+1), dtype=float),
-                   np.asarray(tmap.capstan_factor(side=-1), dtype=float))
+                   np.asarray(tmap.capstan_factor(side=+1, q=q), dtype=float),
+                   np.asarray(tmap.capstan_factor(side=-1, q=q), dtype=float))
     # ⚠️ **The capstan belongs on the CURRENT path only.** A first version of
     # this multiplied `mot_tau` once, before splitting, so `p_mech` carried the
     # factor too -- friction booked as useful work. It shows up as efficiency
@@ -190,9 +191,9 @@ def walked_trajectory(controller, n: int = 400):
                 tau[i, j] = dyn.swing_joint_torque(controller, nm, i / n, n)
     qd = (np.roll(q, -1, axis=0) - np.roll(q, 1, axis=0)) / (2.0 * dt)
     tmap = TendonMap(DEFAULT_TENDON)
-    cap = np.where(tau >= 0.0,
-                   np.asarray(tmap.capstan_factor(side=+1), dtype=float),
-                   np.asarray(tmap.capstan_factor(side=-1), dtype=float))
+    cap = np.where(tau >= 0.0,                        # M133: at each pose
+                   np.asarray(tmap.capstan_factor(side=+1, q=q), dtype=float),
+                   np.asarray(tmap.capstan_factor(side=-1, q=q), dtype=float))
     return tau, qd, cap
 
 
@@ -277,14 +278,14 @@ def standing_power(n_legs: int = 4, foot=(0.04, -0.17)) -> dict:
     arms = np.asarray(DEFAULT_TENDON.joint_moment_arm, dtype=float)
     R = DEFAULT_TENDON.motor_spool_radius
     tmap = TendonMap(DEFAULT_TENDON)
-    c_pos = np.asarray(tmap.capstan_factor(side=+1), dtype=float)
-    c_neg = np.asarray(tmap.capstan_factor(side=-1), dtype=float)
     per_leg = {}
     motor = {}
     for nm in names:
         F = (frac_fore if nm[1] == "F" else 1.0 - frac_fore) * W / 2.0
         tau = body.leg_model_for(nm).jacobian(q[nm]).T @ np.array([0.0, F, 0.0])
-        cap = np.where(tau >= 0.0, c_pos, c_neg)
+        cap = np.where(tau >= 0.0,                    # M133: at the stance
+                       np.asarray(tmap.capstan_factor(side=+1, q=q[nm]), float),
+                       np.asarray(tmap.capstan_factor(side=-1, q=q[nm]), float))
         m_nm = np.abs(tau) / arms * R * cap
         motor[nm] = m_nm
         per_leg[nm] = float((PHASE_FACTOR * (m_nm / KT) ** 2 * R_PHASE_PHASE).sum())

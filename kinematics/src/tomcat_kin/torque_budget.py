@@ -89,7 +89,7 @@ def evaluate(
             if not leg.in_limits(q):
                 continue
             tau = leg.joint_torques_for_wrench(q, wrench)
-            sol = tendons.resolve(tau, t_bias=t_bias)
+            sol = tendons.resolve(tau, t_bias=t_bias, q=q)   # M133: at the pose
             peak_tau = np.maximum(peak_tau, np.abs(tau))
             peak_tension = np.maximum(
                 peak_tension,

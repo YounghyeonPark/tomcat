@@ -156,6 +156,44 @@ def test_friction_is_now_a_TENTH_to_a_FIFTH_not_a_half():
     assert was.max() > 1.5
 
 
+@pytest.mark.parametrize("role", ["hind", "fore"])
+def test_the_knee_crossing_is_LINEAR_in_the_knee_and_params_carry_it(role):
+    """✅ M133 (ADR-0127): the ankle conduit's bend over the knee is
+    `slope * |q_knee| + c` to 0.12 deg over the whole ROM, on both legs, with
+    the slope `params.crossing_slope` carries; and `conduit_bend` charges it at
+    `crossing_ref`, the knee's stop."""
+    ks = TE.knee_range(role)
+    x = np.array([abs(float(q[1])) for q in ks])
+    y = np.array([TE.knee_conduit(role, q, +1)[1] for q in ks])
+    slope, c = np.polyfit(x, y, 1)
+    assert np.max(np.abs(slope * x + c - y)) < np.radians(0.2), "linear"
+    assert DEFAULT_TENDON.crossing_slope[2] == pytest.approx(slope, abs=1e-4)
+    assert DEFAULT_TENDON.crossing_slope[:2] == (0.0, 0.0)
+    assert DEFAULT_TENDON.crossing_ref == pytest.approx(x.max(), abs=1e-4)
+
+
+def test_friction_at_a_POSE_takes_off_only_the_crossing_it_does_not_reach():
+    """✅ M133 (ADR-0127): at the knee's stop the pose-charged factor IS the
+    worst; at a straight knee the ankle's bend falls by the whole crossing's
+    swing, and the hip and knee pairs do not move."""
+    from tomcat_kin.tendon import TendonMap
+    tm = TendonMap(DEFAULT_TENDON)
+    mu = DEFAULT_TENDON.conduit_mu
+    ref = DEFAULT_TENDON.crossing_ref
+    for side in (+1, -1):
+        worst = np.asarray(tm.capstan_factor(side=side))
+        at_stop = np.asarray(tm.capstan_factor(side=side, q=[0.0, -ref, 0.0]))
+        straight = np.asarray(tm.capstan_factor(side=side, q=[0.0, 0.0, 0.0]))
+        assert np.allclose(at_stop, worst)
+        assert np.allclose(straight[:2], worst[:2])
+        assert straight[2] / worst[2] == pytest.approx(
+            np.exp(-mu * DEFAULT_TENDON.crossing_slope[2] * ref))
+        # and vectorised over a trajectory, sign of the knee immaterial
+        Q = np.array([[0.0, -1.0, 0.0], [0.0, 1.0, 0.0]])
+        many = np.asarray(tm.capstan_factor(side=side, q=Q))
+        assert many.shape == (2, 3) and np.allclose(many[0], many[1])
+
+
 def test_the_knee_and_ankle_leads_run_ALONG_THE_HIP_AXIS(role, runs):
     """✅ M123 (ADR-0114): their spools face across the hip at hip height, so
     both leads leave the top and bottom of the spool running straight out

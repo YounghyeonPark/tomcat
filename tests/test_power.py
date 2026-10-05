@@ -98,7 +98,7 @@ def test_currents_are_back_inside_the_driver_rating():
     `test_motor_spec.py`'s thermal test, where that branch also fits now.
     """
     g = power.gait_power(_trot())
-    assert g["peak_current_a"] == pytest.approx(3.14, abs=0.15)   # M122: 2.53; M132: 3.14
+    assert g["peak_current_a"] == pytest.approx(2.81, abs=0.15)   # M122: 2.53; M132: 3.14; M133: 2.81
     assert g["peak_current_a"] < 4.19               # the part's peak rating
     assert g["rms_current_a"] < 1.60                # its RATED (continuous) current
 
@@ -121,9 +121,10 @@ def test_NFR6_is_MET_once_the_arms_are_right():
     # M123 (ADR-0114): 24.18 -> 23.65, the hollow hip's +104 g.
     # M130 (ADR-0123/0124): 23.65 -> 21.21, the ferrules' S and the skin.
     # M132 (ADR-0126): 21.21 -> 18.18, the ankle conduit over the knee.
-    assert r["trot_minutes"] == pytest.approx(18.18, abs=0.4)
+    # M133 (ADR-0127): 18.18 -> 19.49, its crossing charged at the pose.
+    assert r["trot_minutes"] == pytest.approx(19.49, abs=0.4)
     assert r["trot_minutes"] > 14.0, "back under NFR6's floor"
-    assert r["trot_range_m"] == pytest.approx(545.0, abs=15.0)   # M120: 634; M122: 725; M123: 709; M130: 636; M132: 545
+    assert r["trot_range_m"] == pytest.approx(585.0, abs=15.0)   # M120: 634; M122: 725; M123: 709; M130: 636; M132: 545; M133: 585
     assert r["trot_range_m"] > 420.0
     assert r["battery_wh"] == pytest.approx(
         power.BATTERY_KG * power.BATTERY_WH_PER_KG * power.BATTERY_USABLE)

@@ -10021,7 +10021,9 @@ The MuJoCo harness moved four numbers, and three of them moved the good way.
     charged at full knee flexion, as the hip conduit is charged at the worst
     of its range. At the trot's own knee range it would be ~×1.37: 33–43° less
     bend, worth ~4 %. Charging bends along the gait is `[owed]`, for every
-    conduit, not this one alone.
+    conduit, not this one alone. ✅ Done in M133
+    ([ADR-0127](#adr-0127-the-knee-crossing-is-charged-at-the-pose)): NFR6 is
+    met at both corners again.
   - ⚠️ **Copper:**
     - Trot copper is 7.58 W a motor (was 5.90).
     - Efficiency is 26.5 % (was 34.6 %).
@@ -10046,6 +10048,54 @@ The MuJoCo harness moved four numbers, and three of them moved the good way.
     - The hip `DRIVE` re-placed by `place()` after the tangent fix:
       `(0, −1, +1, 330, 126, (−15, 20))` for both roles.
     - Its bend is back at 2.87 / 2.56, from 3.79 / 4.27 with stale tangents.
+
+---
+
+## ADR-0127: the knee crossing is charged at the pose
+- **Status:** Accepted (M133). Closes the `[owed]` ADR-0126 left.
+- **Context:** `conduit_bend` is one number per cable, the worst over the
+  range of motion. ADR-0126 added the ankle conduit's crossing of the knee to
+  it at the knee's 150° stop: 177°, where the trot's knee runs 50–117°. That
+  put the vendor-Kt runtime at 13.2 min, under NFR6's 14, and the continuous
+  torque 3 % past the proxy's rating, both on a pose the trot never takes.
+- **Measured:** what each conduit's bend depends on, from `tendon_exit`.
+  - **The crossing is linear in the knee.** Its bend is
+    0.983 · |q_knee| + 29° (hind) or 33° (fore), to 0.12° over the whole
+    range, on both legs and both sides.
+  - The rest moves little:
+    - The knee and ankle conduits change by 5–10° over the hip's range.
+    - The hip pair's conduit is fixed to the trunk.
+    - The floating ferrule's S is ≤ 25°.
+- **Decision:**
+  - `TendonParams.crossing_slope` = (0, 0, 0.98285) and `crossing_ref` =
+    150°, the knee's stop, at which `conduit_bend` charges the crossing.
+  - `TendonMap.capstan_factor(q=...)` takes off
+    `slope · (crossing_ref − |q_knee|)`. `resolve(q=...)` passes it on.
+    Without a pose the worst stands, so every existing caller is unchanged
+    unless it opts in.
+  - Opted in:
+    - `power.gait_power` and `walked_trajectory`, at every sample;
+    - `standing_power`, at the stance;
+    - `torque_budget`, at every pose of its sweep.
+  - The rest of each bend stays at its worst. It is small, and it is not
+    linear in any one joint.
+  - `test_tendon_exit` holds the slope and the reference to the CAD.
+- **Consequences:**
+  - ✅ **NFR6 is met at both corners again:** 19.49 / **14.26 min** (was
+    18.18 / 13.17), ~585 m. The vendor-Kt corner clears the floor by 0.26 min,
+    the thinnest margin it has had. ⚠️ It holds only to conduit μ ≈ 0.073:
+    at 0.075 the corner is 13.9 min, at 0.08 13.55, so the bench μ
+    (`[assumed]` 0.07) decides NFR6 now.
+  - ✅ **Motor continuous is 0.671 N·m, 94.5 % of the rating** (was 0.733,
+    103 %).
+    - RMS current 1.008 / 1.267 A.
+    - Peak current 2.81 / 3.54 A.
+    - Efficiency 28.6 %.
+  - Motor peak is unchanged at 1.821 N·m: the fore hip sets it, and nothing
+    about the hip moved.
+  - ⚠️ **Thermal:** trot copper is 6.80 W a motor (was 7.58). Forced air at
+    h = 15 settles at 85.5 °C, still over the 80 °C line; h = 25 holds.
+  - The MuJoCo plant carries no friction, so nothing there moves.
 
 ---
 

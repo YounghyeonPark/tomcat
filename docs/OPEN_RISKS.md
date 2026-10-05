@@ -278,11 +278,11 @@ Small, and honestly at the point of diminishing returns:
   harness now holds the robot up long enough to read contact forces.
 - The **sway authority was 4 % optimistic** and is now corrected (M20): envelope
   53.90 → **52.72 mm**, NFR15 still met with 4.72 mm of margin.
-- ⚠️ **NEW (M132) — the knee crossing is charged at its WORST bend.** The ankle
-  conduit's bend over the knee is priced at the knee's 150° stop (×1.43 on the
-  ankle pair, [ADR-0126](DESIGN_DECISIONS.md)), and that drops the vendor-Kt
-  runtime to 13.2 min, under NFR6's 14. The trot never reaches that flexion.
-  Charging the bend along the gait's own knee trajectory may win the corner back.
+- ~~**the knee crossing is charged at its WORST bend**~~ — **closed by M133**
+  ([ADR-0127](DESIGN_DECISIONS.md)). The crossing's bend is linear in the knee
+  and is now charged at each pose: vendor-Kt runtime 13.2 → **14.3 min**, back
+  over NFR6's 14 by 0.26 min. ⚠️ That is the thinnest NFR6 margin yet, so the
+  bench conduit μ (`[assumed]` 0.07) now decides it: at 0.075 the vendor-Kt corner is 13.9 min, at 0.08 13.55.
 
 ---
 

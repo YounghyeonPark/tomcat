@@ -459,6 +459,16 @@ class TendonParams:
     #: ankle pair, and nothing else (ADR-0112).
     #: M132: none -- the knee via is gone.
     pulley_count: tuple = ((0, 0), (0, 0), (0, 0))
+    #: ✅ M133 (ADR-0127): **the knee crossing is charged at the pose.** Its
+    #: bend is LINEAR in the knee -- `crossing_slope` rad of bend per rad of
+    #: |q_knee|, 29-33 deg at a straight knee, to 0.12 deg over the ROM on both
+    #: legs -- and `conduit_bend` carries it at `crossing_ref`, the knee's stop.
+    #: `TendonMap.capstan_factor(q=...)` takes off
+    #: `slope * (crossing_ref - |q_knee|)`; without a pose the worst stands.
+    #: The rest of each bend moves 5-10 deg over the hip range and stays at
+    #: its worst. `[derived: mechanical/cad/tendon_exit.py]`
+    crossing_slope: tuple = (0.0, 0.0, 0.98285)
+    crossing_ref: float = 2.61799
 
     # Series cable compliance: model the tendon as a linear spring of stiffness
     # k_cable (N/m). Under tension T it stretches dL = T / k_cable, so the motor

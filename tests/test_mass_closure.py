@@ -131,7 +131,10 @@ def test_the_MECHANISM_emits_a_MOTOR_SPEC_rather_than_fitting_one(closed):
     # M130 (ADR-0123/0124): 0.570 -> 0.611 N.m, 86 % of the 0.71 rating.
     # ⚠️ M132 (ADR-0126): 0.611 -> 0.733 N.m, 103 % -- the ankle conduit's
     # crossing of the knee, charged at full flexion.
-    assert req["continuous"] == pytest.approx(0.733, abs=0.02)
+    # ✅ M133 (ADR-0127): 0.733 -> 0.671 N.m, 94.5 % -- the crossing charged
+    # at each sample's own knee, not at the stop the trot never reaches.
+    assert req["continuous"] == pytest.approx(0.671, abs=0.02)
+    assert req["continuous"] < req["proxy_rated"], "back inside the rating"
     assert req["trot_rms"] > req["stance_hold"], "the trot, not standing, sets it"
     # ⚠️ M123: a TIE. Both hips now drive off the same kind of row with the
     # same conduit (122 / 140 deg), so the hind hip's trot peak equals the
@@ -151,10 +154,9 @@ def test_the_MECHANISM_emits_a_MOTOR_SPEC_rather_than_fitting_one(closed):
     assert req["fore_per_joint"]["hip"][1] / req["fore_per_joint"]["knee"][1] \
         == pytest.approx(1.035, abs=0.01)
     assert req["peak"] < req["proxy_peak"]
-    # ⚠️ M132 (ADR-0126): the continuous torque is PAST the proxy's rating, by
-    # 3 %. On current it is not (1.34 A against 1.60 at the vendor's Kt):
-    # which side of the line it falls is ADR-0044's Kt question again.
-    assert req["continuous"] > req["proxy_rated"], "if this clears, re-word ADR-0126"
+    # M132 (ADR-0126) put the continuous torque 3 % past the proxy's rating
+    # with the crossing charged at the knee's stop; M133 (ADR-0127) charges it
+    # at the pose and it is back inside (above).
     # ⚠️ and the axis the proxy fails on now
     # M122: 665 -> 629 rpm -- the swing's torque fell with the friction, and
     # the need is read off the torque-speed LINE.

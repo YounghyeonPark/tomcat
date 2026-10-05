@@ -178,7 +178,8 @@ class TendonMap:
         return self._r * q / self.params.motor_spool_radius
 
     # ------------------------------------------------------- friction (capstan)
-    def capstan_factor(self, *, paying_out: bool = False, side: int = +1):
+    def capstan_factor(self, *, paying_out: bool = False, side: int = +1,
+                       q=None):
         """Capstan tension ratio T_motor / T_joint, PER JOINT (dimensionless).
 
         `exp(+mu*theta_wrap)` when the motor PULLS against the load (default, the
@@ -193,6 +194,11 @@ class TendonMap:
         `pair_wrap`, and nothing read it. The wraps differ by a factor of two
         between the two cables of one pair -- the hip is 135.6 deg flexing and
         239.4 extending -- so a scalar could not have carried them anyway.
+
+        ✅ M133 (ADR-0127): `q`, a leg pose (shape `(..., 3)`), charges the
+        knee crossing at that pose's knee instead of the stop
+        (`params.crossing_slope`); the result then has shape `(..., 3)`.
+        Without it, the worst over the ROM, as before.
 
         ⚠️ **`wrap_angle` OVERRIDES, it does not fall back.** A first version
         of this preferred `pair_wrap` whenever it was present, which broke the
@@ -211,6 +217,11 @@ class TendonMap:
         # pulley, nothing on the anchored sheave or the spool.
         if getattr(self.params, "friction_model", "capstan") == "drive":
             bend = np.array([float(row[k]) for row in self.params.conduit_bend])
+            slope = getattr(self.params, "crossing_slope", None)
+            if q is not None and slope is not None:
+                knee = np.abs(np.asarray(q, dtype=float)[..., 1])
+                off = np.clip(float(self.params.crossing_ref) - knee, 0.0, None)
+                bend = bend - np.asarray(slope, float) * off[..., None]
             n = np.array([float(row[k]) for row in self.params.pulley_count])
             eta = float(self.params.pulley_efficiency)
             return (np.exp(sign * float(self.params.conduit_mu) * bend)
@@ -269,7 +280,7 @@ class TendonMap:
             raise ValueError("t_bias (co-contraction bias) must be >= 0")
         return bias
 
-    def resolve(self, joint_torque, t_bias=None) -> TendonSolution:
+    def resolve(self, joint_torque, t_bias=None, q=None) -> TendonSolution:
         """Resolve desired joint torques (N·m) into tendon tensions + motor torques.
 
         `t_bias` is the commandable co-contraction bias (N), scalar or length-N
@@ -277,13 +288,15 @@ class TendonMap:
         stiffness independently of the net torque. `None` defaults to
         `params.pretension`, reproducing the fixed-pretension behaviour. Ignored
         in SPRING_RETURN mode (a single tendon has no antagonist to co-contract).
+        `q`, the leg's pose, charges friction at it (`capstan_factor`).
         """
         tau = np.asarray(joint_torque, dtype=float)
         if self.mode is ActuationMode.ANTAGONISTIC:
-            return self._resolve_antagonistic(tau, t_bias)
-        return self._resolve_spring(tau)
+            return self._resolve_antagonistic(tau, t_bias, q=q)
+        return self._resolve_spring(tau, pose=q)
 
-    def _resolve_antagonistic(self, tau: np.ndarray, t_bias=None) -> TendonSolution:
+    def _resolve_antagonistic(self, tau: np.ndarray, t_bias=None,
+                              q=None) -> TendonSolution:
         # AIC split (ADR-0002): antagonist HELD at the co-contraction bias, agonist
         # carries the net torque.  tau = r * (T_flex - T_ext), so the pulling side
         # sits at bias + |tau|/r and the slack side stays at bias.
@@ -297,8 +310,8 @@ class TendonMap:
         # motor-side tension is the joint-side tension amplified by exp(+mu*wrap).
         # ⚠️ The two cables of a pair carry DIFFERENT wraps -- the hip's are
         # 135.6 and 239.4 deg -- so they take different factors.
-        m_flex = t_flex * self.capstan_factor(side=+1)
-        m_ext = t_ext * self.capstan_factor(side=-1)
+        m_flex = t_flex * self.capstan_factor(side=+1, q=q)
+        m_ext = t_ext * self.capstan_factor(side=-1, q=q)
         # In antagonistic mode the driven motor is whichever tendon is pulling
         # hardest; size the motor torque from the (motor-side) peak tension.
         peak_motor = np.maximum(m_flex, m_ext)
@@ -312,7 +325,8 @@ class TendonMap:
             motor_tension_extensor=m_ext,
         )
 
-    def _resolve_spring(self, tau: np.ndarray, q=None) -> TendonSolution:
+    def _resolve_spring(self, tau: np.ndarray, q=None,
+                        pose=None) -> TendonSolution:
         # tau = r * T_flex - k*(q - q0)  =>  T_flex = (tau + k*(q-q0)) / r
         q = np.zeros_like(self._r) if q is None else np.asarray(q, dtype=float)
         spring_torque = self._k * (q - self._q0)
@@ -320,7 +334,7 @@ class TendonMap:
         # A cable cannot push: clamp to the pretension floor.
         t_flex = np.maximum(t_flex, self.params.pretension)
         realized = self._r * t_flex - spring_torque
-        m_flex = t_flex * self.capstan_factor(side=+1)
+        m_flex = t_flex * self.capstan_factor(side=+1, q=pose)
         return TendonSolution(
             tension_flexor=t_flex,
             tension_extensor=np.zeros_like(t_flex),

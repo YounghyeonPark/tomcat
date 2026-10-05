@@ -56,9 +56,9 @@ the cable pulling).
 | Mass | **4.81 kg** with its skin (19 motors: 12 leg, 6 spine, 1 tail) |
 | Trunk / hips apart | 384 mm / 276 mm |
 | Joint moment arms (hip / knee / ankle) | 36 / 34 / 22 mm |
-| Motor demand (peak / continuous) | 1.82 / 0.73 N·m per motor |
+| Motor demand (peak / continuous) | 1.82 / 0.67 N·m per motor |
 | Trot | 50 cm/s |
-| Runtime, trotting | 13–18 min (~545 m) on a 300 g pack — ⚠️ the low end is under the 14 min target |
+| Runtime, trotting | 14–19 min (~585 m) on a 300 g pack |
 | Righting from upside down | ~1.0 s (simulated) |
 
 Every number is computed from the live model, not typed in: the CAD, the
@@ -70,7 +70,7 @@ MuJoCo plant and the budgets all read `kinematics/src/tomcat_kin/params.py`.
 what closes it, is in [OPEN_RISKS.md](docs/OPEN_RISKS.md). The largest open
 items: the motor (a GIM3505-9 is a proxy for size and mass; the spec it must
 meet is in ADR-0100/0110, and the dressed robot asks 93 % of its peak), the
-runtime (13.2 min at the vendor's Kt, under the 14 min floor), the
+runtime (14.3 min at the vendor's Kt, 0.3 min over the 14 min floor), the
 mass (4.81 kg, 19.0 % over the 4.05 kg target), bench values for conduit
 friction and the G3 rates, a mock-up of the cable bundle that twists inside
 the hollow hip, and retraining the policy on the dressed robot.
