@@ -58,22 +58,39 @@ class TomcatStand(gym.Env):
     metadata = {"render_modes": []}
 
     def __init__(self, *, episode_s: float = 4.0, randomize=None,
-                 seed: int | None = None, **kw):
+                 seed: int | None = None, residual_n: float | None = None, **kw):
+        """`residual_n` (M135, ADR-0129): when set, the action is a RESIDUAL
+        of +-`residual_n` newtons on `stand_baseline.StandBaseline`, the
+        sensor-only standing controller -- not the whole tension."""
         super().__init__()
         rng = np.random.default_rng(seed)
         self.core = TomcatEnv(rng=rng, randomize=randomize, **kw)
         self.max_steps = int(round(episode_s * self.core.control_hz))
         self.action_space = spaces.Box(-1.0, 1.0, (18,), np.float32)
         self.observation_space = spaces.Box(-np.inf, np.inf, (64,), np.float32)
+        self.residual_n = residual_n
+        self.base = None
+        if residual_n is not None:
+            from .stand_baseline import StandBaseline
+            self.base = StandBaseline(self.core)
+        self._obs = None
 
     def reset(self, *, seed=None, options=None):
         if seed is not None:
             self.core.rng = np.random.default_rng(seed)
         obs = self.core.reset()
+        if self.base is not None:
+            self.base.reset(obs)
+        self._obs = obs
         return flatten(obs), {}
 
     def step(self, action):
-        tension = np.asarray(action, float) * MT.TENSION_MAX
+        a = np.asarray(action, float)
+        if self.base is None:
+            tension = a * MT.TENSION_MAX
+        else:
+            tension = self.base(self._obs) + np.clip(a, -1.0, 1.0) * self.residual_n
         obs, reward, terminated, info = self.core.step(tension)
+        self._obs = obs
         truncated = self.core.steps >= self.max_steps
         return flatten(obs), float(reward), bool(terminated), truncated, info

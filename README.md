@@ -76,7 +76,10 @@ runtime (14.4 min at the vendor's Kt, 0.4 min over the 14 min floor, which
 the conduits' bench friction decides), the mass (4.82 kg, 19.3 % over the
 4.05 kg target), bench values for conduit
 friction and the G3 rates, a mock-up of the cable bundle that twists inside
-the hollow hip, and retraining the policy on the dressed robot.
+the hollow hip, and moving training to the GPU backend: a residual
+standing policy now learns on the dressed robot, on sensors alone, with
+every plant and sensor error randomised (26 of 30 seeds stand, against 9
+for the baseline it learns on; [ADR-0129](docs/DESIGN_DECISIONS.md)).
 
 ## Repository
 

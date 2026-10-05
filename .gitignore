@@ -37,3 +37,6 @@ Felis_silvestris_restoration_&_skeleton.jpg
 MUJOCO_LOG.TXT
 mechanical/cad/leg_drive_3d.webp
 mechanical/cad/cat_suit_points*.npz
+
+# training runs (tools/train_stand.py); the ADR records their numbers
+runs/
