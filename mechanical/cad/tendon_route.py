@@ -82,9 +82,17 @@ def tangent(c1, r1, s1, c2, r2, s2):
         raise NoTangent(
             f"|R1-R2| = {abs(R1 - R2):.2f} exceeds the {L:.2f} mm centre "
             f"distance — one pulley swallows the other")
-    # two solutions; the sign of the sine picks which side the belt leaves on,
-    # and the wrap sense of the FIRST station fixes it.
-    sin_t = math.sqrt(max(0.0, 1.0 - cos_t * cos_t)) * (-s1)
+    # two solutions, and the one that runs FORWARD (from c1 toward c2) is the
+    # one with sin < 0, whatever the senses: the signed radii already put each
+    # centre on the side its sense requires (left of travel for +1, right for
+    # -1).
+    # ⚠️ M132 (ADR-0126): this was `* (-s1)`. For a first station wrapped
+    # clockwise it took the other root -- a line run BACKWARDS -- so a CW pair
+    # was handed the same tangent as its CCW twin and the cable went the long
+    # way round its next pulley to meet it. The ankle pair's two cables shared
+    # one line from the knee via to the ankle sheave; the drive animation
+    # showed one green cable where there are two.
+    sin_t = -math.sqrt(max(0.0, 1.0 - cos_t * cos_t))
     n = cos_t * u + sin_t * _rot90(u)
     return c1 + R1 * n, c2 + R2 * n, n
 

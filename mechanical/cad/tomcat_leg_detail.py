@@ -647,6 +647,22 @@ def tendon_drive(q, leg=DEFAULT_LEG, lay=None, role=None):
         else:
             # ✅ M123: seated in the hub's wall (`build` cuts the seat)
             groups["ferrule"].append(f2)
+        if "conduit_knee" in r:
+            # M132: the ankle conduit runs on from the hub down the femur, is
+            # clamped above the knee, crosses it and ends on the tibia
+            Ck = np.array([loc(p) for p in r["conduit_knee"]])
+            groups["conduit"].append(_rod(C[-1], Ck[0], TE.CONDUIT_OD / 2))
+            Ckd = np.vstack([Ck[::4], Ck[-1:]])
+            for a, b in zip(Ckd[:-1], Ckd[1:]):
+                if np.linalg.norm(b - a) > 1e-6:
+                    groups["conduit"].append(_rod(a, b, TE.CONDUIT_OD / 2))
+            d3 = (Ck[-1] - Ck[-2]) / np.linalg.norm(Ck[-1] - Ck[-2])
+            groups["ferrule"].append(_rod(Ck[-1] - d3 * (FERRULE[1] - 1), Ck[-1] + d3 * 1,
+                                          FERRULE[0]))
+            # ...and the ferrule is clamped to the tibia: a bracket from the
+            # tube, across to the ankle's plane (21.7 mm outboard)
+            fb = Ck[-1] - d3 * (FERRULE[1] / 2)
+            groups["ferrule"].append(_rod(np.array([fb[0], 0.0, fb[2]]), fb, 2.0))
         an = r["anchor"]
         groups["anchor"].append(Pos(an[0], y, an[1]) * Sphere(CABLE_D))
     routes["fleet"] = fleet
@@ -720,6 +736,9 @@ def build(leg=DEFAULT_LEG, role=None):
     # into both cables goes with it. The knee via (the ankle cable past the
     # knee) stays.
     LAY["hip"]["via"] = []
+    # ✅ M132 (ADR-0126): nor at the knee -- the ankle pair crosses it in its
+    # conduit, so nothing wraps the knee but the knee's own pair
+    LAY["knee"]["via"] = []
     groups: dict[str, list] = {k: [] for k in
                                ("tube", "insert", "clevis", "sheave",
                                 "bearing", "shaft", "cable", "pad", "tendon",

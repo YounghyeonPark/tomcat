@@ -18,7 +18,7 @@ Under it, the robot as designed:*
 
 ## How a leg is driven
 
-![a hind leg's drive, in 3-D](docs/figures/leg_drive_m131.webp)
+![a hind leg's drive, in 3-D](docs/figures/leg_drive_m132.webp)
 
 Each joint is an antagonistic cable pair wound on one spool, so one motor
 drives one joint both ways (red / blue / green = hip / knee / ankle; thick =
@@ -30,7 +30,9 @@ the cable pulling).
   trunk carries a stub, the femur turns on it in two bearings, and the cables
   never cross the femur's path.
 - **Bowden conduits** carry each cable from the body to the leg; friction is
-  charged where the cable slides ([ADR-0112](docs/DESIGN_DECISIONS.md)).
+  charged where the cable slides ([ADR-0112](docs/DESIGN_DECISIONS.md)). The
+  ankle's conduits run on across the knee to a ferrule on the shin, so no
+  pulley couples the knee and ankle ([ADR-0126](docs/DESIGN_DECISIONS.md)).
 - **Each spool is as wide as its joint's cable travel** (hip 12 mm, knee and
   ankle 10, spine 8), and the conduit's first ferrule floats in a slot along
   the drum so the cable leaves every groove square
@@ -45,18 +47,18 @@ the cable pulling).
 
 | One leg, as parts | The trunk: 19 motors in four rigid bodies |
 |---|---|
-| ![leg detail](docs/figures/leg_parts_m131.png) | ![trunk](docs/figures/trunk_m131.png) |
+| ![leg detail](docs/figures/leg_parts_m132.png) | ![trunk](docs/figures/trunk_m131.png) |
 
 ## Key numbers
 
 | | |
 |---|---|
-| Mass | **4.83 kg** with its skin (19 motors: 12 leg, 6 spine, 1 tail) |
+| Mass | **4.81 kg** with its skin (19 motors: 12 leg, 6 spine, 1 tail) |
 | Trunk / hips apart | 384 mm / 276 mm |
 | Joint moment arms (hip / knee / ankle) | 36 / 34 / 22 mm |
-| Motor demand (peak / continuous) | 1.79 / 0.61 N·m per motor |
+| Motor demand (peak / continuous) | 1.82 / 0.73 N·m per motor |
 | Trot | 50 cm/s |
-| Runtime, trotting | 16–21 min (~640 m) on a 300 g pack |
+| Runtime, trotting | 13–18 min (~545 m) on a 300 g pack — ⚠️ the low end is under the 14 min target |
 | Righting from upside down | ~1.0 s (simulated) |
 
 Every number is computed from the live model, not typed in: the CAD, the
@@ -67,8 +69,9 @@ MuJoCo plant and the budgets all read `kinematics/src/tomcat_kin/params.py`.
 **Modelling and design — no hardware built.** What is still uncertain, and
 what closes it, is in [OPEN_RISKS.md](docs/OPEN_RISKS.md). The largest open
 items: the motor (a GIM3505-9 is a proxy for size and mass; the spec it must
-meet is in ADR-0100/0110, and the dressed robot asks 92 % of its peak), the
-mass (4.83 kg, 19.5 % over the 4.05 kg target), bench values for conduit
+meet is in ADR-0100/0110, and the dressed robot asks 93 % of its peak), the
+runtime (13.2 min at the vendor's Kt, under the 14 min floor), the
+mass (4.81 kg, 19.0 % over the 4.05 kg target), bench values for conduit
 friction and the G3 rates, a mock-up of the cable bundle that twists inside
 the hollow hip, and retraining the policy on the dressed robot.
 

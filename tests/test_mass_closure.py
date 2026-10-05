@@ -22,7 +22,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "mechanical", "
 import mass_closure as MC  # noqa: E402
 
 from tomcat_kin.params import (  # noqa: E402
-    DEFAULT_FORELEG, DEFAULT_HINDLEG, DEFAULT_SPINE,
+    DEFAULT_FORELEG, DEFAULT_HINDLEG, DEFAULT_SPINE, DEFAULT_TENDON,
 )
 
 GRID = 15
@@ -60,7 +60,8 @@ def test_the_body_mass_closes_ABOVE_NFR5(closed):
     # ⚠️ M123: -> 4.605 kg, the hollow hip (ADR-0114); M124: 4.589; M126: **4.579**.
     # ⚠️ M130 (ADR-0124): -> **4.834 kg** -- the cat's skin (244 g) and the
     # femur tubes Ø16 for the landing it adds.
-    assert closed["body"] == pytest.approx(4.834, abs=0.02)
+    # M132: -> 4.814, the knee via gone (ADR-0126).
+    assert closed["body"] == pytest.approx(4.814, abs=0.02)
     # ⚠️ NFR5 (4.045 kg) is exceeded by **19.5 %** now -- the cat's skin
     # (13.2 at M126, 13.9 at M123, 11.3 at M122).
     assert closed["body"] / old == pytest.approx(1.195, abs=0.01)
@@ -119,14 +120,18 @@ def test_the_MECHANISM_emits_a_MOTOR_SPEC_rather_than_fitting_one(closed):
     # 270 mm apart, and the hip pair's conduits from their new row.
     # M130 (ADR-0123): -> 1.698, the floating ferrules' S on every conduit.
     # M130 (ADR-0124): -> 1.789, the cat's skin. 92 % of the proxy's peak.
-    assert req["peak"] == pytest.approx(1.789, abs=0.03)
+    # M132 (ADR-0126): -> 1.821, 93 % -- the fore hip's flexor, charged its
+    # own conduit's bend once the tangents were solved right.
+    assert req["peak"] == pytest.approx(1.821, abs=0.03)
     # ⚠️ M115: 0.646 (worst pose) -> 0.624 N.m -- the larger of the stance hold
     # (0.495) and the walked trot's RMS (0.624, the fore ankle). Thermal is the
     # load actually carried.
     # M122: 0.624 -> 0.575 N.m under the conduit friction model.
     # M123: 0.575 -> 0.570 (the trot re-tuned, ADR-0114).
     # M130 (ADR-0123/0124): 0.570 -> 0.611 N.m, 86 % of the 0.71 rating.
-    assert req["continuous"] == pytest.approx(0.611, abs=0.02)
+    # ⚠️ M132 (ADR-0126): 0.611 -> 0.733 N.m, 103 % -- the ankle conduit's
+    # crossing of the knee, charged at full flexion.
+    assert req["continuous"] == pytest.approx(0.733, abs=0.02)
     assert req["trot_rms"] > req["stance_hold"], "the trot, not standing, sets it"
     # ⚠️ M123: a TIE. Both hips now drive off the same kind of row with the
     # same conduit (122 / 140 deg), so the hind hip's trot peak equals the
@@ -139,10 +144,17 @@ def test_the_MECHANISM_emits_a_MOTOR_SPEC_rather_than_fitting_one(closed):
     # knee's capstan share was the larger, and it is gone.
     # M130 (ADR-0123): the hip by 1.3 % -- the floating ferrule's S is
     # largest on the hip conduit (25 deg against 15).
-    assert fore_peak in ("hip", "knee"), f"the fore trot is sized by {fore_peak}"
-    assert req["fore_per_joint"]["hip"][1] == pytest.approx(
-        req["fore_per_joint"]["knee"][1], rel=0.02)
-    assert req["peak"] < req["proxy_peak"] and req["continuous"] < req["proxy_rated"]
+    # ⚠️ M132 (ADR-0126): the hip by 3.5 %. With the tangents solved right
+    # the hip's 164 deg conduit is the FLEXOR's, where the buggy solver had
+    # charged it to the extensor -- and the fore hip peaks on its flexor.
+    assert fore_peak == "hip", f"the fore trot is sized by {fore_peak}"
+    assert req["fore_per_joint"]["hip"][1] / req["fore_per_joint"]["knee"][1] \
+        == pytest.approx(1.035, abs=0.01)
+    assert req["peak"] < req["proxy_peak"]
+    # ⚠️ M132 (ADR-0126): the continuous torque is PAST the proxy's rating, by
+    # 3 %. On current it is not (1.34 A against 1.60 at the vendor's Kt):
+    # which side of the line it falls is ADR-0044's Kt question again.
+    assert req["continuous"] > req["proxy_rated"], "if this clears, re-word ADR-0126"
     # ⚠️ and the axis the proxy fails on now
     # M122: 665 -> 629 rpm -- the swing's torque fell with the friction, and
     # the need is read off the torque-speed LINE.
@@ -183,7 +195,9 @@ def test_the_joint_hardware_gives_BACK_the_P1_inertia_saving(closed):
         "pulleys stay distal" % (1e3 * hind[2], 1e3 * MC.PRE_M41_HIND[2]))
     share_new = hind / hind.sum()
     share_old = np.asarray(MC.PRE_M41_HIND) / sum(MC.PRE_M41_HIND)
-    assert share_new[0] < share_old[0], "the femur's share must FALL"
+    # ⚠️ M132 (ADR-0126): 47.5 % against 47.3 -- the knee via left the
+    # distal links, so the femur's share no longer falls; it holds.
+    assert share_new[0] < share_old[0] + 0.005, "the femur's share must not RISE"
     assert share_new[2] > share_old[2], "the metatarsus share must rise"
 
 
@@ -236,11 +250,17 @@ def test_the_coupled_map_raises_the_KNEE_tension(closed):
     the fixed via radius and the diagonals grew. Worst coupled SF 4.94 -> 6.13.
     """
     b = closed["rows"][-1]
-    ct = MC.coupled_tensions(b["land"]["tau"])
-    assert ct["coupled"][1] / ct["diagonal"][1] == pytest.approx(1.251, abs=0.02)
-    assert ct["coupled"][0] < ct["diagonal"][0], "hip falls slightly"
-    assert ct["coupled"][2] == pytest.approx(ct["diagonal"][2], rel=1e-6), (
-        "the ankle is distal-most, so nothing couples into it"
+    # ✅ M132 (ADR-0126): **the coupling is gone.** The hip via left with the
+    # hollow hip (M122) and the knee via with the ankle conduit across the
+    # knee (M132), so the shipped map is DIAGONAL and the coupled tensions
+    # are the diagonal ones. `LT.coupling_matrix` still solves the pre-M122
+    # planar router, vias and all; the shipped map is `pair_matrix`.
+    from tomcat_kin import mjcf_tendon as _MT
+    J = _MT.pair_matrix(np.asarray(DEFAULT_TENDON.joint_moment_arm)) * 1e3
+    assert np.allclose(J, np.diag(np.diag(J))), "the shipped map is diagonal"
+    ct = MC.coupled_tensions(b["land"]["tau"], J_mm=J)
+    assert np.allclose(ct["coupled"], ct["diagonal"], rtol=1e-9), (
+        "with no via, nothing couples into anything"
     )
     worst = float(max(ct["coupled"]))
     assert MC.CABLE_BREAK / worst > MC.SF_TARGET, f"SF {MC.CABLE_BREAK / worst:.2f}"
@@ -262,9 +282,12 @@ def test_the_wrap_SENSES_are_a_load_lever_not_just_a_wrap_lever(closed):
     choice rather than a margin one.
     """
     b = closed["rows"][-1]
-    ct = MC.coupled_tensions(b["land"]["tau"])
-    knee_now, knee_alt = float(ct["coupled"][1]), float(ct["sign_flipped"][1])
-    assert (knee_now - knee_alt) / knee_now > 0.35, "the knee lever is still large"
+    # ✅ M132 (ADR-0126): no via is left to wrap either way (see above), so
+    # the lever has nothing to act on: the flipped and the shipped tensions
+    # are the same, and the hip is the worst cable.
+    from tomcat_kin import mjcf_tendon as _MT
+    J = _MT.pair_matrix(np.asarray(DEFAULT_TENDON.joint_moment_arm)) * 1e3
+    ct = MC.coupled_tensions(b["land"]["tau"], J_mm=J)
     worst_now = float(max(ct["coupled"]))
     worst_alt = float(max(ct["sign_flipped"]))
     assert int(np.argmax(ct["coupled"])) == 0, "the hip is the worst cable now"

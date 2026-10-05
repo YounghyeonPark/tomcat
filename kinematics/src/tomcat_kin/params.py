@@ -220,7 +220,7 @@ class LegParams:
     # knee via on the flexor's other side, and the ankle ferrule stagger is gone.
     # M130 (ADR-0124): + the cat's skin on each link (`skin_mass`), and the
     # femur tube Ø14 -> Ø16 (SF 2.40 under the skin's landing load).
-    link_mass: tuple[float, float, float, float] = (0.11084, 0.08360, 0.03940,
+    link_mass: tuple[float, float, float, float] = (0.11279, 0.07649, 0.03952,
                                                     0.00852)
 
     # Fraction of each link's LENGTH, measured from that link's PROXIMAL joint,
@@ -232,16 +232,16 @@ class LegParams:
     # at 6-8 %**: the mass is joint hardware sitting ON the proximal joint, not
     # a belly part-way down a bone. The paw is the opposite (87 %) because the
     # pad is at its tip.  `[derived: cad/link_inertia.py]`
-    link_com_frac: tuple[float, float, float, float] = (0.1106, 0.1119, 0.1964, 0.8996)
+    link_com_frac: tuple[float, float, float, float] = (0.1260, 0.1203, 0.1965, 0.8997)
 
     #: Centre of mass in the link's OWN body frame (m), +x along the link from
     #: its proximal joint. The full vector `link_com_frac` cannot carry: the
     #: sheaves stand ~4 mm off the limb plane in +y.  `[derived: cad/link_inertia.py]`
     link_com: tuple[tuple[float, float, float], ...] = (
-        (0.009956, 0.005490, 0.000887),       # femur
-        (0.010630, 0.008036, 0.000722),       # tibia
-        (0.013749, 0.005755, -0.000509),      # meta
-        (0.022491, -0.000011, -0.001033),      # paw
+        (0.011337, 0.005631, -0.000201),       # femur
+        (0.011428, 0.006755, 0.000944),       # tibia
+        (0.013757, 0.005804, -0.000534),      # meta
+        (0.022492, -0.000012, -0.001033),      # paw
     )
 
     #: MJCF `fullinertia` about each link's CoM, in its body frame
@@ -253,10 +253,10 @@ class LegParams:
     #: joint hardware sitting at its joints; a capsule spreads it down the bone.
     #: `[derived: cad/link_inertia.py]`
     link_inertia: tuple[tuple[float, ...], ...] = (
-        (5.2431e-05, 1.4430e-04, 1.1412e-04, 5.5872e-06, -2.3889e-06, -1.5466e-06),
-        (2.4909e-05, 7.9420e-05, 7.6374e-05, 1.2405e-07, 1.8222e-06, -2.9028e-07),
-        (7.8339e-06, 2.5063e-05, 2.7354e-05, 2.9692e-06, -3.2759e-08, -1.4680e-07),
-        (6.1011e-07, 1.0067e-06, 1.2185e-06, 0.0000e+00, 1.2781e-08, 0.0000e+00),
+        (5.7537e-05, 1.6056e-04, 1.2573e-04, 4.3116e-06, 4.6361e-06, -4.6413e-07),
+        (2.3207e-05, 7.7494e-05, 7.3170e-05, -7.7317e-07, 1.4496e-06, -5.4864e-07),
+        (7.8845e-06, 2.5092e-05, 2.7394e-05, 2.9641e-06, -3.8382e-08, -1.3133e-07),
+        (6.1006e-07, 1.0067e-06, 1.2186e-06, 0.0000e+00, 1.2709e-08, 0.0000e+00),
     )
 
     def __post_init__(self) -> None:
@@ -448,12 +448,17 @@ class TendonParams:
     #: to the hub; the hip pair's from the new hip-station row.
     #: ✅ M130 (ADR-0123): each plus the floating F1's S behind its drum --
     #: 25 deg on a hip conduit, 15 on a knee or ankle -- at the end of travel.
-    conduit_bend: tuple = ((2.5572, 2.8999),  # hip   147 / 166 deg
-                           (1.9671, 1.9669),  # knee  113 / 113 deg
-                           (1.9961, 1.9959))  # ankle 114 / 114 deg
+    #: ✅ M132 (ADR-0126): the ankle's conduit crosses the knee, and its bend
+    #: there at the knee's full flexion (with the cable's turn out of the
+    #: tibia ferrule) is added -- conservative: the trot never reaches it.
+    #: The hip pair re-placed with the tangents solved right (147 / 164 deg).
+    conduit_bend: tuple = ((2.8669, 2.5572),  # hip   164 / 147 deg
+                           (1.9656, 1.9654),  # knee  113 / 113 deg
+                           (5.0812, 5.0810))  # ankle 291 / 291 deg
     #: Running pulleys between spool and anchored sheave: the knee via, on the
     #: ankle pair, and nothing else (ADR-0112).
-    pulley_count: tuple = ((0, 0), (0, 0), (1, 1))
+    #: M132: none -- the knee via is gone.
+    pulley_count: tuple = ((0, 0), (0, 0), (0, 0))
 
     # Series cable compliance: model the tendon as a linear spring of stiffness
     # k_cable (N/m). Under tension T it stretches dL = T / k_cable, so the motor
@@ -644,7 +649,7 @@ class SpineParams:
     # which ADR-0107 priced and nothing carried. `[derived: cad/girdle_inertia.py]`
     # M126 (ADR-0117): 6 x 2.19 g = 13.1 g -- the stiffer spine flexure is thinner.
     # M130 (ADR-0124): each + the skin over it (12.1 / 7.3 / 4.7 g).
-    segment_mass: tuple[float, ...] = (0.14208, 1.23249, 0.13172)
+    segment_mass: tuple[float, ...] = (0.14208, 1.23249, 0.13171)
 
     # Fraction along each segment (from its INBOARD/rear vertebra) at which that
     # segment's mass acts. 0.5 = uniform rod.  ❓ TBD
@@ -667,8 +672,8 @@ class SpineParams:
     # the head was always inside it, just never anywhere in particular.
     #: ⚠️ **M120: each girdle carries its six leg G3 flexures**, 6 x 5.20 g,
     #: between motor and spool (ADR-0107, drawn in `g3_flexure.py`).
-    front_girdle_mass: float = 1.24171   # M130: + the skin's 88.5 g (ADR-0124)
-    rear_girdle_mass: float = 1.10605     # M123: the tail shrank with the rear body; M130: +0.2 g, the trunk 6 mm longer and the tail with it
+    front_girdle_mass: float = 1.24170   # M130: + the skin's 88.5 g (ADR-0124)
+    rear_girdle_mass: float = 1.10604     # M123: the tail shrank with the rear body; M130: +0.2 g, the trunk 6 mm longer and the tail with it
 
     #: Girdle housing, full extents (m), and the height of its centre above the
     #: girdle mount vertebra.
@@ -796,8 +801,8 @@ class SpineParams:
     #: ✅ M129 (ADR-0121): the head closer in, **Iyy 7.9601e-03 -> 5.6392e-03
     #: (-29 %)**.
     #: M130 (ADR-0124): with the skin on each.
-    front_girdle_inertia: tuple[float, ...] = (3.3686e-03, 7.6694e-03, 5.4411e-03, 1.5323e-08, -2.8668e-03, -1.7390e-05)
-    rear_girdle_inertia: tuple[float, ...] = (1.1465e-03, 1.5936e-03, 1.4014e-03, -4.9303e-08, 2.2791e-04, -1.7556e-05)
+    front_girdle_inertia: tuple[float, ...] = (3.3686e-03, 7.6694e-03, 5.4411e-03, 1.4218e-08, -2.8668e-03, -1.7393e-05)
+    rear_girdle_inertia: tuple[float, ...] = (1.1464e-03, 1.5937e-03, 1.4015e-03, -4.9334e-08, 2.2792e-04, -1.7556e-05)
 
     #: Per-segment `fullinertia`, or `None` to derive it from the segment box.
     #:
@@ -878,7 +883,9 @@ class LoadCase:
     # -> **4.83385** (M130, ADR-0124: the cat's skin, 244.3 g -- knit 114 g
     # and foam 130 g -- dealt to the bodies it rides on; and the femur tubes,
     # and the fore radius, Ø16 for the landing it adds).
-    body_mass_kg: float = 4.83385
+    # -> **4.81358** (M132, ADR-0126: the knee via, its bearing and the
+    # shaft that reached it gone, 5 g a leg; a tibia ferrule bracket added).
+    body_mass_kg: float = 4.81358
     n_stance_legs: int = 2             # legs sharing the load (e.g. trot => 2).
     dynamic_factor: float = 1.5        # peak/static impact multiplier.  ❓ TBD
 
@@ -980,21 +987,21 @@ DEFAULT_FORELEG = LegParams(
     # every SF had been computed on the hind leg's loads).
     # ⚠️ M127: re-measured, as the hind leg.
     # ⚠️ M130: + the skin, as the hind leg; the humerus and the radius Ø16.
-    link_mass=(0.11269, 0.08728, 0.03914, 0.00843),
+    link_mass=(0.11459, 0.08025, 0.03919, 0.00843),
     # ⚠️ Re-derived at the FORE link lengths, not copied from the hind leg:
     # the same hardware on shorter links moves the fractions.
-    link_com_frac=(0.1177, 0.1332, 0.1958, 0.8799),
+    link_com_frac=(0.1348, 0.1440, 0.1957, 0.8799),
     link_com=(
-        (0.011772, 0.005367, -0.000609),      # humerus
-        (0.011987, 0.007666, -0.000885),      # radius
-        (0.012729, 0.005908, -0.000101),      # metacarpus
+        (0.013483, 0.005502, 0.000366),      # humerus
+        (0.012963, 0.006426, -0.001062),      # radius
+        (0.012720, 0.005928, -0.000131),      # metacarpus
         (0.021998, -0.000008, -0.001044),      # paw
     ),
     link_inertia=(
-        (5.7200e-05, 1.6656e-04, 1.3419e-04, 7.2174e-06, 2.7543e-06, 1.8693e-06),
-        (2.5878e-05, 8.1919e-05, 7.8601e-05, 1.1927e-06, -2.4533e-07, 4.9916e-07),
-        (8.2650e-06, 2.1424e-05, 2.3246e-05, 2.8171e-06, -3.2087e-07, -6.9430e-08),
-        (6.1310e-07, 9.5453e-07, 1.1546e-06, 0.0000e+00, 4.8051e-08, 0.0000e+00),
+        (6.2541e-05, 1.8858e-04, 1.5131e-04, 5.5825e-06, -6.3316e-06, 8.4071e-07),
+        (2.4236e-05, 8.0499e-05, 7.5740e-05, 0.0000e+00, 2.2505e-08, 7.0268e-07),
+        (8.2978e-06, 2.1450e-05, 2.3265e-05, 2.8235e-06, -3.3172e-07, -5.1168e-08),
+        (6.1316e-07, 9.5458e-07, 1.1547e-06, 0.0000e+00, 4.8073e-08, 0.0000e+00),
     ),
 )
 

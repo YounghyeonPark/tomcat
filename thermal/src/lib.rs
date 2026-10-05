@@ -173,21 +173,21 @@ pub mod from_power_py {
     //        into params.py at last
 
     /// Copper loss per leg motor at the 50 cm/s trot, W. (`copper_w / 12`)
-    pub const TROT_W: f64 = 5.9041;
+    pub const TROT_W: f64 = 7.5776;
     /// Per-motor draw HOLDING a stance, W. Higher than trotting — a cable can only
     /// pull, so posture costs current. (`legs_w / 12`)
-    pub const STAND_W: f64 = 2.7856;
+    pub const STAND_W: f64 = 3.5485;
     /// Minutes of trotting on the 300 g pack.
-    pub const TROT_RUNTIME_MIN: f64 = 21.2089;
+    pub const TROT_RUNTIME_MIN: f64 = 18.1774;
     /// Minutes standing on the pack, brake OFF.
-    pub const STAND_RUNTIME_MIN: f64 = 52.0369;
+    pub const STAND_RUNTIME_MIN: f64 = 43.7641;
     /// Whole-robot electrical draw at the trot, W. (`gait_power()["total_w"]`)
     ///
     /// ⚠️ M40: this lived as a bare `const TOTAL_W` inside two functions and was
     /// therefore **outside** the pytest guard, so it could go stale silently — which
     /// it did: it still read 83.5607 after the copper-loss correction, and only the
     /// emergent-runtime cross-check caught it. Guarded now.
-    pub const TOTAL_W: f64 = 118.8182;
+    pub const TOTAL_W: f64 = 138.6338;
 }
 
 /// Room air. Everything is quoted as a rise, so this only sets the absolute scale.
@@ -518,9 +518,11 @@ mod tests {
         // arms put the gentle draught back in range. Forced air is still required.
         let h15 = AMBIENT_C + g.equilibrium(EMIS_ANODISED, 15.0, 6.0 * TROT_W);
         let h25 = AMBIENT_C + g.equilibrium(EMIS_ANODISED, 25.0, 6.0 * TROT_W);
-        assert!(h15 < 80.0, "h=15 is enough again since M111, got {h15}");
         // M122: 77.7 -> 69.4 C at h = 15, a 10 K margin now rather than "only just".
-        assert!(h15 > 65.0, "but not by much, got {h15}");
+        // ⚠️ M132 (ADR-0126): **91.8 C at h = 15 -- not enough any more.** The
+        // ankle pair's conduit crosses the knee and its friction put trot copper
+        // at 7.58 W a motor (was 5.90). The airflow has to be real again.
+        assert!(h15 > 80.0, "h=15 is no longer enough since M132, got {h15}");
         assert!(h25 < 80.0, "h=25 must still recover it, got {h25}");
     }
 

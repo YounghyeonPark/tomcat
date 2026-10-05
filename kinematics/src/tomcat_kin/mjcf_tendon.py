@@ -398,11 +398,12 @@ def drivetrain_xml(prefix: str, ankle_pair: bool, k_series: float,
 #: M127 put its two cables on opposite sides of it (`tendon_exit.pair_senses`).
 def pair_rows(arms, ankle_pair: bool = True):
     r_hip, r_knee, r_ankle = (float(a) for a in arms)
-    v = VIA_R
     rows = {"hip": [("q1", r_hip)],
             "knee": [("q2", r_knee)]}
     if ankle_pair:
-        rows["ankle"] = [("q2", -v), ("q3", r_ankle)]
+        # ✅ M132 (ADR-0126): the ankle pair crosses the knee in its conduit,
+        # so the knee no longer reaches it -- no via, no -v*q2
+        rows["ankle"] = [("q3", r_ankle)]
     return rows
 
 
@@ -496,18 +497,17 @@ def clamped_tendons(name: str, arms, ankle_pair: bool = True) -> str:
     every distal cable picks up the proximal joints at the via-pulley radius.
     """
     r_hip, r_knee, r_ankle = (float(a) for a in arms)
-    v = VIA_R
     rows = {
         "hip_flex": [("q1", +r_hip)],
         "hip_ext": [("q1", -r_hip)],
-        # M127: no hip via since the hollow hip; the ankle pair on opposite
-        # sides of the knee via
+        # M127: no hip via since the hollow hip. M132: no knee via either --
+        # the ankle pair crosses the knee in its conduit
         "knee_flex": [("q2", +r_knee)],
         "knee_ext": [("q2", -r_knee)],
-        "ankle": [("q2", -v), ("q3", -r_ankle)],
+        "ankle": [("q3", -r_ankle)],
     }
     if ankle_pair:
-        rows["ankle_ext"] = [("q2", +v), ("q3", +r_ankle)]
+        rows["ankle_ext"] = [("q3", +r_ankle)]
     out = []
     for tname in tendon_names(name, ankle_pair):
         short = tname.split("_", 1)[1]

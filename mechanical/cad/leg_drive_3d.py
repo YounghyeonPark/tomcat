@@ -149,7 +149,8 @@ def _deal(comps, pts):
             if g == "pad":
                 link = "paw"
             elif g == "ferrule":
-                link = "femur"            # the conduit ferrules ride the femur
+                # the hub's ride the femur; M132's tibia ferrule the tibia
+                link = min(B, key=lambda b: _seg_dist(c, *B[b]))
             elif g in BY_BONE:
                 link = min(B, key=lambda b: _seg_dist(c, *B[b]))
             else:
@@ -349,8 +350,9 @@ def main(path=None, size=(1200, 820), fps=16, n_each=30, hq=False):
                                    1.5 if pull else 0.85))
             app.Update()
             a.GetMapper().SetInputData(app.GetOutput())
-            conduit_actors[(t, sd)].GetMapper().SetInputData(
-                _tube([tuple(p) for p in r["conduit"]], TE.CONDUIT_OD / 2))
+            # M132: the ankle conduit runs on over the knee to the tibia
+            cpts = [tuple(p) for p in r["conduit"]] + [tuple(p) for p in r.get("conduit_knee", [])]
+            conduit_actors[(t, sd)].GetMapper().SetInputData(_tube(cpts, TE.CONDUIT_OD / 2))
             c = np.array(COLORS[t])
             a.GetProperty().SetColor(*(c if pull else 0.55 * c + 0.45))
             a.GetProperty().SetAmbient(0.35 if pull else 0.1)

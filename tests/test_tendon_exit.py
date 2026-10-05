@@ -150,7 +150,9 @@ def test_friction_is_now_a_TENTH_to_a_FIFTH_not_a_half():
                 TendonMap(DEFAULT_TENDON).capstan_factor(side=-1)]
     old = TendonMap(dataclasses.replace(DEFAULT_TENDON, friction_model="capstan"))
     was = np.r_[old.capstan_factor(side=+1), old.capstan_factor(side=-1)]
-    assert now.min() > 1.10 and now.max() < 1.25
+    # ⚠️ M132 (ADR-0126): the ankle pair x1.43 -- its conduit crosses the knee
+    # (177 deg more at the knee's full flexion, the worst case charged).
+    assert now.min() > 1.10 and now.max() < 1.45
     assert was.max() > 1.5
 
 

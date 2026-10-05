@@ -372,10 +372,16 @@ def hub_ferrule(role, tendon, side_c, q, lr_side=+1.0):
     """F2 in the femur hub's wall at pose `q`: `HUB_F2_R` off the hip axis in
     the cable's plane, on the ray the free cable leaves along -- fixed in the
     femur, so it turns with the hip. (position, direction), trunk mm."""
-    run = leg_run(role, tendon, side_c, q)
-    p = run["points"]
-    u = (p[1] - p[0]) / np.linalg.norm(p[1] - p[0])
-    dy = lr_side * side_c * ANKLE_STAGGER if tendon == "ankle" else 0.0   # 0 since M127
+    if tendon == "ankle":
+        # M132 (ADR-0126): the ankle pair's conduits do not end here; they
+        # leave the hub down the femur, toward the knee they cross
+        pj = LT.joints(q, leg(role))
+        u = (pj[1] - pj[0]) / np.linalg.norm(pj[1] - pj[0])
+    else:
+        run = leg_run(role, tendon, side_c, q)
+        p = run["points"]
+        u = (p[1] - p[0]) / np.linalg.norm(p[1] - p[0])
+    dy = 0.0
     return (np.array([HIP_X[role] + HUB_F2_R * u[0], plane_y(tendon, lr_side) + dy,
                       HUB_F2_R * u[1]]), np.array([u[0], 0.0, u[1]]))
 
@@ -543,6 +549,69 @@ def conduit_worst(role, tendon, side_c, lead3, F2spec, lr_side=+1.0):
     return worst, rmin
 
 
+#: ✅ M132 (ADR-0126): **the ankle pair's conduits cross the knee.** With
+#: the tangents solved correctly, a pair wound on opposite sides of a knee
+#: via -- which a single spool needs, or the pair's length changes with the
+#: knee -- costs one cable 255-294 deg round a 17.5 mm via (the via turns the
+#: cable ~100 deg; the other side has to go ~260 the other way). So, as at the
+#: hip, the cable does not cross the joint free: its conduit runs on from the
+#: hub down the femur, is clamped `LT.KNEE_FERRULE_D` above the knee, crosses
+#: it in the ankle's plane (21.7 mm outboard, clear of the knee's sheave) and
+#: ends at a ferrule as far below it on the tibia. Its length is fixed, so the
+#: pair's is too, whatever the knee does; the price is the crossing's bend,
+#: charged to the conduit's friction.
+def knee_conduit(role, q, side_c, lr_side=+1.0, n=60):
+    """The ankle conduit's crossing of the knee at pose `q`: (polyline trunk
+    mm, bend rad, tightest radius mm, length mm). Clamped along the femur and
+    ended along the tibia `LT.KNEE_FERRULE_D` either side of the knee, in the
+    gentlest shape between them (`conduit_shape`). `bend` adds where the free
+    cable leaves the ferrule's mouth for its sheave: the turn the cable makes
+    there rubs as the conduit's does. Its LENGTH moves with the knee, and
+    `knee_crossing_worst` reports by how much: a real conduit is one length,
+    so that is the slack it carries and bows out at the other end of the
+    range."""
+    lg = leg(role)
+    pj = LT.joints(q, lg)
+    hip, knee, ankle = pj[0], pj[1], pj[2]
+    uf = (knee - hip) / np.linalg.norm(knee - hip)
+    ut = (ankle - knee) / np.linalg.norm(ankle - knee)
+    D = LT.KNEE_FERRULE_D
+    K, F3 = knee - D * uf, knee + D * ut
+    run = leg_run(role, "ankle", side_c, q)
+    p = run["points"]
+    d3 = (p[1] - p[0]) / np.linalg.norm(p[1] - p[0])
+    xh, y = HIP_X[role], plane_y("ankle", lr_side)
+    to3 = lambda v: np.array([xh + v[0], y, v[1]])
+    C, b, r, L = conduit_shape(to3(K), np.array([uf[0], 0.0, uf[1]]),
+                               to3(F3), np.array([ut[0], 0.0, ut[1]]),
+                               handles=BORE_HANDLES)
+    mouth = math.acos(float(np.clip(ut @ d3, -1.0, 1.0)))
+    return C, b + mouth, r, L
+
+
+def knee_range(role, n=13):
+    """The knee's whole range at the stance's hip and ankle, rad."""
+    lg = leg(role)
+    q0 = stance(role)
+    out = []
+    for qk in np.linspace(float(lg.q_min[1]), float(lg.q_max[1]), n):
+        q = np.array(q0, float)
+        q[1] = qk
+        out.append(q)
+    return out
+
+
+def knee_crossing_worst(role, side_c=+1, qs=None):
+    """(worst bend rad, tightest radius mm, length swing mm) of the ankle
+    conduit's knee crossing, over the knee's whole range or `qs`."""
+    w, rmin, Ls = 0.0, np.inf, []
+    for q in (knee_range(role) if qs is None else qs):
+        _C, b, r, L = knee_conduit(role, q, side_c)
+        w, rmin = max(w, b), min(rmin, r)
+        Ls.append(L)
+    return w, rmin, max(Ls) - min(Ls)
+
+
 #: The knee and ankle pairs, fixed by the layout (M123): motor by height (the
 #: hip-station rows' bottom pair: 1 = the row in FRONT of the hip, 2 = behind
 #: it), the spool end FACING the hip, and the leads off the spool's bottom
@@ -602,11 +671,14 @@ def place(role: str, side=+1.0):
 #: M123 (ADR-0114): the hip pair drives off the top of the row in FRONT of
 #: its hip; the knee off that row's bottom motor, the ankle off the bottom
 #: motor of the row behind -- spools facing across the hip.
+#: M132 (ADR-0126): the hip pair re-placed with the tangents solved right --
+#: flexor and extensor trade senses, lead angles and ferrule angles (the
+#: buggy solver had handed each the other's tangent).
 DRIVE = {
-    "hind": {"hip": (0, -1, -1.0, 126.0, 324.0, (20.0, -20.0)),
+    "hind": {"hip": (0, -1, +1.0, 330.0, 126.0, (-15.0, 20.0)),
              "knee": (1, -1, +1.0, 270.0, 90.0, None),
              "ankle": (2, +1, +1.0, 270.0, 90.0, None)},
-    "fore": {"hip": (0, -1, -1.0, 126.0, 330.0, (20.0, -15.0)),
+    "fore": {"hip": (0, -1, +1.0, 330.0, 126.0, (-15.0, 20.0)),
              "knee": (1, -1, +1.0, 270.0, 90.0, None),
              "ankle": (2, +1, +1.0, 270.0, 90.0, None)},
 }
@@ -622,8 +694,9 @@ def _spec(role, t):
 
 def pulley_count(role: str = "hind"):
     """Running pulleys between each spool and its anchored sheave, per joint and
-    side: only the knee via, on the ankle pair."""
-    return ((0, 0), (0, 0), (1, 1))
+    side: none since M132 -- the ankle pair crosses the knee in its conduit,
+    and the knee via is gone."""
+    return ((0, 0), (0, 0), (0, 0))
 
 
 def conduit_bend(role: str = "hind"):
@@ -637,7 +710,9 @@ def conduit_bend(role: str = "hind"):
             l3 = spool_lead(role, m, e, phi, sense, to_y=None if t == "hip" else LEAD_Y)
             w, _r = conduit_worst(role, t, sd, l3, None if ha is None else ha[0 if sd > 0 else 1])
             # M130: plus the floating ferrule's S at the end of its travel
-            row.append(w + float_tail(t)["bend"])
+            # M132: and, on the ankle pair, its crossing of the knee at worst
+            kc = knee_crossing_worst(role, sd)[0] if t == "ankle" else 0.0
+            row.append(w + float_tail(t)["bend"] + kc)
         out.append(tuple(row))
     return tuple(out)
 
@@ -699,6 +774,14 @@ def drive(role: str, side: float = +1.0, q=None, senses=None):
             if t == "hip":
                 F2, _d2 = hip_ferrule(role, sd, F2spec, stance(role), side)
                 run = dict(leg_run(role, t, sd, q, start=(F2[0] - xh, F2[2]), senses=sn))
+            elif t == "ankle":
+                # M132: the conduit runs on over the knee; the free cable starts
+                # at the tibia ferrule (the run's own first station)
+                F2, _d2 = hub_ferrule(role, t, sd, q, side)
+                run = dict(leg_run(role, t, sd, q, senses=sn))
+                Ck, bk, rk, Lk = knee_conduit(role, q, sd, side)
+                run.update({"conduit_knee": Ck, "knee_bend": bk, "knee_rmin": rk,
+                            "knee_conduit_length": Lk, "F3": Ck[-1]})
             else:
                 F2, _d2 = hub_ferrule(role, t, sd, q, side)
                 run = dict(leg_run(role, t, sd, q, senses=sn))

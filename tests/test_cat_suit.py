@@ -143,4 +143,4 @@ def test_the_SKIN_is_IN_the_plant():
     assert data["front"]["mass"] > data["rear"]["mass"], "the head's foam is the most"
     for role, lg in (("hind", DEFAULT_HINDLEG), ("fore", DEFAULT_FORELEG)):
         assert sum(SM.leg_link_masses(role)) < 0.2 * sum(lg.link_mass)
-    assert DEFAULT_BODY_MASS_KG == pytest.approx(4.83385, abs=1e-5)
+    assert DEFAULT_BODY_MASS_KG == pytest.approx(4.81358, abs=1e-5)

@@ -747,15 +747,18 @@ def test_the_CLAMPED_transmission_is_EXACT_on_both_legs_everywhere():
 
     | | hip pair | knee pair | ankle pair | couplings |
     |---|---|---|---|---|
-    | hind, stance | ±28.000 | ±25.000 | ±14.000 | ∓8.750 |
-    | hind, q1 = -110° | ±28.000 | ±25.000 | ±14.000 | ∓8.750 |
-    | fore, stance | ±28.000 | ±25.000 | ±14.000 | ∓8.750 |
-    | fore, q1 = -168° | ±28.000 | ±25.000 | ±14.000 | ∓8.750 |
+    | hind, stance | ±28.000 | ±25.000 | ±14.000 | 0 |
+    | hind, q1 = -110° | ±28.000 | ±25.000 | ±14.000 | 0 |
+    | fore, stance | ±28.000 | ±25.000 | ±14.000 | 0 |
+    | fore, q1 = -168° | ±28.000 | ±25.000 | ±14.000 | 0 |
 
-    ⚠️ M127 (ADR-0118): the coupling is the ankle pair's at the KNEE via, on
+    ⚠️ M127 (ADR-0118): the coupling was the ankle pair's at the KNEE via, on
     opposite sides; there is no hip term -- the knee and ankle cables run
     along the hip axis through the hollow hip (M122) and a hip turn does not
     change their length.
+    ✅ M132 (ADR-0126): **and no knee term.** The ankle pair crosses the knee
+    in its Bowden conduit, whose ends ride the femur and the tibia, so a knee
+    turn does not change its length either: the map is diagonal.
 
     Compare the wrapped construction the same audit measured: the hind hip
     same-sign at 6 of 13 gait samples, the fore hip at 5, the fore knee **23.81 mm
@@ -768,7 +771,6 @@ def test_the_CLAMPED_transmission_is_EXACT_on_both_legs_everywhere():
     emergent version is only correct inside a window the gait leaves.
     """
     arms = np.asarray(DEFAULT_TENDON.joint_moment_arm) * 1e3
-    via = MT.VIA_R * 1e3
     names = ["L_hip_flex", "L_hip_ext", "L_knee_flex", "L_knee_ext",
              "L_ankle", "L_ankle_ext"]
 
@@ -803,8 +805,8 @@ def test_the_CLAMPED_transmission_is_EXACT_on_both_legs_everywhere():
             assert J[5, 2] == pytest.approx(+arms[2], abs=1e-6)
             for row in (2, 3, 4, 5):
                 assert J[row, 0] == pytest.approx(0.0, abs=1e-6)   # M127: no hip via
-            assert J[4, 1] == pytest.approx(-via, abs=1e-6)
-            assert J[5, 1] == pytest.approx(+via, abs=1e-6)        # the other side
+            for row in (4, 5):
+                assert J[row, 1] == pytest.approx(0.0, abs=1e-6)   # M132: no knee via
 
 
 def test_the_clamped_leg_HOLDS_on_gravity_feedforward_alone():
@@ -1019,7 +1021,10 @@ def test_the_PULLEY_pair_must_route_on_OPPOSITE_SIDES_of_each_via():
     # with the hollow hip (M122) and its -v*q1 rows outlived it until M127.
     assert "q1" not in dict(rows["knee"])
     assert "q1" not in dict(rows["ankle"])
-    assert dict(rows["ankle"])["q2"] == pytest.approx(-v)
+    # ✅ M132 (ADR-0126): and the knee via left too -- the ankle pair crosses
+    # the knee in its conduit -- so no pair has a via to route round, and the
+    # rule below is the one any future via must keep.
+    assert "q2" not in dict(rows["ankle"])
     assert dict(rows["hip"])["q1"] == pytest.approx(arms[0])
 
     # and same-side routing would put it in the common mode instead
@@ -1050,11 +1055,11 @@ def test_the_pulley_transmission_is_ADR0008s_MOTOR_COUNT_and_ADR0042s_MAP():
     hip **28.000**, knee **-8.750 / 25.000**, ankle **-8.750 / -8.750 / 14.000**.
     ⚠️ M127 (ADR-0118): now hip **28.000**, knee **25.000**, ankle
     **-8.750 / 14.000** -- the hip via left with the hollow hip (M122).
+    ✅ M132 (ADR-0126): ankle **14.000** alone -- the knee via is gone.
     """
     from tomcat_kin.params import DEFAULT_BODY_MASS_KG
 
     arms = np.asarray(DEFAULT_TENDON.joint_moment_arm) * 1e3
-    via = MT.VIA_R * 1e3
     for leg_p in (DEFAULT_HINDLEG, DEFAULT_FORELEG):
         m, q = _pulley_leg(leg_p)
         assert m.ntendon == 3 and m.nu == 3
@@ -1066,7 +1071,7 @@ def test_the_pulley_transmission_is_ADR0008s_MOTOR_COUNT_and_ADR0042s_MAP():
         assert J[1, 0] == pytest.approx(0.0, abs=1e-6)
         assert J[1, 1] == pytest.approx(arms[1], abs=1e-6)
         assert J[2, 0] == pytest.approx(0.0, abs=1e-6)
-        assert J[2, 1] == pytest.approx(-via, abs=1e-6)
+        assert J[2, 1] == pytest.approx(0.0, abs=1e-6)       # M132: no knee via
         assert J[2, 2] == pytest.approx(arms[2], abs=1e-6)
 
     quad = mujoco.MjModel.from_xml_string(MT.quadruped_rig(
@@ -1075,7 +1080,7 @@ def test_the_pulley_transmission_is_ADR0008s_MOTOR_COUNT_and_ADR0042s_MAP():
     # M111: 4.38328 -> 4.4684 (ADR-0103's sheaves), M120: -> 4.55397 (G3,
     # ADR-0111), M122: -> 4.50092 (ADR-0112), M123: -> 4.60530 (ADR-0114), M124: -> 4.58886 (ADR-0115), M126: -> 4.57916 (ADR-0117), M127: -> 4.57852 (ADR-0118) --
     # none this decision's doing
-    assert DEFAULT_BODY_MASS_KG == pytest.approx(4.83385, abs=1e-4), (   # M130: + the skin
+    assert DEFAULT_BODY_MASS_KG == pytest.approx(4.81358, abs=1e-4), (   # M130: + the skin
         "and params' body mass needs no change, which was the point"
     )
 
@@ -1251,7 +1256,9 @@ def test_the_pulley_also_CURES_the_standing_TENSION_SATURATION():
     # ⚠️ M123 (ADR-0114): 32.3 -> 43.1 N -- the fore share rose again (0.38
     # -> 0.43) with the hips 270 mm apart. A fifth of the rating; still cured.
     # M130: 43.1 -> 46.2 N -- the cat's skin (ADR-0124).
-    assert late == pytest.approx(46.2, abs=3.0), (
+    # ✅ M132 (ADR-0126): 46.2 -> 37.1 N -- the knee's torque no longer loads
+    # the ankle cable through the knee via's -8.75 mm coupling.
+    assert late == pytest.approx(37.1, abs=3.0), (
         f"re-derived on a point foot: {late:.1f} N at 4 s"
     )
     assert late < MT.TENSION_CONTINUOUS, (
@@ -1337,7 +1344,7 @@ def test_the_SHIPPED_map_is_CONSTANT_over_the_WHOLE_ROM_on_BOTH_legs():
     | | hip | knee | ankle |
     |---|---|---|---|
     | q1 | 28.000 | 0 | 0 |
-    | q2 | 0 | 25.000 | -8.750 |
+    | q2 | 0 | 25.000 | 0 (M132; -8.750 at the knee via until then) |
     | q3 | 0 | 0 | 14.000 |
 
     Four findings were open against the wrapped build, and this is what closes each:
@@ -1357,10 +1364,9 @@ def test_the_SHIPPED_map_is_CONSTANT_over_the_WHOLE_ROM_on_BOTH_legs():
     shipped map ever regresses.**
     """
     arms = np.asarray(DEFAULT_TENDON.joint_moment_arm, float) * 1e3
-    via = MT.VIA_R * 1e3
     want = np.array([[arms[0], 0.0, 0.0],
                      [0.0, arms[1], 0.0],          # M127: no hip via
-                     [0.0, -via, arms[2]]])
+                     [0.0, 0.0, arms[2]]])         # M132: no knee via
 
     for leg_p in (DEFAULT_HINDLEG, DEFAULT_FORELEG):
         m = mujoco.MjModel.from_xml_string(MT.single_leg_rig(leg_p=leg_p))
@@ -1697,11 +1703,14 @@ def test_ONE_SPOOL_PER_PAIR_HALVES_the_lowest_drivetrain_MODE():
     # is 4x inside the edge again.
     # ✅ M127: the edge moves 200 -> 300 with the mode. Drift at kp = 300 / 400
     # / 600 / 1000 is 0.004 / 3.67 / 1.76 / 2.20 deg.
-    ok = _ship_run(ship, q, kp=300.0, kd=3.46)
-    assert ok is not None and np.max(np.abs(ok[0])) < 0.1, "kp=300 now holds"
-    bad = _ship_run(ship, q, kp=400.0, kd=4.0)
+    # ✅ M132 (ADR-0126): 300 -> 400, the ankle spool no longer follows the
+    # knee through its via. Drift at kp = 400 is 0.04 deg; 600 / 800 / 1000
+    # fall (101-126 deg).
+    ok = _ship_run(ship, q, kp=400.0, kd=4.0)
+    assert ok is not None and np.max(np.abs(ok[0])) < 0.1, "kp=400 now holds"
+    bad = _ship_run(ship, q, kp=600.0, kd=4.9)
     assert bad is None or np.max(np.abs(bad[0])) > 0.5, (
-        "kp=300 must not hold -- the headroom came back, it did not become unlimited"
+        "kp=600 must not hold -- the headroom came back, it did not become unlimited"
     )
 
 
@@ -1982,10 +1991,13 @@ def test_the_ONE_PAIR_over_its_CONTINUOUS_rating_is_the_HIND_ANKLE():
     # ✅ M127 (ADR-0118): the HIPS 0.32 -> 0.19 hind, 0.43 -> 0.16 fore. The
     # map had the knee and ankle cables pulling on the hip through the M42 via
     # the hollow hip removed, and the hip pair held that against them.
-    want = {("LR", 0): 0.19, ("LR", 1): 0.05, ("LR", 2): 0.66,
+    # ✅ M132 (ADR-0126): the knee via gone, each pair holds its own joint.
+    # The hind knee 0.05 -> 0.14 (the ankle cable no longer took a share of
+    # it), the fore knee 0.67 -> 0.56 (nor added to it); the rest is the mass.
+    want = {("LR", 0): 0.21, ("LR", 1): 0.14, ("LR", 2): 0.68,
             # M122: the fore leg carries more (0.26/0.42/0.39 -> 0.34/0.55/0.49)
             # M123: and more (-> 0.43/0.67/0.58), the fore share 0.43
-            ("LF", 0): 0.16, ("LF", 1): 0.67, ("LF", 2): 0.58}
+            ("LF", 0): 0.18, ("LF", 1): 0.56, ("LF", 2): 0.61}
 
     over, worst_pk = [], 0.0
     for nm, leg_p, load in (("LR", DEFAULT_HINDLEG, (1 - frac_fore) * W),
@@ -4676,7 +4688,10 @@ def test_the_DRIVETRAIN_LOWERS_THE_MODE_and_IMPROVES_THE_MARGIN():
     # the 1394 Hz contact mode, which is what this comparison is about.
     # M124: 4.7 -> 3.1 Hz with the lighter hub; the mode is heavily damped
     # either way, so only its band is held.
-    assert 2.0 < _lowest_mode_whole(rigid) < 6.0
+    # M132 (ADR-0126): 7.9 Hz at zeta 0.53 -- the rigid ankle cables no longer
+    # tie the ankle to the knee through the via; still heavily damped, and the
+    # lightly-damped rigid plant still starts at 1396 Hz.
+    assert 2.0 < _lowest_mode_whole(rigid) < 10.0
     f_rigid = _lowest_mode_whole(rigid, max_zeta=0.3)
     f_spool = _lowest_mode_whole(spooled)
     # ⚠️ M111: 4.6 -> **10.6 Hz**. The series element appears at the joint as
@@ -4686,7 +4701,9 @@ def test_the_DRIVETRAIN_LOWERS_THE_MODE_and_IMPROVES_THE_MARGIN():
     # the band). The hip-via term coupled the knee and ankle spools to the hip,
     # a stiffness the robot does not have; without it the whole-body mode drops.
     # Still two orders below the rigid plant, which is the claim.
-    assert f_spool == pytest.approx(7.3, abs=1.0)
+    # M132 (ADR-0126): 7.3 -> 9.6 Hz. The ankle spool no longer couples to the
+    # knee through its via, so the ankle's G3 sees the ankle alone.
+    assert f_spool == pytest.approx(9.6, abs=1.0)
     assert f_rigid > 1000.0, (
         f"the rigid plant has a structural mode again at {f_rigid:.1f} Hz -- "
         f"if the inertia or the damping moved, re-read this test"
@@ -6182,11 +6199,17 @@ def test_SENSOR_RANDOMISATION_BITES_THE_OBSERVATION_not_the_trajectory():
                                                  f"{nm}_q{i}")] for i in (1, 2, 3)]
               for nm in ("LF", "RF", "LR", "RR")}
         est = env.joint_estimate(obs)
-        err = 0.0
+        err, tot = 0.0, 0.0
         for nm in qa:
             true = np.array([float(env.data.qpos[a]) for a in qa[nm]])
-            err = max(err, float(np.max(np.degrees(np.abs(est[nm] - true)))))
-        return (err, TomcatEnv._tilt(obs), float(np.linalg.norm(obs["imu_gyro"])))
+            e = np.degrees(np.abs(est[nm] - true))
+            err, tot = max(err, float(np.max(e))), tot + float(np.sum(e))
+        # ⚠️ M132 (ADR-0126): `tot` as well as the worst joint. With the map
+        # diagonal each joint's estimate reads its own encoder alone, and this
+        # draw's noise quantised to zero on the worst one -- the max alone
+        # called a live knob inert.
+        return (err, TomcatEnv._tilt(obs), float(np.linalg.norm(obs["imu_gyro"])),
+                tot)
 
     clean = measure()
     for name, (_, hi) in TomcatEnv.SENSOR_RANGES.items():

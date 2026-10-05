@@ -34,14 +34,16 @@ def test_standing_costs_a_THIRD_of_moving_at_the_stance_actually_held():
     third of walking, not most of it.
     """
     r = power.runtime(_trot())
-    assert r["standing_fraction_of_trot"] == pytest.approx(0.31, abs=0.03)
+    assert r["standing_fraction_of_trot"] == pytest.approx(0.34, abs=0.03)   # M132: 0.34
     st = power.standing_power()
     # ⚠️ M122 (ADR-0112): 0.302 -> 0.371. The hind hips moved 30 mm back
     # behind spine joint 0, so the CoM sits relatively nearer the fore hips.
     # M123 (ADR-0114): 0.371 -> 0.415, the hind hips 65 mm behind the root.
     assert st["frac_fore"] == pytest.approx(0.415, abs=0.03), "the MJCF's split"
     old = power.standing_power_worst_pose()
-    assert old["legs_w"] > 3.0 * st["legs_w"], "the worst pose overstated it 3x"
+    # M132 (ADR-0126): 2.7x -- the knee crossing's friction is in both, and
+    # the stance held is the more ankle-loaded of the two.
+    assert old["legs_w"] > 2.5 * st["legs_w"], "the worst pose overstated it ~3x"
 
 
 def test_the_power_off_brake_multiplies_standing_endurance():
@@ -79,7 +81,8 @@ def test_copper_loss_dominates_so_the_drive_is_inefficient():
     # ✅ M122 (ADR-0112): 2.25x -> 1.89x, 30.7 -> 34.6 %. Friction is charged
     # where the cable slides; copper still dominates the useful work.
     assert g["copper_w"] > 1.7 * g["mechanical_w"]
-    assert 0.31 < g["efficiency"] < 0.38             # ~34.6 %
+    # M132 (ADR-0126): 26.5 % -- the ankle conduit's crossing of the knee.
+    assert 0.24 < g["efficiency"] < 0.38
 
 
 
@@ -95,7 +98,7 @@ def test_currents_are_back_inside_the_driver_rating():
     `test_motor_spec.py`'s thermal test, where that branch also fits now.
     """
     g = power.gait_power(_trot())
-    assert g["peak_current_a"] == pytest.approx(2.53, abs=0.15)   # M122: 2.79 -> 2.53
+    assert g["peak_current_a"] == pytest.approx(3.14, abs=0.15)   # M122: 2.53; M132: 3.14
     assert g["peak_current_a"] < 4.19               # the part's peak rating
     assert g["rms_current_a"] < 1.60                # its RATED (continuous) current
 
@@ -117,9 +120,10 @@ def test_NFR6_is_MET_once_the_arms_are_right():
     r = power.runtime(_trot())
     # M123 (ADR-0114): 24.18 -> 23.65, the hollow hip's +104 g.
     # M130 (ADR-0123/0124): 23.65 -> 21.21, the ferrules' S and the skin.
-    assert r["trot_minutes"] == pytest.approx(21.21, abs=0.4)
+    # M132 (ADR-0126): 21.21 -> 18.18, the ankle conduit over the knee.
+    assert r["trot_minutes"] == pytest.approx(18.18, abs=0.4)
     assert r["trot_minutes"] > 14.0, "back under NFR6's floor"
-    assert r["trot_range_m"] == pytest.approx(636.0, abs=15.0)   # M120: 634; M122: 725; M123: 709; M130: 636
+    assert r["trot_range_m"] == pytest.approx(545.0, abs=15.0)   # M120: 634; M122: 725; M123: 709; M130: 636; M132: 545
     assert r["trot_range_m"] > 420.0
     assert r["battery_wh"] == pytest.approx(
         power.BATTERY_KG * power.BATTERY_WH_PER_KG * power.BATTERY_USABLE)

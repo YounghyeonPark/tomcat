@@ -126,7 +126,10 @@ def stations(q, tendon: str, side: int = +1, leg=DEFAULT_LEG, spools=None,
         start = (hip, 1e-3, s)
         if tendon == "knee":
             return [start, (knee, ARMS[1], s)]
-        return [start, (knee, VIA_R, s), (ankle, ARMS[2], s)]
+        # ✅ M132 (ADR-0126): the ankle pair's conduits run on ACROSS the knee
+        # to a ferrule on the tibia, so the free cable starts there and there
+        # is no knee via: the pair's length no longer depends on the knee
+        return [(tibia_ferrule(q, leg), 1e-3, s), (ankle, ARMS[2], s)]
 
     if tendon == "knee":
         return [(spool, lead_r, s), (hip, VIA_R, s), (knee, ARMS[1], s)]
@@ -136,6 +139,22 @@ def stations(q, tendon: str, side: int = +1, leg=DEFAULT_LEG, spools=None,
                 (ankle, ARMS[2], s)]
 
     raise ValueError(tendon)
+
+
+#: ✅ M132 (ADR-0126): where the ankle pair's conduits end on the tibia, mm
+#: below the knee along it. Their crossing of the knee needs a 15 mm bend at
+#: the knee's full 150 deg, and a fillet tangent to the femur and the tibia at
+#: D from the knee has radius D * cot(bend / 2): 50 mm gives 13.4 at the stop
+#: and over 15 everywhere the knee works.
+KNEE_FERRULE_D = 50.0
+
+
+def tibia_ferrule(q, leg=DEFAULT_LEG):
+    """The ankle pair's tibia ferrule at `q`, (x, z) hip frame, mm."""
+    p = joints(q, leg)
+    knee, ankle = p[1], p[2]
+    u = (ankle - knee) / np.linalg.norm(ankle - knee)
+    return knee + KNEE_FERRULE_D * u
 
 
 def _pin(joint, distal, arm: float, side: float):

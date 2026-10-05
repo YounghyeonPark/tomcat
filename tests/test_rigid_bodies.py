@@ -285,4 +285,5 @@ def test_the_mjcf_now_swings_like_the_cad_leg():
     for group in ("clevis", "sheave", "bearing", "shaft"):
         for sd in (s for c in comps[group] for s in c.solids()):
             hw += LI._props(sd, LI.RHO[group])[0]
-    assert hw / M_cad > 0.75, f"joint hardware is {100 * hw / M_cad:.0f} % of the leg"
+    # M132 (ADR-0126): 74 % -- the knee via, its bearing and shaft gone.
+    assert hw / M_cad > 0.70, f"joint hardware is {100 * hw / M_cad:.0f} % of the leg"

@@ -87,8 +87,10 @@ def test_the_motor_holds_on_TORQUE_again_and_the_arms_are_why(duty):
     # M130 (ADR-0123): 1.66 -> 1.70 N.m, 87 % of peak -- the floating
     # ferrules' S on every conduit.
     # M130 (ADR-0124): 1.70 -> 1.79 N.m, 92 % of peak -- the cat's skin.
-    assert d["trot_motor"] == pytest.approx(1.79, abs=0.05)
-    assert 0.75 < d["vs_peak"] < 0.93, f"trot at {100 * d['vs_peak']:.0f} % of peak"
+    # M132 (ADR-0126): 1.82 N.m, 93 % -- the fore hip's flexor conduit,
+    # charged right once the tangents were.
+    assert d["trot_motor"] == pytest.approx(1.82, abs=0.05)
+    assert 0.75 < d["vs_peak"] < 0.95, f"trot at {100 * d['vs_peak']:.0f} % of peak"
     assert d["stand_vs_rated"] < 1.0, "standing must be inside the CONTINUOUS rating"
 
 
@@ -129,14 +131,15 @@ def test_the_THERMAL_duty_is_fine_and_the_workspace_peak_is_not_the_duty():
     """
     # M122: 0.935 / 1.175 A -> 0.852 / 1.072 A under the conduit friction model
     # M130 (ADR-0123/0124): -> 0.939 / 1.180 A -- the ferrules' S and the skin
-    for kt, expect in ((PW.KT, 0.939), (MR.SPEC["vendor_kt"], 1.180)):
+    # M132 (ADR-0126): -> 1.064 / 1.337 A -- the ankle conduit over the knee
+    for kt, expect in ((PW.KT, 1.064), (MR.SPEC["vendor_kt"], 1.337)):
         d = MR.gait_duty(kt, MR.SPOOL_SPEC)
         assert d["rms_a"] == pytest.approx(expect, abs=0.05)
         assert d["rms_a"] < MR.SPEC["rated_current"], (
             f"RMS {d['rms_a']:.2f} A must stay inside the 1.60 A rating"
         )
     d = MR.gait_duty(MR.SPEC["vendor_kt"], MR.SPOOL_SPEC)
-    assert d["peak_a"] == pytest.approx(3.18, abs=0.15)   # M122: 3.51 -> 3.18
+    assert d["peak_a"] == pytest.approx(3.95, abs=0.15)   # M122: 3.51 -> 3.18; M132: 3.95
     assert d["peak_a"] < MR.SPEC["peak_current"]
 
 
@@ -164,9 +167,11 @@ def test_NFR6s_runtime_SURVIVES_once_the_arms_are_right(duty):
     pess = MR.gait_duty(MR.SPEC["vendor_kt"], MR.SPOOL_SPEC)
     t_opt = 60.0 * wh / opt["total_w"]
     t_pess = 60.0 * wh / pess["total_w"]
-    assert t_opt == pytest.approx(21.21, abs=0.4)     # M122 24.18; M123 23.65; M130 21.21
-    assert t_pess == pytest.approx(15.76, abs=0.4)    # M122 18.24; M123 17.78; M130 15.76
-    assert t_pess > 14.0, "the pessimistic corner is back inside NFR6"
+    assert t_opt == pytest.approx(18.18, abs=0.4)     # M122 24.18; M123 23.65; M130 21.21; M132 18.18
+    assert t_pess == pytest.approx(13.17, abs=0.4)    # M122 18.24; M123 17.78; M130 15.76; M132 13.17
+    # ⚠️ M132 (ADR-0126): the pessimistic corner has fallen back UNDER NFR6's
+    # 14 min -- the ankle conduit's crossing of the knee, charged at its worst.
+    assert t_pess < 14.0 < t_opt, "NFR6 is met at the surveyed Kt only"
     assert t_opt < 30.0, "if this clears 30 min again, NFR6 was re-derived"
     assert t_pess / t_opt < 0.80, "the Kt question alone is worth >20 % of runtime"
 
@@ -360,9 +365,12 @@ def test_the_runtime_bracket_is_SIXTEEN_to_TWENTY_TWO_minutes():
     lo = MR.gait_duty_rigorous(MR.SPEC["vendor_kt"], three_phase=True)
     t_hi = 60.0 * wh / hi["total_w"]
     t_lo = 60.0 * wh / lo["total_w"]
-    assert t_hi == pytest.approx(21.21, abs=0.4)      # M123 23.65; M130 21.21 (ADR-0124)
-    assert t_lo == pytest.approx(15.76, abs=0.4)      # M130: still over NFR6's 14
-    assert t_lo > 14.0, "both corners clear NFR6's re-stated floor"
+    assert t_hi == pytest.approx(18.18, abs=0.4)      # M123 23.65; M130 21.21; M132 18.18
+    assert t_lo == pytest.approx(13.17, abs=0.4)      # ⚠️ M132: UNDER NFR6's 14 at this corner
+    # ⚠️ M132 (ADR-0126): the vendor-Kt corner is 13.2 min, under the 14 min
+    # floor -- the ankle conduit's crossing of the knee. The surveyed-Kt
+    # corner clears it.
+    assert t_hi > 14.0, "one corner clears NFR6's re-stated floor"
     assert t_hi < 30.0, "NFR6's published ~30 min does not survive either corner"
 
 
@@ -382,7 +390,8 @@ def test_the_speed_is_the_SWING_and_peak_torque_does_not_buy_it():
     ctl = gait.GaitController(gait.trot_params())
     lo = PW.gait_envelope(ctl, peak_nm=1.95)
     hi = PW.gait_envelope(ctl, peak_nm=3.5)
-    assert max(lo["peak_torque"]) < 1.3
+    # M132 (ADR-0126): the ankle's 1.38 N.m with the knee crossing's friction.
+    assert max(lo["peak_torque"]) < 1.45
     # M122: the knee's swing 653 -> 610 rpm (the trot's foothold was re-tuned);
     # the hip's is now the fastest, 627.
     # M123: the knee 610 -> 565, the hip 634.

@@ -9962,6 +9962,93 @@ The MuJoCo harness moved four numbers, and three of them moved the good way.
 
 ---
 
+## ADR-0126: the ankle conduit crosses the knee, and the knee via is gone
+- **Status:** Accepted (M132).
+- **Context:** in the M131 drive render the ankle pair's two cables were drawn
+  as one line between the knee via and the ankle sheave. Two defects were
+  behind it:
+  - **A sign bug in `tendon_route.tangent`.** The tangent's sine took the
+    sign of the cable's sense, so a clockwise cable got the same tangent point
+    as a counter-clockwise one. Every pair's two cables left a circle from the
+    same point. Lengths, and so M127's length-sum result, are topological and
+    did not move. Drawn paths and the hip `DRIVE` placement did.
+  - **With the tangents right, the via does not work.** The ankle pair runs
+    in opposite senses round the knee via, so one of its cables has to wrap
+    the via 255–294° to reach the far side of the ankle sheave. That is a
+    capstan of nearly a full turn on a 6 mm idler.
+- **Options:**
+  - **A.** Run the ankle Bowden conduits on across the knee to a ferrule on
+    the tibia, and drop the knee via.
+  - B. A via on each side of the knee, one per cable.
+  - C. Keep the via and take the wrap.
+- **Decision:** A.
+  - The ankle conduits run from the hub over the knee to a ferrule
+    `KNEE_FERRULE_D` = 50 mm down the tibia (`leg_tendons.tibia_ferrule`),
+    clamped 50 mm up the femur.
+  - The span between is the gentlest curve with its ends along the bones
+    (`tendon_exit.knee_conduit`).
+  - The knee via, its bearing and its shaft are gone. A Ø4 bracket holds the
+    ferrule off the tibia.
+  - `pair_rows` and `clamped_tendons` route the ankle on q3 alone.
+- **Measured:**
+  - **The crossing bends by about the knee's angle plus 30°.** At the 150°
+    stop that is 177° with a 12.9 mm minimum radius; the radius is ≥ 15 mm up
+    to 125°. Over the trot (knee 50–117°) it is 138–144° and ≥ 30 mm.
+  - **The conduit's path length swings with the knee:** 64 mm over the full
+    range of motion and ~20 mm over the trot. The conduit is fixed-length, so
+    that swing has to come from its slack.
+  - **`conduit_bend`** charges the worst crossing on the ankle pair:
+    - hind: hip 2.87 / 2.56, knee 1.97 / 1.97, ankle 5.08 / 5.08 rad (291°,
+      of which 177° is the crossing)
+    - fore ankle: 5.15 / 5.10 rad
+    - `pulley_count` is zero everywhere.
+- **Consequences:**
+  - ✅ **The plant has no knee–ankle coupling.** The hip via went in M122 and
+    the knee via now, so the shipped tendon map is diagonal: `coupled_tensions`
+    equals the diagonal, and the wrap-sense lever has nothing to act on.
+  - ✅ **Lighter:**
+    - −5 g a leg; hardware 212.8 g hind and 216.5 g fore.
+    - Body **4.814 kg** (was 4.834).
+  - ✅ The render draws two cables wherever there are two.
+  - ✅ **In the MuJoCo plant:**
+    - The standing cable force falls from 46.2 to 37.1 N; the knee's torque
+      no longer loads the ankle cable.
+    - The single-leg outer-gain edge moves from 300 to 400 (600 falls).
+    - The spooled whole-body mode rises from 7.3 to 9.6 Hz.
+    - Per pair over the trot, against the continuous rating: hind knee
+      0.05 → 0.14, fore knee 0.67 → 0.56. No pair is over.
+  - ⚠️ **Ankle friction is ×1.43** (was ×1.19), because the crossing is
+    charged at full knee flexion, as the hip conduit is charged at the worst
+    of its range. At the trot's own knee range it would be ~×1.37: 33–43° less
+    bend, worth ~4 %. Charging bends along the gait is `[owed]`, for every
+    conduit, not this one alone.
+  - ⚠️ **Copper:**
+    - Trot copper is 7.58 W a motor (was 5.90).
+    - Efficiency is 26.5 % (was 34.6 %).
+    - **All of it is the crossing.** With the ankle charged as before and the
+      hip re-placed, the trot runs 21.35 / 15.86 min; with the crossing and
+      the hip as before, 18.20 / 13.19.
+    - Motor peak is **1.821 N·m, 93 % of the proxy** (was 1.789). That rise is
+      the tangent fix's, not the crossing's: the fore hip peaks on its flexor,
+      and its 164° conduit, charged to the extensor before, is the flexor's.
+      The fore hip now leads the knee by 3.5 % where M130 had them tied.
+    - ⚠️ Motor continuous is **0.733 N·m, 103 % of the proxy's 0.71 rating**,
+      set by the trot RMS. On current it holds (1.34 A RMS against 1.60 at the
+      vendor's Kt), so which side of the line it falls is ADR-0044's Kt
+      question again.
+    - Peak current is 3.95 A against 4.19 (was 3.18).
+  - ⚠️ **NFR6 is MET at the surveyed Kt only:** **18.2 min** there, and
+    **13.2 min** at the vendor's Kt, under the 14 min floor. Before this
+    milestone both corners cleared it.
+  - ⚠️ **Thermal:** forced air at h = 15 W/m²K no longer holds the winding
+    (91.8 °C). At h = 25 it still does.
+  - **Fixed in passing:**
+    - The hip `DRIVE` re-placed by `place()` after the tangent fix:
+      `(0, −1, +1, 330, 126, (−15, 20))` for both roles.
+    - Its bend is back at 2.87 / 2.56, from 3.79 / 4.27 with stale tangents.
+
+---
+
 ---
 
 ### How to add an ADR

@@ -53,12 +53,12 @@ def test_the_spec_torque_table_is_stale_by_the_WHOLE_mass_history(loads):
     """
     tau, T = loads["land"]["tau"][0], loads["land"]["T"][0]
     # M130 (ADR-0124): 18.91 -> 19.92, the cat's skin's 244 g and the Ø16 tubes.
-    assert tau == pytest.approx(19.92, abs=0.05)
+    assert tau == pytest.approx(19.83, abs=0.05)   # M132: the legs 5 g lighter
     # ⚠️ M111: the tension FELL while the torque rose, 650 -> 516 N -- the
     # 36 mm hip arm carries the same torque on less cable. Torque tracks mass;
     # tension tracks mass over arm, so it is no longer a pure mass snapshot.
-    assert T == pytest.approx(558.2, abs=2.0)          # M120: 526.2; M122: 520.1; M123: 532.1; M126: 529.1; M130: 558.2 (the skin)
-    assert tau / 12.36 == pytest.approx(4.83385 / 3.0, rel=0.02), (
+    assert T == pytest.approx(555.9, abs=2.0)          # M120: 526.2; M122: 520.1; M123: 532.1; M126: 529.1; M130: 558.2 (the skin); M132: 555.9
+    assert tau / 12.36 == pytest.approx(4.81358 / 3.0, rel=0.02), (
         "the discrepancy should be exactly the body-mass ratio; if it is not, "
         "something other than body mass moved and this needs re-diagnosing"
     )
@@ -203,7 +203,9 @@ def test_the_leg_does_not_close_at_its_mass_budget():
     # return spring and the anchor pins left; the femur's conduit ferrules came.
     # ⚠️ M123: 195.1 -> **221.2 g** -- the hollow hip (ADR-0114): a hub on two
     # 40 x 50 bearings for the clevis, tongue, shaft and two 626s.
-    assert 215.0 < total < 227.0, f"leg hardware {total:.1f} g moved unexpectedly"
+    # M132 (ADR-0126): -> 212.8 g, the knee via, its bearing and the shaft
+    # that reached it gone; a tibia ferrule bracket added.
+    assert 208.0 < total < 227.0, f"leg hardware {total:.1f} g moved unexpectedly"
     heavy = mass["bearing"] + mass["sheave"] + mass["clevis"]
     assert heavy / total > 0.75, "the joint hardware is the overrun, not the bones"
 
