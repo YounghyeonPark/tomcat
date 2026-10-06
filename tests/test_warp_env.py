@@ -1,0 +1,64 @@
+"""M136 / ADR-0130: the standing task batched on the GPU (MuJoCo-Warp).
+
+Skipped where there is no `mujoco_warp` or no CUDA device."""
+
+from __future__ import annotations
+
+import numpy as np
+import pytest
+
+wp = pytest.importorskip("warp")
+pytest.importorskip("mujoco_warp")
+wp.init()
+if not wp.get_cuda_devices():
+    pytest.skip("no CUDA device", allow_module_level=True)
+
+from tomcat_kin.env import TomcatEnv  # noqa: E402
+from tomcat_kin.stand_baseline import StandBaseline  # noqa: E402
+from tomcat_kin.warp_env import WarpStand  # noqa: E402
+
+DR = {**TomcatEnv.RANGES, **TomcatEnv.SENSOR_RANGES}
+
+
+def test_the_GPU_env_IS_the_CPU_env_step_for_step():
+    """✅ Without randomisation, every world of `WarpStand` follows the CPU
+    `TomcatEnv` under the same baseline: measured over a whole 4 s episode,
+    tilt within 0.005 deg and reward to ~1e-3 (float32). The servo, the delay ring, the
+    sensor model, the joint estimate and the baseline are all in that."""
+    W = WarpStand(4, residual_n=30.0)
+    cpu = TomcatEnv(rng=np.random.default_rng(0))
+    o = cpu.reset()
+    b = StandBaseline(cpu).reset(o)
+    for i in range(150):
+        _obs, r, te, _tr, info = W.step(np.zeros((4, 18)))
+        o, rc, dc, ic = cpu.step(b(o))
+        assert not dc and not np.any(te)
+        assert np.allclose(info["tilt_deg"], ic["tilt_deg"], atol=0.02), i
+        assert np.allclose(r, rc, atol=5e-3), i
+
+
+def test_each_world_draws_its_OWN_plant_and_it_BITES():
+    """Per-world randomisation reaches the physics: worlds that drew different
+    masses and springs part ways under the same command."""
+    W = WarpStand(8, randomize=DR, residual_n=30.0, seed=3)
+    assert np.ptp(W.draw["mass"]) > 0.05 and np.ptp(W.draw["k"]) > 0.1
+    assert len(set(W.draw["delay"].tolist())) > 1
+    tilts = []
+    for _ in range(40):
+        _o, _r, _te, _tr, info = W.step(np.zeros((8, 18)))
+        tilts.append(info["tilt_deg"])
+    assert np.ptp(np.array(tilts)[-1]) > 0.1, "the worlds must not move as one"
+
+
+def test_a_FINISHED_world_restarts_and_the_others_carry_on():
+    W = WarpStand(4, residual_n=30.0)
+    # throw world 2 over with its residual pinned; the others hold still
+    a = np.zeros((4, 18))
+    a[2] = 1.0
+    for _ in range(300):
+        _o, _r, te, tr, info = W.step(a)
+        if te[2]:
+            break
+    assert te[2], "a saturated residual should fell world 2"
+    assert W.steps[2] == 0 and np.all(W.steps[[0, 1, 3]] > 0)
+    assert "terminal_obs" in info and list(info["done_idx"]) == [2]

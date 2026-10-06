@@ -3,6 +3,11 @@
 """Train a residual standing policy on the board's sensors (M135, ADR-0129).
 
     python tools/train_stand.py --steps 500000 --envs 8 --out runs/stand_m135
+    python tools/train_stand.py --backend warp --envs 2048 --out runs/stand_m136
+
+`--backend warp` (M136, ADR-0130) trains on `warp_env.WarpStand`, every robot
+on the GPU at once; the scoring stays on the CPU env either way, so a policy
+trained on one backend is judged on the other.
 
 The policy adds +-`--residual` N to `stand_baseline.StandBaseline` on every
 pair, with every plant and sensor range randomised. Before and after training
@@ -66,6 +71,9 @@ def main():
     ap.add_argument("--eval", type=int, default=30, help="fixed seeds scored")
     ap.add_argument("--out", default="runs/stand")
     ap.add_argument("--no-dr", action="store_true")
+    ap.add_argument("--backend", choices=("cpu", "warp"), default="cpu")
+    ap.add_argument("--n-steps", type=int, default=None, help="rollout per env")
+    ap.add_argument("--batch", type=int, default=None, help="PPO minibatch")
     a = ap.parse_args()
 
     from stable_baselines3 import PPO
@@ -81,13 +89,21 @@ def main():
     before = score(None, a.residual, dr, seeds)
     print("baseline alone:", before, flush=True)
 
-    venv = SubprocVecEnv([make(i, a.residual, dr) for i in range(a.envs)])
     from stable_baselines3.common.vec_env import VecMonitor
+    if a.backend == "warp":
+        from tomcat_kin.warp_env import make_vec_env
+        venv = make_vec_env(a.envs, randomize=dr, residual_n=a.residual, seed=0)
+        n_steps = a.n_steps or 16
+        batch, device = a.batch or 2048, "cuda"
+    else:
+        venv = SubprocVecEnv([make(i, a.residual, dr) for i in range(a.envs)])
+        n_steps = a.n_steps or 512
+        batch, device = a.batch or 1024, "cpu"
     venv = VecMonitor(venv, os.path.join(a.out, "monitor"))
-    model = PPO("MlpPolicy", venv, n_steps=512, batch_size=1024, n_epochs=10,
+    model = PPO("MlpPolicy", venv, n_steps=n_steps, batch_size=batch, n_epochs=10,
                 learning_rate=3e-4, gamma=0.99, gae_lambda=0.95, clip_range=0.2,
                 ent_coef=0.0, policy_kwargs={"log_std_init": -1.0}, seed=0,
-                verbose=1, device="cpu")
+                verbose=1, device=device)
     model.set_logger(configure(a.out, ["stdout", "csv"]))
     model.learn(total_timesteps=a.steps)
     model.save(os.path.join(a.out, "policy"))

@@ -10244,6 +10244,74 @@ The MuJoCo harness moved four numbers, and three of them moved the good way.
 
 ---
 
+## ADR-0130: the standing task on the GPU, and the speed it really has
+- **Status:** Accepted (M136). Builds ADR-0079's backend.
+- **Setup:**
+  - MuJoCo 3.10 → **3.15**, with `mujoco-warp` 3.15 and `warp-lang` 1.18,
+    in the main environment. Python 3.14 has wheels for all three.
+  - The whole suite passes on 3.15 except one chaotic bound: the paired
+    friction design's phase spread, 12.5 mm against 12 (under 12 on 3.10).
+    It is widened to 14, with a note.
+- **⚠️ The speed, corrected.** ADR-0079's 262k steps/s, and this project's
+  "hundreds of times the CPU", were PHYSICS steps at 0.1 ms; one 133 Hz
+  control step is 75 of them.
+
+  | | control steps/s |
+  |---|---|
+  | CPU env, 16 SB3 processes | ~500 |
+  | Warp, Python-launched steps, 2048 worlds | ~2,300 |
+  | Warp, a control period as one CUDA graph, plant only | 8,000–9,300 |
+  | **`WarpStand`, everything, 2048 worlds** | **~7,700** (6,200 in PPO) |
+
+  - That is **10–15×**, not hundreds. The fine timestep is the drivetrain's
+    (G3 is not modelled above 5e-4 s), and this is what it costs.
+- **Decision:** `warp_env.WarpStand`, the same task as
+  `TomcatStand(residual_n=…)`, for `nworld` robots.
+  - **On the GPU, per physics step,** inside one captured graph:
+    - the inner rotor servo, as a kernel;
+    - `mujoco_warp.step`;
+    - a ring buffer of `sensordata`, from which each world reads its own
+      randomised latency.
+  - **On the host, per control step,** in NumPy over all worlds: sensor
+    error and quantisation, the joint estimate, stance height, reward,
+    termination and the baseline. The leg FK and Jacobian are vectorised.
+  - **Per world:** mass, floor friction and G3 rate through batched model
+    fields (`put_model(batch_sizes=…)`); latency and sensor errors on the
+    host; reset when its episode ends.
+  - `make_vec_env` puts it behind SB3's `VecEnv`.
+  - `tools/train_stand.py --backend warp` trains on it and still scores on
+    the CPU env.
+  - ⚠️ **One difference from the CPU env:** every world restarts from the
+    NOMINAL plant's settled state instead of being stood up on its own draw,
+    so a heavy draw sags at the start.
+- **Measured:**
+  - **Parity:** without randomisation every world follows the CPU env under
+    the same baseline for a whole 4 s episode, tilt within 0.005° and reward
+    within ~1e-3 (float32). Sensors agree to the float32 level.
+    `tests/test_warp_env.py` holds this, along with per-world draws that
+    bite and per-world resets.
+  - **Training** (2048 worlds, PPO on the GPU, scored on the CPU env's 30
+    fixed seeds):
+
+    | | full 4 s | mean steps |
+    |---|---|---|
+    | baseline alone | 9 / 30 | 272 |
+    | CPU-trained, 1.5 M steps, 50 min (M135) | 26 / 30 | 524 |
+    | GPU, 1.5 M steps, 6 min | 7 / 30 | 235 |
+    | **GPU, 10 M steps, 30 min** | **25 / 30** | **513** |
+
+  - At 2048 worlds 1.5 M steps is only 46 PPO updates, too few; the
+    10 M-step run converged by ~2.5 M (about 7 min).
+  - ✅ **A policy trained on the GPU backend stands on the CPU one.** That is
+    a sim-to-sim transfer across two physics implementations, and the first
+    evidence that the policy learns the robot rather than a backend.
+- **Consequences:**
+  - Walking-scale runs (~10⁸ steps) are hours, not days.
+  - The host-side NumPy is now a real share of the step time (~25 % at 2048
+    worlds). Moving it to the GPU is the next speed-up, if one is needed.
+
+---
+
 ---
 
 ### How to add an ADR

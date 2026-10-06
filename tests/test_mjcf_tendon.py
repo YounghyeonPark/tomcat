@@ -5700,10 +5700,10 @@ def test_the_PLANT_STAYS_INSIDE_the_GPU_BACKENDS_FEATURE_SET():
     """✅ **A guard, so the plant cannot drift out of MJX/Warp support.**
 
     M72 verified MJX-JAX keeps all 18 winding constraints; M74 verified MJX-Warp
-    does too, on a 4090, agreeing with C MuJoCo to **2e-6 rad**. Neither check
-    can run in this environment — both need `mujoco-mjx` / `mujoco-warp` and
-    MuJoCo >= 3.12, and this project pins 3.10. So what the suite *can* hold is
-    the precondition: every feature the plant uses is on the parity list.
+    does too, on a 4090, agreeing with C MuJoCo to **2e-6 rad**. This test
+    holds the precondition on any machine: every feature the plant uses is on
+    the parity list. ✅ M136 (ADR-0130): the project now runs MuJoCo 3.15 with
+    `mujoco-warp`, and `test_warp_env` checks the parity itself on a GPU.
 
     ⚠️ **The failure this guards is silent.** A model that uses an unsupported
     equality type does not error on `put_model` — the constraint is simply
