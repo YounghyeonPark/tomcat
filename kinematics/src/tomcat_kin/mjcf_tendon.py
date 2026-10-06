@@ -831,8 +831,13 @@ def leg_tendon_xml(name: str, leg_p, arms, indent: int = 4,
     b.append(f'{pad}        <geom name="{name}_pad" type="sphere" size="0.006" '
              f'pos="{L[3]:.5f} 0 0" mass="0" '
              f'friction="0.8 0.005 0.0001"/>')
+    # ⚠️ M137 (ADR-0131): **the touch sensor read 0 for 65 milestones.** A
+    # `<touch>` counts contacts whose point lies INSIDE its site, and the pad's
+    # contact sits on its 6 mm surface, outside the 2 mm site this was. Four
+    # pads on the floor, four zeros: the observation's contact channel and the
+    # reward's feet term were dead since M72. The site now covers the pad.
     b.append(f'{pad}        <site name="{name}_foot" pos="{L[3]:.5f} 0 0" '
-             f'size="0.002"/>')
+             f'size="0.008"/>')
     b.append(f'{pad}      </body>')
     b.append(f'{pad}      </body>')
     b.append(f'{pad}  </body>')

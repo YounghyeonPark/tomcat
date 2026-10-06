@@ -73,3 +73,18 @@ def test_a_ZERO_residual_IS_the_baseline():
         if te or tr:
             break
     assert tr and not te and n == g.max_steps
+
+
+def test_the_FEET_FEEL_the_floor():
+    """⚠️ M137 (ADR-0131): the touch sensors read 0 from M72 to M136 -- the
+    2 mm site missed the 6 mm pad's contact point -- so the observation's
+    contact channel and the reward's feet term were dead. Standing, all four
+    must read, and together most of the weight. ⚠️ Measured 38.3 N against
+    47.3 N, 81 %; a static stance should carry all of it, and why this
+    does not is not yet run down."""
+    env = TomcatEnv(rng=np.random.default_rng(0))
+    obs = env.reset()
+    c = np.asarray(obs["contact"])
+    assert np.all(c > 1.0), c
+    W = float(np.sum(env.model.body_mass)) * 9.81
+    assert 0.6 * W < c.sum() < 1.2 * W, (c.sum(), W)

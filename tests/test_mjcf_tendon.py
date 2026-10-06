@@ -5936,7 +5936,10 @@ def test_the_TASK_CATCHES_BOTH_FAILURES_and_TILT_ALONE_DOES_NOT():
     # The old value was the pose it had while still 6 mm in the air.
     assert env.stance_height(obs) == pytest.approx(0.1654, abs=0.004)
     assert not env.terminated(obs)
-    assert env.reward(obs) == pytest.approx(2.0, abs=0.05)
+    # ⚠️ M137 (ADR-0131): 2.0 -> 2.46. The feet term was 0 here for 65
+    # milestones -- the touch sites missed the pads' contacts -- and now
+    # counts the four feet that were always down.
+    assert env.reward(obs) == pytest.approx(2.46, abs=0.05)
 
     # ⚠️ the collapse: caught on height, NOT on tilt
     env.reset()
