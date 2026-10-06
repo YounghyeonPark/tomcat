@@ -519,9 +519,13 @@ class WarpWalk(WarpStand):
     """
 
     def __init__(self, nworld=2048, *, v_range=(0.0, 0.5), period=0.4,
-                 residual_n=80.0, **kw):
+                 residual_n=80.0, gait_w: float = 0.0, **kw):
+        """`gait_w` (M138, ADR-0132): weight of the trot term -- each foot
+        down when the clock says its diagonal pair is in stance (LF+RR the
+        first half of the period, RF+LR the second), up when it is not."""
         self.v_range = tuple(v_range)
         self.period = float(period)
+        self.gait_w = float(gait_w)
         self.vcmd = None
         super().__init__(nworld, residual_n=residual_n, **kw)
 
@@ -532,8 +536,20 @@ class WarpWalk(WarpStand):
         idx = np.nonzero(mask)[0]
         self.vcmd[idx] = self.rng.uniform(*self.v_range, len(idx))
 
+    def clock(self):
+        """Gait phase in [0, 1), per world."""
+        return (self.steps / self.control_hz) / self.period % 1.0
+
+    def trot_match(self, o):
+        """Fraction of the four feet whose contact agrees with the trot the
+        clock asks for, per world."""
+        first = self.clock() < 0.5
+        want = np.stack([first, ~first, ~first, first], 1)      # LF RF LR RR
+        down = o["contact"] > 1.0
+        return np.mean(down == want, 1)
+
     def flatten(self, o):
-        ph = 2.0 * np.pi * ((self.steps / self.control_hz) / self.period % 1.0)
+        ph = 2.0 * np.pi * self.clock()
         extra = np.stack([np.sin(ph), np.cos(ph), self.vcmd], 1).astype(np.float32)
         return np.concatenate([super().flatten(o), extra], 1)
 
@@ -545,7 +561,8 @@ class WarpWalk(WarpStand):
         tall = np.minimum(1.0, self.stance_height(o, q) / 0.17)
         spin = np.linalg.norm(o["imu_gyro"], axis=1)
         cost = np.mean(np.abs(T), 1) / MT.TENSION_MAX
-        return (2.0 * track + 0.5 * upright + 0.5 * tall
+        gait = self.trot_match(o) if self.gait_w else 0.0
+        return (2.0 * track + 0.5 * upright + 0.5 * tall + self.gait_w * gait
                 - 0.05 * np.minimum(spin, 20.0) - 0.2 * cost)
 
 

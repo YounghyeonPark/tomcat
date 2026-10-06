@@ -10369,6 +10369,44 @@ The MuJoCo harness moved four numbers, and three of them moved the good way.
 
 ---
 
+## ADR-0132: shaping the walk toward a trot
+- **Status:** Accepted (M138). Follows ADR-0131's bound-like gait.
+- **Decision:** a trot term in `WarpWalk`'s reward (`gait_w` = 1.0).
+  - It is the fraction of the four feet whose touch agrees with the clock:
+    LF + RR down in the first half of the 0.4 s period, RF + LR in the
+    second, the other pair up.
+  - Four feet down scores 0.5 and the wrong diagonal 0, so standing still
+    and bounding both lose to stepping in phase.
+  - It needs the touch sensors that ADR-0131 fixed.
+- **Also:**
+  - `train_walk.py` scores the gait: `trot_match`, the diagonal sync (LF with
+    RR) and the fore sync (LF with RF; a trot keeps it low).
+  - `tools/film_walk.py` films a policy on the CPU simulator, with the four
+    feet's touch as lamps.
+- **Result** (30 M steps, 101 min, every range randomised):
+
+  | | trot match | fore sync | speed (0.25 / 0.5 cmd) | falls |
+  |---|---|---|---|---|
+  | M137, no gait term, GPU | 0.49 / 0.49 | 0.92 / 0.89 | 0.27 / 0.52 | 0.8 / 7.8 % |
+  | **M138, GPU** (256 worlds) | **0.80 / 0.67** | **0.55 / 0.56** | 0.26 / 0.46 | 0.8 / **16 %** |
+  | M137, CPU (20 seeds) | – | 0.94 / 0.85 | 0.31 ± 0.135 / 0.53 ± 0.132 | 0 / 1 of 20 |
+  | **M138, CPU** (20 seeds) | – | **0.59 / 0.53** | **0.251 ± 0.041 / 0.465 ± 0.040** | 0 / 2 of 20 |
+
+  - ✅ The fore feet now alternate. The film (`docs/figures/walk_m138.webp`)
+    shows both trot phases, LF + RR and then RF + LR, with three- and
+    four-foot support between them: a trotting walk, not yet a clean trot.
+  - ✅ Speed tracking tightened threefold on the CPU (spread ±0.04 against
+    ±0.13 m/s).
+  - ⚠️ **At 0.5 m/s the gait costs robustness:** 16 % fall on the GPU, where
+    M137 fell 7.8 %; it runs 7 % slow; and the trot match falls to 0.67.
+    The faster the command, the less trot.
+- **Next:**
+  - More steps or a speed curriculum for the 0.5 m/s case.
+  - Foot clearance, which this term does not ask for.
+  - The reward's true speed is still training-only (ADR-0131).
+
+---
+
 ---
 
 ### How to add an ADR

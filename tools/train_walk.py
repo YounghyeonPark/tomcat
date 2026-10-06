@@ -35,16 +35,26 @@ def score(policy, kw, speeds=(0.25, 0.5), nworld=256, seconds=4.0):
         alive = np.ones(nworld, bool)
         dist = np.zeros(nworld)
         life = np.zeros(nworld)
+        diag, fore, match, cnt = 0.0, 0.0, 0.0, 0
         for _ in range(n):
             a = np.zeros((nworld, 18)) if policy is None else policy.predict(o, deterministic=True)[0]
             o, _r, te, tr, _info = env.step(a)
+            down = env._obs["contact"] > 1.0
+            if alive.any():
+                diag += float(np.mean((down[:, 0] == down[:, 3])[alive]))
+                fore += float(np.mean((down[:, 0] == down[:, 1])[alive]))
+                match += float(np.mean(env.trot_match(env._obs)[alive]))
+                cnt += 1
             dist += np.where(alive, env.vx, 0.0) / env.control_hz
             life += alive / env.control_hz
             alive &= ~te
             if not alive.any():
                 break
         out[str(v)] = {"speed": float(dist.sum() / max(life.sum(), 1e-9)),
-                       "fell": float(1.0 - alive.mean())}
+                       "fell": float(1.0 - alive.mean()),
+                       # a trot: diagonals together, the fore pair apart
+                       "diag_sync": diag / max(cnt, 1), "fore_sync": fore / max(cnt, 1),
+                       "trot_match": match / max(cnt, 1)}
     return out
 
 
@@ -60,6 +70,7 @@ def main():
     ap.add_argument("--lr", type=float, default=3e-4)
     ap.add_argument("--target-kl", type=float, default=0.03)
     ap.add_argument("--ckpt", type=int, default=2_000_000, help="steps between checkpoints")
+    ap.add_argument("--gait-w", type=float, default=0.0, help="trot term weight")
     a = ap.parse_args()
 
     from stable_baselines3 import PPO
@@ -71,7 +82,7 @@ def main():
 
     os.makedirs(a.out, exist_ok=True)
     dr = {**TomcatEnv.RANGES, **TomcatEnv.SENSOR_RANGES}
-    kw = {"randomize": dr, "residual_n": a.residual}
+    kw = {"randomize": dr, "residual_n": a.residual, "gait_w": a.gait_w}
     t0 = time.time()
     before = score(None, kw)
     print("baseline alone:", before, flush=True)

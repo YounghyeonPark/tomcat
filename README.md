@@ -51,6 +51,17 @@ the cable pulling).
 |---|---|
 | ![leg detail](docs/figures/leg_parts_m134.png) | ![trunk](docs/figures/trunk_m131.png) |
 
+## Learning to walk
+
+![a learned walk at 0.5 m/s, on sensors alone](docs/figures/walk_m138.webp)
+
+A policy trained on the GPU (MuJoCo-Warp, 2048 robots at once) with every
+mass, friction, spring, latency and sensor error randomised, filmed on the CPU
+simulator. It sees only what the robot's board measures; the lamps are the four
+feet's touch sensors. It tracks 0.25 and 0.5 m/s, with the trot's diagonals in
+phase but not yet a clean trot ([ADR-0131](docs/DESIGN_DECISIONS.md),
+[ADR-0132](docs/DESIGN_DECISIONS.md)).
+
 ## Key numbers
 
 | | |
@@ -83,8 +94,8 @@ learns on ([ADR-0129](docs/DESIGN_DECISIONS.md)). It trains on the GPU
 (MuJoCo-Warp, 2048 robots at once, ~15× the CPU) and the GPU-trained policy
 stands on the CPU simulator too ([ADR-0130](docs/DESIGN_DECISIONS.md)). A
 walking policy now tracks 0.25–0.5 m/s with every error randomised, on both
-simulators, but with a bound-like gait rather than a trot
-([ADR-0131](docs/DESIGN_DECISIONS.md)).
+simulators, in a trotting walk that still falls 16 % of the time at 0.5 m/s
+([ADR-0131](docs/DESIGN_DECISIONS.md), [ADR-0132](docs/DESIGN_DECISIONS.md)).
 
 ## Repository
 

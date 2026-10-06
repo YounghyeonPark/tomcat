@@ -77,3 +77,17 @@ def test_the_WALK_task_sees_a_clock_and_a_command_and_scores_true_speed():
     assert np.allclose(o[:, -3] ** 2 + o[:, -2] ** 2, 1.0, atol=1e-5)
     _o, r, _te, _tr, _i = W.step(np.zeros((4, 18)))
     assert np.all(np.isfinite(r)) and np.all(np.abs(W.vx) < 0.2), "standing still"
+
+
+def test_the_TROT_term_rewards_the_diagonals_in_phase_with_the_clock():
+    """M138 (ADR-0132): four feet down scores 0.5 at any phase; the clock's
+    diagonal down and the other up scores 1; the wrong diagonal scores 0."""
+    from tomcat_kin.warp_env import WarpWalk
+    W = WarpWalk(2, gait_w=1.0)
+    W.steps[:] = 0                                    # phase 0: LF + RR stance
+    o = {"contact": np.array([[5.0, 5.0, 5.0, 5.0], [5.0, 0.0, 0.0, 5.0]])}
+    assert np.allclose(W.trot_match(o), [0.5, 1.0])
+    o = {"contact": np.array([[0.0, 5.0, 5.0, 0.0], [5.0, 0.0, 0.0, 5.0]])}
+    assert np.allclose(W.trot_match(o), [0.0, 1.0])
+    W.steps[:] = int(round(0.6 * W.period * W.control_hz))   # second half
+    assert np.allclose(W.trot_match(o), [1.0, 0.0])
