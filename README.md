@@ -76,12 +76,15 @@ runtime (14.4 min at the vendor's Kt, 0.4 min over the 14 min floor, which
 the conduits' bench friction decides), the mass (4.82 kg, 19.3 % over the
 4.05 kg target), bench values for conduit
 friction and the G3 rates, a mock-up of the cable bundle that twists inside
-the hollow hip, and a walking task to train. A residual standing policy
+the hollow hip, and shaping the learned walk into a trot. A residual standing policy
 learns on the dressed robot, on sensors alone, with every plant and sensor
 error randomised: 25–26 of 30 seeds stand, against 9 for the baseline it
 learns on ([ADR-0129](docs/DESIGN_DECISIONS.md)). It trains on the GPU
 (MuJoCo-Warp, 2048 robots at once, ~15× the CPU) and the GPU-trained policy
-stands on the CPU simulator too ([ADR-0130](docs/DESIGN_DECISIONS.md)).
+stands on the CPU simulator too ([ADR-0130](docs/DESIGN_DECISIONS.md)). A
+walking policy now tracks 0.25–0.5 m/s with every error randomised, on both
+simulators, but with a bound-like gait rather than a trot
+([ADR-0131](docs/DESIGN_DECISIONS.md)).
 
 ## Repository
 

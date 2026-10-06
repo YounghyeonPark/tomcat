@@ -449,15 +449,15 @@ class WarpStand:
         return self.flatten(o), rew.astype(np.float32), term, trunc, info
 
 
-def make_vec_env(nworld=2048, **kw):
-    """`WarpStand` behind stable-baselines3's `VecEnv`."""
+def _vec(nworld, cls, nobs, **kw):
+    """Any `WarpStand`-shaped env behind stable-baselines3's `VecEnv`."""
     from stable_baselines3.common.vec_env.base_vec_env import VecEnv
     from gymnasium import spaces
 
     class _Vec(VecEnv):
         def __init__(self):
-            self.core = WarpStand(nworld, **kw)
-            super().__init__(nworld, spaces.Box(-np.inf, np.inf, (64,), np.float32),
+            self.core = cls(nworld, **kw)
+            super().__init__(nworld, spaces.Box(-np.inf, np.inf, (nobs,), np.float32),
                              spaces.Box(-1.0, 1.0, (18,), np.float32))
             self._a = None
 
@@ -496,3 +496,59 @@ def make_vec_env(nworld=2048, **kw):
             return [None] * self.num_envs
 
     return _Vec()
+
+
+def make_vec_env(nworld=2048, **kw):
+    """`WarpStand` behind stable-baselines3's `VecEnv`."""
+    return _vec(nworld, WarpStand, 64, **kw)
+
+
+class WarpWalk(WarpStand):
+    """Walk at a commanded forward speed, as a residual on the standing
+    baseline (M137, ADR-0131).
+
+    The policy sees the standing task's 64 channels plus a gait clock
+    (`sin`, `cos` of a `period` phase) and the commanded speed `v_cmd`, drawn
+    per episode from `v_range`. It adds +-`residual_n` N to `StandBaseline`,
+    which holds the robot up and leaves the stepping to the policy.
+
+    ⚠️ **The reward reads the TRUE forward speed** (`qvel`), which the robot
+    cannot measure. ADR-0082 kept every reward term observable so a policy
+    could be fine-tuned on hardware; this is a deliberate exception for
+    training in simulation. The policy itself sees only the board.
+    """
+
+    def __init__(self, nworld=2048, *, v_range=(0.0, 0.5), period=0.4,
+                 residual_n=80.0, **kw):
+        self.v_range = tuple(v_range)
+        self.period = float(period)
+        self.vcmd = None
+        super().__init__(nworld, residual_n=residual_n, **kw)
+
+    def _reset_worlds(self, mask):
+        super()._reset_worlds(mask)
+        if self.vcmd is None:
+            self.vcmd = np.zeros(self.N)
+        idx = np.nonzero(mask)[0]
+        self.vcmd[idx] = self.rng.uniform(*self.v_range, len(idx))
+
+    def flatten(self, o):
+        ph = 2.0 * np.pi * ((self.steps / self.control_hz) / self.period % 1.0)
+        extra = np.stack([np.sin(ph), np.cos(ph), self.vcmd], 1).astype(np.float32)
+        return np.concatenate([super().flatten(o), extra], 1)
+
+    def reward(self, o, T, q):
+        vx = self.dw.qvel.numpy()[:, 0].astype(float)
+        self.vx = vx
+        track = np.exp(-((vx - self.vcmd) / 0.15) ** 2)
+        upright = np.cos(np.radians(np.minimum(180.0, self.tilt(o))))
+        tall = np.minimum(1.0, self.stance_height(o, q) / 0.17)
+        spin = np.linalg.norm(o["imu_gyro"], axis=1)
+        cost = np.mean(np.abs(T), 1) / MT.TENSION_MAX
+        return (2.0 * track + 0.5 * upright + 0.5 * tall
+                - 0.05 * np.minimum(spin, 20.0) - 0.2 * cost)
+
+
+def make_walk_vec_env(nworld=2048, **kw):
+    """`WarpWalk` behind SB3's `VecEnv` (67 observations)."""
+    return _vec(nworld, WarpWalk, 67, **kw)

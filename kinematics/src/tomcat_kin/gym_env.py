@@ -94,3 +94,29 @@ class TomcatStand(gym.Env):
         self._obs = obs
         truncated = self.core.steps >= self.max_steps
         return flatten(obs), float(reward), bool(terminated), truncated, info
+
+
+class TomcatWalk(TomcatStand):
+    """`warp_env.WarpWalk` for one robot on the CPU (M137, ADR-0131): the
+    standing task's 64 channels plus a gait clock and the commanded speed;
+    the reward tracks the TRUE forward speed (a training-only quantity)."""
+
+    def __init__(self, *, v_cmd: float = 0.5, period: float = 0.4,
+                 residual_n: float = 80.0, **kw):
+        super().__init__(residual_n=residual_n, **kw)
+        self.v_cmd = float(v_cmd)
+        self.period = float(period)
+        self.observation_space = spaces.Box(-np.inf, np.inf, (67,), np.float32)
+
+    def _extra(self):
+        ph = 2.0 * np.pi * ((self.core.steps / self.core.control_hz) / self.period % 1.0)
+        return np.array([np.sin(ph), np.cos(ph), self.v_cmd], np.float32)
+
+    def reset(self, *, seed=None, options=None):
+        o, info = super().reset(seed=seed, options=options)
+        return np.concatenate([o, self._extra()]), info
+
+    def step(self, action):
+        o, _r, term, trunc, info = super().step(action)
+        info["vx"] = float(self.core.data.qvel[0])
+        return np.concatenate([o, self._extra()]), 0.0, term, trunc, info

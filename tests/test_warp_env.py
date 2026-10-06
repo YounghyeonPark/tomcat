@@ -62,3 +62,18 @@ def test_a_FINISHED_world_restarts_and_the_others_carry_on():
     assert te[2], "a saturated residual should fell world 2"
     assert W.steps[2] == 0 and np.all(W.steps[[0, 1, 3]] > 0)
     assert "terminal_obs" in info and list(info["done_idx"]) == [2]
+
+
+def test_the_WALK_task_sees_a_clock_and_a_command_and_scores_true_speed():
+    """M137 (ADR-0131): 67 channels -- the standing 64, the gait clock and the
+    commanded speed -- and a reward that peaks where the true forward speed
+    meets the command."""
+    from tomcat_kin.warp_env import WarpWalk
+    W = WarpWalk(4, v_range=(0.2, 0.4), seed=1)
+    o = W.reset()
+    assert o.shape == (4, 67)
+    assert np.all((W.vcmd >= 0.2) & (W.vcmd <= 0.4))
+    assert np.allclose(o[:, -1], W.vcmd)
+    assert np.allclose(o[:, -3] ** 2 + o[:, -2] ** 2, 1.0, atol=1e-5)
+    _o, r, _te, _tr, _i = W.step(np.zeros((4, 18)))
+    assert np.all(np.isfinite(r)) and np.all(np.abs(W.vx) < 0.2), "standing still"

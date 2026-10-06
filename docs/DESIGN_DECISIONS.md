@@ -10312,6 +10312,63 @@ The MuJoCo harness moved four numbers, and three of them moved the good way.
 
 ---
 
+## ADR-0131: the first walking policy, and the touch sensors that never felt
+- **Status:** Accepted (M137).
+- **Found first: the feet had no sense of touch from M72 to M136.**
+  - A `<touch>` sensor counts contacts whose point lies INSIDE its site. The
+    pad is a 6 mm sphere and its contact sits on that surface; the foot site
+    was 2 mm. Four pads were on the floor and the sensors read four zeros.
+  - So the observation's contact channel and the standing reward's feet term
+    were dead in M135/M136's training.
+  - The site is 8 mm now. Standing reads 38.3 N across the feet, of 47.3 N;
+    why not all of it is not yet run down. `test_stand` guards it.
+- **A hand-made trot baseline does not walk this plant.** I probed the
+  `GaitController` trot's joint references, with feedforward from the
+  dynamics module, under the standing baseline's feedback:
+  - The leg gains this plant tolerates (6 N·m/rad, ADR-0129) cannot track
+    the swing.
+  - The feedforward's sign is opposite to MuJoCo's: the dynamics module's
+    `J^T f` is the force on the ground.
+  - The robot slides backwards and falls in 0.5 s at the target stride.
+- **Decision:** learn the gait on the GPU, as a residual on the standing
+  baseline (`warp_env.WarpWalk`).
+  - **Observation:** the 64 board channels, plus a 0.4 s gait clock
+    (sin, cos) and the commanded speed `v_cmd` ∈ [0, 0.5] m/s, drawn per
+    episode.
+  - **Action:** ±80 N per pair on `StandBaseline`.
+  - **Reward:** 2·exp(−((v − v_cmd)/0.15)²) + 0.5·upright + 0.5·tall,
+    minus spin and tension.
+  - ⚠️ **The reward reads the TRUE forward speed.** ADR-0082 kept every
+    reward term observable; this is a training-only exception. The policy
+    sees only the board.
+  - `tools/train_walk.py`: PPO on 2048 worlds, every plant and sensor range
+    randomised. `gym_env.TomcatWalk` is the same task on the CPU.
+- **Two runs, 30 M steps each:**
+  - **First,** at a constant learning rate: it walked by 19 M (0.36–0.41
+    m/s), collapsed at 21 M, recovered, then collapsed again at 30 M and
+    saved the collapsed policy.
+  - **Second,** with the learning rate decaying to zero, `target_kl` 0.03,
+    and every 2 M steps checkpointed and scored: no collapse (101 min).
+
+  | | v_cmd 0.25 | v_cmd 0.5 |
+  |---|---|---|
+  | baseline alone, GPU | 0.0 m/s, 57 % fall | 0.0 m/s, 57 % fall |
+  | **policy, GPU** (256 worlds) | **0.27 m/s, 0.8 %** | **0.52 m/s, 7.8 %** |
+  | **policy, CPU** (20 seeds) | **0.31 m/s, 0 / 20** | **0.53 m/s, 1 / 20** |
+
+  - ✅ A GPU-trained walking policy walks on the CPU simulator too.
+- **⚠️ But it is not a trot.** The two fore feet lift and land together
+  85–94 % of the time, a bound-like gait with the feet down ~75 % of the
+  time. The reward never asked for a gait, and this is the one it found.
+  - It tracks the command, but 25 % fast at 0.25 m/s on the CPU, with a
+    ±0.13 m/s spread between draws.
+- **Next:**
+  - Shape the gait: reward diagonal contact in phase with the clock, and
+    foot clearance; or hand the policy a trot reference to residualise.
+  - Then film it, and score it on the CPU env at more speeds.
+
+---
+
 ---
 
 ### How to add an ADR
