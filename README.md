@@ -61,6 +61,10 @@ simulator. It sees only what the robot's board measures; the lamps are the four
 feet's touch sensors. It trots at 0.25 and 0.5 m/s, diagonals together, swing
 feet ~2 cm up, falling in 1 of 20 randomised runs at 0.5 m/s; the feet still
 slip a little ([ADR-0131](docs/DESIGN_DECISIONS.md)–[ADR-0133](docs/DESIGN_DECISIONS.md)).
+Measured as a load case, this walk uses half the copper the analytic trot budgets
+(26 min trotting, randomised, spine included), peaks at the ankle at 1.84 N·m,
+and needs the rewound motor's ~640 rpm; the simulated motor has no torque–speed
+limit yet ([ADR-0134](docs/DESIGN_DECISIONS.md)).
 
 ## Key numbers
 

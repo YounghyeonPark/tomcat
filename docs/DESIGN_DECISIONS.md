@@ -10461,6 +10461,73 @@ The MuJoCo harness moved four numbers, and three of them moved the good way.
 
 ---
 
+## ADR-0134: the learned walk as the load case
+- **Status:** Accepted (M140).
+- **Context:** every motor-sizing and runtime figure so far came from the
+  analytic trot (`power.gait_power`): a planned 50 %-duty gait, quasi-static
+  stance forces, and a swing model. M139's policy walks, so it can be
+  measured instead.
+- **Method** (`tools/walk_loads.py`): run the policy on the CPU simulator and
+  price it exactly as `power` does.
+  - **Cable tension** from the series spring's deflection, `−k θ_spool / r`.
+    It matches the commanded tension to 0.2 N.
+  - **Times the conduit friction at the pose**, each leg on its own drive.
+    The simulator itself has no friction.
+  - **Motor torque** = tension × spool radius; **motor speed** = the
+    rotor's own.
+  - **Copper** `1.5 (τ/Kt)² R_pp`; **mechanical** `|τ ω|`, no regeneration.
+  - From 0.5 s on, sampled at the 133 Hz control rate (a landing's sub-ms
+    peaks are not seen). 5 nominal seeds and 10 randomised seeds, at 0.25
+    and 0.5 m/s. No run fell.
+- **Measured at 0.5 m/s** (surveyed Kt; vendor Kt for the second runtime):
+
+  | | analytic trot | learned, nominal | learned, randomised |
+  |---|---|---|---|
+  | legs copper | 79.9 W | **33.6 W** | **44.2 W** |
+  | legs mechanical | 32.7 W | 19.7 W | 23.2 W |
+  | runtime, legs only | 19.7 / 14.4 min | 36.9 / 28.7 | 30.6 / 23.3 |
+  | runtime, with the spine | (not counted) | 31.2 / 24.0 | **26.0 / 19.6** |
+  | peak motor torque | 1.82 N·m (fore hip) | 1.40 (ankle) | **1.84 (ankle)** |
+  | RMS (continuous) | 0.644 N·m | 0.58 (ankle) | 0.66 (ankle) |
+  | motor speed needed, p99 | ~640 rpm | 580 | **641** |
+  | peak cable | – (558 N is the LANDING case) | 125 N | 165 N |
+
+- **Findings:**
+  - ✅ **The copper is half the analytic trot's.**
+    - The learned gait keeps its feet down 60–75 % of the time, against the
+      planned 50 %, so more legs share the load, and copper goes as its
+      square.
+    - With the spine (9–15 W, which `power` never counted) and every range
+      randomised, it runs **26 / 19.6 min**, where the analytic budget gives
+      19.7 / 14.4.
+    - **NFR6 has real margin under the gait the robot will actually use.**
+  - ⚠️ **The peak is at the ankle, not the hip.** Randomised, it reaches
+    1.84 N·m, 94 % of the proxy's 1.95. The hips the analytic budget sized
+    the motor by stay under 0.7 N·m.
+    - The RMS agrees with the analytic 0.644 at the ankle: 0.58–0.66 N·m.
+  - ✅ **The speed requirement is confirmed:** 580–641 rpm at the 99th
+    percentile, against the analytic ~640.
+    - ADR-0110's rewound spec (≥ 665 rpm) covers it; the proxy's 380 does
+      not.
+  - ⚠️ **A structural sim gap: the simulated motor has no torque–speed
+    limit.** The policy uses rotor speeds up to ~800 rpm, which no motor on
+    the table delivers at that torque.
+    - Randomising cannot cover this, because no parameter value expresses
+      it.
+    - It is the next fidelity item: an actuator envelope in the inner servo,
+      at the spec motor's line.
+  - Cables carry at most 165 N (randomised), against a 223 N motor limit and
+    a 638 N structural rating; the RMS stays under the 81 N continuous
+    figure.
+- **Consequences:**
+  - The analytic trot is **conservative on copper and wrong about where the
+    peak is**; the hip-sized motor margin is really an ankle margin.
+  - ⚠️ These figures stand only until the actuator envelope is in the
+    plant. A policy that cannot spin the rotor at 800 rpm will walk
+    differently.
+
+---
+
 ---
 
 ### How to add an ADR
