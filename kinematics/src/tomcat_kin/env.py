@@ -255,7 +255,8 @@ class TomcatEnv:
                 cmd = wbc.envelope_command(cmd, self.data.qpos[self._jr],
                                            self.data.qvel[self._jrd],
                                            self.servo_kp, self.servo_kv,
-                                           MT.MOTOR_PEAK_NM, MT.MOTOR_NOLOAD_RAD_S)
+                                           getattr(self, "motor_peak", MT.MOTOR_PEAK_NM),
+                                           getattr(self, "motor_wnl", MT.MOTOR_NOLOAD_RAD_S))
             self.data.ctrl[self._act] = cmd
             self.mj.mj_step(self.model, self.data)
             self._lag.push(self.data.sensordata,
@@ -339,6 +340,17 @@ class TomcatEnv:
         "latency_s": (3.0e-3, 12.0e-3),  # NFR12 budgets 7.5 ms
     }
 
+    #: ✅ M143 (ADR-0137): the MOTOR, drawn per episode. Its Kt is unmeasured
+    #: (ADR-0044): the peak is 4.19 A x Kt, 1.47 N.m at the vendor's 0.35 up to
+    #: the 1.95 published; and the no-load speed spans the stock part at 24 V
+    #: (380 rpm) to ADR-0110's rewind (665). A policy trained on one corner
+    #: over-fits it (ADR-0136); drawn, one policy walks whichever it meets.
+    #: Kept out of `RANGES` so M79's per-knob bite test is untouched.
+    MOTOR_RANGES = {
+        "motor_peak_nm": (1.47, 1.95),
+        "motor_noload_rpm": (380.0, 665.0),
+    }
+
     #: Sensor error, drawn per episode. ⚠️ These change the OBSERVATION, not
     #: the plant — with a fixed action the trajectory is untouched, and they
     #: only reach the robot through a closed loop. So "does it bite" is asked of
@@ -402,6 +414,15 @@ class TomcatEnv:
             k = self._nom["stiffness"] > 0.0
             self.model.jnt_stiffness[k] = self._nom["stiffness"][k] * f
             out["series_k_scale"] = f
+        self.motor_peak = MT.MOTOR_PEAK_NM
+        self.motor_wnl = MT.MOTOR_NOLOAD_RAD_S
+        if "motor_peak_nm" in self.randomize:
+            self.motor_peak = float(r.uniform(*self.randomize["motor_peak_nm"]))
+            out["motor_peak_nm"] = self.motor_peak
+        if "motor_noload_rpm" in self.randomize:
+            rpm = float(r.uniform(*self.randomize["motor_noload_rpm"]))
+            self.motor_wnl = rpm * 2.0 * math.pi / 60.0
+            out["motor_noload_rpm"] = rpm
         if "latency_s" in self.randomize:
             self.latency_s = float(r.uniform(*self.randomize["latency_s"]))
             out["latency_s"] = self.latency_s

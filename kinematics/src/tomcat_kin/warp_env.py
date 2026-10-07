@@ -167,6 +167,11 @@ class WarpStand:
         self.js = wp.array(np.array(cpu._js, np.int32), dtype=int, device=device)
         self.act = wp.array(np.array(cpu._act, np.int32), dtype=int, device=device)
         self.jrd = wp.array(np.array(cpu._jrd, np.int32), dtype=int, device=device)
+        # M143: each world's motor (peak N.m, no-load rad/s)
+        self.peak_w = wp.array(np.full(self.N, MT.MOTOR_PEAK_NM, np.float32),
+                               dtype=float, device=device)
+        self.wnl_w = wp.array(np.full(self.N, MT.MOTOR_NOLOAD_RAD_S, np.float32),
+                              dtype=float, device=device)
         self.sens0_w = wp.array(self.sens0.astype(np.float32), dtype=float, device=device)
 
         # per-world state the host keeps
@@ -185,7 +190,8 @@ class WarpStand:
                   jr: wp.array(dtype=int), js: wp.array(dtype=int),
                   jrd: wp.array(dtype=int),
                   act: wp.array(dtype=int), kfac: wp.array(dtype=float),
-                  kp: float, kv: float, peak: float, wnl: float, env_on: int,
+                  kp: float, kv: float, peak_w: wp.array(dtype=float),
+                  wnl_w: wp.array(dtype=float), env_on: int,
                   ctrl: wp.array2d(dtype=float)):
             w, i = wp.tid()
             th = qpos[w, jr[i]]
@@ -193,6 +199,8 @@ class WarpStand:
             if env_on != 0:
                 # `wbc.envelope_command`: the spec motor's torque-speed line
                 om = qvel[w, jrd[i]]
+                peak = peak_w[w]
+                wnl = wnl_w[w]
                 f = kp * (cmd - th) - kv * om
                 hi = peak * wp.clamp(1.0 - wp.max(om, 0.0) / wnl, 0.0, 1.0)
                 lo = -peak * wp.clamp(1.0 - wp.max(-om, 0.0) / wnl, 0.0, 1.0)
@@ -235,7 +243,7 @@ class WarpStand:
                       inputs=[self.dw.qpos, self.dw.qvel, self.T, self.jr, self.js,
                               self.jrd, self.act, self.kfac,
                               float(self.servo_kp), float(self.cpu.servo_kv),
-                              float(MT.MOTOR_PEAK_NM), float(MT.MOTOR_NOLOAD_RAD_S),
+                              self.peak_w, self.wnl_w,
                               int(self.envelope), self.dw.ctrl])
             mjw.step(self.mw, self.dw)
             wp.launch(self.k_push, dim=(self.N, nsd),
@@ -263,7 +271,9 @@ class WarpStand:
         r, R, n = self.rng, self.randomize, len(idx)
         d = self.draw
         if not d:
-            d.update(mass=np.ones(self.N), mu=np.full(self.N, np.nan),
+            d.update(peak=np.full(self.N, MT.MOTOR_PEAK_NM),
+                     wnl=np.full(self.N, MT.MOTOR_NOLOAD_RAD_S),
+                     mass=np.ones(self.N), mu=np.full(self.N, np.nan),
                      k=np.ones(self.N),
                      delay=np.full(self.N, int(round(self.cpu.latency_s / self.dt))),
                      enc_bias=np.zeros((self.N, 18)), enc_noise=np.zeros(self.N),
@@ -278,6 +288,10 @@ class WarpStand:
             d["k"][idx] = u("series_k_scale")
         if "latency_s" in R:
             d["delay"][idx] = np.round(u("latency_s") / self.dt).astype(int)
+        if "motor_peak_nm" in R:
+            d["peak"][idx] = u("motor_peak_nm")
+        if "motor_noload_rpm" in R:
+            d["wnl"][idx] = u("motor_noload_rpm") * 2.0 * math.pi / 60.0
         if "enc_offset_rad" in R:
             s = u("enc_offset_rad")
             d["enc_bias"][idx] = r.normal(0.0, 1.0, (n, 18)) * s[:, None]
@@ -303,6 +317,8 @@ class WarpStand:
         getattr(self.mw, "geom_friction").assign(fric.astype(np.float32))
         getattr(self.mw, "jnt_stiffness").assign(stiff.astype(np.float32))
         self.delay.assign(d["delay"].astype(np.int32))
+        self.peak_w.assign(d["peak"].astype(np.float32))
+        self.wnl_w.assign(d["wnl"].astype(np.float32))
 
     def _reset_worlds(self, mask):
         wp, mjw = self.wp, self.mjw

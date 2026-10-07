@@ -107,3 +107,20 @@ def test_the_FEET_terms_see_slip_and_lift_and_a_reset_is_not_a_slip():
     W._reset_worlds(np.array([True, False, False, False]))
     W.step(np.zeros((4, 18)))
     assert W.last_feet[0][0] < 0.02, "the reset's jump was charged as slip"
+
+
+def test_each_world_draws_its_own_MOTOR():
+    """M143 (ADR-0137): with `MOTOR_RANGES` drawn, each world gets its own
+    peak and no-load speed, inside the ranges, and the servo kernel reads
+    them per world."""
+    import math
+    R = {**DR, **TomcatEnv.MOTOR_RANGES}
+    W = WarpStand(16, randomize=R, residual_n=30.0, seed=5)
+    lo, hi = TomcatEnv.MOTOR_RANGES["motor_peak_nm"]
+    assert np.all((W.draw["peak"] >= lo) & (W.draw["peak"] <= hi))
+    assert np.ptp(W.draw["peak"]) > 0.1
+    rpm = W.draw["wnl"] * 60 / (2 * math.pi)
+    assert np.all((rpm >= 380 - 1e-6) & (rpm <= 665 + 1e-6))
+    assert np.allclose(W.peak_w.numpy(), W.draw["peak"], atol=1e-5)
+    for _ in range(5):
+        W.step(np.zeros((16, 18)))

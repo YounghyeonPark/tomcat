@@ -103,3 +103,15 @@ def test_the_MOTOR_ENVELOPE_is_the_torque_speed_line_driving_and_free_braking():
     assert np.allclose(f, [pk, 0.0, -pk, 0.5 * pk, pk], atol=1e-9)
     env = TomcatEnv(rng=np.random.default_rng(0))
     assert env.envelope, "the plant carries the line by default"
+
+
+def test_the_CPU_env_draws_a_MOTOR_and_the_envelope_uses_it():
+    """M143 (ADR-0137): a drawn motor reaches the envelope; undrawn, the
+    spec motor stands."""
+    from tomcat_kin import mjcf_tendon as MT
+    env = TomcatEnv(rng=np.random.default_rng(2), randomize=TomcatEnv.MOTOR_RANGES)
+    lo, hi = TomcatEnv.MOTOR_RANGES["motor_peak_nm"]
+    assert lo <= env.motor_peak <= hi and env.motor_peak != MT.MOTOR_PEAK_NM
+    assert env.drawn["motor_noload_rpm"] >= 380.0
+    plain = TomcatEnv(rng=np.random.default_rng(2))
+    assert plain.motor_peak == MT.MOTOR_PEAK_NM

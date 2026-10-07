@@ -85,6 +85,8 @@ def main():
                     help="the motors' no-load speed (default: the spec motor's 665)")
     ap.add_argument("--peak-nm", type=float, default=None,
                     help="the motors' peak torque (default 1.95)")
+    ap.add_argument("--motor-dr", action="store_true",
+                    help="M143: draw each world's motor from TomcatEnv.MOTOR_RANGES")
     a = ap.parse_args()
 
     from stable_baselines3 import PPO
@@ -105,6 +107,8 @@ def main():
         from tomcat_kin import mjcf_tendon as MT
         MT.MOTOR_PEAK_NM = a.peak_nm
     dr = {**TomcatEnv.RANGES, **TomcatEnv.SENSOR_RANGES}
+    if a.motor_dr:
+        dr.update(TomcatEnv.MOTOR_RANGES)
     kw = {"randomize": dr, "residual_n": a.residual, "gait_w": a.gait_w,
           "slip_w": a.slip_w, "clear_w": a.clear_w}
     t0 = time.time()

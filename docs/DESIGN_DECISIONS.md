@@ -10645,6 +10645,40 @@ The MuJoCo harness moved four numbers, and three of them moved the good way.
 
 ---
 
+## ADR-0137: randomising the motor itself, and what a memoryless policy cannot do with it
+- **Status:** Accepted (M143), the infrastructure. The result is a negative
+  one, recorded.
+- **Decision:** `TomcatEnv.MOTOR_RANGES` draws each episode's motor (and,
+  in `WarpStand`, each world's):
+  - peak 1.47–1.95 N·m (the vendor's Kt to the published peak);
+  - no-load 380–665 rpm (the stock part at 24 V to ADR-0110's rewind).
+  - The envelope (CPU) and the servo kernel (GPU) read the drawn line.
+  - Kept out of `RANGES`, so M79's per-knob bite test is untouched.
+  - `train_walk.py --motor-dr` trains with it.
+- **Trained:** 30 M steps from the 380 rpm policy, 98 min. Scored on the
+  CPU at five fixed motors, 20 randomised seeds each:
+
+  | falls at 0.5 m/s | 380/1.47 | 443/1.47 | 443/1.84 | 380/1.95 | 665/1.95 |
+  |---|---|---|---|---|---|
+  | specialist (trained on that motor, or nearest) | 2 | 1 | 1 | 3 | 3 of 40 |
+  | **motor-randomised** | **12** | **7** | 5 | 4 | 4 |
+
+  - ✅ **The over-fit is gone:** at a 0.25 m/s command it walks 0.25–0.29
+    m/s on every motor, where the 1.47-trained specialist made 0.155 on a
+    strong one.
+  - ⚠️ **But at 0.5 m/s it is worse than a specialist on every motor**,
+    worst on the weak ones. The GPU score agrees: 16 % falls at 0.5 m/s.
+- **Why (the working hypothesis):** the policy sees one observation, with
+  no memory. It cannot tell which motor it is on, so it plays a compromise
+  that the weak motor's limit then breaks. Telling motors apart takes
+  history: what was asked against what happened.
+- **Next:** give the policy a short history (stacked observations and its
+  last actions) so it can identify the motor, then retrain. Until then:
+  - the specialist for the motor actually bought is the better policy;
+  - and the bench Kt (ADR-0136) is what picks the specialist.
+
+---
+
 ---
 
 ### How to add an ADR
