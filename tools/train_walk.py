@@ -36,9 +36,14 @@ def score(policy, kw, speeds=(0.25, 0.5), nworld=256, seconds=4.0):
         dist = np.zeros(nworld)
         life = np.zeros(nworld)
         diag, fore, match, cnt = 0.0, 0.0, 0.0, 0
+        slips, clears = [], []
         for _ in range(n):
             a = np.zeros((nworld, 18)) if policy is None else policy.predict(o, deterministic=True)[0]
             o, _r, te, tr, _info = env.step(a)
+            sl, cl = env.last_feet
+            if alive.any():
+                slips.append(float(np.mean(sl[alive])))
+                clears.append(float(np.mean(cl[alive])))
             down = env._obs["contact"] > 1.0
             if alive.any():
                 diag += float(np.mean((down[:, 0] == down[:, 3])[alive]))
@@ -54,7 +59,9 @@ def score(policy, kw, speeds=(0.25, 0.5), nworld=256, seconds=4.0):
                        "fell": float(1.0 - alive.mean()),
                        # a trot: diagonals together, the fore pair apart
                        "diag_sync": diag / max(cnt, 1), "fore_sync": fore / max(cnt, 1),
-                       "trot_match": match / max(cnt, 1)}
+                       "trot_match": match / max(cnt, 1),
+                       "slip": float(np.mean(slips[5:])) if slips else 0.0,
+                       "clearance": float(np.mean(clears)) if clears else 0.0}
     return out
 
 
@@ -71,6 +78,9 @@ def main():
     ap.add_argument("--target-kl", type=float, default=0.03)
     ap.add_argument("--ckpt", type=int, default=2_000_000, help="steps between checkpoints")
     ap.add_argument("--gait-w", type=float, default=0.0, help="trot term weight")
+    ap.add_argument("--init", default=None, help="continue from this policy .zip")
+    ap.add_argument("--slip-w", type=float, default=0.0, help="loaded-foot slip penalty")
+    ap.add_argument("--clear-w", type=float, default=0.0, help="swing clearance reward")
     a = ap.parse_args()
 
     from stable_baselines3 import PPO
@@ -82,7 +92,8 @@ def main():
 
     os.makedirs(a.out, exist_ok=True)
     dr = {**TomcatEnv.RANGES, **TomcatEnv.SENSOR_RANGES}
-    kw = {"randomize": dr, "residual_n": a.residual, "gait_w": a.gait_w}
+    kw = {"randomize": dr, "residual_n": a.residual, "gait_w": a.gait_w,
+          "slip_w": a.slip_w, "clear_w": a.clear_w}
     t0 = time.time()
     before = score(None, kw)
     print("baseline alone:", before, flush=True)
@@ -94,12 +105,20 @@ def main():
     # decays to zero, an update stops at `target_kl`, and checkpoints are kept
     # and scored, the best one reported.
     from stable_baselines3.common.callbacks import CheckpointCallback
-    model = PPO("MlpPolicy", venv, n_steps=a.n_steps, batch_size=a.batch, n_epochs=10,
-                learning_rate=lambda f: a.lr * f, target_kl=a.target_kl,
-                gamma=0.99, gae_lambda=0.95, clip_range=0.2,
-                ent_coef=0.0, policy_kwargs={"log_std_init": -1.0,
-                                             "net_arch": [256, 256]},
-                seed=0, verbose=1, device="cuda")
+    if a.init:
+        # M139: continue a policy; the schedule restarts from `--lr`
+        model = PPO.load(a.init, env=venv, device="cuda",
+                         custom_objects={"learning_rate": lambda f: a.lr * f,
+                                         "lr_schedule": lambda f: a.lr * f,
+                                         "target_kl": a.target_kl,
+                                         "n_steps": a.n_steps, "batch_size": a.batch})
+    else:
+        model = PPO("MlpPolicy", venv, n_steps=a.n_steps, batch_size=a.batch, n_epochs=10,
+                    learning_rate=lambda f: a.lr * f, target_kl=a.target_kl,
+                    gamma=0.99, gae_lambda=0.95, clip_range=0.2,
+                    ent_coef=0.0, policy_kwargs={"log_std_init": -1.0,
+                                                 "net_arch": [256, 256]},
+                    seed=0, verbose=1, device="cuda")
     model.set_logger(configure(a.out, ["stdout", "csv"]))
     ck = CheckpointCallback(save_freq=max(1, a.ckpt // a.envs),
                             save_path=os.path.join(a.out, "ckpt"), name_prefix="walk")
@@ -109,7 +128,8 @@ def main():
     after = score(model, kw)
     print("policy (final):", after, flush=True)
     ranked = []
-    for f in sorted(os.listdir(os.path.join(a.out, "ckpt"))):
+    ckdir = os.path.join(a.out, "ckpt")
+    for f in sorted(os.listdir(ckdir)) if os.path.isdir(ckdir) else []:
         p = PPO.load(os.path.join(a.out, "ckpt", f), device="cuda")
         sc = score(p, kw)
         fell = np.mean([v["fell"] for v in sc.values()])

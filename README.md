@@ -53,14 +53,14 @@ the cable pulling).
 
 ## Learning to walk
 
-![a learned walk at 0.5 m/s, on sensors alone](docs/figures/walk_m138.webp)
+![a learned walk at 0.5 m/s, on sensors alone](docs/figures/walk_m139.webp)
 
 A policy trained on the GPU (MuJoCo-Warp, 2048 robots at once) with every
 mass, friction, spring, latency and sensor error randomised, filmed on the CPU
 simulator. It sees only what the robot's board measures; the lamps are the four
-feet's touch sensors. It tracks 0.25 and 0.5 m/s, with the trot's diagonals in
-phase but not yet a clean trot ([ADR-0131](docs/DESIGN_DECISIONS.md),
-[ADR-0132](docs/DESIGN_DECISIONS.md)).
+feet's touch sensors. It trots at 0.25 and 0.5 m/s, diagonals together, swing
+feet ~2 cm up, falling in 1 of 20 randomised runs at 0.5 m/s; the feet still
+slip a little ([ADR-0131](docs/DESIGN_DECISIONS.md)–[ADR-0133](docs/DESIGN_DECISIONS.md)).
 
 ## Key numbers
 
@@ -87,15 +87,15 @@ runtime (14.4 min at the vendor's Kt, 0.4 min over the 14 min floor, which
 the conduits' bench friction decides), the mass (4.82 kg, 19.3 % over the
 4.05 kg target), bench values for conduit
 friction and the G3 rates, a mock-up of the cable bundle that twists inside
-the hollow hip, and shaping the learned walk into a trot. A residual standing policy
+the hollow hip, and the learned trot's remaining foot slip. A residual standing policy
 learns on the dressed robot, on sensors alone, with every plant and sensor
 error randomised: 25–26 of 30 seeds stand, against 9 for the baseline it
 learns on ([ADR-0129](docs/DESIGN_DECISIONS.md)). It trains on the GPU
 (MuJoCo-Warp, 2048 robots at once, ~15× the CPU) and the GPU-trained policy
 stands on the CPU simulator too ([ADR-0130](docs/DESIGN_DECISIONS.md)). A
 walking policy now tracks 0.25–0.5 m/s with every error randomised, on both
-simulators, in a trotting walk that still falls 16 % of the time at 0.5 m/s
-([ADR-0131](docs/DESIGN_DECISIONS.md), [ADR-0132](docs/DESIGN_DECISIONS.md)).
+simulators, in a trot that lifts its feet
+([ADR-0131](docs/DESIGN_DECISIONS.md)–[ADR-0133](docs/DESIGN_DECISIONS.md)).
 
 ## Repository
 

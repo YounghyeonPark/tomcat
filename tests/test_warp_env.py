@@ -91,3 +91,19 @@ def test_the_TROT_term_rewards_the_diagonals_in_phase_with_the_clock():
     assert np.allclose(W.trot_match(o), [0.0, 1.0])
     W.steps[:] = int(round(0.6 * W.period * W.control_hz))   # second half
     assert np.allclose(W.trot_match(o), [1.0, 0.0])
+
+
+def test_the_FEET_terms_see_slip_and_lift_and_a_reset_is_not_a_slip():
+    """M139 (ADR-0133): standing still, the loaded feet barely move and the
+    swing feet are on the floor (clearance ~0); right after a reset the feet
+    have jumped, and that is not charged as slip."""
+    from tomcat_kin.warp_env import WarpWalk
+    W = WarpWalk(4, slip_w=2.0, clear_w=0.5)
+    for _ in range(20):
+        W.step(np.zeros((4, 18)))
+    slip, clear = W.last_feet
+    assert np.all(slip < 0.02), slip
+    assert np.all(clear < 0.1), clear
+    W._reset_worlds(np.array([True, False, False, False]))
+    W.step(np.zeros((4, 18)))
+    assert W.last_feet[0][0] < 0.02, "the reset's jump was charged as slip"

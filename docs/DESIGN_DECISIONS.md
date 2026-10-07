@@ -10407,6 +10407,60 @@ The MuJoCo harness moved four numbers, and three of them moved the good way.
 
 ---
 
+## ADR-0133: a trot that lifts its feet
+- **Status:** Accepted (M139). Follows ADR-0132.
+- **More steps fixed 0.5 m/s.** M138's policy, continued for 30 M more
+  steps (`train_walk.py --init`, learning rate 1e-4 decaying):
+
+  | | 0.5 m/s cmd: speed | falls | trot match |
+  |---|---|---|---|
+  | M138 (GPU) | 0.46 | 16 % | 0.67 |
+  | continued, 60 M total (GPU) | 0.47 | **6.3 %** | 0.76 |
+
+- **But it skated.** Measured on the CPU simulator at 0.5 m/s:
+  - Loaded feet (touch > 5 N) slid at a median 0.04–0.13 m/s, up to
+    0.22 m/s at the 75th percentile.
+  - Swing feet rose ~4 mm off the floor.
+  - The reward never asked for a lifted foot or a planted one. A gait that
+    skates in one simulator is a sim2real risk.
+  - It also breaks leg odometry. Run on TRUE joint angles, the stance feet
+    still under-read the speed by 15–60 %, because they were moving.
+- **Decision:** two training-only terms in `WarpWalk`, read off the foot
+  sites:
+  - **slip** (`slip_w` = 2): the mean horizontal speed of the feet carrying
+    load;
+  - **clearance** (`clear_w` = 0.5): how high the feet the clock has in
+    swing are, up to 3 cm.
+  - A reset's jump of the feet is not charged as slip.
+  - `train_walk.py` scores both.
+  - 30 M steps from the continued policy, 99 min.
+- **Result,** every range randomised:
+
+  | | slip, GPU (m/s) | clearance, GPU | trot match | fore sync | falls (GPU) | CPU speed / falls |
+  |---|---|---|---|---|---|---|
+  | M138 | 0.10 / 0.18 | 29 / 25 % | 0.80 / 0.67 | 0.56 / 0.57 | 0 / 16 % | 0.251 / 0.465, 0 + 2 of 20 |
+  | **M139** | **0.064 / 0.113** | **51 / 47 %** | **0.85 / 0.81** | **0.38 / 0.40** | 0 / 7.4 % | **0.249 / 0.455, 0 + 1 of 20** |
+
+  (columns are the 0.25 / 0.5 m/s commands)
+
+  - ✅ **A trot.** On the CPU the diagonals move together 0.82–0.84 of the
+    time, the fore pair 0.34–0.36. The film (`docs/figures/walk_m139.webp`)
+    alternates LF + RR and RF + LR.
+  - ✅ Swing feet now rise 20–24 mm (site height; ~15–18 mm of clearance),
+    from 9–12.
+  - ⚠️ **Slip is down 35–40 %, not gone:** a median 0.03–0.08 m/s on the CPU.
+  - ⚠️ **Leg odometry still reads low:** 15 % on average, with 0.14–0.21 m/s
+    of rms error step to step. It is not yet good enough to replace the true
+    speed in the reward, so the reward stays training-only.
+- **Next:**
+  - Push the slip down further (a larger `slip_w`, or a curriculum), then
+    revisit odometry.
+  - Widen the command range (turning, faster than 0.5).
+  - Measure the walk's cable tensions and motor torque against the budgets
+    `power` and `mass_closure` assume. The policy is now the load case.
+
+---
+
 ---
 
 ### How to add an ADR

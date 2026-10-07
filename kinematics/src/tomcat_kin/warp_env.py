@@ -519,18 +519,25 @@ class WarpWalk(WarpStand):
     """
 
     def __init__(self, nworld=2048, *, v_range=(0.0, 0.5), period=0.4,
-                 residual_n=80.0, gait_w: float = 0.0, **kw):
+                 residual_n=80.0, gait_w: float = 0.0, slip_w: float = 0.0,
+                 clear_w: float = 0.0, clear_m: float = 0.03, **kw):
         """`gait_w` (M138, ADR-0132): weight of the trot term -- each foot
         down when the clock says its diagonal pair is in stance (LF+RR the
         first half of the period, RF+LR the second), up when it is not."""
         self.v_range = tuple(v_range)
         self.period = float(period)
         self.gait_w = float(gait_w)
+        # M139 (ADR-0133): M138's walk SKATED -- loaded feet sliding at a
+        # median 0.04-0.13 m/s, swing feet 4 mm off the floor. Both terms read
+        # the simulator's foot sites (training-only, like the speed).
+        self.slip_w, self.clear_w, self.clear_m = float(slip_w), float(clear_w), float(clear_m)
+        self._foot_prev = None
         self.vcmd = None
         super().__init__(nworld, residual_n=residual_n, **kw)
 
     def _reset_worlds(self, mask):
         super()._reset_worlds(mask)
+        self._fresh = np.asarray(mask, bool).copy()
         if self.vcmd is None:
             self.vcmd = np.zeros(self.N)
         idx = np.nonzero(mask)[0]
@@ -562,8 +569,39 @@ class WarpWalk(WarpStand):
         spin = np.linalg.norm(o["imu_gyro"], axis=1)
         cost = np.mean(np.abs(T), 1) / MT.TENSION_MAX
         gait = self.trot_match(o) if self.gait_w else 0.0
+        slip, clear = self.feet_terms(o)
+        self.last_feet = (slip, clear)          # computed once a step; read, do not recompute
         return (2.0 * track + 0.5 * upright + 0.5 * tall + self.gait_w * gait
+                - self.slip_w * slip + self.clear_w * clear
                 - 0.05 * np.minimum(spin, 20.0) - 0.2 * cost)
+
+    def foot_pos(self):
+        """(N, 4, 3) world positions of the four foot sites."""
+        if not hasattr(self, "_foot_sites"):
+            mj = self.mj
+            self._foot_sites = [mj.mj_name2id(self.m, mj.mjtObj.mjOBJ_SITE, nm + "_foot")
+                                for nm in LEGS]
+        return self.dw.site_xpos.numpy()[:, self._foot_sites, :].astype(float)
+
+    def feet_terms(self, o):
+        """(slip m/s, clearance 0..1) per world: the mean horizontal speed of
+        the feet carrying load, and how high the feet the clock has in swing
+        are, as a fraction of `clear_m` above the pad's rest height."""
+        p = self.foot_pos()
+        prev = p if self._foot_prev is None else self._foot_prev
+        v = np.linalg.norm((p - prev)[..., :2], axis=-1) * self.control_hz
+        fresh = getattr(self, "_fresh", None)
+        if fresh is not None:
+            v[fresh] = 0.0                       # a reset moved the feet, not a slip
+            self._fresh = None
+        self._foot_prev = p
+        loaded = o["contact"] > 5.0
+        slip = np.sum(v * loaded, 1) / np.maximum(loaded.sum(1), 1)
+        first = self.clock() < 0.5
+        swing = np.stack([~first, first, first, ~first], 1)      # LF RF LR RR
+        lift = np.clip((p[..., 2] - 0.006) / self.clear_m, 0.0, 1.0)
+        clear = np.sum(lift * swing, 1) / 2.0
+        return slip, clear
 
 
 def make_walk_vec_env(nworld=2048, **kw):
