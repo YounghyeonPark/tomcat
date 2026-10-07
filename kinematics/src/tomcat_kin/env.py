@@ -72,7 +72,7 @@ class TomcatEnv:
                  hip_height: float = 0.176, fall_deg: float = 45.0,
                  collapse_m: float = 0.12,
                  jitter_deg: float = 0.0, rng=None,
-                 randomize: dict | None = None):
+                 randomize: dict | None = None, envelope: bool = True):
         import mujoco
 
         self.mj = mujoco
@@ -109,6 +109,12 @@ class TomcatEnv:
         self._js = [self.model.jnt_qposadr[self._id(mujoco.mjtObj.mjOBJ_JOINT,
                                                     "js_" + p)]
                     for p in self.pairs]
+        # ✅ M141 (ADR-0135): every motor on the spec motor's torque-speed line
+        self.envelope = bool(envelope)
+        self._jrd = [self.model.jnt_dofadr[self._id(mujoco.mjtObj.mjOBJ_JOINT,
+                                                    "jr_" + p)]
+                     for p in self.pairs]
+        self.servo_kv = 2.0 * MT.ROTOR_ARMATURE * MT.ROTOR_BANDWIDTH
         self.randomize = dict(randomize or {})
         self.drawn = {}
         self._enc_bias = np.zeros(18)
@@ -245,6 +251,11 @@ class TomcatEnv:
                                     self.data.qpos[self._js], tension,
                                     self.k_tors, MT.SPOOL_R,
                                     servo_kp=self.servo_kp)
+            if self.envelope:
+                cmd = wbc.envelope_command(cmd, self.data.qpos[self._jr],
+                                           self.data.qvel[self._jrd],
+                                           self.servo_kp, self.servo_kv,
+                                           MT.MOTOR_PEAK_NM, MT.MOTOR_NOLOAD_RAD_S)
             self.data.ctrl[self._act] = cmd
             self.mj.mj_step(self.model, self.data)
             self._lag.push(self.data.sensordata,

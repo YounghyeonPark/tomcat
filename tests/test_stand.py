@@ -88,3 +88,18 @@ def test_the_FEET_FEEL_the_floor():
     assert np.all(c > 1.0), c
     W = float(np.sum(env.model.body_mass)) * 9.81
     assert 0.6 * W < c.sum() < 1.2 * W, (c.sum(), W)
+
+
+def test_the_MOTOR_ENVELOPE_is_the_torque_speed_line_driving_and_free_braking():
+    """M141 (ADR-0135): `wbc.envelope_command` holds a rotor servo to the spec
+    motor's line: the full peak at stall, nothing driving at no-load, half at
+    half speed -- and the full peak BRAKING at any speed."""
+    from tomcat_kin import mjcf_tendon as MT
+    from tomcat_kin import wbc
+    kp, kv, pk, wn = 180.0, 0.12, MT.MOTOR_PEAK_NM, MT.MOTOR_NOLOAD_RAD_S
+    om = np.array([0.0, wn, wn, 0.5 * wn, -0.5 * wn])
+    cmd = np.array([10.0, 10.0, -10.0, 10.0, 10.0])          # all ask for too much
+    f = kp * wbc.envelope_command(cmd, np.zeros(5), om, kp, kv, pk, wn) - kv * om
+    assert np.allclose(f, [pk, 0.0, -pk, 0.5 * pk, pk], atol=1e-9)
+    env = TomcatEnv(rng=np.random.default_rng(0))
+    assert env.envelope, "the plant carries the line by default"

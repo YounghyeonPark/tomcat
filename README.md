@@ -63,8 +63,10 @@ feet ~2 cm up, falling in 1 of 20 randomised runs at 0.5 m/s; the feet still
 slip a little ([ADR-0131](docs/DESIGN_DECISIONS.md)–[ADR-0133](docs/DESIGN_DECISIONS.md)).
 Measured as a load case, this walk uses half the copper the analytic trot budgets
 (26 min trotting, randomised, spine included), peaks at the ankle at 1.84 N·m,
-and needs the rewound motor's ~640 rpm; the simulated motor has no torque–speed
-limit yet ([ADR-0134](docs/DESIGN_DECISIONS.md)).
+and, with the motor's torque–speed line now in the plant, drives its rotors under
+~380 rpm: a learned trot walks on the stock motor's speed, where the planned trot
+needed a rewound one ([ADR-0134](docs/DESIGN_DECISIONS.md),
+[ADR-0135](docs/DESIGN_DECISIONS.md)).
 
 ## Key numbers
 

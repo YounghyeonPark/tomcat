@@ -323,6 +323,28 @@ def rotor_command(theta_rotor, theta_spool, tension, k_tors: float,
     return base + delta
 
 
+def envelope_command(cmd, theta, omega, kp: float, kv: float,
+                     peak: float, w_noload: float):
+    """Hold a `<position>` rotor servo to a DC motor's torque-speed LINE.
+
+    The servo's force is `kp (cmd - theta) - kv omega`. Driving -- force and
+    speed the same way -- a motor gives at most `peak (1 - |omega| / w_noload)`;
+    braking it may give the full `peak`. Returns the command that makes the
+    servo's force the nearest one inside that, so a plant without it cannot
+    spin a rotor past what the motor delivers (M141, ADR-0135).
+
+    Vectorises over motors (and worlds); `kp`, `kv`, `peak`, `w_noload` are
+    scalars.
+    """
+    theta = np.asarray(theta, dtype=float)
+    omega = np.asarray(omega, dtype=float)
+    f = kp * (np.asarray(cmd, dtype=float) - theta) - kv * omega
+    hi = peak * np.clip(1.0 - np.maximum(omega, 0.0) / w_noload, 0.0, 1.0)
+    lo = -peak * np.clip(1.0 - np.maximum(-omega, 0.0) / w_noload, 0.0, 1.0)
+    f = np.clip(f, lo, hi)
+    return theta + (f + kv * omega) / kp
+
+
 def realisable_cop(feet: np.ndarray, cop) -> np.ndarray:
     """Clamp a commanded centre of pressure onto what the contacts can actually make.
 

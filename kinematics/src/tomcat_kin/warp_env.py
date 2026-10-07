@@ -87,7 +87,7 @@ class WarpStand:
 
     def __init__(self, nworld: int = 2048, *, randomize: dict | None = None,
                  residual_n: float = 30.0, episode_s: float = 4.0, seed: int = 0,
-                 device: str = "cuda:0"):
+                 device: str = "cuda:0", envelope: bool = True):
         import mujoco
         import warp as wp
         import mujoco_warp as mjw
@@ -95,6 +95,7 @@ class WarpStand:
         self.wp, self.mjw, self.mj = wp, mjw, mujoco
         wp.init()
         self.N = int(nworld)
+        self.envelope = bool(envelope)
         self.rng = np.random.default_rng(seed)
         self.randomize = dict(randomize or {})
         self.residual_n = float(residual_n)
@@ -102,7 +103,7 @@ class WarpStand:
 
         # the CPU env is the single source of the plant, its names and its
         # settled start; nothing here re-derives them
-        cpu = TomcatEnv(rng=np.random.default_rng(0))
+        cpu = TomcatEnv(rng=np.random.default_rng(0), envelope=envelope)
         cpu.reset()
         self.cpu = cpu
         m = cpu.model
@@ -165,6 +166,7 @@ class WarpStand:
         self.jr = wp.array(np.array(cpu._jr, np.int32), dtype=int, device=device)
         self.js = wp.array(np.array(cpu._js, np.int32), dtype=int, device=device)
         self.act = wp.array(np.array(cpu._act, np.int32), dtype=int, device=device)
+        self.jrd = wp.array(np.array(cpu._jrd, np.int32), dtype=int, device=device)
         self.sens0_w = wp.array(self.sens0.astype(np.float32), dtype=float, device=device)
 
         # per-world state the host keeps
@@ -178,12 +180,25 @@ class WarpStand:
         wp = self.wp
 
         @wp.kernel
-        def servo(qpos: wp.array2d(dtype=float), T: wp.array2d(dtype=float),
+        def servo(qpos: wp.array2d(dtype=float), qvel: wp.array2d(dtype=float),
+                  T: wp.array2d(dtype=float),
                   jr: wp.array(dtype=int), js: wp.array(dtype=int),
+                  jrd: wp.array(dtype=int),
                   act: wp.array(dtype=int), kfac: wp.array(dtype=float),
+                  kp: float, kv: float, peak: float, wnl: float, env_on: int,
                   ctrl: wp.array2d(dtype=float)):
             w, i = wp.tid()
-            ctrl[w, act[i]] = qpos[w, jr[i]] + qpos[w, js[i]] + T[w, i] * kfac[i]
+            th = qpos[w, jr[i]]
+            cmd = th + qpos[w, js[i]] + T[w, i] * kfac[i]
+            if env_on != 0:
+                # `wbc.envelope_command`: the spec motor's torque-speed line
+                om = qvel[w, jrd[i]]
+                f = kp * (cmd - th) - kv * om
+                hi = peak * wp.clamp(1.0 - wp.max(om, 0.0) / wnl, 0.0, 1.0)
+                lo = -peak * wp.clamp(1.0 - wp.max(-om, 0.0) / wnl, 0.0, 1.0)
+                f = wp.clamp(f, lo, hi)
+                cmd = th + (f + kv * om) / kp
+            ctrl[w, act[i]] = cmd
 
         @wp.kernel
         def push(sd: wp.array2d(dtype=float), ring: wp.array3d(dtype=float),
@@ -217,8 +232,11 @@ class WarpStand:
         nsd = self.m.nsensordata
         for _ in range(self.decim):
             wp.launch(self.k_servo, dim=(self.N, 18),
-                      inputs=[self.dw.qpos, self.T, self.jr, self.js, self.act,
-                              self.kfac, self.dw.ctrl])
+                      inputs=[self.dw.qpos, self.dw.qvel, self.T, self.jr, self.js,
+                              self.jrd, self.act, self.kfac,
+                              float(self.servo_kp), float(self.cpu.servo_kv),
+                              float(MT.MOTOR_PEAK_NM), float(MT.MOTOR_NOLOAD_RAD_S),
+                              int(self.envelope), self.dw.ctrl])
             mjw.step(self.mw, self.dw)
             wp.launch(self.k_push, dim=(self.N, nsd),
                       inputs=[self.dw.sensordata, self.ring, self.counter, self.L])

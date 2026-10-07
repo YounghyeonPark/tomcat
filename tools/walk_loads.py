@@ -61,7 +61,12 @@ def run(policy, v, seed, randomize, skip_s=0.5):
                                    tm.capstan_factor(side=+1, q=q[nm]),
                                    tm.capstan_factor(side=-1, q=q[nm]))
             w = np.array([c.data.qvel[d] for d in jr_dof])     # rotor = output shaft
-            rows.append(np.concatenate([np.abs(T), np.abs(T) * cap, w]))
+            # SIGNED rotor torque, from the servo's own law -- what the motor
+            # puts out, so its sign against `w` says driving or braking
+            th = np.array([c.data.qpos[i] for i in c._jr])
+            ctrl = np.array([c.data.ctrl[i] for i in c._act])
+            f = c.servo_kp * (ctrl - th) - c.servo_kv * w
+            rows.append(np.concatenate([np.abs(T), np.abs(T) * cap, w, f]))
         if te or tr:
             fell = bool(te)
             break
@@ -72,7 +77,10 @@ def summarise(rows, kt):
     from tomcat_kin import mjcf_tendon as MT
     from tomcat_kin import power as PW
 
-    T, Tm, w = rows[:, :18], rows[:, 18:36], np.abs(rows[:, 36:])
+    T, Tm = rows[:, :18], rows[:, 18:36]
+    ws, fs = rows[:, 36:54], rows[:, 54:72]
+    w = np.abs(ws)
+    driving = fs * ws > 0.0                       # motor doing work, not braking
     tau = Tm * MT.SPOOL_R                                     # motor torque, N.m
     cu = PW.PHASE_FACTOR * (tau / kt) ** 2 * PW.R_PHASE_PHASE
     mech = tau * w
@@ -82,6 +90,8 @@ def summarise(rows, kt):
     # every sample to sit under its torque-speed line
     with np.errstate(divide="ignore", invalid="ignore"):
         need = np.where(tau < PW.PEAK_NM, rpm / (1.0 - tau / PW.PEAK_NM), np.inf)
+    # ⚠️ M141: the line binds only DRIVING; braking, a motor holds its peak
+    need_drv = np.where(driving, need, 0.0)
     by_joint = {}
     for j, name in enumerate(("hip", "knee", "ankle")):
         cols = [j, j + 3, j + 6, j + 9]
@@ -90,6 +100,9 @@ def summarise(rows, kt):
             "rms_nm": float(np.sqrt((tau[:, cols] ** 2).mean(0)).max()),
             "peak_rpm": float(rpm[:, cols].max()),
             "need_rpm_p99": float(np.percentile(need[:, cols], 99)),
+            "need_rpm_p99_driving": float(np.percentile(need_drv[:, cols], 99)),
+            "peak_rpm_driving": float(np.max(np.where(driving[:, cols], rpm[:, cols], 0.0))),
+            "driving_frac": float(np.mean(driving[:, cols])),
             "peak_cable_n": float(T[:, cols].max()),
             "rms_cable_n": float(np.sqrt((T[:, cols] ** 2).mean(0)).max()),
         }

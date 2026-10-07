@@ -8767,7 +8767,10 @@ The MuJoCo harness moved four numbers, and three of them moved the good way.
   - The fore-routing defect (M48) is closed by removal rather than by a fix.
 
 ## ADR-0110: the speed is bought by the winding — a rewound 3505 at 9:1, not a lower ratio
-- **Status:** Accepted (the route); the pack's cell count and the part are `[owed]`
+- **Status:** Accepted (the route); the pack's cell count and the part are `[owed]`.
+  ⚠️ **Reopened by [ADR-0135](#adr-0135) (M141):** the ~665 rpm is the planned
+  trot's; a learned trot drives under ~380 rpm and walks on the stock part's
+  speed.
 - **Context:** [ADR-0104](#adr-0104) added speed to the motor spec: the walked
   trot needs **~665 rpm** no-load at the spool against the proxy's 380, and
   [ADR-0106](#adr-0106) showed no moment arm closes it. M119 asks what motor
@@ -10525,6 +10528,62 @@ The MuJoCo harness moved four numbers, and three of them moved the good way.
   - ⚠️ These figures stand only until the actuator envelope is in the
     plant. A policy that cannot spin the rotor at 800 rpm will walk
     differently.
+
+---
+
+## ADR-0135: the motor's torque-speed line in the plant, and the speed the walk really needs
+- **Status:** Accepted (M141). Reopens [ADR-0110](#adr-0110)'s premise.
+- **Decision: the line is in the plant.** `wbc.envelope_command` holds every
+  rotor servo to a DC motor's line.
+  - Driving (force and speed the same way): at most
+    `peak · (1 − |ω| / ω_noload)`.
+  - Braking: the full peak.
+  - It runs every physics step, in `TomcatEnv` and in `WarpStand`'s servo
+    kernel, and is on by default (`envelope=True`).
+  - The line is the SPEC motor's: 1.95 N·m and **665 rpm**, ADR-0110's
+    rewound 3505 on 8S at its loaded floor (`MT.MOTOR_NOLOAD_RAD_S`).
+  - The whole suite passes with it on. GPU and CPU still agree step for step.
+- **With the line, M139's walk barely changes** (CPU, randomised):
+  - 0.455 m/s and 2 of 20 falls at 0.5 m/s, where it was 1 of 20.
+  - Its loads stand: copper 44.2 W, ankle peak 1.81 N·m, RMS 0.663.
+  - Rotor speeds fall from 805 to ~630 rpm.
+- **⚠️ The speed it needs is half what the spec assumed.** ADR-0104/0110
+  computed the no-load speed needed, `ω / (1 − τ/τ_peak)`, over every sample
+  with |τ| and |ω|. The line binds only DRIVING, so re-split by quadrant:
+
+  | no-load rpm needed (99th pct) | all samples | driving only |
+  |---|---|---|
+  | analytic trot: hip / knee / ankle | 638 / 563 / 378 | **636 / 563 / 378** |
+  | learned walk, 0.5 m/s | 436 / 613 / 621 | **124 / 284 / 359** |
+
+  - The analytic trot really drives its hip swing at ~635 rpm; that is a
+    property of its planned swing.
+  - The learned walk drives at under ~380 rpm. Its 600–800 rpm samples are
+    the motor BRAKING a rotor that the series spring and inertia carry.
+- **So: train and score under the PROXY's 380 rpm line** (`train_walk.py
+  --noload-rpm 380`, 15 M steps from M139, 50 min):
+
+  | | 0.25 m/s | 0.5 m/s |
+  |---|---|---|
+  | GPU, 256 worlds: 380-line policy | 0.27 m/s, 0 % fall | 0.45 m/s, **14.5 %** |
+  | GPU: M139 on the 665 line | 0.25, 0 % | 0.46, 7.4 % |
+  | CPU, 40 seeds: 380-line policy on a 380 motor | 0.264, 1 / 40 | 0.447, **1 / 40** |
+  | CPU, 40 seeds: M139 on a 665 motor | 0.253, 0 / 40 | 0.459, 3 / 40 |
+
+  - The CPU sees no difference; the GPU sees twice the falls at 0.5 m/s.
+- **Consequences:**
+  - ⚠️ **ADR-0110's rewind is a requirement of the PLANNED trot, not of
+    walking.** A learned trot reaches 0.25–0.5 m/s on the stock 3505-9's
+    speed: 380 rpm at 24 V, and 443 at an 8S pack's loaded floor.
+    - At 0.5 m/s it may cost some robustness; the two simulators disagree on
+      how much.
+    - The hardware call is the owner's. The bench Kv and a quote for both
+      parts, and the 6S floor's 332 rpm (untested), are `[owed]` before
+      buying.
+  - `power.gait_envelope` stays as it was: it describes the analytic trot
+    correctly. Its quadrant-blind check is right there and wrong as a spec
+    for a gait that brakes.
+  - Everything trained from here trains against a motor that has a line.
 
 ---
 

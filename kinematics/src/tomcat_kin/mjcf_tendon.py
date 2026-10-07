@@ -151,6 +151,12 @@ CABLE_E = 60e9
 #: more than the motor can ever apply — which is right, because the land transient
 #: arrives from the ground rather than from the actuator.
 MOTOR_PEAK_NM = 1.95            # GIM3505-9 peak, `[sourced: motor-downselect]`
+#: ✅ M141 (ADR-0135): the SPEC motor's no-load output speed -- ADR-0110's
+#: rewound 3505 at 9:1, `Kv_out` 23.8 rpm/V on an 8S pack at its 3.5 V/cell
+#: loaded floor -- in rad/s. With `MOTOR_PEAK_NM` it is the torque-speed LINE
+#: `wbc.envelope_command` holds every motor to. M140 found the plant had none
+#: and the walk spinning rotors to ~800 rpm.
+MOTOR_NOLOAD_RAD_S = 665.0 * 2.0 * 3.141592653589793 / 60.0
 MOTOR_RATED_NM = 0.71           # its CONTINUOUS rating
 TENSION_MAX = MOTOR_PEAK_NM / float(DEFAULT_TENDON.motor_spool_radius)
 TENSION_CONTINUOUS = MOTOR_RATED_NM / float(DEFAULT_TENDON.motor_spool_radius)
