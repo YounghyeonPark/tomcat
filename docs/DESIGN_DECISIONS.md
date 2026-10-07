@@ -10587,6 +10587,64 @@ The MuJoCo harness moved four numbers, and three of them moved the good way.
 
 ---
 
+## ADR-0136: can the stock motor walk? Yes, if trained for it; the open question is its Kt
+- **Status:** Accepted (M142), as a feasibility review. The part is the
+  owner's call.
+- **Context:** ADR-0135 found a learned trot drives its rotors under
+  ~380 rpm. This reviews the stock GIM3505-9 on every axis, not speed alone.
+- **The corners:**
+  - **Speed:** the sheet's 15.83 rpm/V at the output, times the pack's
+    loaded floor: 332 rpm (6S), 380 (24 V, as quoted), 443 (8S).
+  - **Peak torque:** set by current, 4.19 A × Kt. That is 1.84 N·m at the
+    surveyed Kt (0.44, which the sheet's own rated pair implies: 0.71 /
+    1.60) and **1.47 N·m at the vendor's 0.35** (ADR-0044's open question).
+  - **Continuous:** the rated 0.71 N·m.
+  - Mass, envelope and thermal are the frame's, the same as a rewind.
+- **Measured** (CPU, 20 randomised seeds per cell, falls at 0.5 m/s;
+  0.25 m/s fell 0–1 of 20 everywhere):
+
+  | policy | 332 / 1.84 | 380 / 1.47 | 380 / 1.84 | 443 / 1.47 | 443 / 1.84 |
+  |---|---|---|---|---|---|
+  | trained at 380 rpm / 1.95 N·m | 6 | 7 | 3 | 9 | 2 |
+  | **trained at 443 / 1.47** (15 M more) | 2 | **2** | – | **1** | 1 |
+
+  - **Speed is not the binding axis above 380 rpm; peak torque is.** At the
+    vendor-Kt peak the untrained policy falls 35–45 % at 0.5 m/s.
+  - **A policy trained on the weak motor walks it:** 0.452 m/s, 1 of 20, at
+    8S and 1.47 N·m.
+  - ⚠️ **But it over-fits.** On a 1.84 N·m motor it walks 0.155 m/s at a
+    0.25 command.
+  - The 6S floor (332 rpm) is slow for 0.5 m/s with a policy not trained for
+    it.
+- **Thermal and current** (M140's loads, the randomised walk at 0.5 m/s; the
+  ankle is worst):
+
+  | | surveyed Kt 0.44 | vendor Kt 0.35 | limit |
+  |---|---|---|---|
+  | RMS current | 1.51 A (94 %) | **1.89 A (118 %)** | 1.60 A rated |
+  | peak current | 4.1 A (98 %) | **5.2 A (124 %)** | 4.19 A |
+  | RMS torque | 0.66 N·m | 0.66 N·m | 0.71 N·m rated (93 %) |
+
+  - Heat is copper, `I²R`, which a rewind leaves unchanged at a given
+    torque. **So this is the same for the stock part and the rewound one.**
+    Only the current per N·m differs, and the stock part's is the LOWER.
+- **Findings:**
+  - ✅ **The stock motor is feasible in simulation:** 0.25 m/s on any corner,
+    0.5 m/s on an 8S pack if the policy trains for the motor it gets.
+  - ⚠️ **Everything hinges on the measured Kt**, not on speed.
+    - At 0.44 the ankle runs at 94 % of its continuous rating and 98 % of its
+      peak current.
+    - At 0.35 it is over both, rewound or not.
+  - **Recommended pack: 8S.** 6S's floor is too slow for 0.5 m/s.
+- **Next:**
+  - **Randomise the motor itself** (peak 1.47–1.95 N·m, no-load 380–665
+    rpm) so one policy walks whichever part and Kt it meets. That is the
+    sim2real answer to an unmeasured Kt, and it removes the over-fit above.
+  - **Bench one motor's Kt** (`[owed]`, OPEN_RISKS R1). It now decides the
+    thermal margin, not just runtime.
+
+---
+
 ---
 
 ### How to add an ADR

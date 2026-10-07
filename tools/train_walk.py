@@ -83,6 +83,8 @@ def main():
     ap.add_argument("--clear-w", type=float, default=0.0, help="swing clearance reward")
     ap.add_argument("--noload-rpm", type=float, default=None,
                     help="the motors' no-load speed (default: the spec motor's 665)")
+    ap.add_argument("--peak-nm", type=float, default=None,
+                    help="the motors' peak torque (default 1.95)")
     a = ap.parse_args()
 
     from stable_baselines3 import PPO
@@ -98,6 +100,10 @@ def main():
         import math
         from tomcat_kin import mjcf_tendon as MT
         MT.MOTOR_NOLOAD_RAD_S = a.noload_rpm * 2.0 * math.pi / 60.0
+    if a.peak_nm:
+        # M142 (ADR-0136): a current-limited peak, e.g. 4.19 A x the vendor's Kt
+        from tomcat_kin import mjcf_tendon as MT
+        MT.MOTOR_PEAK_NM = a.peak_nm
     dr = {**TomcatEnv.RANGES, **TomcatEnv.SENSOR_RANGES}
     kw = {"randomize": dr, "residual_n": a.residual, "gait_w": a.gait_w,
           "slip_w": a.slip_w, "clear_w": a.clear_w}
