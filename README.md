@@ -53,7 +53,7 @@ the cable pulling).
 
 ## Learning to walk
 
-![a learned walk at 0.5 m/s, on sensors alone](docs/figures/walk_m139.webp)
+![a learned walk at 0.5 m/s, on sensors alone](docs/figures/walk_m144.webp)
 
 A policy trained on the GPU (MuJoCo-Warp, 2048 robots at once) with every
 mass, friction, spring, latency and sensor error randomised, filmed on the CPU
@@ -69,7 +69,9 @@ needed a rewound one ([ADR-0134](docs/DESIGN_DECISIONS.md),
 [ADR-0135](docs/DESIGN_DECISIONS.md)). With a short memory of its own actions
 and the motor itself randomised, one policy walks on every motor corner from
 the stock part at the vendor's Kt to the rewind
-([ADR-0136](docs/DESIGN_DECISIONS.md)–[ADR-0138](docs/DESIGN_DECISIONS.md)).
+([ADR-0136](docs/DESIGN_DECISIONS.md)–[ADR-0138](docs/DESIGN_DECISIONS.md)), but by
+working harder, and the plant does not yet charge it the conduits' friction
+([ADR-0139](docs/DESIGN_DECISIONS.md)).
 
 ## Key numbers
 

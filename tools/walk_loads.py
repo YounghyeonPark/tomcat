@@ -28,15 +28,19 @@ import numpy as np
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "kinematics", "src"))
 
 
-def run(policy, v, seed, randomize, skip_s=0.5):
+def run(policy, v, seed, randomize, skip_s=0.5, history=1):
     from tomcat_kin import TendonMap
     from tomcat_kin import mjcf_tendon as MT
     from tomcat_kin.env import LEGS
     from tomcat_kin.gym_env import TomcatWalk
     from tomcat_kin.params import tendon_for
 
-    env = TomcatWalk(v_cmd=v, randomize=randomize, seed=seed)
+    env = TomcatWalk(v_cmd=v, randomize=randomize, seed=seed, act_obs=history > 1)
     o, _ = env.reset()
+    from train_walk import Stack
+    st = Stack(1, history, o.shape[0]) if history > 1 else None
+    if st is not None:
+        o = st.reset(o[None])[0]
     c = env.core
     import mujoco
     jr_dof = [int(c.model.jnt_dofadr[c._id(mujoco.mjtObj.mjOBJ_JOINT, "jr_" + p)])
@@ -48,6 +52,8 @@ def run(policy, v, seed, randomize, skip_s=0.5):
     while True:
         a = policy.predict(o, deterministic=True)[0]
         o, _r, te, tr, _info = env.step(a)
+        if st is not None:
+            o = st.step(o[None], np.array([False]))[0]
         n += 1
         if n / c.control_hz >= skip_s:
             th_s = np.array([c.data.qpos[i] for i in c._js])
@@ -123,7 +129,16 @@ def main():
     ap.add_argument("--seeds", type=int, default=5)
     ap.add_argument("--dr", action="store_true")
     ap.add_argument("--out", default=None)
+    ap.add_argument("--history", type=int, default=1)
+    ap.add_argument("--noload-rpm", type=float, default=None)
+    ap.add_argument("--peak-nm", type=float, default=None)
     a = ap.parse_args()
+    import math
+    from tomcat_kin import mjcf_tendon as MT
+    if a.noload_rpm:
+        MT.MOTOR_NOLOAD_RAD_S = a.noload_rpm * 2.0 * math.pi / 60.0
+    if a.peak_nm:
+        MT.MOTOR_PEAK_NM = a.peak_nm
 
     from stable_baselines3 import PPO
 
@@ -137,7 +152,7 @@ def main():
     for v in (0.25, 0.5):
         rows, falls = [], 0
         for s in range(a.seeds):
-            r, fell = run(pol, v, 40_000 + s, dr)
+            r, fell = run(pol, v, 40_000 + s, dr, history=a.history)
             rows.append(r)
             falls += int(fell)
         rows = np.concatenate(rows)

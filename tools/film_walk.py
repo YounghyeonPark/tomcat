@@ -40,12 +40,27 @@ def main():
     ap.add_argument("--every", type=int, default=4, help="control steps per frame")
     ap.add_argument("--dr", action="store_true", help="randomise the plant and sensors")
     ap.add_argument("--out", default="walk.webp")
+    ap.add_argument("--history", type=int, default=1,
+                    help="frames the policy was trained on (M144: 4, with its last action)")
+    ap.add_argument("--noload-rpm", type=float, default=None)
+    ap.add_argument("--peak-nm", type=float, default=None)
     a = ap.parse_args()
+    import math
+    from tomcat_kin import mjcf_tendon as MT
+    if a.noload_rpm:
+        MT.MOTOR_NOLOAD_RAD_S = a.noload_rpm * 2.0 * math.pi / 60.0
+    if a.peak_nm:
+        MT.MOTOR_PEAK_NM = a.peak_nm
+    from train_walk import Stack
 
     dr = {**TomcatEnv.RANGES, **TomcatEnv.SENSOR_RANGES} if a.dr else None
-    env = TomcatWalk(v_cmd=a.v, randomize=dr, seed=a.seed, episode_s=a.seconds)
+    env = TomcatWalk(v_cmd=a.v, randomize=dr, seed=a.seed, episode_s=a.seconds,
+                     act_obs=a.history > 1)
     pol = PPO.load(a.policy, device="cpu")
     o, _ = env.reset()
+    st = Stack(1, a.history, o.shape[0]) if a.history > 1 else None
+    if st is not None:
+        o = st.reset(o[None])[0]
     core = env.core
     rm = render_model(core)
     rd = mujoco.MjData(rm)
@@ -58,6 +73,8 @@ def main():
     while True:
         act = pol.predict(o, deterministic=True)[0]
         o, _r, te, tr, info = env.step(act)
+        if st is not None:
+            o = st.step(o[None], np.array([False]))[0]
         n += 1
         if n % a.every == 0 or te or tr:
             rd.qpos[:] = core.data.qpos
@@ -75,8 +92,9 @@ def main():
                 d.text((x + 2, H - 50), nm, fill=(40, 40, 40))
             t = n / core.control_hz
             dx = float(core.data.qpos[0]) - x0
-            d.text((10, 8), "v_cmd %.2f m/s   t %.2f s   mean %.2f m/s"
-                   % (a.v, t, dx / max(t, 1e-9)), fill=(30, 30, 30))
+            d.text((10, 8), "v_cmd %.2f m/s   t %.2f s   mean %.2f m/s   motor %.0f rpm / %.2f N.m"
+                   % (a.v, t, dx / max(t, 1e-9), MT.MOTOR_NOLOAD_RAD_S * 60 / (2 * math.pi),
+                      MT.MOTOR_PEAK_NM), fill=(30, 30, 30))
             frames.append(img)
         if te or tr:
             break

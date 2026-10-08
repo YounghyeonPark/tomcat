@@ -10714,6 +10714,50 @@ The MuJoCo harness moved four numbers, and three of them moved the good way.
 
 ---
 
+## ADR-0139: the memory policy's price, and the friction the plant still lacks
+- **Status:** Accepted (M145).
+- **Done:**
+  - `film_walk.py` and `walk_loads.py` take `--history` (the policy's frame
+    stack, with its last action) and `--noload-rpm` / `--peak-nm`.
+  - M144's policy is filmed on the spec motor (`docs/figures/walk_m144.webp`)
+    and on the stock part at the vendor's Kt (380 rpm / 1.47 N·m). Both stand
+    the 4 s and trot, RF + LR then LF + RR, and move almost alike.
+- **Measured as a load case** (0.5 m/s, 10 randomised seeds, surveyed Kt;
+  the second runtime is the vendor's Kt):
+
+  | | M139 (ADR-0134/0135) | M144, spec motor | M144, stock 380/1.47 |
+  |---|---|---|---|
+  | legs copper | 44.2 W | **67.8 W** | **74.8 W** |
+  | legs mechanical | 23.0 W | 47.0 W | 37.0 W |
+  | runtime, spine included | 26.0 / 19.6 min | **18.5 / 14.2** | 19.1 / 14.3 |
+  | ankle peak, friction counted | 1.81 N·m | **2.38** | **2.16** |
+  | ankle RMS | 0.66 N·m | 0.66 | **0.72** (rated 0.71) |
+  | ankle peak cable | 161 N | 206 N | 191 N |
+
+- **Findings:**
+  - ⚠️ **The memory policy walks every motor by working harder.** It uses
+    ~1.6× the copper and 1.6–2× the mechanical work of M139, lifting its
+    feet higher (clearance 63 % against 47).
+    - Runtime at the vendor's Kt falls back to **14.2 min**, a hair over
+      NFR6's floor.
+  - ⚠️ **A second structural sim gap: the plant has no conduit friction.**
+    - The policy pulls the ankle cable to 206 N, near the 223 N the motor
+      gives in a frictionless plant.
+    - On the robot the conduit would charge ×1.2–1.46 on that pull: **2.38
+      N·m at the motor, past its 1.95 peak**.
+    - The simulator lets it ask for force the real drive cannot deliver,
+      just as it let M139 spin rotors past the motor's line (ADR-0135).
+  - The reward's tension cost (0.2 · mean|T| / T_max) is too weak to stop
+    it.
+- **Next, in order:**
+  1. **Conduit friction in the plant:** the capstan factor at the pose
+     between the motor and the cable, both CPU and GPU, so a policy feels
+     what `power` charges.
+  2. A copper-shaped cost in the reward (`τ²` at the motor, not `|T|`).
+  3. Retrain with history, and re-measure.
+
+---
+
 ---
 
 ### How to add an ADR
