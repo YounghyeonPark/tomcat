@@ -554,10 +554,17 @@ class WarpWalk(WarpStand):
 
     def __init__(self, nworld=2048, *, v_range=(0.0, 0.5), period=0.4,
                  residual_n=80.0, gait_w: float = 0.0, slip_w: float = 0.0,
-                 clear_w: float = 0.0, clear_m: float = 0.03, **kw):
+                 clear_w: float = 0.0, clear_m: float = 0.03,
+                 act_obs: bool = False, **kw):
         """`gait_w` (M138, ADR-0132): weight of the trot term -- each foot
         down when the clock says its diagonal pair is in stance (LF+RR the
-        first half of the period, RF+LR the second), up when it is not."""
+        first half of the period, RF+LR the second), up when it is not.
+
+        `act_obs` (M144, ADR-0138): append the policy's own last action (18)
+        to the observation, so with a stack of frames it can see what it
+        asked for against what happened -- and tell which motor it is on."""
+        self.act_obs = bool(act_obs)
+        self.last_a = None
         self.v_range = tuple(v_range)
         self.period = float(period)
         self.gait_w = float(gait_w)
@@ -572,6 +579,9 @@ class WarpWalk(WarpStand):
     def _reset_worlds(self, mask):
         super()._reset_worlds(mask)
         self._fresh = np.asarray(mask, bool).copy()
+        if self.last_a is None:
+            self.last_a = np.zeros((self.N, 18))
+        self.last_a[np.asarray(mask, bool)] = 0.0
         if self.vcmd is None:
             self.vcmd = np.zeros(self.N)
         idx = np.nonzero(mask)[0]
@@ -592,7 +602,17 @@ class WarpWalk(WarpStand):
     def flatten(self, o):
         ph = 2.0 * np.pi * self.clock()
         extra = np.stack([np.sin(ph), np.cos(ph), self.vcmd], 1).astype(np.float32)
-        return np.concatenate([super().flatten(o), extra], 1)
+        parts = [super().flatten(o), extra]
+        if self.act_obs:
+            parts.append(self.last_a.astype(np.float32))
+        return np.concatenate(parts, 1)
+
+    def step(self, action):
+        # the action taken now is the "last action" the next observation shows
+        if self.last_a is None:
+            self.last_a = np.zeros((self.N, 18))
+        self.last_a = np.clip(np.asarray(action, float), -1.0, 1.0)
+        return super().step(action)
 
     def reward(self, o, T, q):
         vx = self.dw.qvel.numpy()[:, 0].astype(float)
@@ -639,5 +659,6 @@ class WarpWalk(WarpStand):
 
 
 def make_walk_vec_env(nworld=2048, **kw):
-    """`WarpWalk` behind SB3's `VecEnv` (67 observations)."""
-    return _vec(nworld, WarpWalk, 67, **kw)
+    """`WarpWalk` behind SB3's `VecEnv` (67 observations, 85 with
+    `act_obs`; stack frames with SB3's `VecFrameStack` for a history)."""
+    return _vec(nworld, WarpWalk, 85 if kw.get("act_obs") else 67, **kw)

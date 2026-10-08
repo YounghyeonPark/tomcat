@@ -124,3 +124,18 @@ def test_each_world_draws_its_own_MOTOR():
     assert np.allclose(W.peak_w.numpy(), W.draw["peak"], atol=1e-5)
     for _ in range(5):
         W.step(np.zeros((16, 18)))
+
+
+def test_the_last_ACTION_is_observed_and_cleared_at_a_reset():
+    """M144 (ADR-0138): with `act_obs`, the observation ends in the action
+    just taken (85 channels), and a world that restarts sees zeros there."""
+    from tomcat_kin.warp_env import WarpWalk
+    W = WarpWalk(3, act_obs=True)
+    o = W.reset()
+    assert o.shape == (3, 85) and np.allclose(o[:, -18:], 0.0)
+    a = np.full((3, 18), 0.25)
+    o, *_ = W.step(a)
+    assert np.allclose(o[:, -18:], 0.25)
+    W._reset_worlds(np.array([False, True, False]))
+    o = W.flatten(W._obs)
+    assert np.allclose(o[1, -18:], 0.0) and np.allclose(o[0, -18:], 0.25)

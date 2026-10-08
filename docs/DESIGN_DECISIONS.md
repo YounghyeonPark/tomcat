@@ -10679,6 +10679,41 @@ The MuJoCo harness moved four numbers, and three of them moved the good way.
 
 ---
 
+## ADR-0138: a policy with a short memory walks on whichever motor it meets
+- **Status:** Accepted (M144). Tests ADR-0137's hypothesis, and it holds.
+- **Decision:** the policy sees what it did.
+  - `WarpWalk(act_obs=True)` / `TomcatWalk(act_obs=True)` append its last
+    action, so the observation is 85 channels.
+  - `train_walk.py --history 4` stacks the last 4 observations with SB3's
+    `VecFrameStack`. The scorers stack them identically (`train_walk.Stack`,
+    checked frame for frame against `VecFrameStack` across resets).
+  - With what it asked for beside what happened, a policy can tell a weak
+    motor from a strong one.
+- **Trained** from scratch, 60 M steps on 2048 worlds (178 min), with every
+  plant, sensor and MOTOR range drawn, and the trot, slip and clearance
+  terms.
+- **Result** (CPU, 20 randomised seeds per fixed motor, falls at 0.5 m/s):
+
+  | motor (rpm / N·m) | 380/1.47 | 443/1.47 | 443/1.84 | 380/1.95 | 665/1.95 |
+  |---|---|---|---|---|---|
+  | specialist (ADR-0136/0135) | 2 | 1 | 1 | 3 | 3 of 40 |
+  | memoryless, motor-randomised (ADR-0137) | 12 | 7 | 5 | 4 | 4 |
+  | **4-frame history, motor-randomised** | **3** | **4** | **2** | **1** | **2** |
+
+  - ✅ **One policy is within a fall or three of each motor's specialist.**
+  - It never falls at 0.25 m/s on any motor; it walks 0.22–0.26 m/s there,
+    a little slow on the weak motors.
+  - On the GPU (motor drawn): 9.4 % falls at 0.5 m/s, against the
+    memoryless policy's 16 %. Swing clearance 63 %, from 47.
+- **Consequences:**
+  - The motor question no longer decides whether the robot can walk. Stock
+    or rewound, at Kt 0.35 or 0.44, one policy walks it.
+  - The bench Kt still decides the THERMAL margin (ADR-0136), which no
+    policy changes.
+  - Every later walking policy should carry the history.
+
+---
+
 ---
 
 ### How to add an ADR

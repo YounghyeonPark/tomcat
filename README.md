@@ -66,7 +66,10 @@ Measured as a load case, this walk uses half the copper the analytic trot budget
 and, with the motor's torque–speed line now in the plant, drives its rotors under
 ~380 rpm: a learned trot walks on the stock motor's speed, where the planned trot
 needed a rewound one ([ADR-0134](docs/DESIGN_DECISIONS.md),
-[ADR-0135](docs/DESIGN_DECISIONS.md)).
+[ADR-0135](docs/DESIGN_DECISIONS.md)). With a short memory of its own actions
+and the motor itself randomised, one policy walks on every motor corner from
+the stock part at the vendor's Kt to the rewind
+([ADR-0136](docs/DESIGN_DECISIONS.md)–[ADR-0138](docs/DESIGN_DECISIONS.md)).
 
 ## Key numbers
 

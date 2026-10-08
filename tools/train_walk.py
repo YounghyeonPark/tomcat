@@ -23,7 +23,28 @@ import numpy as np
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "kinematics", "src"))
 
 
-def score(policy, kw, speeds=(0.25, 0.5), nworld=256, seconds=4.0):
+class Stack:
+    """The last `k` observations side by side, exactly as SB3's
+    `VecFrameStack` builds them: zeros before an episode's first frame, the
+    newest last, and a finished env restarted from zeros (M144)."""
+
+    def __init__(self, n_env, k, dim):
+        self.k, self.dim = int(k), int(dim)
+        self.buf = np.zeros((n_env, self.k * self.dim), np.float32)
+
+    def reset(self, obs):
+        self.buf[:] = 0.0
+        self.buf[:, -self.dim:] = obs
+        return self.buf.copy()
+
+    def step(self, obs, done):
+        self.buf = np.roll(self.buf, -self.dim, axis=1)
+        self.buf[np.asarray(done, bool)] = 0.0
+        self.buf[:, -self.dim:] = obs
+        return self.buf.copy()
+
+
+def score(policy, kw, speeds=(0.25, 0.5), nworld=256, seconds=4.0, history=1):
     """Per commanded speed: mean forward speed over the episodes' lives, and
     the fraction that fell. `policy` None = the baseline alone."""
     from tomcat_kin.warp_env import WarpWalk
@@ -31,6 +52,9 @@ def score(policy, kw, speeds=(0.25, 0.5), nworld=256, seconds=4.0):
     for v in speeds:
         env = WarpWalk(nworld, **{**kw, "v_range": (v, v), "seed": 12345})
         o = env.reset()
+        st = Stack(nworld, history, o.shape[1]) if history > 1 else None
+        if st is not None:
+            o = st.reset(o)
         n = int(round(seconds * env.control_hz))
         alive = np.ones(nworld, bool)
         dist = np.zeros(nworld)
@@ -40,6 +64,8 @@ def score(policy, kw, speeds=(0.25, 0.5), nworld=256, seconds=4.0):
         for _ in range(n):
             a = np.zeros((nworld, 18)) if policy is None else policy.predict(o, deterministic=True)[0]
             o, _r, te, tr, _info = env.step(a)
+            if st is not None:
+                o = st.step(o, te | tr)
             sl, cl = env.last_feet
             if alive.any():
                 slips.append(float(np.mean(sl[alive])))
@@ -85,6 +111,9 @@ def main():
                     help="the motors' no-load speed (default: the spec motor's 665)")
     ap.add_argument("--peak-nm", type=float, default=None,
                     help="the motors' peak torque (default 1.95)")
+    ap.add_argument("--history", type=int, default=1,
+                    help="M144: frames stacked (with --act-obs, the last actions too)")
+    ap.add_argument("--act-obs", action="store_true", help="M144: last action in the obs")
     ap.add_argument("--motor-dr", action="store_true",
                     help="M143: draw each world's motor from TomcatEnv.MOTOR_RANGES")
     a = ap.parse_args()
@@ -110,13 +139,16 @@ def main():
     if a.motor_dr:
         dr.update(TomcatEnv.MOTOR_RANGES)
     kw = {"randomize": dr, "residual_n": a.residual, "gait_w": a.gait_w,
-          "slip_w": a.slip_w, "clear_w": a.clear_w}
+          "slip_w": a.slip_w, "clear_w": a.clear_w, "act_obs": a.act_obs}
     t0 = time.time()
-    before = score(None, kw)
+    before = score(None, kw, history=a.history)
     print("baseline alone:", before, flush=True)
 
     venv = VecMonitor(make_walk_vec_env(a.envs, v_range=(0.0, a.vmax), seed=0, **kw),
                       os.path.join(a.out, "monitor"))
+    if a.history > 1:
+        from stable_baselines3.common.vec_env import VecFrameStack
+        venv = VecFrameStack(venv, a.history)
     # ⚠️ The first 30 M-step run walked (0.36-0.41 m/s) by 19 M and then
     # COLLAPSED twice, ending on the collapsed policy. So: the learning rate
     # decays to zero, an update stops at `target_kl`, and checkpoints are kept
@@ -142,13 +174,13 @@ def main():
     model.learn(total_timesteps=a.steps, callback=ck)
     model.save(os.path.join(a.out, "policy"))
 
-    after = score(model, kw)
+    after = score(model, kw, history=a.history)
     print("policy (final):", after, flush=True)
     ranked = []
     ckdir = os.path.join(a.out, "ckpt")
     for f in sorted(os.listdir(ckdir)) if os.path.isdir(ckdir) else []:
         p = PPO.load(os.path.join(a.out, "ckpt", f), device="cuda")
-        sc = score(p, kw)
+        sc = score(p, kw, history=a.history)
         fell = np.mean([v["fell"] for v in sc.values()])
         err = np.mean([abs(v["speed"] - float(k)) for k, v in sc.items()])
         ranked.append((fell, err, f, sc))
