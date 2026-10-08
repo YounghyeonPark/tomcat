@@ -10758,6 +10758,63 @@ The MuJoCo harness moved four numbers, and three of them moved the good way.
 
 ---
 
+## ADR-0140: the conduits' friction in the plant, and a copper-shaped cost
+- **Status:** Accepted (M146). Closes ADR-0139's first two items.
+- **Decision:** the plant charges the drive what `power` charges.
+  - `tendon.drive_capstan(q, T)` vectorises
+    `TendonMap.capstan_factor(q=...)` over worlds: each leg on its own
+    drive, the knee crossing at the pose. It matches it exactly.
+  - **In the plant** (`TomcatEnv.step`, and `WarpStand` per control step
+    from the true pose):
+    - the command is the MOTOR's tension;
+    - the joint receives it divided by the capstan factor;
+    - the motor's line binds the motor's torque (`peak / cap` at the joint).
+    - On by default (`friction=True`). The spine has no conduit model and
+      is left at 1.
+  - **The controller knows its drive.** `StandBaseline` and the GPU
+    baseline ask the motor for the joint's need times the factor at the
+    pose they estimate. The residual adds motor-side tension.
+  - **A copper-shaped cost**, `cu_w · mean((T / T_max)²)` (`train_walk.py
+    --cu-w`, 2.0 here). The old `0.2 · mean|T|` did not stop a 206 N pull.
+  - The whole suite passes with friction on. One sensor test had to compare
+    the summed joint error, as M137's did, because the worst joint is now an
+    ankle, which has no load cell for `load_scale`.
+- **Trained:** M144's policy, 30 M steps more on the friction plant with
+  the copper cost and every plant, sensor and motor range drawn (102 min).
+  - Carried over unchanged, M144's policy walks 0.18 / 0.35 m/s here:
+    friction takes that much.
+  - After training it walks 0.27 / 0.48 m/s on the GPU, with 0.4 % / 11 %
+    falls.
+- **As a load case** (0.5 m/s, 10 randomised seeds, surveyed Kt, then the
+  vendor's):
+
+  | | M144 spec | **M146 spec** | M144 stock 380/1.47 | **M146 stock** |
+  |---|---|---|---|---|
+  | legs copper | 67.8 W | **57.8 W** | 74.8 W | **67.9 W** |
+  | runtime, spine included | 18.5 / 14.2 min | **22.1 / 16.9** | 19.1 / 14.3 | 21.1 / 15.7 |
+  | ankle peak at the motor | 2.38 N·m | **1.80** | 2.16 | 1.88 |
+  | ankle RMS | 0.66 | 0.60 | 0.72 | 0.725 |
+
+  - `walk_loads` multiplies paying-out tension by the factor too, so its
+    peaks are an upper bound when the motor is braking.
+- **Falls at 0.5 m/s, CPU, 20 seeds per fixed motor:**
+  - M146: 380/1.47 **5**, 443/1.47 **6**, 443/1.84 2, 380/1.95 2,
+    665/1.95 4.
+  - M144, frictionless: 3, 4, 2, 1, 2.
+  - At 0.25 m/s: 0–1 everywhere.
+- **Findings:**
+  - ✅ **On the spec motor the walk now fits the drive.**
+    - The ankle peaks at 1.80 N·m with friction counted, inside 1.95.
+    - Copper is down 15 %.
+    - The vendor-Kt runtime is back to 16.9 min, from 14.2.
+  - ⚠️ **On the stock motor at the vendor's Kt it does not quite.** The
+    ankle's RMS is 0.725 N·m against 0.71 rated. That is the thermal margin
+    ADR-0136 said only a bench Kt settles.
+  - A plant with friction is harder: a few more falls at 0.5 m/s on the
+    weak motors than M144 had without it. That is the honest number.
+
+---
+
 ---
 
 ### How to add an ADR

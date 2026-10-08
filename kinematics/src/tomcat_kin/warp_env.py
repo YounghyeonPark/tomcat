@@ -87,7 +87,7 @@ class WarpStand:
 
     def __init__(self, nworld: int = 2048, *, randomize: dict | None = None,
                  residual_n: float = 30.0, episode_s: float = 4.0, seed: int = 0,
-                 device: str = "cuda:0", envelope: bool = True):
+                 device: str = "cuda:0", envelope: bool = True, friction: bool = True):
         import mujoco
         import warp as wp
         import mujoco_warp as mjw
@@ -103,7 +103,7 @@ class WarpStand:
 
         # the CPU env is the single source of the plant, its names and its
         # settled start; nothing here re-derives them
-        cpu = TomcatEnv(rng=np.random.default_rng(0), envelope=envelope)
+        cpu = TomcatEnv(rng=np.random.default_rng(0), envelope=envelope, friction=friction)
         cpu.reset()
         self.cpu = cpu
         m = cpu.model
@@ -172,6 +172,10 @@ class WarpStand:
                                dtype=float, device=device)
         self.wnl_w = wp.array(np.full(self.N, MT.MOTOR_NOLOAD_RAD_S, np.float32),
                               dtype=float, device=device)
+        # M146 (ADR-0140): each pair's conduit friction, set every control step
+        self.friction = bool(cpu.friction)
+        self.cap_w = wp.array(np.ones((self.N, 18), np.float32), dtype=float, device=device)
+        self.leg_qadr = np.array([cpu._qadr(nm) for nm in LEGS])          # (4, 3)
         self.sens0_w = wp.array(self.sens0.astype(np.float32), dtype=float, device=device)
 
         # per-world state the host keeps
@@ -192,14 +196,16 @@ class WarpStand:
                   act: wp.array(dtype=int), kfac: wp.array(dtype=float),
                   kp: float, kv: float, peak_w: wp.array(dtype=float),
                   wnl_w: wp.array(dtype=float), env_on: int,
+                  cap: wp.array2d(dtype=float),
                   ctrl: wp.array2d(dtype=float)):
             w, i = wp.tid()
             th = qpos[w, jr[i]]
-            cmd = th + qpos[w, js[i]] + T[w, i] * kfac[i]
+            # M146: the joint gets the motor's tension over the conduit's friction
+            cmd = th + qpos[w, js[i]] + T[w, i] / cap[w, i] * kfac[i]
             if env_on != 0:
                 # `wbc.envelope_command`: the spec motor's torque-speed line
                 om = qvel[w, jrd[i]]
-                peak = peak_w[w]
+                peak = peak_w[w] / cap[w, i]
                 wnl = wnl_w[w]
                 f = kp * (cmd - th) - kv * om
                 hi = peak * wp.clamp(1.0 - wp.max(om, 0.0) / wnl, 0.0, 1.0)
@@ -244,7 +250,7 @@ class WarpStand:
                               self.jrd, self.act, self.kfac,
                               float(self.servo_kp), float(self.cpu.servo_kv),
                               self.peak_w, self.wnl_w,
-                              int(self.envelope), self.dw.ctrl])
+                              int(self.envelope), self.cap_w, self.dw.ctrl])
             mjw.step(self.mw, self.dw)
             wp.launch(self.k_push, dim=(self.N, nsd),
                       inputs=[self.dw.sensordata, self.ring, self.counter, self.L])
@@ -452,6 +458,11 @@ class WarpStand:
         T[:, 12:] = (SB.KP_SPINE * (self.b_s0 - s)
                      - SB.KD_SPINE * (s - self.b_sp) / dt) / (-self.gs)
         self.b_qp, self.b_sp = q, s
+        if self.friction:
+            # M146: as `StandBaseline` -- ask the motor for the joint's need times
+            # the conduit's friction at the estimated pose
+            from .tendon import drive_capstan
+            T[:, :12] *= drive_capstan(q, T[:, :12].reshape(self.N, 4, 3)).reshape(self.N, 12)
         return T
 
     # -- the loop -------------------------------------------------------------
@@ -461,6 +472,13 @@ class WarpStand:
         T = np.clip(self.baseline(self._obs) + a * self.residual_n,
                     -MT.TENSION_MAX, MT.TENSION_MAX)
         self.T.assign(T.astype(np.float32))
+        if self.friction:
+            from .tendon import drive_capstan
+            qp = self.dw.qpos.numpy()
+            cap = np.ones((self.N, 18))
+            cap[:, :12] = drive_capstan(qp[:, self.leg_qadr], T[:, :12].reshape(self.N, 4, 3)
+                                        ).reshape(self.N, 12)
+            self.cap_w.assign(cap.astype(np.float32))
         wp.capture_launch(self.graph)
         o = self._observe(self._read())
         self.steps += 1
@@ -555,7 +573,7 @@ class WarpWalk(WarpStand):
     def __init__(self, nworld=2048, *, v_range=(0.0, 0.5), period=0.4,
                  residual_n=80.0, gait_w: float = 0.0, slip_w: float = 0.0,
                  clear_w: float = 0.0, clear_m: float = 0.03,
-                 act_obs: bool = False, **kw):
+                 act_obs: bool = False, cu_w: float = 0.0, **kw):
         """`gait_w` (M138, ADR-0132): weight of the trot term -- each foot
         down when the clock says its diagonal pair is in stance (LF+RR the
         first half of the period, RF+LR the second), up when it is not.
@@ -565,6 +583,10 @@ class WarpWalk(WarpStand):
         asked for against what happened -- and tell which motor it is on."""
         self.act_obs = bool(act_obs)
         self.last_a = None
+        # M146 (ADR-0140): a COPPER-shaped cost, (motor tension / its max)^2
+        # averaged over the pairs -- what heats the motors, where the standing
+        # task's 0.2 mean|T| was too weak to stop a 206 N pull
+        self.cu_w = float(cu_w)
         self.v_range = tuple(v_range)
         self.period = float(period)
         self.gait_w = float(gait_w)
@@ -625,9 +647,10 @@ class WarpWalk(WarpStand):
         gait = self.trot_match(o) if self.gait_w else 0.0
         slip, clear = self.feet_terms(o)
         self.last_feet = (slip, clear)          # computed once a step; read, do not recompute
+        copper = np.mean((T / MT.TENSION_MAX) ** 2, 1)
         return (2.0 * track + 0.5 * upright + 0.5 * tall + self.gait_w * gait
                 - self.slip_w * slip + self.clear_w * clear
-                - 0.05 * np.minimum(spin, 20.0) - 0.2 * cost)
+                - 0.05 * np.minimum(spin, 20.0) - 0.2 * cost - self.cu_w * copper)
 
     def foot_pos(self):
         """(N, 4, 3) world positions of the four foot sites."""

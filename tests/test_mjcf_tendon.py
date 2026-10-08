@@ -6222,7 +6222,9 @@ def test_SENSOR_RANDOMISATION_BITES_THE_OBSERVATION_not_the_trajectory():
     # ✅ transmission errors move the estimate and leave the IMU alone
     for name in ("enc_offset_rad", "load_scale"):
         got = measure(**{name: TomcatEnv.SENSOR_RANGES[name][1]})
-        assert got[0] != clean[0], f"{name} must reach the joint estimate"
+        # M146: the summed error -- with conduit friction in the plant the
+        # worst joint is an ankle, which has no load cell for `load_scale`
+        assert got[3] != clean[3], f"{name} must reach the joint estimate"
         assert got[1] == pytest.approx(clean[1]), f"{name} must not touch the IMU"
 
     # ✅ and IMU errors do the reverse

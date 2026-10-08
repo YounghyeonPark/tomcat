@@ -344,3 +344,38 @@ class TendonMap:
             motor_tension_flexor=m_flex,
             motor_tension_extensor=np.zeros_like(t_flex),
         )
+
+
+def drive_capstan(q, tension):
+    """Conduit friction on every leg pair at once (M146, ADR-0140): motor-side
+    over joint-side tension, `exp(mu bend) / eta^n`, for poses `q` (..., 4, 3)
+    in `LF RF LR RR` order and pair tensions `tension` (..., 4, 3) whose sign
+    picks the flexor (>= 0) or the extensor side.
+
+    The same model `TendonMap.capstan_factor(q=...)` prices for `power`: each
+    leg on its own drive (`params.tendon_for`), the ankle pair's knee crossing
+    read off its table at the pose's knee. Vectorised over worlds, for the
+    plant's inner loop.
+    """
+    from .params import tendon_for
+
+    q = np.asarray(q, dtype=float)
+    t = np.asarray(tension, dtype=float)
+    out = np.ones(np.broadcast_shapes(q.shape, t.shape))
+    for j, nm in enumerate(("LF", "RF", "LR", "RR")):
+        p = tendon_for(nm)
+        mu = float(p.conduit_mu)
+        eta = float(p.pulley_efficiency)
+        knee = np.abs(q[..., j, 1])
+        for k, sgn in ((0, 1.0), (1, -1.0)):
+            bend = np.array([float(row[k]) for row in p.conduit_bend])
+            n = np.array([float(row[k]) for row in p.pulley_count])
+            bend = np.broadcast_to(bend, q[..., j, :].shape).copy()
+            tab = getattr(p, "crossing_bend", None)
+            if tab is not None:
+                row = np.asarray(tab[k], float)
+                bend[..., 2] += np.interp(knee, np.asarray(p.crossing_knee, float), row) - row.max()
+            cap = np.exp(mu * bend) * eta ** (-n)
+            pick = (t[..., j, :] >= 0.0) if sgn > 0 else (t[..., j, :] < 0.0)
+            out[..., j, :] = np.where(pick, cap, out[..., j, :])
+    return out

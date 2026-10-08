@@ -70,8 +70,9 @@ needed a rewound one ([ADR-0134](docs/DESIGN_DECISIONS.md),
 and the motor itself randomised, one policy walks on every motor corner from
 the stock part at the vendor's Kt to the rewind
 ([ADR-0136](docs/DESIGN_DECISIONS.md)–[ADR-0138](docs/DESIGN_DECISIONS.md)), but by
-working harder, and the plant does not yet charge it the conduits' friction
-([ADR-0139](docs/DESIGN_DECISIONS.md)).
+working harder; with the conduits' friction now in the plant and a copper cost,
+it fits the spec motor's peak and runs ~17 min at the vendor's Kt
+([ADR-0139](docs/DESIGN_DECISIONS.md), [ADR-0140](docs/DESIGN_DECISIONS.md)).
 
 ## Key numbers
 

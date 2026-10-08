@@ -114,6 +114,7 @@ def main():
     ap.add_argument("--history", type=int, default=1,
                     help="M144: frames stacked (with --act-obs, the last actions too)")
     ap.add_argument("--act-obs", action="store_true", help="M144: last action in the obs")
+    ap.add_argument("--cu-w", type=float, default=0.0, help="M146: copper-shaped cost weight")
     ap.add_argument("--motor-dr", action="store_true",
                     help="M143: draw each world's motor from TomcatEnv.MOTOR_RANGES")
     a = ap.parse_args()
@@ -139,7 +140,8 @@ def main():
     if a.motor_dr:
         dr.update(TomcatEnv.MOTOR_RANGES)
     kw = {"randomize": dr, "residual_n": a.residual, "gait_w": a.gait_w,
-          "slip_w": a.slip_w, "clear_w": a.clear_w, "act_obs": a.act_obs}
+          "slip_w": a.slip_w, "clear_w": a.clear_w, "act_obs": a.act_obs,
+          "cu_w": a.cu_w}
     t0 = time.time()
     before = score(None, kw, history=a.history)
     print("baseline alone:", before, flush=True)

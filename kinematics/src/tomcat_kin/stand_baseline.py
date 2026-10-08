@@ -152,4 +152,10 @@ class StandBaseline:
         T[12:] = (KP_SPINE * (self.s0 - s)
                   - KD_SPINE * (s - self.s_prev) / self.dt) / (-self.gs)
         self.q_prev, self.s_prev = q, s
+        if getattr(self.env, "friction", False):
+            # M146 (ADR-0140): the controller knows its drive -- it asks the
+            # motor for what the joint needs times the conduit's friction, at
+            # the pose it estimates
+            qa = np.array([q[nm] for nm in LEGS])
+            T[:12] = T[:12] * self.env.capstan(qa, T[:12]).ravel()
         return T

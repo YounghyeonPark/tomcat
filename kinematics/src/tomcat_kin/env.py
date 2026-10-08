@@ -72,7 +72,8 @@ class TomcatEnv:
                  hip_height: float = 0.176, fall_deg: float = 45.0,
                  collapse_m: float = 0.12,
                  jitter_deg: float = 0.0, rng=None,
-                 randomize: dict | None = None, envelope: bool = True):
+                 randomize: dict | None = None, envelope: bool = True,
+                 friction: bool = True):
         import mujoco
 
         self.mj = mujoco
@@ -111,6 +112,12 @@ class TomcatEnv:
                     for p in self.pairs]
         # ✅ M141 (ADR-0135): every motor on the spec motor's torque-speed line
         self.envelope = bool(envelope)
+        # ✅ M146 (ADR-0140): the conduits' friction between motor and joint.
+        # The command is the MOTOR's tension; the joint gets it divided by the
+        # capstan factor at the pose, and the motor's line binds the motor's
+        # torque. M145's policy pulled 206 N in a frictionless plant -- 2.38
+        # N.m at the motor on the robot, past its peak.
+        self.friction = bool(friction)
         self._jrd = [self.model.jnt_dofadr[self._id(mujoco.mjtObj.mjOBJ_JOINT,
                                                     "jr_" + p)]
                      for p in self.pairs]
@@ -182,6 +189,19 @@ class TomcatEnv:
             self.mj.mj_step(self.model, self.data)
         self.data.ctrl[:] = 0.0
 
+    def true_q(self) -> np.ndarray:
+        """The legs' joint angles, (4, 3) -- the PLANT's, for its own physics."""
+        return np.array([[float(self.data.qpos[a]) for a in self._qadr(nm)]
+                         for nm in LEGS])
+
+    @staticmethod
+    def capstan(q, tension12) -> np.ndarray:
+        """Conduit friction (4, 3) at legs' pose `q` (4, 3) for the 12 leg
+        pair tensions (`tendon.drive_capstan`)."""
+        from .tendon import drive_capstan
+        return drive_capstan(np.asarray(q, float),
+                             np.asarray(tension12, float).reshape(4, 3))
+
     def _qadr(self, nm):
         return [self.model.jnt_qposadr[self._id(self.mj.mjtObj.mjOBJ_JOINT,
                                                 f"{nm}_q{i}")] for i in (1, 2, 3)]
@@ -243,19 +263,24 @@ class TomcatEnv:
         """
         tension = np.clip(np.asarray(tension, float), -MT.TENSION_MAX,
                           MT.TENSION_MAX)
+        peak = getattr(self, "motor_peak", MT.MOTOR_PEAK_NM)
+        cap = np.ones(18)
+        if self.friction:
+            cap[:12] = self.capstan(self.true_q(), tension[:12]).ravel()
+        joint_t = tension / cap                   # what reaches the joint
+        peak_v = peak / cap                       # the motor's peak, at the joint
         for _ in range(self.decim):
             # ✅ the INNER loop: the motor closes on its own shaft encoder every
             # physics step. ADR-0078 -- decimating this with the outer loop
             # starves the servo of its own feedback and is not the robot.
             cmd = wbc.rotor_command(self.data.qpos[self._jr],
-                                    self.data.qpos[self._js], tension,
+                                    self.data.qpos[self._js], joint_t,
                                     self.k_tors, MT.SPOOL_R,
                                     servo_kp=self.servo_kp)
             if self.envelope:
                 cmd = wbc.envelope_command(cmd, self.data.qpos[self._jr],
                                            self.data.qvel[self._jrd],
-                                           self.servo_kp, self.servo_kv,
-                                           getattr(self, "motor_peak", MT.MOTOR_PEAK_NM),
+                                           self.servo_kp, self.servo_kv, peak_v,
                                            getattr(self, "motor_wnl", MT.MOTOR_NOLOAD_RAD_S))
             self.data.ctrl[self._act] = cmd
             self.mj.mj_step(self.model, self.data)
