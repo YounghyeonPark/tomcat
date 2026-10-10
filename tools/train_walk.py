@@ -45,12 +45,24 @@ class Stack:
 
 
 def score(policy, kw, speeds=(0.25, 0.5), nworld=256, seconds=4.0, history=1):
+    """... and with a yaw range in `kw` (M147), the commands are (v, yaw) pairs
+    and each result carries the yaw rate actually made."""
+    if kw.get("yaw_range") is not None:
+        w = max(abs(x) for x in kw["yaw_range"])
+        speeds = ((0.25, 0.0), (0.5, 0.0), (0.7, 0.0), (0.3, w), (0.3, -w))
     """Per commanded speed: mean forward speed over the episodes' lives, and
     the fraction that fell. `policy` None = the baseline alone."""
     from tomcat_kin.warp_env import WarpWalk
     out = {}
     for v in speeds:
-        env = WarpWalk(nworld, **{**kw, "v_range": (v, v), "seed": 12345})
+        w_ = None
+        if isinstance(v, tuple):
+            v, w_ = v
+        args = {**kw, "v_range": (v, v), "seed": 12345}
+        if w_ is not None:
+            args["yaw_range"] = (w_, w_)
+        env = WarpWalk(nworld, **args)
+        yaws = []
         o = env.reset()
         st = Stack(nworld, history, o.shape[1]) if history > 1 else None
         if st is not None:
@@ -77,11 +89,15 @@ def score(policy, kw, speeds=(0.25, 0.5), nworld=256, seconds=4.0, history=1):
                 match += float(np.mean(env.trot_match(env._obs)[alive]))
                 cnt += 1
             dist += np.where(alive, env.vx, 0.0) / env.control_hz
+            if w_ is not None and alive.any():
+                yaws.append(float(np.mean(env.wz[alive])))
             life += alive / env.control_hz
             alive &= ~te
             if not alive.any():
                 break
-        out[str(v)] = {"speed": float(dist.sum() / max(life.sum(), 1e-9)),
+        key = str(v) if w_ is None else "%s,%+.1f" % (v, w_)
+        out[key] = {"yaw_rate": float(np.mean(yaws[20:])) if yaws else None,
+                       "speed": float(dist.sum() / max(life.sum(), 1e-9)),
                        "fell": float(1.0 - alive.mean()),
                        # a trot: diagonals together, the fore pair apart
                        "diag_sync": diag / max(cnt, 1), "fore_sync": fore / max(cnt, 1),
@@ -115,6 +131,9 @@ def main():
                     help="M144: frames stacked (with --act-obs, the last actions too)")
     ap.add_argument("--act-obs", action="store_true", help="M144: last action in the obs")
     ap.add_argument("--cu-w", type=float, default=0.0, help="M146: copper-shaped cost weight")
+    ap.add_argument("--yaw", type=float, default=None, help="M147: commanded yaw rate range +-")
+    ap.add_argument("--yaw-w", type=float, default=0.5)
+    ap.add_argument("--yaw-sigma", type=float, default=0.3)
     ap.add_argument("--motor-dr", action="store_true",
                     help="M143: draw each world's motor from TomcatEnv.MOTOR_RANGES")
     a = ap.parse_args()
@@ -142,6 +161,9 @@ def main():
     kw = {"randomize": dr, "residual_n": a.residual, "gait_w": a.gait_w,
           "slip_w": a.slip_w, "clear_w": a.clear_w, "act_obs": a.act_obs,
           "cu_w": a.cu_w}
+    if a.yaw:
+        kw["yaw_range"] = (-a.yaw, a.yaw)
+        kw["yaw_w"], kw["yaw_sigma"] = a.yaw_w, a.yaw_sigma
     t0 = time.time()
     before = score(None, kw, history=a.history)
     print("baseline alone:", before, flush=True)
@@ -184,7 +206,7 @@ def main():
         p = PPO.load(os.path.join(a.out, "ckpt", f), device="cuda")
         sc = score(p, kw, history=a.history)
         fell = np.mean([v["fell"] for v in sc.values()])
-        err = np.mean([abs(v["speed"] - float(k)) for k, v in sc.items()])
+        err = np.mean([abs(v["speed"] - float(k.split(",")[0])) for k, v in sc.items()])
         ranked.append((fell, err, f, sc))
         print("  ", f, sc, flush=True)
     ranked.sort(key=lambda r: (r[0], r[1]))

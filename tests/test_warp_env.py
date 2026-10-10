@@ -139,3 +139,19 @@ def test_the_last_ACTION_is_observed_and_cleared_at_a_reset():
     W._reset_worlds(np.array([False, True, False]))
     o = W.flatten(W._obs)
     assert np.allclose(o[1, -18:], 0.0) and np.allclose(o[0, -18:], 0.25)
+
+
+def test_the_YAW_command_is_observed_and_the_CPU_env_orders_it_alike():
+    """M147 (ADR-0141): with a yaw range the observation carries the
+    commanded yaw rate right after the speed, before the last action -- on the
+    GPU and the CPU alike, so a policy reads both the same."""
+    from tomcat_kin.gym_env import TomcatWalk
+    from tomcat_kin.warp_env import WarpWalk
+    W = WarpWalk(3, act_obs=True, yaw_range=(-0.6, 0.6), seed=2)
+    o = W.reset()
+    assert o.shape == (3, 86)
+    assert np.allclose(o[:, 66], W.vcmd) and np.allclose(o[:, 67], W.wcmd)
+    assert np.all(np.abs(W.wcmd) <= 0.6) and np.ptp(W.wcmd) > 0
+    c = TomcatWalk(v_cmd=0.3, w_cmd=-0.4, act_obs=True, seed=0)
+    oc, _ = c.reset()
+    assert oc.shape == (86,) and oc[66] == pytest.approx(0.3) and oc[67] == pytest.approx(-0.4)

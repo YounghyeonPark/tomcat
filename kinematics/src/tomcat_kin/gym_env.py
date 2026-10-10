@@ -102,18 +102,22 @@ class TomcatWalk(TomcatStand):
     the reward tracks the TRUE forward speed (a training-only quantity)."""
 
     def __init__(self, *, v_cmd: float = 0.5, period: float = 0.4,
-                 residual_n: float = 80.0, act_obs: bool = False, **kw):
+                 residual_n: float = 80.0, act_obs: bool = False,
+                 w_cmd=None, **kw):
         super().__init__(residual_n=residual_n, **kw)
         self.v_cmd = float(v_cmd)
         self.period = float(period)
         self.act_obs = bool(act_obs)                      # M144, as WarpWalk
+        self.w_cmd = None if w_cmd is None else float(w_cmd)   # M147
         self.last_a = np.zeros(18, np.float32)
         self.observation_space = spaces.Box(
-            -np.inf, np.inf, (85 if act_obs else 67,), np.float32)
+            -np.inf, np.inf, ((85 if act_obs else 67) + (w_cmd is not None),), np.float32)
 
     def _extra(self):
         ph = 2.0 * np.pi * ((self.core.steps / self.core.control_hz) / self.period % 1.0)
         e = np.array([np.sin(ph), np.cos(ph), self.v_cmd], np.float32)
+        if self.w_cmd is not None:
+            e = np.concatenate([e, np.array([self.w_cmd], np.float32)])
         return np.concatenate([e, self.last_a]) if self.act_obs else e
 
     def reset(self, *, seed=None, options=None):

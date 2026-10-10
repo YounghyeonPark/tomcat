@@ -573,7 +573,8 @@ class WarpWalk(WarpStand):
     def __init__(self, nworld=2048, *, v_range=(0.0, 0.5), period=0.4,
                  residual_n=80.0, gait_w: float = 0.0, slip_w: float = 0.0,
                  clear_w: float = 0.0, clear_m: float = 0.03,
-                 act_obs: bool = False, cu_w: float = 0.0, **kw):
+                 act_obs: bool = False, cu_w: float = 0.0,
+                 yaw_range=None, yaw_w: float = 0.5, yaw_sigma: float = 0.3, **kw):
         """`gait_w` (M138, ADR-0132): weight of the trot term -- each foot
         down when the clock says its diagonal pair is in stance (LF+RR the
         first half of the period, RF+LR the second), up when it is not.
@@ -587,6 +588,12 @@ class WarpWalk(WarpStand):
         # averaged over the pairs -- what heats the motors, where the standing
         # task's 0.2 mean|T| was too weak to stop a 206 N pull
         self.cu_w = float(cu_w)
+        # M147 (ADR-0141): a commanded YAW RATE (rad/s), drawn per episode
+        # from `yaw_range` and shown to the policy after `v_cmd`; the speed is
+        # then tracked along the trunk's heading, not world x
+        self.yaw_range = None if yaw_range is None else tuple(yaw_range)
+        self.yaw_w, self.yaw_sigma = float(yaw_w), float(yaw_sigma)
+        self.wcmd = None
         self.v_range = tuple(v_range)
         self.period = float(period)
         self.gait_w = float(gait_w)
@@ -608,6 +615,10 @@ class WarpWalk(WarpStand):
             self.vcmd = np.zeros(self.N)
         idx = np.nonzero(mask)[0]
         self.vcmd[idx] = self.rng.uniform(*self.v_range, len(idx))
+        if self.wcmd is None:
+            self.wcmd = np.zeros(self.N)
+        if self.yaw_range is not None:
+            self.wcmd[idx] = self.rng.uniform(*self.yaw_range, len(idx))
 
     def clock(self):
         """Gait phase in [0, 1), per world."""
@@ -625,6 +636,8 @@ class WarpWalk(WarpStand):
         ph = 2.0 * np.pi * self.clock()
         extra = np.stack([np.sin(ph), np.cos(ph), self.vcmd], 1).astype(np.float32)
         parts = [super().flatten(o), extra]
+        if self.yaw_range is not None:
+            parts.append(self.wcmd[:, None].astype(np.float32))
         if self.act_obs:
             parts.append(self.last_a.astype(np.float32))
         return np.concatenate(parts, 1)
@@ -637,9 +650,21 @@ class WarpWalk(WarpStand):
         return super().step(action)
 
     def reward(self, o, T, q):
-        vx = self.dw.qvel.numpy()[:, 0].astype(float)
+        qv = self.dw.qvel.numpy().astype(float)
+        if self.yaw_range is None:
+            vx = qv[:, 0]
+            track = np.exp(-((vx - self.vcmd) / 0.15) ** 2)
+        else:
+            # forward along the trunk's heading (qvel's linear part is in the
+            # world frame), and the yaw rate (its angular part is the body's)
+            qp = self.dw.qpos.numpy()[:, 3:7].astype(float)
+            w_, x_, y_, z_ = qp.T
+            yaw = np.arctan2(2.0 * (w_ * z_ + x_ * y_), 1.0 - 2.0 * (y_ * y_ + z_ * z_))
+            vx = np.cos(yaw) * qv[:, 0] + np.sin(yaw) * qv[:, 1]
+            self.wz = qv[:, 5]
+            track = (np.exp(-((vx - self.vcmd) / 0.15) ** 2)
+                     + self.yaw_w * np.exp(-((self.wz - self.wcmd) / self.yaw_sigma) ** 2))
         self.vx = vx
-        track = np.exp(-((vx - self.vcmd) / 0.15) ** 2)
         upright = np.cos(np.radians(np.minimum(180.0, self.tilt(o))))
         tall = np.minimum(1.0, self.stance_height(o, q) / 0.17)
         spin = np.linalg.norm(o["imu_gyro"], axis=1)
@@ -684,4 +709,5 @@ class WarpWalk(WarpStand):
 def make_walk_vec_env(nworld=2048, **kw):
     """`WarpWalk` behind SB3's `VecEnv` (67 observations, 85 with
     `act_obs`; stack frames with SB3's `VecFrameStack` for a history)."""
-    return _vec(nworld, WarpWalk, 85 if kw.get("act_obs") else 67, **kw)
+    n = (85 if kw.get("act_obs") else 67) + (1 if kw.get("yaw_range") is not None else 0)
+    return _vec(nworld, WarpWalk, n, **kw)

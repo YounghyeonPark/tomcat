@@ -10815,6 +10815,51 @@ The MuJoCo harness moved four numbers, and three of them moved the good way.
 
 ---
 
+## ADR-0141: turning and faster -- the speed tops out at ~0.6 m/s and turning is not learned
+- **Status:** Accepted (M147), the infrastructure. The turning result is
+  negative, recorded.
+- **Decision:**
+  - `WarpWalk(yaw_range=...)` / `TomcatWalk(w_cmd=...)`: a commanded yaw
+    rate, drawn per episode and observed right after `v_cmd`, in the same
+    slot on the GPU and the CPU (test-held).
+  - The speed is tracked along the trunk's heading; the yaw rate is the
+    trunk's own (MuJoCo's free-joint `qvel`: linear in the world frame,
+    angular in the body frame, checked).
+  - `train_walk.py --yaw --yaw-w --yaw-sigma --vmax`. The scorer adds
+    0.7 m/s and turns at 0.3 m/s.
+- **Runs** (GPU, 256 worlds, everything drawn; yaw in rad/s):
+
+  | | v 0.25 | v 0.5 | v 0.7 | 0.3 & +w | 0.3 & −w |
+  |---|---|---|---|---|---|
+  | from scratch, 80 M, w ±0.6, yaw weight 0.5 / σ 0.3 | 0.26, −0.10 yaw | 0.48, 16 % fall | **0.57**, 27 % | −0.13 yaw (cmd +0.5) | −0.09 (cmd −0.5) |
+  | +30 M, w ±0.3, weight 1.0 / σ 0.2 | 0.24, −0.07 | 0.47, 13 % | **0.60**, 20 % | −0.11 (cmd +0.3) | −0.04 (cmd −0.3) |
+
+- **Findings:**
+  - **Top speed ~0.6 m/s.** At a 0.7 command it makes 0.57–0.60 and falls
+    20–27 % of the time.
+  - ⚠️ **Turning is not learned.** The yaw made barely moves with the
+    command (0.07 rad/s between +0.3 and −0.3).
+  - ⚠️ **Every policy veers.**
+    - The walks yaw at a steady −0.07 to −0.13 rad/s with a straight
+      command.
+    - M146's veered +4.3 °/s the other way.
+    - The old scorer read world-x speed and could not see it.
+  - **But the robot CAN turn.** Biasing M146's straight walk on the CPU:
+    - a ±30 N hip split between left and right gives −10 / +9 °/s;
+    - −40 N on the spine yaw pairs gives +13 °/s (+40 only +1: asymmetric);
+    - both together give −16 °/s.
+    - That is ~0.2–0.3 rad/s without abduction. The policy did not find it:
+      a converged policy explores ±11 N, and turning needs tens of N held one
+      way.
+  - Layering a feedforward + gyro hip-split controller on the trained policy
+    turns it the right way (+0.11 / −0.13 rad/s for ±0.3), but it falls 5–10
+    of 10, because the policy never trained with it.
+- **Next:** put the turn into the BASELINE (a hip split from the command and
+  the gyro) and let the policy learn the residual on it, the way standing
+  and walking were learned.
+
+---
+
 ---
 
 ### How to add an ADR
