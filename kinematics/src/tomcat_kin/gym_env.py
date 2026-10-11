@@ -75,6 +75,10 @@ class TomcatStand(gym.Env):
             self.base = StandBaseline(self.core)
         self._obs = None
 
+    def prior(self, obs) -> np.ndarray:
+        """Extra tension a task adds to the baseline (M148); none here."""
+        return np.zeros(18)
+
     def reset(self, *, seed=None, options=None):
         if seed is not None:
             self.core.rng = np.random.default_rng(seed)
@@ -89,7 +93,8 @@ class TomcatStand(gym.Env):
         if self.base is None:
             tension = a * MT.TENSION_MAX
         else:
-            tension = self.base(self._obs) + np.clip(a, -1.0, 1.0) * self.residual_n
+            tension = (self.base(self._obs) + self.prior(self._obs)
+                       + np.clip(a, -1.0, 1.0) * self.residual_n)
         obs, reward, terminated, info = self.core.step(tension)
         self._obs = obs
         truncated = self.core.steps >= self.max_steps
@@ -103,15 +108,27 @@ class TomcatWalk(TomcatStand):
 
     def __init__(self, *, v_cmd: float = 0.5, period: float = 0.4,
                  residual_n: float = 80.0, act_obs: bool = False,
-                 w_cmd=None, **kw):
+                 w_cmd=None, yaw_prior=None, **kw):
         super().__init__(residual_n=residual_n, **kw)
         self.v_cmd = float(v_cmd)
         self.period = float(period)
         self.act_obs = bool(act_obs)                      # M144, as WarpWalk
         self.w_cmd = None if w_cmd is None else float(w_cmd)   # M147
+        self.yaw_prior = None if yaw_prior is None else tuple(float(x) for x in yaw_prior)
         self.last_a = np.zeros(18, np.float32)
         self.observation_space = spaces.Box(
             -np.inf, np.inf, ((85 if act_obs else 67) + (w_cmd is not None),), np.float32)
+
+    def prior(self, obs) -> np.ndarray:
+        """M148: `WarpWalk.yaw_split` for one robot."""
+        T = np.zeros(18)
+        if self.yaw_prior is not None and self.w_cmd is not None:
+            kff, kfb, lim = self.yaw_prior
+            gz = float(np.asarray(obs["imu_gyro"])[2])
+            sp = -float(np.clip(kff * self.w_cmd + kfb * (self.w_cmd - gz), -lim, lim))
+            T[[0, 6]] += sp
+            T[[3, 9]] -= sp
+        return T
 
     def _extra(self):
         ph = 2.0 * np.pi * ((self.core.steps / self.core.control_hz) / self.period % 1.0)

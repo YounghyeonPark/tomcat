@@ -10860,6 +10860,50 @@ The MuJoCo harness moved four numbers, and three of them moved the good way.
 
 ---
 
+## ADR-0142: why the reward could not see a turn, and a turn the policy still cancels
+- **Status:** Accepted (M148), the infrastructure and the diagnosis.
+  Turning is still not learned.
+- **A turn in the baseline** (`WarpWalk(yaw_prior=(kff, kfb, limit))`,
+  `TomcatWalk(yaw_prior=...)`, `train_walk.py --yaw-prior`):
+  - a left/right hip split of `−(kff·w + kfb·(w − gyro_z))` N, clipped, on
+    the left hips and taken off the right;
+  - the GPU and CPU priors agree;
+  - at a fixed +40 N split a walking robot turns at −0.22 rad/s, so the
+    split has authority.
+- **Run 1, prior (150, 50, 40),** 30 M steps from M147's policy: still no
+  turn (+0.3 → −0.05, −0.3 → −0.10 rad/s), and falls rose to 47 % at
+  0.7 m/s.
+  - The baseline ALONE fell 82 %, against 51 % without the prior.
+- **The diagnosis: a trot twists the trunk every step.**
+  - The instantaneous yaw rate swings ±0.35 rad/s (std) around a
+    −0.17 rad/s drift. Averaged over one 0.4 s gait period, the swing is
+    ±0.045.
+  - So a reward on the instantaneous rate hardly told a straight walk from a
+    veering one: 0.40 against 0.48. That is why no policy since M147
+    corrected its drift.
+  - The gyro feedback in the prior chased the same twist, swinging the hips
+    ±17 N every step. That is the 82 %.
+  - The reward's rate agrees with the observed gyro (corr 0.89), so it was
+    not a sign or frame bug.
+- **Fix:**
+  - The yaw term now reads the rate AVERAGED over one gait period (per
+    world, cleared at a reset), at σ 0.1.
+  - The prior is feedforward only (150, 0, 40). The baseline with it falls
+    52 %, as without it.
+- **Run 2,** 30 M steps from M147's policy:
+  - Straight walking improves: falls 8 % at 0.5 m/s (13 before); the drift
+    at 0.25 m/s is −0.04 rad/s (−0.09 before).
+  - ⚠️ **The turn is cancelled:** +0.3 → −0.005, −0.3 → −0.011 rad/s,
+    although the prior applies ±40 N, which turns a walking robot
+    ~0.2 rad/s.
+  - The likely reason: every policy it started from learned to hold its
+    heading while turning was unrewarded, and fine-tuning keeps that
+    reflex.
+- **Next:** train from scratch with the averaged yaw term and the
+  feedforward prior (~4.5 h), or set turning aside.
+
+---
+
 ---
 
 ### How to add an ADR

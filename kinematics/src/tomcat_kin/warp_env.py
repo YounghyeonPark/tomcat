@@ -574,7 +574,8 @@ class WarpWalk(WarpStand):
                  residual_n=80.0, gait_w: float = 0.0, slip_w: float = 0.0,
                  clear_w: float = 0.0, clear_m: float = 0.03,
                  act_obs: bool = False, cu_w: float = 0.0,
-                 yaw_range=None, yaw_w: float = 0.5, yaw_sigma: float = 0.3, **kw):
+                 yaw_range=None, yaw_w: float = 0.5, yaw_sigma: float = 0.3,
+                 yaw_prior=None, **kw):
         """`gait_w` (M138, ADR-0132): weight of the trot term -- each foot
         down when the clock says its diagonal pair is in stance (LF+RR the
         first half of the period, RF+LR the second), up when it is not.
@@ -593,6 +594,16 @@ class WarpWalk(WarpStand):
         # then tracked along the trunk's heading, not world x
         self.yaw_range = None if yaw_range is None else tuple(yaw_range)
         self.yaw_w, self.yaw_sigma = float(yaw_w), float(yaw_sigma)
+        # M148 (ADR-0142): the TURN in the baseline, `(kff, kfb, limit)`: a
+        # hip split of -(kff w_cmd + kfb (w_cmd - gyro_z)) N, clipped, added to
+        # the left hips and taken off the right (a +split yaws the robot -)
+        self.yaw_prior = None if yaw_prior is None else tuple(float(x) for x in yaw_prior)
+        # M148: the yaw rate the reward reads is averaged over one gait period.
+        # A trot twists the trunk every step -- the instantaneous rate swings
+        # +-0.35 rad/s around a -0.17 drift -- so a reward on it hardly told a
+        # straight walk from a veering one (0.40 against 0.48)
+        self._wz_hist = None
+        self._wz_n = None
         self.wcmd = None
         self.v_range = tuple(v_range)
         self.period = float(period)
@@ -617,6 +628,12 @@ class WarpWalk(WarpStand):
         self.vcmd[idx] = self.rng.uniform(*self.v_range, len(idx))
         if self.wcmd is None:
             self.wcmd = np.zeros(self.N)
+        if self._wz_hist is None:
+            k = max(1, int(round(self.period * self.control_hz)))
+            self._wz_hist = np.zeros((self.N, k))
+            self._wz_n = np.zeros(self.N, int)
+        self._wz_hist[np.asarray(mask, bool)] = 0.0
+        self._wz_n[np.asarray(mask, bool)] = 0
         if self.yaw_range is not None:
             self.wcmd[idx] = self.rng.uniform(*self.yaw_range, len(idx))
 
@@ -642,6 +659,20 @@ class WarpWalk(WarpStand):
             parts.append(self.last_a.astype(np.float32))
         return np.concatenate(parts, 1)
 
+    def yaw_split(self, o):
+        """The baseline's hip split (N), per world (M148)."""
+        kff, kfb, lim = self.yaw_prior
+        gz = o["imu_gyro"][:, 2]
+        return -np.clip(kff * self.wcmd + kfb * (self.wcmd - gz), -lim, lim)
+
+    def baseline(self, o):
+        T = super().baseline(o)
+        if self.yaw_prior is not None:
+            sp = self.yaw_split(o)
+            T[:, [0, 6]] += sp[:, None]               # LF, LR hips
+            T[:, [3, 9]] -= sp[:, None]               # RF, RR hips
+        return T
+
     def step(self, action):
         # the action taken now is the "last action" the next observation shows
         if self.last_a is None:
@@ -662,8 +693,12 @@ class WarpWalk(WarpStand):
             yaw = np.arctan2(2.0 * (w_ * z_ + x_ * y_), 1.0 - 2.0 * (y_ * y_ + z_ * z_))
             vx = np.cos(yaw) * qv[:, 0] + np.sin(yaw) * qv[:, 1]
             self.wz = qv[:, 5]
+            k = self._wz_hist.shape[1]
+            self._wz_hist[np.arange(self.N), self._wz_n % k] = self.wz
+            self._wz_n += 1
+            self.wz_avg = self._wz_hist.sum(1) / np.minimum(self._wz_n, k)
             track = (np.exp(-((vx - self.vcmd) / 0.15) ** 2)
-                     + self.yaw_w * np.exp(-((self.wz - self.wcmd) / self.yaw_sigma) ** 2))
+                     + self.yaw_w * np.exp(-((self.wz_avg - self.wcmd) / self.yaw_sigma) ** 2))
         self.vx = vx
         upright = np.cos(np.radians(np.minimum(180.0, self.tilt(o))))
         tall = np.minimum(1.0, self.stance_height(o, q) / 0.17)

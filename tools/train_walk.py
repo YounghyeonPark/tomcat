@@ -134,6 +134,8 @@ def main():
     ap.add_argument("--yaw", type=float, default=None, help="M147: commanded yaw rate range +-")
     ap.add_argument("--yaw-w", type=float, default=0.5)
     ap.add_argument("--yaw-sigma", type=float, default=0.3)
+    ap.add_argument("--yaw-prior", type=float, nargs=3, default=None,
+                    help="M148: kff kfb limit of the baseline's hip-split turn")
     ap.add_argument("--motor-dr", action="store_true",
                     help="M143: draw each world's motor from TomcatEnv.MOTOR_RANGES")
     a = ap.parse_args()
@@ -164,6 +166,8 @@ def main():
     if a.yaw:
         kw["yaw_range"] = (-a.yaw, a.yaw)
         kw["yaw_w"], kw["yaw_sigma"] = a.yaw_w, a.yaw_sigma
+        if a.yaw_prior:
+            kw["yaw_prior"] = tuple(a.yaw_prior)
     t0 = time.time()
     before = score(None, kw, history=a.history)
     print("baseline alone:", before, flush=True)
