@@ -10943,6 +10943,38 @@ The MuJoCo harness moved four numbers, and three of them moved the good way.
 
 ---
 
+## ADR-0144: walking a route by switching between the two policies
+- **Status:** Accepted (M150), as a working arrangement until one policy
+  does both.
+- **Decision:** `tools/switch_walk.py` walks a 10 s command schedule on the
+  CPU simulator.
+  - A turn command goes to the turning policy (ADR-0143 run 3) and a
+    straight one to the straight policy (ADR-0142 run 2).
+  - Both read the same observation (board, clock, `v_cmd`, `w_cmd`, last
+    action, 4 frames), so the hand-over shares one history.
+  - The baseline carries the feedforward turn prior throughout.
+- **Measured** (20 randomised seeds, 10 s each):
+
+  | hand-over | falls | straight segments | turn (cmd +0.3 rad/s) |
+  |---|---|---|---|
+  | abrupt: speed and policy change at once | **19 / 20**, at 0.5–0.8 s after each switch | 0.34–0.39 m/s | +0.23 / −0.24 rad/s before falling |
+  | **ramped:** straight policy slows to 0.1 m/s, hands over there, takes back there and speeds up | **6 / 20**, spread over the run | 0.37–0.40 m/s | **+0.073 rad/s** |
+
+- **Findings:**
+  - ✅ **The hand-over works if it happens at the turner's speed.** A ramp
+    to 0.1 m/s on the straight policy first cuts falls from 19 to 6 of 20
+    over 10 s with two hand-overs, and the falls no longer cluster at the
+    switch.
+  - ⚠️ **The turn is slow:** ~0.07 rad/s (4 °/s) for a 0.3 command, ~22 s
+    for a right angle. The abrupt schedule's 0.23 was the hand-over's
+    transient.
+  - The straight policy still veers: −0.07 to −0.12 rad/s.
+- **Consequences:** the robot can walk a route in simulation, slowly turning
+  between straight legs. A single policy that turns well at speed is still
+  owed: a long curriculum from scratch (~10 h) is the candidate.
+
+---
+
 ---
 
 ### How to add an ADR
