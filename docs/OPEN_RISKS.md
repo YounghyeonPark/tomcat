@@ -290,6 +290,12 @@ Small, and honestly at the point of diminishing returns:
 
 ## Recommended order
 
+> ✅ **M151: the bench steps are written out in [notes/bench-plan.md](notes/bench-plan.md)**:
+> the motor (mass, Kt, R, Kv, heating), conduit μ, pad μ, the G3 rate and the
+> cell, each with its rig, the constants it updates and the decision it settles.
+> Since M132–M150 the motor's Kt also decides the thermal margin and the conduit
+> μ the runtime margin, so B1 and B2 lead.
+
 1. **Buy and weigh a motor** (R1) — largest blast radius, ~£60.
 2. **Drag-test a TPU pad** (R2) — half a day, no equipment.
 3. **Pick a cell** (R3) — closes NFR6 properly.
