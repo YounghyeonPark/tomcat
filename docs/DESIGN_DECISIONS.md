@@ -10904,6 +10904,45 @@ The MuJoCo harness moved four numbers, and three of them moved the good way.
 
 ---
 
+## ADR-0143: a policy that turns, and the speed it gives up
+- **Status:** Accepted (M149), results. Turning, speed and robustness are
+  not yet had together.
+- **Run 3, from scratch** (owner's choice): 80 M steps, the averaged yaw
+  term (weight 1.0, σ 0.1), the feedforward prior, everything drawn
+  (272 min). GPU, 256 worlds:
+
+  | command | speed | yaw rate | falls |
+  |---|---|---|---|
+  | straight 0.25 / 0.5 / 0.7 | **0.10 / 0.09 / 0.08** | −0.01 / −0.00 / +0.00 | 1–3 % |
+  | 0.3 & +0.3 | 0.11 | **+0.11** | 7 % |
+  | 0.3 & −0.3 | 0.10 | **−0.14** | 12 % |
+
+  - ✅ **It turns, the way it is told,** at ~40 % of the command.
+  - ✅ **The drift is gone:** within ±0.01 rad/s walking straight.
+  - ⚠️ **It walks ~0.1 m/s whatever the speed command.** From scratch, the
+    yaw term was the easier reward, and it settled on walking slowly and
+    straight.
+- **Run 4:** run 3 continued 30 M steps at yaw weight 0.5:
+
+  | command | speed | yaw rate | falls |
+  |---|---|---|---|
+  | straight 0.25 / 0.5 / 0.7 | 0.25 / 0.36 / 0.38 | +0.01 / +0.06 / +0.07 | 6 / **26** / **50** % |
+  | 0.3 & ±0.3 | 0.25 / 0.22 | +0.07 / −0.09 | 12 / **33** % |
+
+  - Speed comes back to 0.25 m/s, turning weakens, and falls rise.
+  - Its best checkpoint (15 M) falls less but walks 0.14–0.18 m/s.
+- **Where it stands, as two policies:**
+  - **Straight and fast:** M148 run 2 makes 0.47 m/s with 8 % falls, but
+    ignores a turn.
+  - **Turning and slow:** run 3 turns ±0.1 rad/s at 0.1 m/s, with 7–12 %
+    falls.
+- **Options:**
+  - Switch between the two by command.
+  - Train much longer from scratch with a speed curriculum (~10 h).
+  - Set turning aside for now.
+
+---
+
 ---
 
 ### How to add an ADR
