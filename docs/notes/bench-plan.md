@@ -231,6 +231,20 @@ floor. Record the delivered Wh and the voltage sag at peak.
 
 ## After the numbers come in
 
+Log each measurement as a CSV and reduce it with `tools/bench_reduce.py` (M152).
+`python tools/bench_reduce.py template <kind>` prints the columns each one
+wants: `kt` (+ `--backemf`), `kv`, `heat`, `capstan`, `flexure`, `pad`. Each
+command prints:
+
+- the fitted values;
+- the constants they replace;
+- this plan's verdict for them.
+
+The Kt reducer gives both the stall slope and the back-EMF figure, per peak
+and per RMS phase amp. Which one the driver's "current" means is the question
+ADR-0044 left open. `tests/test_bench_reduce.py` checks every reducer against
+synthetic data with a known answer.
+
 1. Update the constants listed under each item, and let the suite say what
    moved. The tests pin today's assumed values, so each changed number
    fails exactly the assertions that rest on it.
