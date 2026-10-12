@@ -10975,6 +10975,47 @@ The MuJoCo harness moved four numbers, and three of them moved the good way.
 
 ---
 
+## ADR-0145: how far each unmeasured number may be off -- acceptance criteria before buying
+- **Status:** Accepted (M153).
+- **Method:**
+  - `tools/sensitivity_walk.py` holds every plant number nominal but one,
+    sweeps that one past its training range, and scores M146's walk on the
+    CPU simulator.
+  - 0.5 m/s, 10 seeds each, sensor errors drawn so the seeds differ.
+  - Conduit μ is also priced as a load case (runtime, ankle torque).
+- **Measured:**
+
+  | number | holds | breaks |
+  |---|---|---|
+  | conduit μ | 0.05–0.09: 0 falls; speed 0.54 → 0.41 m/s | 0.11: 3/10 fall; ankle peak 2.03 N·m (> 1.95), RMS 0.76 (> 0.71), vendor-Kt runtime 13.8 min |
+  | floor (pad) μ | 0.3–1.0: ≤ 1/10 | -- |
+  | sensor latency | 3–7.5 ms: 0 falls | **12 ms: 3/10; 16 and 20 ms: 10/10** |
+  | mass scale | 0.85–1.3: 0 falls (0.50 → 0.43 m/s) | -- |
+  | G3 rate scale | 0.7–1.4: 0 falls | **0.5: 10/10; 2.0: 10/10** |
+
+  Runtime against conduit μ (nominal plant, surveyed / vendor Kt): 0.05 →
+  28.2 / 22.1 min; 0.07 → 25.7 / 19.9; 0.09 → 23.3 / 17.6; 0.11 → 18.8 /
+  13.8.
+- **Acceptance criteria** (what a bench number must meet before the part is
+  bought, or else what follows):
+  - **Conduit μ ≤ 0.09.** At 0.11, runtime, peak torque and heating fail
+    together.
+  - **End-to-end latency < 10 ms**, sensor to motor command. NFR12 budgets
+    7.5. It is the sharpest edge found: the top of the trained range (12 ms)
+    already falls. That is a firmware and electronics requirement.
+  - **G3 rate within ±30 % of spec.** Too soft AND too stiff both fall, so
+    the flexure's machining tolerance is a requirement. A rate measured
+    outside it is retrained around, not accepted as is.
+  - The pad and the mass have room. The walk holds from floor μ 0.3 and up to
+    1.3× mass; NFR15 still asks μ ≥ 0.6, and mass still costs runtime and
+    torque.
+- **Also settled:** the touch sensors read 81 % of the weight just after the
+  reset fixture lets go, because the robot is still settling. After 1.5 s
+  standing they read 47.5 N against 47.3 N, equal to the solver's own
+  contact forces. `test_stand` now checks the settled sum.
+
+---
+
 ---
 
 ### How to add an ADR

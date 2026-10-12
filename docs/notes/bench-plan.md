@@ -210,6 +210,19 @@ floor. Record the delivered Wh and the voltage sag at peak.
 
 ---
 
+## Acceptance criteria (M153, ADR-0145)
+
+Swept in simulation against the current walking policy, one number at a
+time:
+
+| number | accept | why |
+|---|---|---|
+| conduit μ (B2) | ≤ 0.09 | at 0.11 runtime, peak torque and heating fail together |
+| pad μ (B3) | ≥ 0.6 for NFR15 | the walk itself holds from 0.3 |
+| G3 rate (B4) | within ±30 % of 125 kN/m | softer AND stiffer both fall outside it |
+| latency, sensor → motor | < 10 ms | 12 ms already falls 3 in 10; 16 ms always (firmware, not a bench part) |
+| mass | up to 1.3× holds the walk | runtime and torque still pay for it |
+
 ## Shopping list (first round)
 
 | item | for | note |

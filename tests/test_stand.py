@@ -79,15 +79,20 @@ def test_the_FEET_FEEL_the_floor():
     """⚠️ M137 (ADR-0131): the touch sensors read 0 from M72 to M136 -- the
     2 mm site missed the 6 mm pad's contact point -- so the observation's
     contact channel and the reward's feet term were dead. Standing, all four
-    must read, and together most of the weight. ⚠️ Measured 38.3 N against
-    47.3 N, 81 %; a static stance should carry all of it, and why this
-    does not is not yet run down."""
+    must read. Right after the reset fixture lets go they carry 81 % of the
+    weight -- the robot is still settling -- and once it has stood 1.5 s on
+    the baseline, all of it: 47.5 N against 47.3, equal to the contact
+    solver's own normal forces (M153)."""
     env = TomcatEnv(rng=np.random.default_rng(0))
     obs = env.reset()
     c = np.asarray(obs["contact"])
     assert np.all(c > 1.0), c
     W = float(np.sum(env.model.body_mass)) * 9.81
     assert 0.6 * W < c.sum() < 1.2 * W, (c.sum(), W)
+    base = StandBaseline(env).reset(obs)
+    for _ in range(200):
+        obs, *_ = env.step(base(obs))
+    assert np.sum(obs["contact"]) == pytest.approx(W, rel=0.05), "standing carries it all"
 
 
 def test_the_MOTOR_ENVELOPE_is_the_torque_speed_line_driving_and_free_braking():
