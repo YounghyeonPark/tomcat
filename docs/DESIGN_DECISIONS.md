@@ -11016,6 +11016,46 @@ The MuJoCo harness moved four numbers, and three of them moved the good way.
 
 ---
 
+## ADR-0146: which edges are physics and which were the training range
+- **Status:** Accepted (M154). Revises ADR-0145's G3 criterion and confirms
+  its latency criterion.
+- **Question:** ADR-0145's two sharpest edges (latency ≥ 12 ms, and G3 at
+  0.5× and 2×) sat at or just outside the ranges the policy trained on. Is
+  the walk failing there because of the physics, or because it never saw
+  them?
+- **Test:**
+  - M146's policy, 30 M steps more with latency drawn from 3–20 ms
+    (`WarpStand`'s delay ring lengthened to 21 ms) and the G3 rate from
+    0.5–2.0×.
+  - `train_walk.py --range NAME LO HI`.
+  - Then the same sweep (CPU, 0.5 m/s, 10 seeds):
+
+  | | narrow-trained (ADR-0145) | wide-trained | so |
+  |---|---|---|---|
+  | latency 12 ms | 3/10 fall | **4/10** | physics |
+  | latency 16 ms | 10/10 | **8/10** | physics |
+  | latency 20 ms | 10/10 | **10/10** | physics |
+  | G3 0.5× | 10/10 | **10/10** | physics |
+  | G3 2.0× | 10/10 | **0/10** | the training range |
+  | G3 2.5× | -- | 10/10 | |
+  | conduit μ 0.11 | 3/10 | 0/10 (0.35 m/s) | |
+
+- **Findings:**
+  - ⚠️ **Latency under 10 ms is a real requirement.** Training up to 20 ms
+    does not buy 12 ms. This CONTRADICTS `notes/latency-budget.md`'s
+    "electronics have a comfortable budget; even 20 ms costs little". That
+    came from the analytic disturbance envelope (−16 % from 2.5 to 20 ms). A
+    policy that walks the drivetrain is far more sensitive than the envelope
+    model, so firmware's 7.5 ms is a ceiling with little to spare.
+  - **G3: accept ≥ 0.7× spec, up to 2×.**
+    - The soft side is physics: at 0.5× the drivetrain cannot carry the walk.
+    - The stiff side was the training range.
+  - The wide training costs the walk: 0.42 m/s and 34 % falls at 0.5 m/s on
+    the GPU, with every draw up to 20 ms included. It is a diagnostic, and
+    M146's policy stays the working one.
+
+---
+
 ---
 
 ### How to add an ADR

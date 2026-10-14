@@ -136,6 +136,9 @@ def main():
     ap.add_argument("--yaw-sigma", type=float, default=0.3)
     ap.add_argument("--yaw-prior", type=float, nargs=3, default=None,
                     help="M148: kff kfb limit of the baseline's hip-split turn")
+    ap.add_argument("--range", nargs=3, action="append", default=[],
+                    metavar=("NAME", "LO", "HI"),
+                    help="M154: override a randomised range, e.g. --range latency_s 0.003 0.020")
     ap.add_argument("--motor-dr", action="store_true",
                     help="M143: draw each world's motor from TomcatEnv.MOTOR_RANGES")
     a = ap.parse_args()
@@ -160,6 +163,8 @@ def main():
     dr = {**TomcatEnv.RANGES, **TomcatEnv.SENSOR_RANGES}
     if a.motor_dr:
         dr.update(TomcatEnv.MOTOR_RANGES)
+    for name, lo, hi in a.range:
+        dr[name] = (float(lo), float(hi))
     kw = {"randomize": dr, "residual_n": a.residual, "gait_w": a.gait_w,
           "slip_w": a.slip_w, "clear_w": a.clear_w, "act_obs": a.act_obs,
           "cu_w": a.cu_w}

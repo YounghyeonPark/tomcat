@@ -1,5 +1,14 @@
 # Balance-loop latency budget — and why the electronics is not the bottleneck
 
+> ⚠️ **M154 ([ADR-0146](../DESIGN_DECISIONS.md)) overturns §4's conclusion for
+> walking.** The learned walk, run on the full drivetrain plant, falls 3–4 in 10
+> at 12 ms of sensor-to-motor latency, and 8–10 in 10 at 16–20 ms, even with a
+> policy trained on latency up to 20 ms. §4's "even a sloppy 20 ms pipeline costs
+> little" came from the analytic disturbance envelope, which is far less
+> sensitive than a policy walking the drivetrain. **Treat < 10 ms end to end as a
+> hard requirement**, and the 7.5 ms allocation below as a ceiling with little
+> to spare.
+
 Owner: **tomcat-lead** · Allocates **NFR12**, and corrects **NFR10**.
 
 [ADR-0014](../DESIGN_DECISIONS.md) measured the disturbance-rejection envelope

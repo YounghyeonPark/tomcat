@@ -219,8 +219,8 @@ time:
 |---|---|---|
 | conduit μ (B2) | ≤ 0.09 | at 0.11 runtime, peak torque and heating fail together |
 | pad μ (B3) | ≥ 0.6 for NFR15 | the walk itself holds from 0.3 |
-| G3 rate (B4) | within ±30 % of 125 kN/m | softer AND stiffer both fall outside it |
-| latency, sensor → motor | < 10 ms | 12 ms already falls 3 in 10; 16 ms always (firmware, not a bench part) |
+| G3 rate (B4) | ≥ 0.7× of 125 kN/m (up to 2×) | 0.5× falls even when trained for it; 2× holds once trained (ADR-0146) |
+| latency, sensor → motor | < 10 ms | 12 ms falls 3–4 in 10 even when trained up to 20 ms: physics (ADR-0146; firmware, not a bench part) |
 | mass | up to 1.3× holds the walk | runtime and torque still pay for it |
 
 ## Shopping list (first round)

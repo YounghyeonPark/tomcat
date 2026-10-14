@@ -42,8 +42,9 @@ from .gym_env import LOAD_KEYS
 from .params import DEFAULT_FORELEG, DEFAULT_HINDLEG
 from . import stand_baseline as SB
 
-#: Latency is a ring of physics steps; this many cover RANGES' 12 ms.
-MAX_DELAY_STEPS = 130
+#: Latency is a ring of physics steps; this many cover 20 ms (M154 trains
+#: past RANGES' 12 ms to find where the walk really breaks).
+MAX_DELAY_STEPS = 210
 
 
 def _leg_arrays():
