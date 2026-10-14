@@ -74,6 +74,13 @@ working harder; with the conduits' friction now in the plant and a copper cost,
 it fits the spec motor's peak and runs ~17 min at the vendor's Kt
 ([ADR-0139](docs/DESIGN_DECISIONS.md), [ADR-0140](docs/DESIGN_DECISIONS.md)).
 
+![the same walk, on the designed parts](docs/figures/walk_cad_m155.webp)
+
+The same policy, drawn on the CAD instead of the plant's capsules. Each rigid
+body's parts ride the simulator body they belong to, and a test checks that
+every joint the CAD places lands where the plant hinges
+([ADR-0147](docs/DESIGN_DECISIONS.md)). The skin is not drawn yet.
+
 ## Key numbers
 
 | | |

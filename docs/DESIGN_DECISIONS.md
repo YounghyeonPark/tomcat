@@ -11056,6 +11056,49 @@ The MuJoCo harness moved four numbers, and three of them moved the good way.
 
 ---
 
+## ADR-0147: the CAD, drawn moving on the simulator's bodies
+- **Status:** Accepted (M155).
+- **Question:** Can the simulation's results be rendered on the designed parts,
+  rather than on the capsules the plant collides with?
+- **Context:**
+  - The plant's bodies are the CAD's rigid bodies. Their lengths are the CAD's
+    and their inertia comes from it (`link_inertia`, ADR-0087), but nothing drew
+    the CAD on them, so every walking film showed capsules.
+  - `mechanical/cad/rigid_bodies.py` splits the OLD skeleton CAD
+    (`tomcat_skeleton`), not the current leg detail and trunk.
+- **Decision:**
+  - `mechanical/cad/sim_meshes.py` tessellates each rigid body once (0.6 mm)
+    and writes it in the MJCF body frame it rides on, one STL per body and
+    material, to `mechanical/cad/out/sim/` (ignored by git and regenerated).
+    - **Legs.** `link_inertia.link_frames` gives the frame, and
+      `link_inertia.assign` picks the link, so the picture and the inertia split
+      charge each solid to the same link. A right leg is the left one reflected
+      in y, re-wound. The drive harness crosses joints and is left out.
+    - **Trunk.** CAD body 0 is `trunk`, 1 and 2 are `spine1`/`spine2`, and 3 is
+      `spine3`, which carries the front girdle rigidly.
+  - `render_episode.render_model(env, cad=True)` attaches them as visual-only
+    mesh geoms: mass 0, no contact. The capsules are made invisible, not
+    removed. `film_walk.py --cad` films a policy with them.
+- **Checks (`tests/test_sim_meshes.py`):**
+  - Every CAD joint (knee, ankle, paw base), in its parent link's MJCF frame,
+    lands on the child body's `pos` within 0.5 mm, fore and hind.
+  - The paw's fixed angle in the MJCF is the CAD stance pose's.
+  - The hips, moved into the trunk bodies' frames, are where the plant hangs
+    the femurs. The CAD spine joints are the plant's.
+  - With the meshes, the model's masses, inertias and body layout are unchanged.
+- **Consequences:**
+  - `docs/figures/walk_cad_m155.webp`: M146's policy at 0.5 m/s on the CAD,
+    without the skin. It walks 4 s and does not fall.
+  - The skin, head and tail are not drawn yet. The skin deforms across joints,
+    so it has no single body to ride, which is the same reason the harness is
+    left out. Drawing them needs skinning by joint weights, not one frame per
+    part.
+  - The femur's conduit ferrules and some cable anchors sit 30-50 mm off their
+    bone. `link_inertia` charges them to the link they move with, so they are
+    drawn there.
+
+---
+
 ---
 
 ### How to add an ADR

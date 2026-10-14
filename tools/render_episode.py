@@ -48,8 +48,10 @@ VISUAL = f"""
 """
 
 
-def render_model(env):
-    """The same plant, with lights and a floor texture. Dynamics untouched."""
+def render_model(env, cad=False):
+    """The same plant, with lights and a floor texture. Dynamics untouched.
+
+    `cad=True` draws the designed parts instead of the capsules (M155)."""
     xml = MT.quadruped_rig_spooled(
         q_ref={nm: list(v) for nm, v in env.q_ref.items()},
         series_k=env.series_k, hip_height=0.176, spine=True,
@@ -61,7 +63,51 @@ def render_model(env):
                       '  <worldbody>\n    <light name="key" pos="0.5 -0.6 1.2"'
                       ' dir="-0.35 0.45 -1" directional="true"'
                       ' diffuse="0.5 0.5 0.5" castshadow="true"/>', 1)
-    return mujoco.MjModel.from_xml_string(xml)
+    if not cad:
+        return mujoco.MjModel.from_xml_string(xml)
+    return cad_model(xml)
+
+
+#: Where `mechanical/cad/sim_meshes.py` writes the parts, one per body/material.
+CAD_MESHES = os.path.join(ROOT, "mechanical", "cad", "out", "sim")
+CAD_RGBA = {"shell": "0.86 0.80 0.70 1", "carbon": "0.17 0.17 0.19 1",
+            "metal": "0.74 0.76 0.80 1", "pad": "0.30 0.24 0.22 1",
+            "cable": "0.95 0.95 0.90 1"}
+
+
+def cad_model(xml, meshdir=CAD_MESHES):
+    """M155: the CAD's rigid bodies as visual-only meshes on the MJCF bodies.
+
+    Each mesh is already in its body's frame (`sim_meshes`), so it is attached
+    at the body origin. Mass 0, no contact: the plant is exactly the one the
+    policy walks on. The capsules and spools it replaces are made invisible,
+    not removed, so the model's geom and body layout does not change."""
+    sys.path.insert(0, os.path.join(ROOT, "mechanical", "cad"))
+    import sim_meshes as SM
+    if not os.path.isdir(meshdir):
+        raise SystemExit("no CAD meshes in %s: run mechanical/cad/sim_meshes.py" % meshdir)
+    assets, geoms = [], {}
+    for stem, body, mat in SM.mesh_names():
+        f = os.path.join(meshdir, stem + ".stl")
+        if not os.path.exists(f):
+            continue
+        assets.append('    <mesh name="cad_%s" file="%s" inertia="shell"/>'
+                      % (stem, f.replace(os.sep, "/")))
+        geoms.setdefault(body, []).append(
+            '<geom name="cad_%s" type="mesh" mesh="cad_%s" mass="0" contype="0" '
+            'conaffinity="0" group="2" rgba="%s"/>' % (stem, stem, CAD_RGBA[mat]))
+    xml = xml.replace("  <asset>", "  <asset>\n" + "\n".join(assets), 1)
+    for body, gs in geoms.items():
+        m = re.search(r'<body name="%s"[^>]*>' % body, xml)
+        if m is None:
+            raise KeyError("no MJCF body %r for the CAD mesh" % body)
+        xml = xml[:m.end()] + "\n" + "\n".join(gs) + xml[m.end():]
+    model = mujoco.MjModel.from_xml_string(xml)
+    for i in range(model.ngeom):
+        nm = model.geom(i).name
+        if model.geom_bodyid[i] != 0 and not nm.startswith("cad_"):
+            model.geom_rgba[i, 3] = 0.0
+    return model
 
 
 def png(path, rgb):

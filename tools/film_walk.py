@@ -44,6 +44,8 @@ def main():
                     help="frames the policy was trained on (M144: 4, with its last action)")
     ap.add_argument("--noload-rpm", type=float, default=None)
     ap.add_argument("--peak-nm", type=float, default=None)
+    ap.add_argument("--cad", action="store_true",
+                    help="draw the CAD parts on the bodies (M155; run mechanical/cad/sim_meshes.py)")
     a = ap.parse_args()
     import math
     from tomcat_kin import mjcf_tendon as MT
@@ -62,7 +64,7 @@ def main():
     if st is not None:
         o = st.reset(o[None])[0]
     core = env.core
-    rm = render_model(core)
+    rm = render_model(core, cad=a.cad)
     rd = mujoco.MjData(rm)
     W, H = 420, 340
     r = mujoco.Renderer(rm, H, W)
