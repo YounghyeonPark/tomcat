@@ -46,6 +46,9 @@ def main():
     ap.add_argument("--peak-nm", type=float, default=None)
     ap.add_argument("--cad", action="store_true",
                     help="draw the CAD parts on the bodies (M155; run mechanical/cad/sim_meshes.py)")
+    ap.add_argument("--skin", action="store_true",
+                    help="M157: with --cad, the mechanism and the cat suit side by side "
+                         "(run mechanical/cad/sim_skin.py)")
     ap.add_argument("--control-hz", type=float, default=None,
                     help="M156: the rate the policy was trained at")
     a = ap.parse_args()
@@ -67,13 +70,18 @@ def main():
     if st is not None:
         o = st.reset(o[None])[0]
     core = env.core
-    rm = render_model(core, cad=a.cad)
+    rm = render_model(core, cad=a.cad or a.skin, skin=a.skin)
     rd = mujoco.MjData(rm)
     W, H = 420, 340
     r = mujoco.Renderer(rm, H, W)
     cam = mujoco.MjvCamera()
     cam.type = mujoco.mjtCamera.mjCAMERA_FREE
     cam.azimuth, cam.elevation, cam.distance = 90.0, -10.0, 0.85
+    sv = None
+    if a.skin:
+        from render_episode import SkinView
+        sv = SkinView(rm, r)
+        cam.distance = 1.0                       # the head and tail reach past the trunk
     frames, x0, n = [], float(core.data.qpos[0]), 0
     while True:
         act = pol.predict(o, deterministic=True)[0]
@@ -84,9 +92,20 @@ def main():
         if n % a.every == 0 or te or tr:
             rd.qpos[:] = core.data.qpos
             mujoco.mj_forward(rm, rd)
-            cam.lookat[:] = [float(core.data.qpos[0]), float(core.data.qpos[1]), 0.12]
+            cam.lookat[:] = [float(core.data.qpos[0]) + (0.08 if sv else 0.0),
+                             float(core.data.qpos[1]), 0.12]
+            if sv is not None:
+                sv.show(False)
             r.update_scene(rd, camera=cam)
             img = Image.fromarray(r.render())
+            if sv is not None:
+                sv.update(rd)
+                sv.show(True)
+                r.update_scene(rd, camera=cam)
+                both = Image.new("RGB", (2 * W, H))
+                both.paste(img, (0, 0))
+                both.paste(Image.fromarray(r.render()), (W, 0))
+                img = both
             d = ImageDraw.Draw(img)
             down = np.asarray(core.observe()["contact"]) > 1.0
             for k, nm in enumerate(LEGS):

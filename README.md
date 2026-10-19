@@ -79,7 +79,13 @@ it fits the spec motor's peak and runs ~17 min at the vendor's Kt
 The same policy, drawn on the CAD instead of the plant's capsules. Each rigid
 body's parts ride the simulator body they belong to, and a test checks that
 every joint the CAD places lands where the plant hinges
-([ADR-0147](docs/DESIGN_DECISIONS.md)). The skin is not drawn yet.
+([ADR-0147](docs/DESIGN_DECISIONS.md)).
+
+![the mechanism and the cat suit, walking](docs/figures/walk_skin_m157.webp)
+
+With the cat suit skinned to the same bodies: each patch of fabric follows the
+bones it is charged to in the mass model, blended across the joints
+([ADR-0149](docs/DESIGN_DECISIONS.md)).
 
 ## Key numbers
 

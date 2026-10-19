@@ -48,10 +48,11 @@ VISUAL = f"""
 """
 
 
-def render_model(env, cad=False):
+def render_model(env, cad=False, skin=False):
     """The same plant, with lights and a floor texture. Dynamics untouched.
 
-    `cad=True` draws the designed parts instead of the capsules (M155)."""
+    `cad=True` draws the designed parts instead of the capsules (M155);
+    `skin=True` adds the cat suit, posed each frame by `SkinView` (M157)."""
     xml = MT.quadruped_rig_spooled(
         q_ref={nm: list(v) for nm, v in env.q_ref.items()},
         series_k=env.series_k, hip_height=0.176, spine=True,
@@ -65,7 +66,7 @@ def render_model(env, cad=False):
                       ' diffuse="0.5 0.5 0.5" castshadow="true"/>', 1)
     if not cad:
         return mujoco.MjModel.from_xml_string(xml)
-    return cad_model(xml)
+    return cad_model(xml, skin=skin)
 
 
 #: Where `mechanical/cad/sim_meshes.py` writes the parts, one per body/material.
@@ -75,7 +76,7 @@ CAD_RGBA = {"shell": "0.86 0.80 0.70 1", "carbon": "0.17 0.17 0.19 1",
             "cable": "0.95 0.95 0.90 1"}
 
 
-def cad_model(xml, meshdir=CAD_MESHES):
+def cad_model(xml, meshdir=CAD_MESHES, skin=False):
     """M155: the CAD's rigid bodies as visual-only meshes on the MJCF bodies.
 
     Each mesh is already in its body's frame (`sim_meshes`), so it is attached
@@ -96,8 +97,20 @@ def cad_model(xml, meshdir=CAD_MESHES):
         geoms.setdefault(body, []).append(
             '<geom name="cad_%s" type="mesh" mesh="cad_%s" mass="0" contype="0" '
             'conaffinity="0" group="2" rgba="%s"/>' % (stem, stem, CAD_RGBA[mat]))
+    if skin:
+        import sim_skin as SS
+        sk = SS.Skin(os.path.join(meshdir, "skin.npz"))
+        assets.append('    <mesh name="cad_skin" vertex="%s" face="%s" inertia="shell"/>'
+                      % (" ".join("%.5f" % v for v in sk.V0.ravel()),
+                         " ".join(str(int(i)) for i in sk.F.ravel())))
+        geoms.setdefault("world", []).append(
+            '<geom name="cad_skin" type="mesh" mesh="cad_skin" mass="0" contype="0" '
+            'conaffinity="0" group="2" rgba="%s"/>' % SKIN_RGBA)
     xml = xml.replace("  <asset>", "  <asset>\n" + "\n".join(assets), 1)
     for body, gs in geoms.items():
+        if body == "world":
+            xml = xml.replace("  <worldbody>", "  <worldbody>\n" + "\n".join(gs), 1)
+            continue
         m = re.search(r'<body name="%s"[^>]*>' % body, xml)
         if m is None:
             raise KeyError("no MJCF body %r for the CAD mesh" % body)
@@ -108,6 +121,43 @@ def cad_model(xml, meshdir=CAD_MESHES):
         if model.geom_bodyid[i] != 0 and not nm.startswith("cad_"):
             model.geom_rgba[i, 3] = 0.0
     return model
+
+
+SKIN_RGBA = "0.66 0.56 0.46 1"
+
+
+class SkinView:
+    """M157: the suit on a `cad_model(..., skin=True)`, re-posed every frame.
+
+    MuJoCo compiles a mesh into its own principal frame and moves the geom to
+    compensate; the posed vertices are in the WORLD, so the geom is put back
+    at the origin and the vertices and normals re-uploaded to the renderer."""
+
+    def __init__(self, model, renderer):
+        sys.path.insert(0, os.path.join(ROOT, "mechanical", "cad"))
+        import sim_skin as SS
+        self.m, self.r = model, renderer
+        self.skin = SS.Skin(os.path.join(CAD_MESHES, "skin.npz"))
+        self.g = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_GEOM, "cad_skin")
+        self.mesh = int(model.geom_dataid[self.g])
+        n = len(self.skin.V0)
+        if int(model.mesh_vertnum[self.mesh]) != n or int(model.mesh_normalnum[self.mesh]) != n:
+            raise ValueError("MuJoCo re-indexed the skin mesh; it cannot be posed")
+        v0, n0 = int(model.mesh_vertadr[self.mesh]), int(model.mesh_normaladr[self.mesh])
+        self.v, self.nr = slice(v0, v0 + n), slice(n0, n0 + n)
+        model.geom_pos[self.g] = 0.0
+        model.geom_quat[self.g] = (1.0, 0.0, 0.0, 0.0)
+
+    def update(self, data):
+        V, N = self.skin.pose(self.m, data)
+        data.geom_xpos[self.g] = 0.0              # in case no mj_forward has run since
+        data.geom_xmat[self.g] = (1, 0, 0, 0, 1, 0, 0, 0, 1)
+        self.m.mesh_vert[self.v] = V
+        self.m.mesh_normal[self.nr] = N
+        mujoco.mjr_uploadMesh(self.m, self.r._mjr_context, self.mesh)
+
+    def show(self, on):
+        self.m.geom_rgba[self.g, 3] = 1.0 if on else 0.0
 
 
 def png(path, rgb):

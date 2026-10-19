@@ -11156,6 +11156,43 @@ The MuJoCo harness moved four numbers, and three of them moved the good way.
 
 ---
 
+## ADR-0149: the cat suit, skinned to the simulator's bodies
+- **Status:** Accepted (M157). Completes ADR-0147's render.
+- **Question:** ADR-0147 drew each rigid part on its body and left the skin
+  out, because the suit stretches across joints and has no single body. How
+  can it be drawn moving?
+- **Decision:** linear blend skinning, as a character in a film is animated.
+  `mechanical/cad/sim_skin.py`:
+  - Builds the suit (`cat_suit`) and decimates it to 120 k triangles. It
+    samples the structure coarser (1.6 / 1.2 mm against 0.8 / 0.6), because
+    `cat_suit`'s own sampling of the legs costs ~8 GB. Run this way, the build
+    stayed above 6.3 GB free beside a GPU training run.
+  - Deals each vertex to a body by `skin_mass.deal`, the rule that already
+    charges the suit's mass to the plant. So the picture and the inertia agree
+    on which fabric rides which bone.
+  - Diffuses the one-hot weights 60 steps along the surface, so a joint's
+    fabric follows both sides over ~15-20 mm instead of tearing, and keeps 4
+    bodies per vertex.
+  - Binds at the CAD stance, in the body frames `sim_meshes` uses.
+  - `render_episode.SkinView` re-poses the vertices and normals each frame
+    and re-uploads the mesh. `film_walk.py --skin` films the mechanism and the
+    suit side by side.
+- **Checks (`tests/test_sim_skin.py`):**
+  - At the bind pose the suit is exactly the one built.
+  - A rigid motion of the whole robot moves it rigidly, to 1e-9 m.
+  - The weights sum to one, and every body it rides is a plant body.
+- **Consequences:**
+  - `docs/figures/walk_skin_m157.webp`: the working policy (M156, 133 Hz) at
+    0.5 m/s.
+  - Linear blend skinning thins the fabric on the inside of a sharply bent
+    joint, the familiar "candy-wrapper" artefact. The knees and ankles show it
+    at full flexion. It is a picture, not a check of the knit's strain;
+    `cat_suit.joint_strain` remains that check.
+  - The suit is rebuilt only when `sim_skin.py` is re-run, so it goes stale
+    when the skeleton changes, like `skin_mass.json`.
+
+---
+
 ---
 
 ### How to add an ADR
