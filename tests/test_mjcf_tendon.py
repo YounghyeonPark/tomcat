@@ -2673,12 +2673,16 @@ def test_the_SWAY_ADR0009_BOUGHT_needs_the_FEET_TO_SLIDE():
     assert r["sway"] < 0.2 * analytic, (
         f"the sway must not come out: {r['sway']:.2f} of {analytic:.1f} mm"
     )
-    assert max(r["slip"].values()) > r["sway"], (
-        f"and the slip exceeds it: {r['slip']} mm vs {r['sway']:.2f} mm sway"
+    # ⚠️ **M158 (ADR-0150): the slip was the contact's CREEP.** On MuJoCo's
+    # default soft contact a pad slid at a fifth of its friction, and the
+    # 7-16 mm of "slip" above was that. With the creep gone the feet stay
+    # planted -- 0.05-0.48 mm, under the 1.63 mm sway -- and the sway still does
+    # not come out. So the conclusion stands on firmer ground: with planar legs
+    # and planted feet there is nothing for a lateral sway to move.
+    assert max(r["slip"].values()) < r["sway"], (
+        f"planted feet: {r['slip']} mm against {r['sway']:.2f} mm sway"
     )
-    assert min(r["slip"].values()) > 1.0, (
-        f"every foot slides, not just the fore pair: {r['slip']}"
-    )
+    assert max(r["slip"].values()) < 1.0, f"the feet stay planted: {r['slip']}"
 
 
 def test_RAISING_THE_SPINE_GAIN_makes_it_FALL_OVER():
@@ -3101,16 +3105,20 @@ def test_the_LATERAL_ARM_buys_COST_not_SWAY():
     # ⚠️ M129 (ADR-0121): **1.15x -> 1.07x** (2.19 vs 2.05 mm), the head
     # carried back and lower. The advantage is now within what the plain foot
     # varies by between builds; the claim is reduced to "no worse".
-    assert runs["aniso20"]["sway"] > runs["plain20"]["sway"], (
-        f"the pad must dominate the sway: {runs['aniso20']['sway']:.2f} vs "
+    # ⚠️ **M158 (ADR-0150) REVERSED it: 0.71x** (1.15 vs 1.63 mm). Without the
+    # soft contact's creep the plain foot holds and the directional pad slides
+    # 3.7-5.2 mm instead of moving the body. Its advantage was the creep's.
+    assert runs["aniso20"]["sway"] < runs["plain20"]["sway"], (
+        f"the pad no longer moves the body more: {runs['aniso20']['sway']:.2f} vs "
         f"{runs['plain20']['sway']:.2f} mm"
     )
     # ⚠️ M123 (ADR-0114) REVERSED this: the pad now slips its worst foot
     # 10 % MORE (12.4 vs 11.2 mm) -- with its sway advantage down to 1.15x it
     # no longer trades slip for motion. Recorded, not claimed.
     # M130: 1.39x (11.7 vs 8.4 mm) -- the cat's skin (ADR-0124). Recorded, not claimed.
-    assert max(runs["aniso20"]["slip"].values()) < 1.5 * max(
-        runs["plain20"]["slip"].values()), "the pad's slip has run away"
+    # M158: the plain foot no longer slides (0.48 mm at most) and the pad does
+    # (5.2 mm), so a ratio means nothing; the pad's slip is bounded instead.
+    assert max(runs["aniso20"]["slip"].values()) < 8.0, "the pad's slip has run away"
     # ⚠️ none of it reaches what ADR-0009 designed
     assert runs["aniso20"]["sway"] < 0.2 * designed, (
         f"still {100 * runs['aniso20']['sway'] / designed:.0f} % of {designed} mm"
@@ -3161,7 +3169,9 @@ def test_the_DIRECTIONAL_PAD_CHARGES_the_SAGITTAL_spine():
     assert max(pad[i] for i in lat) >= max(pad[i] for i in sag), (
         f"with the pad the lateral pairs still bind: {np.round(pad, 1)}"
     )
-    assert max(pad[i] for i in sag) > 1.8 * max(plain[i] for i in sag), (
+    # ⚠️ M158 (ADR-0150): **2x -> 1.13x** (27.1 -> 30.5 N). Most of the pad's
+    # sagittal bill was paid for motion the creep allowed; it still raises it.
+    assert max(pad[i] for i in sag) > max(plain[i] for i in sag), (
         f"and the pad raises the sagittal demand: "
         f"{max(plain[i] for i in sag):.1f} -> {max(pad[i] for i in sag):.1f} N"
     )
@@ -4435,12 +4445,20 @@ def test_G3_TAKES_THE_SHOCK_out_of_the_CABLE_not_the_GROUND():
     assert rigid[0.05]["cable"] == pytest.approx(MT.TENSION_MAX, abs=1.0)
     assert rigid[0.30]["cable"] == pytest.approx(MT.TENSION_MAX, abs=1.0)
 
-    # ✅ G3 pulls the peak well inside the rating
-    assert soft[0.05]["cable"] < 0.5 * MT.TENSION_MAX, (
-        f"G3 must take the shock: {soft[0.05]['cable']:.0f} N"
+    # ⚠️ **M158 (ADR-0150): on a pad that does not sink 6 mm, G3 no longer
+    # keeps the cable in its rating.** The default contact let a standing pad
+    # sink 6.3 mm (~2 kN/m); at 0.6 mm (~20 kN/m, a TPU pad) the 0.05 m drop
+    # takes the cable to 208 N (93 % of the rating) where it read 48-84 N, and
+    # the 0.30 m drop saturates it. G3 still takes something off the shallow
+    # drop; the landing margin was the floor's.
+    assert soft[0.05]["cable"] < rigid[0.05]["cable"], (
+        f"G3 still takes some of the shock: {soft[0.05]['cable']:.0f} N"
     )
-    assert soft[0.30]["cable"] < 0.7 * MT.TENSION_MAX
-    assert soft[0.30]["cable"] > soft[0.05]["cable"], "and it still scales"
+    assert soft[0.05]["cable"] > 0.85 * MT.TENSION_MAX, (
+        f"but no longer enough: {soft[0.05]['cable']:.0f} N -- if this "
+        f"dropped back, the pad got softer; re-read ADR-0150"
+    )
+    assert soft[0.30]["cable"] == pytest.approx(MT.TENSION_MAX, abs=1.0)
 
     # ⚠️ but the ground sees the same impulse
     for h in (0.05, 0.30):
@@ -4691,7 +4709,9 @@ def test_the_DRIVETRAIN_LOWERS_THE_MODE_and_IMPROVES_THE_MARGIN():
     # M132 (ADR-0126): 7.9 Hz at zeta 0.53 -- the rigid ankle cables no longer
     # tie the ankle to the knee through the via; still heavily damped, and the
     # lightly-damped rigid plant still starts at 1396 Hz.
-    assert 2.0 < _lowest_mode_whole(rigid) < 10.0
+    # M158 (ADR-0150): the stiffer pad contact takes the rocking mode away
+    # again; the rigid plant's lowest is the contact mode, 1470 Hz.
+    assert _lowest_mode_whole(rigid) > 1000.0
     f_rigid = _lowest_mode_whole(rigid, max_zeta=0.3)
     f_spool = _lowest_mode_whole(spooled)
     # ⚠️ M111: 4.6 -> **10.6 Hz**. The series element appears at the joint as
@@ -5188,7 +5208,9 @@ def test_ADR0073s_CABLE_MARGIN_was_bought_by_a_RIGID_TRUNK():
     # ⚠️ M111: 71.4 -> 45.7 N -- the same joint torque on ADR-0103's bigger arms.
     # M123 (ADR-0114): 45.7 -> 44.3 N.
     # M130: 44.3 -> 48.0 N -- the cat's skin (ADR-0124).
-    assert box["cable"] == pytest.approx(48.0, rel=0.02), (
+    # ⚠️ M158 (ADR-0150): 48.0 -> **207.7 N**. The 48 N was the floor's: the
+    # default contact sank a pad 6.3 mm and cushioned the landing.
+    assert box["cable"] == pytest.approx(207.7, rel=0.02), (
         "the rigid-box baseline must reproduce"
     )
 
@@ -5245,8 +5267,12 @@ def test_ADR0073s_CABLE_MARGIN_was_bought_by_a_RIGID_TRUNK():
         # 62.3 / 61.7 N, unchanged), 52 % of the rating, against the half
         # this held to -- the only change is the map (the old rows on the same
         # code give 98.3). Still never saturated; the bound is 0.6.
-        assert r["cable"] < 0.6 * MT.TENSION_MAX, (
-            f"at {h} m the leg cable is {r['cable']:.1f} N"
+        # ⚠️ M158 (ADR-0150): on the stiffer pad the held spine no longer
+        # protects the leg cable: 192 / 216 / 223 N (saturated) over 0.05 /
+        # 0.10 / 0.30 m, against 62-116 N on the soft contact.
+        assert r["cable"] > 0.85 * MT.TENSION_MAX, (
+            f"at {h} m the leg cable is {r['cable']:.1f} N -- if it fell back "
+            f"inside the rating, the pad got softer"
         )
         # ⚠️ **and the spine's own cables got worse where the drop is
         # SHALLOW, and not at all where it is deep:**
@@ -5272,7 +5298,7 @@ def test_ADR0073s_CABLE_MARGIN_was_bought_by_a_RIGID_TRUNK():
     # than asserted the other way round.
     # ⚠️ M123 (ADR-0114) REVERSED it back: 8565 / 9223 / 9634 N, growing with
     # the drop again. Still the ordering, not the finding.
-    assert peaks[0.30]["spine"] > peaks[0.05]["spine"]
+    # M158: 7237 / 7423 / 6966 N, 31-33x, nearly flat; the ordering is noise.
     # ⚠️ M102: the MINIMUM is 8.1x, at the 0.30 m drop -- barely above the
     # 8.0 this used to assert, so the bound is loosened to 7.5 rather than left
     # a percent from failing on noise. The shallow drops are 13-16x.
@@ -5302,9 +5328,10 @@ def test_ADR0073s_CABLE_MARGIN_was_bought_by_a_RIGID_TRUNK():
         f"a LIMP spine must still saturate the leg cable: {r0['cable']:.1f} N"
     )
     r50 = _held_drop(0.05, True, spine=True, spine_kp=50.0, spine_kd=12.0)
-    assert r50["cable"] < 0.5 * MT.TENSION_MAX, (
-        f"a softly held spine now protects the cable: {r50['cable']:.1f} N -- "
-        f"if this saturates again the requirement is back to a stiff loop"
+    # ⚠️ M158 (ADR-0150): 188 N on the stiffer pad -- no spine gain protects
+    # the leg cable from a hard landing any more.
+    assert r50["cable"] > 0.8 * MT.TENSION_MAX, (
+        f"a softly held spine no longer protects the cable: {r50['cable']:.1f} N"
     )
 
 
@@ -5366,9 +5393,8 @@ def test_the_LANDING_with_a_COMPLIANT_SPINE_is_NOT_YET_ANSWERABLE():
     # this objection M87 retired. 535 N is 13x body weight, inside the 9-13x
     # ADR-0073 expects from an impact, where the 60 mm girdle box gave 260x.
     weight = DEFAULT_BODY_MASS_KG * 9.81
-    assert hard["contact"] > soft["contact"], (
-        f"contact {hard['contact']:.0f} N against {soft['contact']:.0f}"
-    )
+    # M158 (ADR-0150): on the stiffer pad the order flips (744 vs 803 N);
+    # both are 16-17x body weight, and which is larger is the draw below.
     # ✅ **M123 (ADR-0114 addendum): the contact is credible on the plant that
     # CAN land, and chaotic on the one that cannot.** 0.05 m read 32x on the
     # compliant spine, which looked like the 60 mm girdle box's objection back.
@@ -5377,16 +5403,19 @@ def test_the_LANDING_with_a_COMPLIANT_SPINE_is_NOT_YET_ANSWERABLE():
     # 16x -> 461x with no pattern -- the saturated spine loop above makes its
     # peak contact a coin toss (M122's 12x was one). The RIGID-spine plant
     # reads 9-12x at every one of those drops: the contact physics is sound.
+    # M158 (ADR-0150): 17x at every drop on the stiffer pad, against 9-12x on
+    # the soft contact; still steady, which is the claim.
     for h in (0.046, 0.050, 0.052):
         rig = _held_drop(h, True, spine=True)["contact"]
-        assert 5.0 * weight < rig < 15.0 * weight, (
+        assert 5.0 * weight < rig < 20.0 * weight, (
             f"the rigid-spine landing left 9-12x: {rig / weight:.0f}x at {h} m")
     # the compliant-spine plant's peak is a draw (M124 drew 20 and 19x where
     # M123 drew 16 and 163x); only that it lands HARDER than the rigid spine
     # is robust, and that is what is held.
+    # M158: on the stiffer pad the compliant spine reads 15.7x against the
+    # rigid spine's 17.0x -- the draw went the other way; both are bounded.
     comp = _held_drop(0.05, True, spine=True, spine_drive=True)["contact"]
-    rig = _held_drop(0.05, True, spine=True)["contact"]
-    assert comp > rig, f"compliant {comp / weight:.0f}x vs rigid {rig / weight:.0f}x"
+    assert 5.0 * weight < comp < 25.0 * weight, f"compliant {comp / weight:.0f}x"
 
 
 # ==========================================================================

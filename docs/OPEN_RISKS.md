@@ -84,6 +84,19 @@ and polished cases too — the failure mode is a *bad* floor, not a typical one.
 
 ## 2. Significant — these change a number, not viability
 
+### R6. Landing loads — the pad's stiffness `[modelled, never benched]` (M158)
+
+[ADR-0150](DESIGN_DECISIONS.md) corrected the contact model: MuJoCo's default
+let a standing pad sink 6.3 mm, deeper than the pad. At ~20 kN/m (0.6 mm sink),
+a 5 cm held drop takes the leg cable to **208 N of its 223 N rating**, and a
+30 cm drop saturates it. ADR-0026's "G3 takes the shock" held only on the soft
+floor (48-127 N).
+
+**How to fix:** measure the pad's compression stiffness (bench plan B3). If the
+real pad is as stiff as modelled, the landing needs compliance somewhere: a
+softer pad, foam under the sole, or a landing controller that does not hold
+the legs stiff. Walking is unaffected (ADR-0150's retrained walk falls less).
+
 ### R3. Battery energy density — 175 Wh/kg, 80 % usable `[assumed]`
 
 Runtime spans **18–48 min** across plausible cell choices, against the 30 min in

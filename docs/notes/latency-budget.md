@@ -1,13 +1,12 @@
 # Balance-loop latency budget — and why the electronics is not the bottleneck
 
-> ⚠️ **For walking, the edge is 14–15 ms (M156,
-> [ADR-0148](../DESIGN_DECISIONS.md)).** A learned walk on the full drivetrain
-> plant holds to 14 ms of sensor-to-motor latency and falls at 15 ms, whether the
-> policy runs at 133, 200 or 400 Hz. §4's "even a sloppy 20 ms pipeline costs
-> little" came from the analytic disturbance envelope and is too generous; M154's
-> "< 10 ms" ([ADR-0146](../DESIGN_DECISIONS.md)) was too strict, because that
-> policy was trained on too wide a range. **Accept ≤ 12 ms end to end.** The 7.5 ms
-> allocation below keeps ~4.5 ms in hand.
+> ⚠️ **For walking, accept ≤ 10 ms end to end (M158,
+> [ADR-0150](../DESIGN_DECISIONS.md)).** On a contact model whose paws do not
+> creep, a learned walk falls 1 in 40 at 10 ms of sensor-to-motor latency and
+> 12 in 40 at 12 ms. The policy's rate does not move that edge (M156,
+> [ADR-0148](../DESIGN_DECISIONS.md)). §4's "even a sloppy 20 ms pipeline costs
+> little" came from the analytic disturbance envelope and is too generous. The
+> 7.5 ms allocation below keeps 2.5 ms in hand.
 
 Owner: **tomcat-lead** · Allocates **NFR12**, and corrects **NFR10**.
 

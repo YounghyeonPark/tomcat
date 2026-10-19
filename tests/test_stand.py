@@ -90,9 +90,14 @@ def test_the_FEET_FEEL_the_floor():
     W = float(np.sum(env.model.body_mass)) * 9.81
     assert 0.6 * W < c.sum() < 1.2 * W, (c.sum(), W)
     base = StandBaseline(env).reset(obs)
+    # ⚠️ M158: averaged over the last 0.5 s, not read at one step. With the
+    # stiffer pad contact (ADR-0150) a single reading rings +-13 % about the
+    # weight; the mean is the weight to 1 %.
+    total = []
     for _ in range(200):
         obs, *_ = env.step(base(obs))
-    assert np.sum(obs["contact"]) == pytest.approx(W, rel=0.05), "standing carries it all"
+        total.append(np.sum(obs["contact"]))
+    assert np.mean(total[-67:]) == pytest.approx(W, rel=0.05), "standing carries it all"
 
 
 def test_the_MOTOR_ENVELOPE_is_the_torque_speed_line_driving_and_free_braking():

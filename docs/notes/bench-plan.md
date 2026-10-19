@@ -141,9 +141,13 @@ need a built leg and are out of scope here.
 
 - NFR15 (disturbance rejection) holds from μ ≥ 0.6 (ADR-0034).
 - Training draws `floor_mu` from 0.5–1.1 (ADR-0084).
-- M139–M150's walks still slip 0.03–0.08 m/s on loaded feet in simulation
-  (ADR-0133). How much of that a real pad would allow is exactly this
-  number.
+- M139–M150's walks slipped 0.03–0.10 m/s on loaded feet in simulation
+  (ADR-0133). M158 found most of that was the contact model's creep
+  (ADR-0150); on the corrected contact the walk slips 0.03 m/s, and only at
+  mu. What mu is, is exactly this number.
+- **And the pad's compression stiffness (M158, ADR-0150).** At ~20 kN/m the
+  model's 5 cm drop takes the leg cable to 93 % of its rating; at the old
+  model's ~2 kN/m it took 22 %. The real pad decides which.
 
 **Rig:**
 
@@ -153,6 +157,9 @@ need a built leg and are out of scope here.
 - Drag it with a force gauge on the floors the robot will see: tile, sealed
   wood, low-pile carpet.
 - Record static and kinetic μ, dry, and dusty if relevant.
+- **Stiffness:** load the pad in steps to ~50 N on a hard surface and read the
+  compression with a dial indicator (the B4 rig serves). Pad sink at 12 N is
+  the number to compare with the model's 0.6 mm.
 
 **When it lands:**
 
@@ -160,6 +167,8 @@ need a built leg and are out of scope here.
 - `env._friction_geoms` and the pad `friction` in `mjcf_tendon.py` (0.8).
 - If kinetic μ < 0.6 on a target floor, NFR15 needs revisiting, and the
   slip penalty (ADR-0133) matters more.
+- The stiffness sets `mjcf_tendon.PAD_SOLREF`; re-run `tests/test_mjcf_tendon.py`'s
+  landing tests (ADR-0150, R6).
 
 ---
 
@@ -220,7 +229,7 @@ time:
 | conduit μ (B2) | ≤ 0.09 | at 0.11 runtime, peak torque and heating fail together |
 | pad μ (B3) | ≥ 0.6 for NFR15 | the walk itself holds from 0.3 |
 | G3 rate (B4) | ≥ 0.7× of 125 kN/m (up to 2×) | 0.5× falls even when trained for it; 2× holds once trained (ADR-0146) |
-| latency, sensor → motor | ≤ 12 ms | the walk holds to 14 ms and fails at 15, at 133, 200 and 400 Hz alike (ADR-0148, revising ADR-0146; firmware, not a bench part) |
+| latency, sensor → motor | ≤ 10 ms | 1 in 40 falls at 10 ms, 12 in 40 at 12, on a contact that does not creep; the policy rate does not move it (ADR-0148, ADR-0150; firmware, not a bench part) |
 | mass | up to 1.3× holds the walk | runtime and torque still pay for it |
 
 ## Shopping list (first round)

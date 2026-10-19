@@ -159,6 +159,18 @@ MOTOR_PEAK_NM = 1.95            # GIM3505-9 peak, `[sourced: motor-downselect]`
 MOTOR_NOLOAD_RAD_S = 665.0 * 2.0 * 3.141592653589793 / 60.0
 MOTOR_RATED_NM = 0.71           # its CONTINUOUS rating
 TENSION_MAX = MOTOR_PEAK_NM / float(DEFAULT_TENDON.motor_spool_radius)
+
+#: ✅ M158 (ADR-0150): **the paws crept.** With MuJoCo's defaults (pyramidal
+#: friction cone, `impratio` 1, `solref` 0.02 s) a loaded pad slid at a median
+#: |Ft|/Fn of **0.16 against mu 0.8** -- 66 % of loaded-foot samples sliding
+#: faster than 5 cm/s, at a fifth of the friction a real pad would hold. That is
+#: the soft contact's creep, not friction, and a policy trained on it learns a
+#: floor that does not exist. An elliptic cone, `impratio` 10 and a 5 ms contact
+#: time constant on the pads and floor make sliding start AT mu (median
+#: |Ft|/Fn 0.80 when sliding) and cut the sliding share to 6 %. 5 ms is still 50
+#: physics steps at the 1e-4 timestep.
+CONTACT_OPTION = 'cone="elliptic" impratio="10"'
+PAD_SOLREF = "0.005 1"
 TENSION_CONTINUOUS = MOTOR_RATED_NM / float(DEFAULT_TENDON.motor_spool_radius)
 
 #: Ankle return spring (ADR-0002 Option B): the ankle has ONE tendon, so the joint
@@ -836,7 +848,7 @@ def leg_tendon_xml(name: str, leg_p, arms, indent: int = 4,
     # so the XML does not still claim it.
     b.append(f'{pad}        <geom name="{name}_pad" type="sphere" size="0.006" '
              f'pos="{L[3]:.5f} 0 0" mass="0" '
-             f'friction="0.8 0.005 0.0001"/>')
+             f'friction="0.8 0.005 0.0001" solref="{PAD_SOLREF}"/>')
     # ⚠️ M137 (ADR-0131): **the touch sensor read 0 for 65 milestones.** A
     # `<touch>` counts contacts whose point lies INSIDE its site, and the pad's
     # contact sits on its 6 mm surface, outside the 2 mm site this was. Four
@@ -1137,13 +1149,14 @@ def quadruped_rig(hip_height: float = 0.175,
                                 spine_drive=spine_drive, sensors=sensors)
     return f"""<mujoco model="tomcat_quadruped_tendon">
   <compiler angle="radian" autolimits="true"/>
-  <option timestep="1e-4" gravity="0 0 {-GRAVITY}" integrator="implicitfast"/>
+  <option timestep="1e-4" gravity="0 0 {-GRAVITY}" integrator="implicitfast"
+          {CONTACT_OPTION}/>
   <default>
     <geom rgba="0.84 0.68 0.53 1"/>
 {_joint_default(spools)}  </default>
   <worldbody>
     <geom name="floor" type="plane" size="3 3 0.1" rgba="0.9 0.9 0.9 1"
-          friction="0.8 0.005 0.0001"/>
+          friction="0.8 0.005 0.0001" solref="{PAD_SOLREF}"/>
     <body name="trunk" pos="0 0 {hip_height:.4f}">
       <freejoint name="root"/>
       <geom name="trunk_g" type="box" size="0.130 0.035 0.030"
@@ -1200,13 +1213,14 @@ def _spine_quadruped(hip_height, trunk_mass, tendons, acts,
 
     return f"""<mujoco model="tomcat_quadruped_tendon_spine">
   <compiler angle="radian" autolimits="true"/>
-  <option timestep="1e-4" gravity="0 0 {-GRAVITY}" integrator="implicitfast"/>
+  <option timestep="1e-4" gravity="0 0 {-GRAVITY}" integrator="implicitfast"
+          {CONTACT_OPTION}/>
   <default>
     <geom rgba="0.84 0.68 0.53 1"/>
 {_joint_default(1.0 if drive_e else None)}  </default>
   <worldbody>
     <geom name="floor" type="plane" size="3 3 0.1" rgba="0.9 0.9 0.9 1"
-          friction="0.8 0.005 0.0001"/>
+          friction="0.8 0.005 0.0001" solref="{PAD_SOLREF}"/>
     <body name="trunk" pos="{-total / 2.0:.5f} 0 {hip_height:.4f}">
       <freejoint name="root"/>
 {_girdle_xml("rear_girdle_g", sp.rear_girdle_mass, sp.rear_girdle_com,
@@ -1447,14 +1461,14 @@ def single_leg_rig(leg_p=DEFAULT_HINDLEG, arms=None, hip_height: float = 0.20,
        finding: the hip tendons touch 1 DOF, the knee ones 2, the ankle 3 --
        a lower-triangular coupling, emergent from the routing. -->
   <option timestep="1e-4" gravity="0 0 {-GRAVITY}" integrator="implicitfast"
-          jacobian="dense"/>
+          jacobian="dense" {CONTACT_OPTION}/>
   <default>
 {joint_default}
     <geom rgba="0.84 0.68 0.53 1"/>
   </default>
   <worldbody>
     <geom name="floor" type="plane" size="2 2 0.1" rgba="0.9 0.9 0.9 1"
-          friction="0.8 0.005 0.0001"/>
+          friction="0.8 0.005 0.0001" solref="{PAD_SOLREF}"/>
 {root}
 {spool_sites}
 {body}

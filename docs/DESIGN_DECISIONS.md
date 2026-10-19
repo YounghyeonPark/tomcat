@@ -11102,7 +11102,8 @@ The MuJoCo harness moved four numbers, and three of them moved the good way.
 
 ## ADR-0148: a faster control loop does not buy latency; the edge is 14 ms
 - **Status:** Accepted (M156). Revises ADR-0145's and ADR-0146's latency
-  criterion.
+  criterion. ⚠️ Its ≤ 12 ms is revised to ≤ 10 ms by ADR-0150: on
+  a contact that does not creep, 12 ms falls 12 of 40.
 - **Question:** ADR-0146 set sensor-to-motor latency < 10 ms as physics. Does
   a faster policy rate widen that margin? At 133 Hz a decision is held 7.5 ms,
   so the plant sees the latency plus up to a period of hold.
@@ -11190,6 +11191,82 @@ The MuJoCo harness moved four numbers, and three of them moved the good way.
     `cat_suit.joint_strain` remains that check.
   - The suit is rebuilt only when `sim_skin.py` is re-run, so it goes stale
     when the skeleton changes, like `skin_mass.json`.
+
+---
+
+## ADR-0150: the paws crept; on a contact that holds, the landing margin is gone
+- **Status:** Accepted (M158). Revises ADR-0148's latency criterion and
+  ADR-0026/ADR-0073's landing margin. Opens risk R6.
+- **Question:** The learned walks slip 0.08-0.10 m/s on loaded feet
+  (ADR-0133). A slip penalty of 5 or 10 (against 2) cut that by only 10-20 %
+  and cost speed. Why does the penalty not reach it?
+- **Finding 1: most of the slip was the contact model's creep.**
+  - Measured at the contact point on the CPU plant (`tools/slip_diag.py`), a
+    loaded pad slid at a median |Ft|/Fn of **0.16 against mu 0.8**. 66 % of
+    loaded-foot samples slid faster than 5 cm/s, at a fifth of the friction a
+    real pad holds.
+  - That is MuJoCo's default soft contact: a pyramidal cone, `impratio` 1 and a
+    20 ms time constant.
+
+  | contact | sliding share | true slip | |Ft|/Fn while sliding |
+  |---|---|---|---|
+  | default | 66 % | 0.073 m/s | 0.16 |
+  | elliptic, impratio 10 | 11 % | 0.045 | 0.47 |
+  | elliptic, impratio 100 | 10 % | 0.041 | 0.43 |
+  | **elliptic, impratio 10, pad/floor solref 5 ms** | **6 %** | **0.029** | **0.80** |
+
+- **Finding 2: the default contact was also far too soft normally.** A
+  standing pad sank **6.3 mm** into the floor (~2 kN/m), deeper than the 6 mm
+  pad itself. At 5 ms it sinks 0.6 mm (~20 kN/m), plausible for a TPU pad on a
+  hard floor.
+- **Decision:** `mjcf_tendon.CONTACT_OPTION` (an elliptic cone, `impratio` 10)
+  on every rig, and `PAD_SOLREF` (5 ms, still 50 physics steps) on the pads and
+  floors. Sliding now starts at mu, which is what friction is.
+- **What it exposed:**
+  - **The standing baseline's lateral spine rang.** Spine yaw joints 1 and 3
+    oscillated in antiphase and the stand fell at 3.8 s. Sliding feet had been
+    damping that mode; a real paw will not. `stand_baseline.KP_SPINE` is now
+    per pair: pitch 10, **yaw 5**. Nominal stands 8 s at 2.4 deg; 9 of 12
+    randomised stands hold (8 of 12 before).
+  - **The landing margin was the floor's.** Held drops on the stiffer pad:
+
+    | | soft contact (before) | M158 |
+    |---|---|---|
+    | rigid box, G3 legs, 0.05 m | 48 N | **208 N** (93 % of 223) |
+    | G3 legs, 0.30 m | 127 N | **223 N, saturated** |
+    | articulated spine, held, 0.05-0.30 m | 62-116 N | **192-223 N** |
+    | contact, rigid spine | 9-12x body weight | **17x** |
+
+    G3 still takes something off a shallow drop, but no spine gain keeps the
+    leg cable in its rating any more. ADR-0026's "G3 takes the shock" held
+    only on a floor that gave 6 mm.
+  - **The sway and directional-pad findings** (ADR-0009, ADR-0064) were partly
+    creep. The feet now stay planted (≤ 0.5 mm) and the sway still does not
+    come out. The directional pad moves the body less than the plain foot
+    (0.71x), and its sagittal bill is 1.13x rather than 2x.
+- **The walk, retrained on it** (`runs/m158_contact`: 20 M steps from M156's
+  policy, every term unchanged; randomised GPU score at 0.5 m/s):
+
+  | | slip | falls | speed |
+  |---|---|---|---|
+  | M156 | 0.101 m/s | 12.5 % | 0.452 |
+  | **M158** | **0.048** | **7.0 %** | 0.446 |
+
+  At 0.25 m/s the slip is 0.077 -> 0.020. The contact-point slip on the CPU is
+  0.031 m/s, and it now happens at |Ft|/Fn = mu. The GPU env is ~30 % slower
+  per step with the elliptic cone (~5.2 k against ~7.7 k control steps/s).
+- **Latency, re-swept on the M158 policy** (0.5 m/s, CPU, nominal plant): 10 ms
+  1 of 40 falls; 12 ms **12 of 40**; 14 ms 4 of 20; 15 ms 12 of 20. A planted
+  foot leaves less to give. **Accept ≤ 10 ms** sensor to motor, not ADR-0148's
+  12. NFR12's 7.5 ms keeps 2.5 ms in hand.
+- **Consequences:**
+  - **R6 (OPEN_RISKS): landing loads.** The pad's compression stiffness now
+    decides whether a 5 cm drop stays inside the cable rating. It joins the
+    bench plan (B3). A deliberately compliant pad, or foam under the sole, is
+    a design lever as well.
+  - `tests/test_mjcf_tendon.py`'s seven landing and sway tests record the new
+    numbers, with what moved and why.
+  - `runs/m158_contact` (best checkpoint) is the working walking policy.
 
 ---
 

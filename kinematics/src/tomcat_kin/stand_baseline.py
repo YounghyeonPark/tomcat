@@ -48,8 +48,16 @@ from .params import DEFAULT_FORELEG, DEFAULT_HINDLEG
 
 #: Leg joint PD, N.m/rad and N.m.s/rad.
 KP_LEG, KD_LEG = 6.0, 0.01
-#: Spine joint PD.
-KP_SPINE, KD_SPINE = 10.0, 0.01
+#: Spine joint PD, per pair in `SPINE` order (p1 y1 p2 y2 p3 y3).
+#: ⚠️ M158 (ADR-0150): **the lateral gain is half the pitch gain.** At 10 on
+#: every pair the spine's yaw joints 1 and 3 rang against each other in an S
+#: and the stand fell at 3.8 s -- but only once the paws stopped creeping
+#: (`mjcf_tendon.CONTACT_OPTION`). Feet that slid had been damping the mode; a
+#: real paw does not. At 5 the nominal stand holds 8 s at 2.4 deg, and 9 of 12
+#: randomised 4 s stands hold against 8 at 10.
+KP_SPINE_PITCH, KP_SPINE_YAW = 10.0, 5.0
+KP_SPINE = np.array([KP_SPINE_PITCH, KP_SPINE_YAW] * 3)
+KD_SPINE = 0.01
 #: Attitude: N of vertical foot force per rad of roll / pitch, and per rad/s
 #: of roll rate.
 K_ROLL, K_ROLL_RATE, K_PITCH = 100.0, 2.0, 50.0
