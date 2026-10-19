@@ -155,3 +155,19 @@ def test_the_YAW_command_is_observed_and_the_CPU_env_orders_it_alike():
     c = TomcatWalk(v_cmd=0.3, w_cmd=-0.4, act_obs=True, seed=0)
     oc, _ = c.reset()
     assert oc.shape == (86,) and oc[66] == pytest.approx(0.3) and oc[67] == pytest.approx(-0.4)
+
+
+def test_at_ANOTHER_RATE_the_GPU_env_is_still_the_CPU_env():
+    """M156: `control_hz` reaches the plant both ways -- 400 Hz is 25
+    physics steps a decision -- and the two still agree step for step."""
+    W = WarpStand(4, residual_n=30.0, control_hz=400.0)
+    cpu = TomcatEnv(rng=np.random.default_rng(0), control_hz=400.0)
+    assert W.decim == cpu.decim == 25
+    o = cpu.reset()
+    b = StandBaseline(cpu).reset(o)
+    for i in range(300):
+        _obs, r, te, _tr, info = W.step(np.zeros((4, 18)))
+        o, rc, dc, ic = cpu.step(b(o))
+        assert not dc and not np.any(te)
+        assert np.allclose(info["tilt_deg"], ic["tilt_deg"], atol=0.02), i
+        assert np.allclose(r, rc, atol=5e-3), i

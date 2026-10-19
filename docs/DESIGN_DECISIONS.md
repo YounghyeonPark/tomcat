@@ -11018,7 +11018,8 @@ The MuJoCo harness moved four numbers, and three of them moved the good way.
 
 ## ADR-0146: which edges are physics and which were the training range
 - **Status:** Accepted (M154). Revises ADR-0145's G3 criterion and confirms
-  its latency criterion.
+  its latency criterion. ⚠️ Its latency finding is revised by ADR-0148: the
+  12 ms falls were the training range, and the edge is 14-15 ms.
 - **Question:** ADR-0145's two sharpest edges (latency ≥ 12 ms, and G3 at
   0.5× and 2×) sat at or just outside the ranges the policy trained on. Is
   the walk failing there because of the physics, or because it never saw
@@ -11096,6 +11097,62 @@ The MuJoCo harness moved four numbers, and three of them moved the good way.
   - The femur's conduit ferrules and some cable anchors sit 30-50 mm off their
     bone. `link_inertia` charges them to the link they move with, so they are
     drawn there.
+
+---
+
+## ADR-0148: a faster control loop does not buy latency; the edge is 14 ms
+- **Status:** Accepted (M156). Revises ADR-0145's and ADR-0146's latency
+  criterion.
+- **Question:** ADR-0146 set sensor-to-motor latency < 10 ms as physics. Does
+  a faster policy rate widen that margin? At 133 Hz a decision is held 7.5 ms,
+  so the plant sees the latency plus up to a period of hold.
+- **Method:**
+  - `control_hz` now reaches the GPU env (`WarpStand(control_hz=)`), and
+    `train_walk.py --control-hz` keeps a second of walking worth the same: gamma
+    and lambda per second, the reward divided by the rate ratio.
+    `test_warp_env` checks the GPU and CPU envs still agree step for step at 400 Hz.
+  - M146's policy was lost with the scratchpad (a temp cleanup during a Windows
+    update). The common start is a checkpoint 4 M steps past it, at 133 Hz,
+    latency 3-16 ms.
+  - From it, three runs at 133 / 200 / 400 Hz: the same simulated time
+    (20 / 30 / 60 M steps), every M146 term, motor DR, latency 3-16 ms. The
+    best checkpoint of each was swept on the CPU at 0.5 m/s, 20 seeds, nominal
+    plant, with sensor errors drawn per seed.
+- **Result (falls of 20):**
+
+  | latency | 133 Hz | 200 Hz | 400 Hz |
+  |---|---|---|---|
+  | 5 ms | | 3 | |
+  | 7.5 ms | 2 | **12** (16 at the final policy) | 0 |
+  | 9 ms | | 4 | |
+  | 10 ms | 2 | 0 | 0 |
+  | 12 ms | 0 | 0 | 0 |
+  | 14 ms | 2 | 4 | 2 |
+  | 15 ms | 12 | 14 | 19 |
+  | 16 ms | 19 | 18 | 19 |
+
+  On the GPU, with the whole plant randomised, the falls at 0.5 m/s are
+  12.5 / 10 / 34 %.
+- **Findings:**
+  - **The rate does not move the edge.** All three hold to 14 ms and break at
+    15. The dead time that matters is the pipeline's, not the hold.
+  - **ADR-0146's 12 ms "physics" was the training range.** That policy was
+    trained on latency 3-20 ms AND the G3 rate 0.5-2x at once, and it walked
+    worse everywhere. Trained on 3-16 ms, the same 12 ms gives 0 falls of 20.
+    The walking edge, 14-15 ms, agrees with the standing one NFR12 measured in
+    M73 (15-20 ms).
+  - ⚠️ **200 Hz has a hole at the nominal 7.5 ms**, reproducible (12 and 16
+    of 20, two checkpoints) while 5, 9 and 10 ms hold. A rate change must be
+    re-swept across latency, not checked at one point.
+  - 400 Hz is clean at nominal latency, but falls three times as often with
+    the plant randomised.
+- **Decision:**
+  - Keep 133 Hz.
+  - Latency acceptance: **≤ 12 ms** sensor to motor; 14 ms is marginal; 15 ms
+    fails. NFR12's 7.5 ms allocation keeps ~4.5 ms in hand.
+  - `runs/m156_133` (best checkpoint) is the working walking policy in place
+    of M146's.
+  - Training outputs go to `runs/`, never a temp directory.
 
 ---
 

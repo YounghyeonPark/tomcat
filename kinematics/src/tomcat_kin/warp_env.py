@@ -88,7 +88,8 @@ class WarpStand:
 
     def __init__(self, nworld: int = 2048, *, randomize: dict | None = None,
                  residual_n: float = 30.0, episode_s: float = 4.0, seed: int = 0,
-                 device: str = "cuda:0", envelope: bool = True, friction: bool = True):
+                 device: str = "cuda:0", envelope: bool = True, friction: bool = True,
+                 control_hz: float | None = None):
         import mujoco
         import warp as wp
         import mujoco_warp as mjw
@@ -104,7 +105,11 @@ class WarpStand:
 
         # the CPU env is the single source of the plant, its names and its
         # settled start; nothing here re-derives them
-        cpu = TomcatEnv(rng=np.random.default_rng(0), envelope=envelope, friction=friction)
+        # M156: `control_hz` sets the policy's rate; the servo still runs every
+        # physics step, and the sensor delay is in physics steps either way
+        ckw = {} if control_hz is None else {"control_hz": float(control_hz)}
+        cpu = TomcatEnv(rng=np.random.default_rng(0), envelope=envelope, friction=friction,
+                        **ckw)
         cpu.reset()
         self.cpu = cpu
         m = cpu.model

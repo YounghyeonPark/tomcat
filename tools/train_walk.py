@@ -141,13 +141,16 @@ def main():
                     help="M154: override a randomised range, e.g. --range latency_s 0.003 0.020")
     ap.add_argument("--motor-dr", action="store_true",
                     help="M143: draw each world's motor from TomcatEnv.MOTOR_RANGES")
+    ap.add_argument("--control-hz", type=float, default=None,
+                    help="M156: the policy's rate; discount and reward are rescaled "
+                         "so a second of walking is worth what it was at 133 Hz")
     a = ap.parse_args()
 
     from stable_baselines3 import PPO
     from stable_baselines3.common.logger import configure
     from stable_baselines3.common.vec_env import VecMonitor
 
-    from tomcat_kin.env import TomcatEnv
+    from tomcat_kin.env import BALANCE_HZ, TomcatEnv
     from tomcat_kin.warp_env import make_walk_vec_env
 
     os.makedirs(a.out, exist_ok=True)
@@ -168,6 +171,13 @@ def main():
     kw = {"randomize": dr, "residual_n": a.residual, "gait_w": a.gait_w,
           "slip_w": a.slip_w, "clear_w": a.clear_w, "act_obs": a.act_obs,
           "cu_w": a.cu_w}
+    # M156: at k times the rate a step is 1/k of the time. Keep the horizon
+    # (gamma, lambda per SECOND) and the return per second what they were.
+    k = 1.0
+    if a.control_hz:
+        kw["control_hz"] = a.control_hz
+        k = a.control_hz / BALANCE_HZ
+    gamma, lam = 0.99 ** (1.0 / k), 0.95 ** (1.0 / k)
     if a.yaw:
         kw["yaw_range"] = (-a.yaw, a.yaw)
         kw["yaw_w"], kw["yaw_sigma"] = a.yaw_w, a.yaw_sigma
@@ -179,6 +189,17 @@ def main():
 
     venv = VecMonitor(make_walk_vec_env(a.envs, v_range=(0.0, a.vmax), seed=0, **kw),
                       os.path.join(a.out, "monitor"))
+    if k != 1.0:
+        from stable_baselines3.common.vec_env import VecEnvWrapper
+
+        class Scale(VecEnvWrapper):
+            def reset(self):
+                return self.venv.reset()
+
+            def step_wait(self):
+                o, r, d, i = self.venv.step_wait()
+                return o, r / k, d, i
+        venv = Scale(venv)
     if a.history > 1:
         from stable_baselines3.common.vec_env import VecFrameStack
         venv = VecFrameStack(venv, a.history)
@@ -193,11 +214,12 @@ def main():
                          custom_objects={"learning_rate": lambda f: a.lr * f,
                                          "lr_schedule": lambda f: a.lr * f,
                                          "target_kl": a.target_kl,
-                                         "n_steps": a.n_steps, "batch_size": a.batch})
+                                         "n_steps": a.n_steps, "batch_size": a.batch,
+                                         "gamma": gamma, "gae_lambda": lam})
     else:
         model = PPO("MlpPolicy", venv, n_steps=a.n_steps, batch_size=a.batch, n_epochs=10,
                     learning_rate=lambda f: a.lr * f, target_kl=a.target_kl,
-                    gamma=0.99, gae_lambda=0.95, clip_range=0.2,
+                    gamma=gamma, gae_lambda=lam, clip_range=0.2,
                     ent_coef=0.0, policy_kwargs={"log_std_init": -1.0,
                                                  "net_arch": [256, 256]},
                     seed=0, verbose=1, device="cuda")

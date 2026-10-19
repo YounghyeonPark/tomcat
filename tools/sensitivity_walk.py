@@ -40,14 +40,15 @@ def set_conduit_mu(mu):
     P.DEFAULT_TENDON_FORE = dataclasses.replace(P.DEFAULT_TENDON_FORE, conduit_mu=mu)
 
 
-def score(policy, history, v, seeds, randomize, seconds=4.0):
+def score(policy, history, v, seeds, randomize, seconds=4.0, control_hz=None):
     from tomcat_kin.gym_env import TomcatWalk
     from train_walk import Stack
 
     speeds, falls, tilts = [], 0, []
     for s in range(seeds):
+        ckw = {} if control_hz is None else {"control_hz": control_hz}
         e = TomcatWalk(v_cmd=v, randomize=randomize, seed=80_000 + s,
-                       act_obs=history > 1, episode_s=seconds)
+                       act_obs=history > 1, episode_s=seconds, **ckw)
         o, _ = e.reset()
         st = Stack(1, history, o.shape[0]) if history > 1 else None
         if st is not None:
@@ -81,6 +82,8 @@ def main():
     ap.add_argument("--v", type=float, default=0.5)
     ap.add_argument("--seeds", type=int, default=10)
     ap.add_argument("--out", default=None)
+    ap.add_argument("--control-hz", type=float, default=None,
+                    help="M156: the rate the policy was trained at")
     a = ap.parse_args()
     pol = PPO.load(a.policy, device="cpu")
     rows = []
@@ -90,7 +93,7 @@ def main():
             set_conduit_mu(x)
         else:
             dr[a.param] = (x, x)
-        r = score(pol, a.history, a.v, a.seeds, dr)
+        r = score(pol, a.history, a.v, a.seeds, dr, control_hz=a.control_hz)
         r[a.param] = x
         rows.append(r)
         print("%s %.4g -> speed %.3f m/s, falls %d/%d, peak tilt %.1f deg"

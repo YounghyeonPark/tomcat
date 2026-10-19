@@ -46,6 +46,8 @@ def main():
     ap.add_argument("--peak-nm", type=float, default=None)
     ap.add_argument("--cad", action="store_true",
                     help="draw the CAD parts on the bodies (M155; run mechanical/cad/sim_meshes.py)")
+    ap.add_argument("--control-hz", type=float, default=None,
+                    help="M156: the rate the policy was trained at")
     a = ap.parse_args()
     import math
     from tomcat_kin import mjcf_tendon as MT
@@ -57,7 +59,8 @@ def main():
 
     dr = {**TomcatEnv.RANGES, **TomcatEnv.SENSOR_RANGES} if a.dr else None
     env = TomcatWalk(v_cmd=a.v, randomize=dr, seed=a.seed, episode_s=a.seconds,
-                     act_obs=a.history > 1)
+                     act_obs=a.history > 1,
+                     **({} if a.control_hz is None else {"control_hz": a.control_hz}))
     pol = PPO.load(a.policy, device="cpu")
     o, _ = env.reset()
     st = Stack(1, a.history, o.shape[0]) if a.history > 1 else None
