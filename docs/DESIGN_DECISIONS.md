@@ -11270,6 +11270,69 @@ The MuJoCo harness moved four numbers, and three of them moved the good way.
 
 ---
 
+## ADR-0151: a slimmer knee and ankle, priced (trade study, no change)
+- **Status:** Proposed (M159). Prices an option; nothing in the design moves.
+- **Question:** The tendon drive keeps the legs light (216 g, motors in the
+  body), but not slim. The knee and ankle sheaves are 68 and 44 mm across, 86
+  and 62 mm in the suit, because ADR-0103 grew the moment arms when the motor
+  ran short of torque. Can the joints get slimmer without giving that torque
+  back?
+- **The constraint:** the sheave and spool together are the drive's last
+  reduction, r_sheave / r_spool (hip 4.11, knee 3.89, ankle 2.51). The spool is
+  already at the cable's bend floor (10 d across, d = 1.75 mm). So a smaller
+  sheave needs the reduction somewhere else: a gear stage at the motor, or a
+  motor with more torque. For a factor g of torque moved to the motor side,
+  keeping the overall ratio, the joint torque and the joint stiffness
+  (`tools/sheave_trade.py`):
+  - the cable carries more tension, so it must be thicker (d ~ sqrt(T));
+  - the spool then grows as g^(1/3), the tension as g^(2/3), and the sheave
+    shrinks as g^(-2/3);
+  - a sheave cannot be smaller than the spool, which floors each joint at
+    g = its own ratio.
+
+  | g | knee / ankle across | in the suit | T_max | cable |
+  |---|---|---|---|---|
+  | 1 (today) | 68 / 44 mm | 87 / 63 mm | 223 N | 1.75 mm |
+  | 1.5 | 52 / 34 | 70 / 52 | 292 N | 2.0 |
+  | 2 | 43 / 28 | 61 / 46 | 354 N | 2.2 |
+  | 2.5 (ankle floor) | 37 / 24 | 55 / 42 | 412 N | 2.4 |
+  | 3.9 (knee floor) | 28 / 28 | 46 / 46 | 551 N | 2.75 |
+
+- **Built in CAD** (hind leg; knee and ankle scaled, hip unchanged):
+
+  ![the hind leg at g = 1, 2, 2.5](figures/slim_leg_m159.png)
+
+  | g | leg | sheaves | I_yy about the hip |
+  |---|---|---|---|
+  | 1 | 216 g | 48 g | 1.53e-3 kg m^2 |
+  | 2 | 199 g | 32 g | 1.35e-3 |
+  | 2.5 | 196 g | 29 g | 1.32e-3 |
+
+  The hip cannot follow. Its sheave is the hollow hip's hub, which passes the
+  knee and ankle cables, and a hip arm scaled to 23 mm broke the hub's CAD. It
+  sits on the trunk's flank, in the suit's haunch, so it shows less.
+- **What it costs** (not yet priced in the model):
+  - **A gear stage on 8 motors** (knees and ankles), or motors with g times the
+    torque. Its mass and efficiency are `[assumed]`: no part is chosen. With a
+    stage of efficiency eta, its ratio is g / eta and the motor turns 1 / eta
+    faster; the learned walk drives under ~380 of 665 rpm (ADR-0135), so speed
+    has room.
+  - **Tension x1.6 at g = 2**: the joint bearings, the cable's creep and the
+    conduits' contact pressure. The conduit's OD and its 15 mm bend floor
+    scale with the cable (3.0 -> 3.8 mm and 15 -> 19 mm at g = 2), so the
+    hollow hip's passage and the knee crossing (ADR-0128) have to be redrawn.
+  - **G3** keeps its part if it sits before the new stage. Placed at the
+    spool, it would need g^2 the torsional rate.
+  - The conduit's friction ratio, the overall reduction, the motor's torque and
+    speed demand, and the joint's stiffness are unchanged. So the walk's
+    dynamics change only through the lighter legs (-17 to -20 g, distal).
+- **Consequences:** g ≈ 2 (knee 43, ankle 28 mm) is the knee of the curve: 37 %
+  slimmer joints for a 1.6x cable. Taking it is a decision about the motor
+  (a higher-ratio variant or an added stage), which is OPEN_RISKS R1's part.
+  The bench's motor (B1) should be bought with that in mind.
+
+---
+
 ---
 
 ### How to add an ADR
