@@ -11272,6 +11272,8 @@ The MuJoCo harness moved four numbers, and three of them moved the good way.
 
 ## ADR-0151: a slimmer knee and ankle, priced (trade study, no change)
 - **Status:** Proposed (M159). Prices an option; nothing in the design moves.
+  ADR-0152 prices g = 2 through the budgets: it holds NFR6 only with a stage
+  of about 20 g or less.
 - **Question:** The tendon drive keeps the legs light (216 g, motors in the
   body), but not slim. The knee and ankle sheaves are 68 and 44 mm across, 86
   and 62 mm in the suit, because ADR-0103 grew the moment arms when the motor
@@ -11330,6 +11332,57 @@ The MuJoCo harness moved four numbers, and three of them moved the good way.
   slimmer joints for a 1.6x cable. Taking it is a decision about the motor
   (a higher-ratio variant or an added stage), which is OPEN_RISKS R1's part.
   The bench's motor (B1) should be bought with that in mind.
+
+---
+
+## ADR-0152: the slim knee and ankle (g = 2), priced: a 20 g stage or less
+- **Status:** Accepted as a pricing (M160). Narrows ADR-0151 to one condition;
+  the design does not move until a stage or a motor is found.
+- **Method:** `tools/slim_drive.py` re-runs the budgets that sized the robot on
+  patched parameters, in a fresh process each time:
+  - Both legs are rebuilt in CAD with the knee and ankle sheaves at
+    g^(-2/3) and re-weighed.
+  - 8 gear stages (`[assumed]` mass, efficiency 0.95) go onto the girdles that
+    carry the knee and ankle motors.
+  - Then `mass_closure.motor_requirement` and `power.runtime` at the new mass.
+  - ⚠️ The patch has to land before `tomcat_kin` imports: `spine.py` copies
+    `DEFAULT_*` into class defaults at load. The first run patched afterwards,
+    and priced the runtime at today's mass while the torque budget moved.
+- **Result (g = 2; runtime at the surveyed Kt 0.44 / the vendor's 0.35):**
+
+  | | body | motor peak | continuous | analytic need | trot runtime |
+  |---|---|---|---|---|---|
+  | today | 4.825 kg | 1.825 N.m | 0.644 | 638 rpm | 19.68 / **14.43** min |
+  | 15 g stage | 4.878 | 1.845 | 0.653 | 671 | 19.32 / **14.19** |
+  | 25 g stage | 4.958 | 1.874 | 0.663 | 671 | 18.89 / **13.84** |
+  | 40 g stage | 5.078 | 1.918 | 0.678 | 671 | 18.26 / **13.34** |
+
+  - Each leg loses 16.5 g (tibia -10.9, metatarsus -5.0, femur -0.6). The
+    stages add 8x their mass to the trunk, so the robot gets heavier unless a
+    stage weighs under ~8 g.
+  - The runtime charges the stage's loss on every leg motor, so it is a bound
+    on the cost. The thicker cable adds ~1 g a leg (1.9 g of cable today);
+    the thicker conduit is not weighed.
+- **Findings:**
+  - **The condition is the stage's mass: about 20 g or less.** At the vendor's
+    Kt, NFR6's 14 min floor holds to ~20 g a stage (14.19 min at 15 g) and
+    fails beyond it (13.84 at 25). The peak stays inside the proxy's 1.95 N.m
+    to 40 g.
+  - The analytic trot's speed need rises to 671 rpm with the stage's loss,
+    1 % past the motor's 665 no-load. The learned walk drives under ~380
+    (ADR-0135), so this binds the analytic spec, not the walk.
+  - A planetary stage is rarely under 3:1, which is past the ankle's floor.
+    A spur or belt pair at ~2.1:1 fits the ratio, and its packaging in the
+    girdle rows is not assessed. A motor variant with a higher internal ratio
+    adds no stage mass at all, and is the first thing to look for.
+- **Consequences:**
+  - Bench B1's motor should be bought with a higher-ratio variant in mind. If
+    one exists at the same envelope and mass, g = 2 costs only the stage's
+    efficiency (19.68 -> ~19.4 min).
+  - Taking it means redrawing the knee and ankle sheaves, the cable (1.75 ->
+    2.2 mm) and the conduits (3.0 -> 3.8 mm OD, bend floor 15 -> 19 mm),
+    re-routing the hollow hip's passage and the knee crossing, and re-running
+    the plant's tests.
 
 ---
 
