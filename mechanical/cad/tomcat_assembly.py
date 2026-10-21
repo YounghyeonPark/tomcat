@@ -56,7 +56,7 @@ HIP_HARDWARE = ("clevis", "bearing", "shaft")
 #: The leg groups that are CONTEXT in `tomcat_leg_detail`, not leg parts.
 #: `motor` is the girdle bank it drew for reference; the trunk owns those now.
 #: M123: and `stub`, the hollow hip's stub, which the trunk draws itself.
-DROP = ("motor", "stub")
+DROP = ("motor", "stub", "stage")
 
 
 def motor_can():

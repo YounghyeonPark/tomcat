@@ -139,8 +139,9 @@ def test_the_SKIN_is_IN_the_plant():
     data = SM.load()
     total = sum(v["mass"] for k, v in data.items() if "." not in k) \
         + 2 * sum(v["mass"] for k, v in data.items() if "." in k)
-    assert total == pytest.approx(0.2443, abs=0.003)
+    # M161 (ADR-0153): 244.3 -> 240.2 g, the ankle sleeve over a 12 mm sheave
+    assert total == pytest.approx(0.2402, abs=0.003)
     assert data["front"]["mass"] > data["rear"]["mass"], "the head's foam is the most"
     for role, lg in (("hind", DEFAULT_HINDLEG), ("fore", DEFAULT_FORELEG)):
         assert sum(SM.leg_link_masses(role)) < 0.2 * sum(lg.link_mass)
-    assert DEFAULT_BODY_MASS_KG == pytest.approx(4.82454, abs=1e-5)
+    assert DEFAULT_BODY_MASS_KG == pytest.approx(4.87448, abs=1e-5)   # M161: the geared ankle

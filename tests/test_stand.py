@@ -59,7 +59,9 @@ def test_the_HOLD_is_the_NOMINAL_plant_s_not_the_draw():
     env = TomcatEnv(rng=np.random.default_rng(3), randomize=DR)
     env.reset()
     assert np.allclose(StandBaseline(env).hold, h)
-    assert np.all(np.abs(h[:12]) < 80.0) and np.all(h[12:] == 0.0)
+    # M161 (ADR-0153): bounded as MOTOR torque -- the geared ankle's cable
+    # carries 1.81x the tension for the same torque (`res_scale`).
+    assert np.all(np.abs(h[:12] / env.res_scale[:12]) < 80.0) and np.all(h[12:] == 0.0)
 
 
 def test_a_ZERO_residual_IS_the_baseline():

@@ -41,6 +41,13 @@ the cable pulling).
   ([ADR-0123](docs/DESIGN_DECISIONS.md)). A pair's two cables pass every
   pulley on opposite sides, so their total length never changes
   ([ADR-0118](docs/DESIGN_DECISIONS.md)).
+- **A slim ankle.** A cat is thick at the thigh and thin below the knee, so
+  the hip and knee keep their large sheaves and the ankle's is 24 mm across
+  (was 44). Its reduction moved to a 1.91:1 gear stage at its motor, and its
+  cable takes the higher tension inside its strength margin
+  ([ADR-0151](docs/DESIGN_DECISIONS.md)–[ADR-0153](docs/DESIGN_DECISIONS.md)).
+
+  ![the hind leg before and after](docs/figures/ankle_m161.png)
 - **A series spring (G3)** sits between each motor and its spool: a titanium
   planar flexure, 125 kN/m on the legs and 350 kN/m on the spine
   ([ADR-0107](docs/DESIGN_DECISIONS.md), [ADR-0117](docs/DESIGN_DECISIONS.md)).
@@ -91,10 +98,10 @@ bones it is charged to in the mass model, blended across the joints
 
 | | |
 |---|---|
-| Mass | **4.82 kg** with its skin (19 motors: 12 leg, 6 spine, 1 tail) |
-| Trunk / hips apart | 384 mm / 276 mm |
-| Joint moment arms (hip / knee / ankle) | 36 / 34 / 22 mm |
-| Motor demand (peak / continuous) | 1.82 / 0.64 N·m per motor |
+| Mass | **4.87 kg** with its skin (19 motors: 12 leg, 6 spine, 1 tail) |
+| Trunk / hips apart | 396 mm / 282 mm |
+| Joint moment arms (hip / knee / ankle) | 36 / 34 / 12.1 mm, the ankle geared 1.91:1 at its motor |
+| Motor demand (peak / continuous) | 1.84 / 0.65 N·m per motor |
 | Trot | 50 cm/s |
 | Runtime, trotting | 14–20 min (~590 m) on a 300 g pack |
 | Righting from upside down | ~1.0 s (simulated) |
@@ -108,8 +115,8 @@ MuJoCo plant and the budgets all read `kinematics/src/tomcat_kin/params.py`.
 what closes it, is in [OPEN_RISKS.md](docs/OPEN_RISKS.md). The largest open
 items: the motor (a GIM3505-9 is a proxy for size and mass; the spec it must
 meet is in ADR-0100/0110, and the dressed robot asks 93 % of its peak), the
-runtime (14.4 min at the vendor's Kt, 0.4 min over the 14 min floor, which
-the conduits' bench friction decides), the mass (4.82 kg, 19.3 % over the
+runtime (14.35 min at the vendor's Kt, 0.35 min over the 14 min floor, which
+the conduits' bench friction decides), the mass (4.87 kg, 20.5 % over the
 4.05 kg target), bench values for conduit
 friction and the G3 rates, a mock-up of the cable bundle that twists inside
 the hollow hip, and the learned trot's remaining foot slip. A residual standing policy

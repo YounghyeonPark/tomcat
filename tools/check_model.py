@@ -106,7 +106,7 @@ def main():
             t = env._id(mujoco.mjtObj.mjOBJ_TENDON, f"{nm}_{p}")
             jr = m.jnt_qposadr[env._id(mujoco.mjtObj.mjOBJ_JOINT, f"jr_{nm}_{p}")]
             js = m.jnt_qposadr[env._id(mujoco.mjtObj.mjOBJ_JOINT, f"js_{nm}_{p}")]
-            pred = env.a0[f"{nm}_{p}"] - MT.SPOOL_R * (float(d.qpos[jr])
+            pred = env.a0[f"{nm}_{p}"] - MT.spool_r(p) * (float(d.qpos[jr])
                                                        + float(d.qpos[js]))
             worst = max(worst, abs(float(d.ten_length[t]) - pred))
     print("   worst residual over 12 leg pairs: %.4f mm            %s"

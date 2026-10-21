@@ -91,10 +91,11 @@ class TomcatStand(gym.Env):
     def step(self, action):
         a = np.asarray(action, float)
         if self.base is None:
-            tension = a * MT.TENSION_MAX
+            tension = a * self.core.t_max
         else:
+            # M161: the residual is a MOTOR torque's worth on every pair
             tension = (self.base(self._obs) + self.prior(self._obs)
-                       + np.clip(a, -1.0, 1.0) * self.residual_n)
+                       + np.clip(a, -1.0, 1.0) * self.residual_n * self.core.res_scale)
         obs, reward, terminated, info = self.core.step(tension)
         self._obs = obs
         truncated = self.core.steps >= self.max_steps

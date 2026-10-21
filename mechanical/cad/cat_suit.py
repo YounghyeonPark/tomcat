@@ -55,7 +55,7 @@ import tomcat_head as HD                                         # noqa: E402
 import tomcat_tail as TL                                         # noqa: E402
 import tomcat_leg_detail as LD                                   # noqa: E402
 from tomcat_kin import LegModel                                  # noqa: E402
-from tomcat_kin.params import DEFAULT_FORELEG, DEFAULT_HINDLEG   # noqa: E402
+from tomcat_kin.params import DEFAULT_FORELEG, DEFAULT_HINDLEG, DEFAULT_TENDON  # noqa: E402
 
 #: Grid spacing of the field, mm.
 VOXEL = float(os.environ.get("CAT_SUIT_VOXEL", "1.25"))   # coarser for a preview
@@ -174,10 +174,13 @@ def section(x):
 #: stand 30-35 mm off the bone. The sleeve is therefore the HULL of the two
 #: sheaves it spans, flattened to the leg's lateral stack (y 42-77 mm on the
 #: thigh and shank, measured): a broad, flat thigh -- which a cat has.
+#: ✅ M161 (ADR-0153): the joint ends follow the sheaves (`params`), which
+#: were typed in here as 36/34/22 -- the knee and ankle are now 21.4 / 13.9.
+_ARM = [float(a) * 1000.0 for a in DEFAULT_TENDON.joint_moment_arm]
 SLEEVE = (
-    (36.0 + OFFSET + PAD, 34.0 + OFFSET + PAD, 59.5, 20.0 + PAD),  # thigh: hip to knee sheave
-    (34.0 + OFFSET + PAD, 22.0 + OFFSET + PAD, 60.5, 19.0 + PAD),  # shank: knee to ankle
-    (22.0 + OFFSET + PAD, 9.0 + PAD, 53.0, 10.0 + PAD),            # metatarsus: ankle to paw
+    (_ARM[0] + OFFSET + PAD, _ARM[1] + OFFSET + PAD, 59.5, 20.0 + PAD),  # thigh: hip to knee sheave
+    (_ARM[1] + OFFSET + PAD, _ARM[2] + OFFSET + PAD, 60.5, 19.0 + PAD),  # shank: knee to ankle
+    (_ARM[2] + OFFSET + PAD, 9.0 + PAD, 53.0, 10.0 + PAD),             # metatarsus: ankle to paw
     (9.0 + PAD, 7.5 + PAD, 53.0, 11.0 + PAD),                      # paw
 )
 

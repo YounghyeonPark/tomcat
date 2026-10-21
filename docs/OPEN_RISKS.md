@@ -97,6 +97,10 @@ real pad is as stiff as modelled, the landing needs compliance somewhere: a
 softer pad, foam under the sole, or a landing controller that does not hold
 the legs stiff. Walking is unaffected (ADR-0150's retrained walk falls less).
 
+⚠️ **M161 (ADR-0153) made it worse.** With the ankle geared, the 0.05 m held
+drop saturates the ankle's motor with G3 or without (93 % before), and the
+ankle cable (SF 4.04) and bearing (99 % of C0) sit at their floors.
+
 ### R3. Battery energy density — 175 Wh/kg, 80 % usable `[assumed]`
 
 Runtime spans **18–48 min** across plausible cell choices, against the 30 min in

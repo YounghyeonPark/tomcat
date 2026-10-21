@@ -159,7 +159,7 @@ def size_torsion_spring(k=None, R=None, od_max=24.0, d_range=(0.8, 3.0)):
     fibre. Returns the design as a dict, or None.
     """
     k = float(DEFAULT_TENDON.series_k if k is None else k)
-    R = float(DEFAULT_TENDON.motor_spool_radius if R is None else R) * 1e3  # mm
+    R = float(DEFAULT_TENDON.spool_eff(0) if R is None else R) * 1e3      # mm (M161: the hip's)
     k_rad = k * 1e-3 * R * R                                   # N.mm / rad
     M_f, M_s = F_FATIGUE * R, STOP_MARGIN * F_WORKING * R      # N.mm
     best = None

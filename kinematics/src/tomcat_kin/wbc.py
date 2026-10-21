@@ -266,7 +266,8 @@ def pair_command(gain: np.ndarray, tau, f_max: float = np.inf) -> np.ndarray:
     """
     gain = np.asarray(gain, dtype=float)
     f, *_ = np.linalg.lstsq(gain, np.asarray(tau, dtype=float), rcond=None)
-    return np.clip(f, -float(f_max), float(f_max))
+    f_max = np.asarray(f_max, dtype=float)          # M161: one per pair, or one
+    return np.clip(f, -f_max, f_max)
 
 
 def actuator_torque(data, dof, stance_tau) -> np.ndarray:
@@ -311,13 +312,14 @@ def rotor_command(theta_rotor, theta_spool, tension, k_tors: float,
     `(kp + k_tors) / kp` removes it -- **to -0.1 % at every gain tried**, including
     the one that was 36 % out.
 
-    Vectorises over tendons. `r_spool` is a scalar; `k_tors` may be a scalar or
-    one value per tendon -- M112 gave the leg and spine cables different G3 rates.
+    Vectorises over tendons. `k_tors` and `r_spool` may each be a scalar or
+    one value per tendon -- M112 gave the leg and spine cables different G3
+    rates, and M161 the knee and ankle a smaller effective spool.
     """
     base = np.asarray(theta_rotor, dtype=float) + np.asarray(theta_spool,
                                                              dtype=float)
     k = np.asarray(k_tors, dtype=float)
-    delta = np.asarray(tension, dtype=float) * float(r_spool) / k
+    delta = np.asarray(tension, dtype=float) * np.asarray(r_spool, dtype=float) / k
     if servo_kp is not None:
         delta = delta * (float(servo_kp) + k) / float(servo_kp)
     return base + delta
@@ -476,7 +478,7 @@ def joint_from_encoders(theta_rotor, theta_spool, a0, C, r_spool: float):
     """
     theta_rotor = np.asarray(theta_rotor, dtype=float)
     theta_spool = np.asarray(theta_spool, dtype=float)
-    L = np.asarray(a0, dtype=float) - float(r_spool) * (theta_rotor + theta_spool)
+    L = np.asarray(a0, dtype=float) - np.asarray(r_spool, dtype=float) * (theta_rotor + theta_spool)
     return np.linalg.solve(np.asarray(C, dtype=float), L)
 
 

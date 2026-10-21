@@ -503,9 +503,11 @@ def test_spine_authority_is_ALSO_friction_limited():
     # friction-limited, by more than before.
     assert ctl.StepPlant.from_gait(c, floor_mu=0.90).spine < rom_only.spine
     # M130 (ADR-0124): a seventh time, ~0.925 -> ~0.95 -- the cat's skin.
-    assert ctl.StepPlant.from_gait(c, floor_mu=0.94).spine < rom_only.spine
-    assert ctl.StepPlant.from_gait(c, floor_mu=0.96).spine == pytest.approx(
-        rom_only.spine, rel=1e-9), "and ROM takes over by mu 0.96"
+    # M161 (ADR-0153): an eighth, ~0.95 -> ~0.97 -- the fore hip 6 mm forward
+    # and the ankle stages on the girdles; the ROM-limited shift is 47.4 mm.
+    assert ctl.StepPlant.from_gait(c, floor_mu=0.96).spine < rom_only.spine
+    assert ctl.StepPlant.from_gait(c, floor_mu=0.98).spine == pytest.approx(
+        rom_only.spine, rel=1e-9), "and ROM takes over by mu 0.98"
     assert ctl.StepPlant.from_gait(c, floor_mu=0.4).spine < \
         ctl.StepPlant.from_gait(c, floor_mu=0.7).spine, "and it is monotone in mu"
 

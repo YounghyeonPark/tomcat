@@ -92,7 +92,9 @@ def test_the_curl_is_worth_a_fourteenth_of_what_the_tail_COSTS():
     # with body 0, and the tail, sized to the trunk, grew with it.
     # M123 (ADR-0114): 0.154 -> 0.124. Body 0 is 25 mm shorter (its two rows
     # straddle the hip) and the tail with the trunk.
-    assert i0 / TL.BODY_IYY == pytest.approx(0.124, abs=0.01)
+    # M161 (ADR-0153): 0.124 -> 0.143. Body 0 is 6 mm longer (the hind ankle's
+    # stage) and the tail, sized to the trunk, with it.
+    assert i0 / TL.BODY_IYY == pytest.approx(0.143, abs=0.01)
 
 
 def test_it_neither_grows_through_the_trunk_nor_drags():

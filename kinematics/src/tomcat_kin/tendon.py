@@ -130,6 +130,8 @@ class TendonMap:
 
     def __post_init__(self) -> None:
         self._r = np.asarray(self.params.joint_moment_arm, dtype=float)
+        # M161: the effective spool radius PER JOINT (a gear stage shrinks it)
+        self._rs = np.asarray(self.params.spool_eff(), dtype=float)
         self._k = np.asarray(self.params.spring_stiffness, dtype=float)
         self._q0 = np.asarray(self.params.spring_rest_angle, dtype=float)
 
@@ -149,6 +151,8 @@ class TendonMap:
         tp = TendonParams(
             joint_moment_arm=tuple(spine_params.joint_moment_arm),
             motor_spool_radius=spine_params.motor_spool_radius,
+            spool_radius=(spine_params.motor_spool_radius,) * spine_params.n_segments,
+            stage_ratio=(1.0,) * spine_params.n_segments,
             pretension=spine_params.pretension,
             spring_stiffness=tuple(spine_params.spring_stiffness),
             spring_rest_angle=tuple(spine_params.spring_rest_angle),
@@ -175,7 +179,7 @@ class TendonMap:
         motor turns r*q / r_spool.
         """
         q = np.asarray(q, dtype=float)
-        return self._r * q / self.params.motor_spool_radius
+        return self._r * q / self._rs
 
     # ------------------------------------------------------- friction (capstan)
     def capstan_factor(self, *, paying_out: bool = False, side: int = +1,
@@ -253,7 +257,7 @@ class TendonMap:
         The motor must wind dL = |T|/k_cable of extra cable off a spool of radius
         r_spool, i.e. dL / r_spool beyond the geometric r*q, to hold the angle.
         """
-        return self.cable_stretch(tension) / self.params.motor_spool_radius
+        return self.cable_stretch(tension) / self._rs
 
     def joint_angle_error(self, tension) -> np.ndarray:
         """Joint-angle error (rad) if the cable stretch is NOT compensated.
@@ -319,7 +323,7 @@ class TendonMap:
         return TendonSolution(
             tension_flexor=t_flex,
             tension_extensor=t_ext,
-            motor_torque=peak_motor * self.params.motor_spool_radius,
+            motor_torque=peak_motor * self._rs,
             joint_torque=realized,
             t_bias=bias,
             motor_tension_flexor=m_flex,
@@ -339,7 +343,7 @@ class TendonMap:
         return TendonSolution(
             tension_flexor=t_flex,
             tension_extensor=np.zeros_like(t_flex),
-            motor_torque=m_flex * self.params.motor_spool_radius,
+            motor_torque=m_flex * self._rs,
             joint_torque=realized,
             motor_tension_flexor=m_flex,
             motor_tension_extensor=np.zeros_like(t_flex),

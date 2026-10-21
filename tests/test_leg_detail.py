@@ -53,12 +53,13 @@ def test_the_spec_torque_table_is_stale_by_the_WHOLE_mass_history(loads):
     """
     tau, T = loads["land"]["tau"][0], loads["land"]["T"][0]
     # M130 (ADR-0124): 18.91 -> 19.92, the cat's skin's 244 g and the Ø16 tubes.
-    assert tau == pytest.approx(19.83, abs=0.05)   # M132: the legs 5 g lighter
+    # M161 (ADR-0153): 19.83 -> 20.08, the ankle's gear stages (+49 g of body).
+    assert tau == pytest.approx(20.08, abs=0.05)   # M132: the legs 5 g lighter
     # ⚠️ M111: the tension FELL while the torque rose, 650 -> 516 N -- the
     # 36 mm hip arm carries the same torque on less cable. Torque tracks mass;
     # tension tracks mass over arm, so it is no longer a pure mass snapshot.
-    assert T == pytest.approx(555.9, abs=2.0)          # M120: 526.2; M122: 520.1; M123: 532.1; M126: 529.1; M130: 558.2 (the skin); M132: 555.9
-    assert tau / 12.36 == pytest.approx(4.82454 / 3.0, rel=0.02), (
+    assert T == pytest.approx(562.9, abs=2.0)          # M120: 526.2; M122: 520.1; M123: 532.1; M126: 529.1; M130: 558.2 (the skin); M132: 555.9; M161: 562.9 (the ankle stages)
+    assert tau / 12.36 == pytest.approx(4.87448 / 3.0, rel=0.02), (
         "the discrepancy should be exactly the body-mass ratio; if it is not, "
         "something other than body mass moved and this needs re-diagnosing"
     )
@@ -122,7 +123,9 @@ def test_one_step_up_in_stock_tube_restores_the_margin_cheaply():
     # pulleys -- so the sizer asks for Ø12 there. Read from the layout, not
     # written down.
     # M130 (ADR-0124): the femur Ø16 under the skin's landing load.
-    assert [p["od"] for p in picks] == [16.0, 12.0, 12.0]
+    # M161 (ADR-0153): the metatarsus Ø14 -- the geared ankle's cable pulls
+    # 1.81x harder on it (it was SF 2.46 at Ø12).
+    assert [p["od"] for p in picks] == [16.0, 12.0, 14.0]
     assert all(p["sf"] >= 2.5 for p in picks)
 
     def area(od, wall):
@@ -168,7 +171,8 @@ def test_the_moment_arms_cannot_be_REDUCED_the_motor_peak_binds():
     # ferrules' S adds 15-25 deg to every conduit, and the arms are pinned
     # from below at the shipped size again.
     # M130 (ADR-0124): 109 % with the cat's skin on.
-    assert rows[0.85]["mot_frac"] == pytest.approx(1.09, abs=0.03)
+    # M161 (ADR-0153): 113 %, the geared ankle's stages on the body.
+    assert rows[0.85]["mot_frac"] == pytest.approx(1.13, abs=0.03)
     assert rows[0.70]["mot_frac"] > 1.0, "0.70x must still exceed motor peak"
     assert rows[0.70]["sheave_g"] < rows[1.0]["sheave_g"], "smaller arms are lighter"
 

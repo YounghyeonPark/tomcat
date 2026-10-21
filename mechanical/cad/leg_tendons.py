@@ -54,11 +54,19 @@ MM = 1000.0
 #: Spool pitch radius. §2 raised it 8.0 -> 8.75 mm for the Ø1.75 cable's minimum
 #: bend; `TendonParams.motor_spool_radius` is **still 0.008** (M37 finding).
 SPOOL_R = 8.75
+#: ✅ M161 (ADR-0153): the PHYSICAL drum per joint, from `params` -- the knee and
+#: ankle are geared and wind a thicker cable on a bigger drum (11.0 mm).
+SPOOL_R_J = {j: float(r) * 1000.0 for j, r in
+             zip(("hip", "knee", "ankle"), DEFAULT_TENDON.spool_radius)}
+#: The cable per joint, mm.
+CABLE_D_J = {j: float(d) * 1000.0 for j, d in
+             zip(("hip", "knee", "ankle"), DEFAULT_TENDON.cable_diameter)}
 
 #: Via-pulley radius. Set by the SAME minimum-bend rule as the spool, which is
 #: what makes the coupling below unavoidable rather than a sizing mistake:
 #: 10 x Ø1.75 cable = Ø17.5 minimum, so 8.75 mm is the smallest legal via-pulley.
-VIA_R = 8.75
+#: M161: a via carries the knee and ankle cables, now Ø2.2, so 11.0 mm.
+VIA_R = 5.0 * max(CABLE_D_J["knee"], CABLE_D_J["ankle"])
 
 #: Anchor termination: a Brummel splice over a thimble (§3), modelled as a small
 #: radius so it enters the tangent solve like any other station.
@@ -79,8 +87,8 @@ ANCHOR_MARGIN = math.radians(15.0)
 #: leg still builds standalone, and it is the fallback, not the truth.
 SPOOL_OFFSET = (-42.0, 34.0)
 
-ARMS = np.asarray(DEFAULT_TENDON.joint_moment_arm) * MM     # 36 / 34 / 22 mm since M111 (was 28 / 25 / 14)
-CABLE_D = 1.75
+ARMS = np.asarray(DEFAULT_TENDON.joint_moment_arm) * MM     # 36 / 21.4 / 13.9 mm since M161 (ADR-0153)
+CABLE_D = CABLE_D_J["hip"]
 
 
 def joints(q, leg=DEFAULT_LEG):
@@ -163,7 +171,11 @@ KNEE_FERRULE_D = 50.0
 #:     (r >= 18 mm), 1.5 mm longer than it must be.
 #: Both stay within 31 mm of the bones, inside the skin's 43 mm sleeve.
 #: `[derived: tendon_exit.knee_conduit; the sweep is in ADR-0128]`
-KNEE_CROSSING = {"with": (6.0, 106.0), "against": (15.0, 107.0)}
+#: ✅ M161 (ADR-0153): "against" 15 -> **10 mm**, 107 -> **103 mm**. The geared
+#: ankle's sheave is 12.1 mm, and a ferrule set out 15 mm sent its cable INTO
+#: the fold (the turn's sign flipped, -3 to +4 deg); under the sheave's radius
+#: it turns against it again (-2.7 / -3.1 deg), at worst 184 deg, r >= 15.8.
+KNEE_CROSSING = {"with": (6.0, 106.0), "against": (10.0, 103.0)}
 
 
 def knee_cable(side, leg=DEFAULT_LEG) -> str:

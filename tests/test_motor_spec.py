@@ -266,7 +266,10 @@ def test_the_spool_radius_in_params_is_now_the_SPEC_value():
     """
     from tomcat_kin.params import DEFAULT_SPINE
 
-    assert float(DEFAULT_TENDON.motor_spool_radius) == pytest.approx(0.00875)
+    # M161 (ADR-0153): the effective spool is per joint; the PHYSICAL one is
+    # still 8.75 mm everywhere, and so is the hip's effective one.
+    assert all(r == pytest.approx(0.00875) for r in DEFAULT_TENDON.spool_radius)
+    assert DEFAULT_TENDON.spool_eff(0) == pytest.approx(0.00875)
     assert float(DEFAULT_SPINE.motor_spool_radius) == pytest.approx(0.00875)
     assert 0.00875 == pytest.approx(10.0 * 1.75e-3 / 2.0), (
         "the value IS the cable's minimum bend radius, not a free choice"

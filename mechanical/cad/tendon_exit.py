@@ -97,6 +97,21 @@ CAN_R = TP.MOTOR_D / 2.0
 CONDUIT_OD = 3.0
 #: Its minimum bend radius, mm. `[assumed]`
 CONDUIT_RMIN = 15.0
+
+
+def conduit_od(t: str) -> float:
+    """✅ M161 (ADR-0153): `t`'s conduit, mm -- the hip's over Ø1.75, scaled
+    with the cable it carries (the knee and ankle's Ø2.2: 3.8 mm)."""
+    return CONDUIT_OD * LT.CABLE_D_J[t] / LT.CABLE_D_J["hip"]
+
+
+def conduit_rmin(t: str) -> float:
+    """`t`'s conduit's minimum bend radius, mm, scaled the same way."""
+    return CONDUIT_RMIN * LT.CABLE_D_J[t] / LT.CABLE_D_J["hip"]
+
+
+#: The thickest conduit any leg carries, for clearances that do not ask which.
+CONDUIT_OD_MAX = max(conduit_od(t) for t in ("hip", "knee", "ankle"))
 #: UHMWPE sliding in a PTFE liner. `[assumed]`
 CONDUIT_MU = 0.07
 #: ✅ M123 (ADR-0114): the knee and ankle conduits end in the femur hub's WALL,
@@ -351,7 +366,10 @@ def spool_lead(role, m, end, phi, sense, side=+1.0, to_y=None):
     inside the trunk: those leads run along the hip axis."""
     _nm, x, y, z = motors(role, side)[m]
     xs = spool_x_of(role, m, end, side)
-    T = np.array([y, z]) + LT.SPOOL_R * np.array([math.cos(phi), math.sin(phi)])
+    # M161: the drum of whichever joint this motor drives
+    t_of = [t for t, v in DRIVE[role].items() if v[0] == m]
+    r_drum = LT.SPOOL_R_J[t_of[0]] if t_of else LT.SPOOL_R
+    T = np.array([y, z]) + r_drum * np.array([math.cos(phi), math.sin(phi)])
     dv = sense * np.array([-math.sin(phi), math.cos(phi)])
     if to_y is not None:
         if side * dv[0] < 0.99:
@@ -437,7 +455,7 @@ def _leg_parts(role, q, lr_side=+1.0):
     xh = HIP_X[role]
     lay = LD.plane_layout({"hip": 6.4, "knee": 6.4, "ankle": 4.4},
                           {j: LD.BEARING[j][2] for j in TENDONS})
-    fl = LD.FLANGE_W + LD.CABLE_D * 1.15 / 2
+    fl = LD.FLANGE_W + LD.CABLE_D_J["ankle"] * 1.15 / 2       # M161: the thickest
     half = fl + 0.5
     y0 = LD.TRACK_Y
     arms = [float(a) * 1000.0 for a in lg.q_min[:0]] or None      # unused
@@ -468,7 +486,7 @@ def _leg_clear(role, C, q, lr_side=+1.0, skip_end=4, parts=None):
     pts = np.asarray(C)[: len(C) - skip_end] if skip_end else np.asarray(C)
     if len(pts) == 0:
         return True
-    r_c = CONDUIT_OD / 2 + LEG_MARGIN
+    r_c = CONDUIT_OD_MAX / 2 + LEG_MARGIN
     allp = _leg_parts(role, q, lr_side)
     for i, part in enumerate(allp):
         if parts is not None and i not in parts:
@@ -511,7 +529,7 @@ def in_bore(role, C, lr_side=+1.0):
     import tomcat_leg_detail as LD
     TT = _trunk()
     xh = HIP_X[role]
-    rc = CONDUIT_OD / 2
+    rc = conduit_od("knee") / 2                  # M161: the knee and ankle's
     y = lr_side * C[:, 1]
     r = np.hypot(C[:, 0] - xh, C[:, 2])
     inner = TT._hw_at(xh) - TT.WALL
@@ -841,8 +859,8 @@ FLOAT_L = 25.0
 def lead_walk(t):
     """How far a cable's exit point walks along its drum over the joint's
     whole range, mm: the travel's turns at one groove pitch each."""
-    turns = TP.cable_travel(t) / (2 * math.pi * float(LT.SPOOL_R))
-    return turns * TP.GROOVE_PITCH
+    turns = TP.cable_travel(t) / (2 * math.pi * TP.spool_radius(t))
+    return turns * 1.15 * TP.cable_d(t)
 
 
 def float_tail(t):

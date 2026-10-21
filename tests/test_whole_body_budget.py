@@ -222,7 +222,9 @@ def test_near_balanced_body_barely_loads_the_base_joint_in_quiet_stand():
     # 0.57, and the claim's direction is gone.** The cat's skin hangs 88 g of
     # foam on the head's lever and the rest on the girdles, and the base joint
     # carries the cantilever. Recorded, not claimed.
-    assert real == pytest.approx(0.679, abs=0.01)   # N.m -- 0.29, 0.354, 0.498, 0.569
+    # M161 (ADR-0153): 0.679 -> 0.735 N.m, the fore hip 6 mm further out and
+    # the ankle stages on both girdles. Recorded, not claimed.
+    assert real == pytest.approx(0.735, abs=0.01)   # N.m -- 0.29, 0.354, 0.498, 0.569, 0.679
 
 
 def test_asymmetric_land_still_makes_the_base_joint_the_worst():

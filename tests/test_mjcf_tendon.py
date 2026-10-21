@@ -182,7 +182,7 @@ def test_the_tension_CEILING_is_the_MOTORS_not_the_CABLES():
     """
     from tomcat_kin.params import DEFAULT_TENDON
 
-    r = float(DEFAULT_TENDON.motor_spool_radius)
+    r = float(DEFAULT_TENDON.spool_eff(0))      # M161: the hip's (and the spine's)
     assert MT.TENSION_MAX == pytest.approx(MT.MOTOR_PEAK_NM / r)
     assert MT.TENSION_MAX == pytest.approx(222.9, abs=1.0)
     assert MT.TENSION_CONTINUOUS == pytest.approx(81.1, abs=1.0)
@@ -378,6 +378,18 @@ def _adr(m, kind, name):
 SERVO_KP = MT.ROTOR_ARMATURE * MT.ROTOR_BANDWIDTH ** 2
 SPOOL_TN = ("hip_flex", "hip_ext", "knee_flex", "knee_ext", "ankle",
             "ankle_ext")
+#: ✅ M161 (ADR-0153): the geared ankle winds on a smaller EFFECTIVE spool and
+#: carries more tension for the same motor torque, so a harness commanding a
+#: leg's drivetrain uses each cable's own (`MT.spool_r`, `MT.tension_max`).
+CABLE_R = np.array([MT.spool_r(t) for t in SPOOL_TN])
+CABLE_TMAX = MT.MOTOR_PEAK_NM / CABLE_R
+#: ...and each PAIR's (hip, knee, ankle).
+PAIR_R = np.asarray(MT.LEG_SPOOL_R, dtype=float)
+PAIR_TMAX = MT.MOTOR_PEAK_NM / PAIR_R
+PAIR_TCONT = MT.MOTOR_RATED_NM / PAIR_R
+#: A pair force as the HIP spool's newtons for the same MOTOR torque: what the
+#: harnesses' peaks report, so 222.9 N means the motor's peak on any joint.
+MOTOR_N = PAIR_R / MT.SPOOL_R
 
 
 
@@ -439,10 +451,10 @@ def _cascade_hold(m, q, target_q3_deg=None, kp=50.0, kd=1.0, tb=19.6,
         e = np.array([qd[i] - d.qpos[a] for i, a in enumerate(qa)])
         ev = np.array([-d.qvel[a] for a in dof])
         T = wbc.tendon_tension(G, wbc.actuator_torque(d, dof, kp * e + kd * ev),
-                               t_min=tb, t_max=MT.TENSION_MAX)
+                               t_min=tb, t_max=CABLE_TMAX)
         cmd = wbc.rotor_command([d.qpos[j] for j in JR],
                                 [d.qpos[j] for j in JS], T, K_TORS,
-                                MT.SPOOL_R, servo_kp=SERVO_KP)
+                                CABLE_R, servo_kp=SERVO_KP)
         for i, a in enumerate(A):
             d.ctrl[a] = float(cmd[i])
         mujoco.mj_step(m, d)
@@ -855,7 +867,7 @@ def test_the_clamped_leg_HOLDS_on_gravity_feedforward_alone():
             ev = np.array([-d.qvel[a] for a in dof])
             T = wbc.tendon_tension(G, wbc.actuator_torque(d, dof,
                                                           kp * e + kd * ev),
-                                   t_min=tb, t_max=MT.TENSION_MAX)
+                                   t_min=tb, t_max=CABLE_TMAX)
             for i, a in enumerate(A):
                 d.ctrl[a] = float(T[i])
             mujoco.mj_step(m, d)
@@ -942,8 +954,8 @@ def test_ADR0002_and_ADR0008_want_DIFFERENT_TRANSMISSIONS():
     )
     # a different T_bias really does change the tensions at the same torque
     tau = np.array([0.3, -0.2, -0.1])
-    low = wbc.tendon_tension(G, tau, t_min=5.0, t_max=MT.TENSION_MAX)
-    high = wbc.tendon_tension(G, tau, t_min=40.0, t_max=MT.TENSION_MAX)
+    low = wbc.tendon_tension(G, tau, t_min=5.0, t_max=CABLE_TMAX)
+    high = wbc.tendon_tension(G, tau, t_min=40.0, t_max=CABLE_TMAX)
     assert float(np.min(high)) > float(np.min(low)) + 20.0
     assert np.allclose(G @ low, G @ high, atol=1e-9), (
         "same joint torque, different co-contraction -- the freedom ADR-0008 spends"
@@ -1080,7 +1092,7 @@ def test_the_pulley_transmission_is_ADR0008s_MOTOR_COUNT_and_ADR0042s_MAP():
     # M111: 4.38328 -> 4.4684 (ADR-0103's sheaves), M120: -> 4.55397 (G3,
     # ADR-0111), M122: -> 4.50092 (ADR-0112), M123: -> 4.60530 (ADR-0114), M124: -> 4.58886 (ADR-0115), M126: -> 4.57916 (ADR-0117), M127: -> 4.57852 (ADR-0118) --
     # none this decision's doing
-    assert DEFAULT_BODY_MASS_KG == pytest.approx(4.82454, abs=1e-4), (   # M130: + the skin
+    assert DEFAULT_BODY_MASS_KG == pytest.approx(4.87448, abs=1e-4), (   # M130: + the skin; M161: the geared ankle
         "and params' body mass needs no change, which was the point"
     )
 
@@ -1115,8 +1127,7 @@ def test_the_pulley_plant_holds_at_ONE_AND_A_HALF_NEWTONS():
             e = np.array([q[i] - d.qpos[a] for i, a in enumerate(dof)])
             ev = np.array([-d.qvel[a] for a in dof])
             tau = wbc.actuator_torque(d, dof, kp * e + kd * ev)
-            F = np.clip(np.linalg.solve(G, tau), -MT.TENSION_MAX,
-                        MT.TENSION_MAX)
+            F = np.clip(np.linalg.solve(G, tau), -PAIR_TMAX, PAIR_TMAX)
             peak = max(peak, float(np.abs(F).max()))
             for i, a in enumerate(A):
                 d.ctrl[a] = float(F[i])
@@ -1228,8 +1239,7 @@ def test_the_pulley_also_CURES_the_standing_TENSION_SATURATION():
         step_peak = 0.0
         for nm in QLEGS:
             tau = wbc.actuator_torque(d, dof[nm], st[nm])
-            F = np.clip(np.linalg.solve(G[nm], tau), -MT.TENSION_MAX,
-                        MT.TENSION_MAX)
+            F = np.clip(np.linalg.solve(G[nm], tau), -PAIR_TMAX, PAIR_TMAX)
             step_peak = max(step_peak, float(np.abs(F).max()))
             for i, a in enumerate(act[nm]):
                 d.ctrl[a] = float(F[i])
@@ -1258,8 +1268,10 @@ def test_the_pulley_also_CURES_the_standing_TENSION_SATURATION():
     # M130: 43.1 -> 46.2 N -- the cat's skin (ADR-0124).
     # ✅ M132 (ADR-0126): 46.2 -> 37.1 N -- the knee's torque no longer loads
     # the ankle cable through the knee via's -8.75 mm coupling.
-    assert late == pytest.approx(37.1, abs=3.0), (
-        f"re-derived on a point foot: {late:.1f} N at 4 s"
+    # M161 (ADR-0153): read as motor torque (`MOTOR_N`) -- the geared ankle's
+    # cable carries 1.81x the newtons for it (71.4 N here, 39.4 as the motor).
+    assert late * MOTOR_N[2] == pytest.approx(37.1, abs=3.0), (
+        f"re-derived on a point foot: {late * MOTOR_N[2]:.1f} N at 4 s"
     )
     assert late < MT.TENSION_CONTINUOUS, (
         f"and it must sit inside the {MT.TENSION_CONTINUOUS:.0f} N continuous "
@@ -1325,8 +1337,9 @@ def test_the_DEFAULT_plant_is_now_the_SHIPPED_transmission():
     assert quad.nu == 12, "ADR-0008's twelve leg motors, by default"
     for i in range(quad.nu):
         lo, hi = quad.actuator_ctrlrange[i]
-        assert lo == pytest.approx(-MT.TENSION_MAX, abs=0.5), "bidirectional"
-        assert hi == pytest.approx(+MT.TENSION_MAX, abs=0.5)
+        tm = MT.tension_max(quad.actuator(i).name)          # M161: per pair
+        assert lo == pytest.approx(-tm, abs=0.5), "bidirectional"
+        assert hi == pytest.approx(+tm, abs=0.5)
 
     # M116 (ADR-0109): the legacy wrapped plant this used to compare against
     # (twenty pull-only motors) is removed. Its findings stay in the ADRs.
@@ -1487,7 +1500,7 @@ def test_the_PULL_ONLY_ALLOCATOR_silently_DROPS_JOINTS_on_the_shipped_plant():
         mujoco.mj_forward(m, d)
         tau = np.array([d.qfrc_bias[a] - d.qfrc_passive[a] for a in dof])
 
-        signed = wbc.pair_command(G, tau, MT.TENSION_MAX)
+        signed = wbc.pair_command(G, tau, PAIR_TMAX)
         assert np.linalg.norm(G @ signed - tau) < 1e-12, (
             "square and signed: there is one answer and it is exact"
         )
@@ -1495,7 +1508,7 @@ def test_the_PULL_ONLY_ALLOCATOR_silently_DROPS_JOINTS_on_the_shipped_plant():
             "and it needs a negative command, which is why pull-only cannot serve"
         )
 
-        pull_only = wbc.tendon_tension(G, tau, 0.0, MT.TENSION_MAX)
+        pull_only = wbc.tendon_tension(G, tau, 0.0, PAIR_TMAX)
         assert np.all(pull_only >= 0.0)
         short = (G @ pull_only - tau)[idx]
         assert abs(short) > 0.2 * abs(tau[idx]), (
@@ -1508,8 +1521,8 @@ def test_the_PULL_ONLY_ALLOCATOR_silently_DROPS_JOINTS_on_the_shipped_plant():
     G, _ = _shipped_G(m, q)
     assert G.shape == (3, 3) and np.linalg.matrix_rank(G) == 3
     tau = np.array([0.05, -0.04, 0.01])
-    assert np.allclose(wbc.pair_command(G, tau, MT.TENSION_MAX),
-                       wbc.pair_command(G, tau, MT.TENSION_MAX)), (
+    assert np.allclose(wbc.pair_command(G, tau, PAIR_TMAX),
+                       wbc.pair_command(G, tau, PAIR_TMAX)), (
         "no free coordinate means no choice to make"
     )
 
@@ -1584,17 +1597,17 @@ def _ship_run(m, q, kp=50.0, kd=1.0, dq3_deg=0.0, ramp_s=None, hold_s=0.5,
         ev = np.array([-d.qvel[a] for a in dof])
         tau = wbc.actuator_torque(d, dof, kp * e + kd * ev)
         if pull_only:
-            T = raw = wbc.tendon_tension(G, tau, 19.6, MT.TENSION_MAX)
+            T = raw = wbc.tendon_tension(G, tau, 19.6, PAIR_TMAX)
         else:
             raw = wbc.pair_command(G, tau, np.inf)
-            T = np.clip(raw, -MT.TENSION_MAX, MT.TENSION_MAX)
-        if np.max(np.abs(raw)) > MT.TENSION_MAX - 1e-9:
+            T = np.clip(raw, -PAIR_TMAX, PAIR_TMAX)
+        if np.any(np.abs(raw) > PAIR_TMAX - 1e-9):
             sat += 1
         peak_raw = max(peak_raw, float(np.max(np.abs(raw))))
         if not ramp_s or t > ramp_s * 0.2:
             worst = max(worst, float(np.max(np.abs(np.degrees(e)))))
         cmd = wbc.rotor_command([d.qpos[j] for j in JR], [d.qpos[j] for j in JS],
-                                T, K_TORS, MT.SPOOL_R, servo_kp=SERVO_KP)
+                                T, K_TORS, PAIR_R, servo_kp=SERVO_KP)
         for i, a in enumerate(A):
             d.ctrl[a] = float(cmd[i])
         mujoco.mj_step(m, d)
@@ -1924,7 +1937,7 @@ def test_the_TROT_LOAD_SPLIT_is_REAR_biased_and_params_SAID_SO():
     assert W * frac_fore == pytest.approx(W * 0.433, abs=0.3)
     # M130 (ADR-0124): the body 4.834 kg with the cat's skin, the split 0.436.
     assert W * frac_fore == pytest.approx(20.7, abs=0.4)
-    assert W * (1.0 - frac_fore) == pytest.approx(26.7, abs=0.5)
+    assert W * (1.0 - frac_fore) == pytest.approx(27.3, abs=0.5)   # M161: +49 g of body
 
 
 def test_the_GAIT_holds_the_PAW_FLAT_so_the_ANKLE_DEMAND_HAS_NO_SHAPE():
@@ -2007,12 +2020,13 @@ def test_the_ONE_PAIR_over_its_CONTINUOUS_rating_is_the_HIND_ANKLE():
         for j in range(3):
             f = np.abs(F[:, j])
             rms = float(np.sqrt((f ** 2).mean()))
-            worst_pk = max(worst_pk, f.max() / MT.TENSION_MAX)
-            assert rms / MT.TENSION_CONTINUOUS == pytest.approx(
+            worst_pk = max(worst_pk, f.max() / PAIR_TMAX[j])
+            # M161: each pair against its OWN continuous rating (as motor torque)
+            assert rms / PAIR_TCONT[j] == pytest.approx(
                 want[(nm, j)], abs=0.06), (
                 f"{nm} {PULLEY_PAIRS[j]}: rms {rms:.1f} N"
             )
-            if rms > MT.TENSION_CONTINUOUS:
+            if rms > PAIR_TCONT[j]:                     # M161: its own rating
                 over.append((nm, PULLEY_PAIRS[j], rms))
 
     assert worst_pk < 0.7, f"structurally clear: worst peak {worst_pk:.2f} of max"
@@ -2067,7 +2081,7 @@ def test_the_VARIABLE_RADIUS_PROFILE_CANNOT_BUY_what_ADR0002_wanted():
     # and past it: the ankle arm is 22 mm, not 16.6. The profile verdict stands --
     # the demand still has no shape -- and there is now nothing for it to cure.
     # M122: 0.79 -> 0.70, the load split moved toward the fore legs.
-    assert rms / MT.TENSION_CONTINUOUS == pytest.approx(0.70, abs=0.06)
+    assert rms / PAIR_TCONT[2] == pytest.approx(0.70, abs=0.06)   # M161: the ankle's own rating
 
     # a PERFECT profile flattens the stance demand to its mean. Here that is a
     # no-op, because the demand already IS its mean.
@@ -2090,12 +2104,16 @@ def test_the_VARIABLE_RADIUS_PROFILE_CANNOT_BUY_what_ADR0002_wanted():
     # ⚠️ M111 (ADR-0103): 14 -> 22 mm. The arm at which RMS meets the rating
     # is `r * rms / rating`, invariant to r; it moved 16.6 -> 17.3 mm with the
     # heavier body and the re-solved wraps. 22 mm clears it by 27 %.
-    assert r_ankle == pytest.approx(22.0, abs=1e-6)
+    # M161 (ADR-0153): 22 -> 12.13 mm, the ankle geared at its motor; the
+    # arm is now set by the ratio, and its rating is in ankle-cable newtons.
+    assert r_ankle == pytest.approx(12.13, abs=1e-6)
     # M122: 17.3 -> 15.5 mm -- the weight moved toward the fore legs.
     # M123: 15.5 -> 14.5 mm, and again the weight moved forward.
     # M130: 14.5 -> 15.1 mm -- the cat's skin (ADR-0124).
-    assert r_ankle * rms / MT.TENSION_CONTINUOUS == pytest.approx(15.1, abs=0.6)
-    assert r_ankle > r_ankle * rms / MT.TENSION_CONTINUOUS
+    # M161: against the ankle's own continuous rating (147 N on its geared
+    # spool) the arm that meets it is 15.1 x 81.1 / 147 = 8.3 mm; 12.13 clears it.
+    assert r_ankle * rms / PAIR_TCONT[2] == pytest.approx(8.3, abs=0.6)
+    assert r_ankle > r_ankle * rms / PAIR_TCONT[2]
 
 
 # ==========================================================================
@@ -2216,8 +2234,8 @@ def _spine_stand(m, q, *, seconds=3.0, spine_react=True, spine_kp=8.0,
         stq = wbc.stance_torque(mujoco, m, d, sid, forces, dof)
         for nm in QLEGS:
             tau = wbc.actuator_torque(d, dof[nm], stq[nm])
-            T = wbc.pair_command(G[nm], tau, MT.TENSION_MAX)
-            peak = max(peak, float(np.max(np.abs(T))))
+            T = wbc.pair_command(G[nm], tau, PAIR_TMAX)
+            peak = max(peak, float(np.max(np.abs(T) * MOTOR_N)))   # M161: as motor torque
             for i, a in enumerate(acts[nm]):
                 d.ctrl[a] = float(T[i])
         if has_spine:
@@ -2571,11 +2589,11 @@ def _sway_run(m, q, ctl, *, seconds, phase0, period, kp=8.0, kd=None,
         stq = wbc.stance_torque(mujoco, m, d, sid, forces, dof)
         for nm in QLEGS:
             tau = wbc.actuator_torque(d, dof[nm], stq[nm])
-            T = wbc.pair_command(G[nm], tau, MT.TENSION_MAX)
+            T = wbc.pair_command(G[nm], tau, PAIR_TMAX)
             if spooled:
                 T = wbc.rotor_command([d.qpos[j] for j in JR[nm]],
                                       [d.qpos[j] for j in JS[nm]], T, K_TORS,
-                                      MT.SPOOL_R, servo_kp=SERVO_KP)
+                                      PAIR_R, servo_kp=SERVO_KP)
             for i, a in enumerate(acts[nm]):
                 d.ctrl[a] = float(T[i])
 
@@ -2651,7 +2669,8 @@ def test_the_SWAY_ADR0009_BOUGHT_needs_the_FEET_TO_SLIDE():
     # amplitude the numbers below were measured at.
     # M123 (ADR-0114): the walk's sway re-tuned 11.0 -> 8.75 deg.
     # M130 (ADR-0124): 8.75 -> 8.1 deg, re-tuned under the cat's skin.
-    assert math.degrees(p.lateral_amplitude) == pytest.approx(8.1, abs=0.01)
+    # M161 (ADR-0153): 8.1 -> 7.8 deg, re-tuned on the geared-ankle body.
+    assert math.degrees(p.lateral_amplitude) == pytest.approx(7.8, abs=0.01)
     lq = np.array([c.lateral_q(i / 200.0) for i in range(200)])
     ya = np.array([c.body.center_of_mass_y(lq[i]) for i in range(0, 200, 2)])
     analytic = 1e3 * (ya.max() - ya.min())
@@ -2664,7 +2683,8 @@ def test_the_SWAY_ADR0009_BOUGHT_needs_the_FEET_TO_SLIDE():
     # number imply nothing happened.
     # M123 (ADR-0114): 72.7 -> 61.1 mm, the sway re-tuned to 8.75 deg.
     # M129 (ADR-0121): 61.1 -> 60.0 mm, the head carried back and lower.
-    assert analytic == pytest.approx(60.0, abs=1.0), (
+    # M161 (ADR-0153): 60.0 -> 58.5 mm, the sway re-tuned to 7.8 deg.
+    assert analytic == pytest.approx(58.5, abs=1.0), (
         f"the analytic model promises {analytic:.1f} mm of sway"
     )
 
@@ -2833,9 +2853,11 @@ def test_the_SWAY_GEOMETRY_puts_ADR0009_and_ADR0017_in_CONFLICT():
     # it, and the same bend moves the CoM 9 % further.
     # M123 (ADR-0114): 34.6 -> 36.1 mm, the fore hip 10 mm ahead of its girdle.
     # M130: 36.1 -> 37.4 mm -- the cat's skin (ADR-0124): more mass where the yaw swings it.
-    assert dcom == pytest.approx(37.4, abs=1.0), f"CoM sway {dcom:.1f} mm"
+    # M161 (ADR-0153): 37.4 -> 38.6 mm, the fore hip 6 mm further forward.
+    assert dcom == pytest.approx(38.6, abs=1.0), f"CoM sway {dcom:.1f} mm"
     # M123 (ADR-0114): 98.1 -> 104.4 mm, the fore hip 10 mm further out.
-    assert dfore == pytest.approx(104.4, abs=2.0), f"fore foot {dfore:.1f} mm"
+    # M161 (ADR-0153): 104.4 -> 108.8 mm, the fore hip 6 mm further out.
+    assert dfore == pytest.approx(108.8, abs=2.0), f"fore foot {dfore:.1f} mm"
     assert dhind < 1e-6, "with the root pinned the hind feet cannot move at all"
     assert dfore / dcom > 2.5, (
         f"the paw must travel {dfore / dcom:.1f}x further than the CoM"
@@ -3016,7 +3038,7 @@ def _sway_pair_peaks(m, q, ctl, *, phase0, period, seconds=0.9, kp=8.0):
         stq = wbc.stance_torque(mujoco, m, d, sid, forces, dof)
         for nm in QLEGS:
             T = wbc.pair_command(G[nm], wbc.actuator_torque(d, dof[nm], stq[nm]),
-                                 MT.TENSION_MAX)
+                                 PAIR_TMAX)
             for i, a in enumerate(acts[nm]):
                 d.ctrl[a] = float(T[i])
         have = np.array([float(d.qpos[a]) for a in sq])
@@ -3666,7 +3688,7 @@ def _right_with_legs(*, tuck_deg=0.0, tuck_phase=0.0, period=0.30,
                 tau = (bias_l + leg_kp * (tgt - have_l)
                        - leg_kd * np.array([float(d.qvel[a])
                                             for a in dof[nm]]))
-                T = wbc.pair_command(G[nm], tau, MT.TENSION_MAX)
+                T = wbc.pair_command(G[nm], tau, PAIR_TMAX)
                 for i, x in enumerate(acts[nm]):
                     d.ctrl[x] = float(T[i])
 
@@ -3944,11 +3966,11 @@ def _righting_run(axial_deg=None, *, s0=-1.0, period=0.30, seconds=4.0,
                                for a in dof[nm]])
             tau = (bias_l + leg_kp * (tgt - have_l)
                    - leg_kd * np.array([float(d.qvel[a]) for a in dof[nm]]))
-            T = wbc.pair_command(G[nm], tau, MT.TENSION_MAX)
+            T = wbc.pair_command(G[nm], tau, PAIR_TMAX)
             if spooled:
                 cmd = wbc.rotor_command([d.qpos[j] for j in JR[nm]],
                                         [d.qpos[j] for j in JS[nm]], T, K_TORS,
-                                        MT.SPOOL_R, servo_kp=SERVO_KP)
+                                        PAIR_R, servo_kp=SERVO_KP)
                 for i, x in enumerate(acts[nm]):
                     d.ctrl[x] = float(cmd[i])
             else:
@@ -4031,7 +4053,8 @@ def test_CLOSING_THE_LOOP_rights_the_robot_but_from_TWENTY_TWO_METRES():
     rate = 180.0 / t
     # ⚠️ M122 (ADR-0112): 133 -> 166 deg/s (1.08 s; a 5.8 m fall). The
     # open-loop figures quoted above are M102's and were not re-measured here.
-    assert rate == pytest.approx(166.0, abs=20.0), (
+    # M161 (ADR-0153): 186 deg/s (0.97 s) -- the body 12 mm longer.
+    assert rate == pytest.approx(186.0, abs=20.0), (
         f"effective {rate:.0f} deg/s against this plant's open-loop 109.8"
     )
 
@@ -4322,12 +4345,12 @@ def _held_drop(height_m, spooled, *, seconds=0.5, kp=50.0, kd=1.0,
                           for i, a in enumerate(qa[nm])])
             ev = -np.array([float(d.qvel[a]) for a in dof[nm]])
             tau = wbc.actuator_torque(d, dof[nm], kp * e + kd * ev)
-            T = wbc.pair_command(G[nm], tau, MT.TENSION_MAX)
-            peak_cab = max(peak_cab, float(np.max(np.abs(T))))
+            T = wbc.pair_command(G[nm], tau, PAIR_TMAX)
+            peak_cab = max(peak_cab, float(np.max(np.abs(T) * MOTOR_N)))   # M161: as motor torque
             if spooled:
                 cmd = wbc.rotor_command([d.qpos[j] for j in JR[nm]],
                                         [d.qpos[j] for j in JS[nm]], T,
-                                        K_TORS, MT.SPOOL_R, servo_kp=SERVO_KP)
+                                        K_TORS, PAIR_R, servo_kp=SERVO_KP)
                 for i, a in enumerate(A[nm]):
                     d.ctrl[a] = float(cmd[i])
             else:
@@ -4451,12 +4474,12 @@ def test_G3_TAKES_THE_SHOCK_out_of_the_CABLE_not_the_GROUND():
     # takes the cable to 208 N (93 % of the rating) where it read 48-84 N, and
     # the 0.30 m drop saturates it. G3 still takes something off the shallow
     # drop; the landing margin was the floor's.
-    assert soft[0.05]["cable"] < rigid[0.05]["cable"], (
-        f"G3 still takes some of the shock: {soft[0.05]['cable']:.0f} N"
-    )
-    assert soft[0.05]["cable"] > 0.85 * MT.TENSION_MAX, (
-        f"but no longer enough: {soft[0.05]['cable']:.0f} N -- if this "
-        f"dropped back, the pad got softer; re-read ADR-0150"
+    # ⚠️ M161 (ADR-0153): **and now it takes nothing.** Read as motor torque
+    # (`MOTOR_N`), the geared ANKLE saturates its motor on the 0.05 m drop with
+    # G3 or without -- 93 % on M158's drive. R6 is worse, not better.
+    assert soft[0.05]["cable"] == pytest.approx(MT.TENSION_MAX, abs=1.0), (
+        f"the 0.05 m drop saturates the ankle: {soft[0.05]['cable']:.0f} N -- if "
+        f"this dropped back, the pad got softer or the ankle lost its stage"
     )
     assert soft[0.30]["cable"] == pytest.approx(MT.TENSION_MAX, abs=1.0)
 
@@ -4609,8 +4632,8 @@ def _stand_at_gain(spooled, *, kp, seconds=1.2, mu=0.8, damp=6.0,
             e = np.array([q[nm][i] - float(ds.qpos[a])
                           for i, a in enumerate(qa[nm])])
             ev = -np.array([float(ds.qvel[a]) for a in dof[nm]])
-            T = wbc.pair_command(G[nm], tau + kp * e + kd * ev, MT.TENSION_MAX)
-            peak = max(peak, float(np.max(np.abs(T))))
+            T = wbc.pair_command(G[nm], tau + kp * e + kd * ev, PAIR_TMAX)
+            peak = max(peak, float(np.max(np.abs(T) * MOTOR_N)))   # M161: as motor torque
             hold[nm] = T
 
     for it in range(int(seconds / m.opt.timestep)):
@@ -4630,7 +4653,7 @@ def _stand_at_gain(spooled, *, kp, seconds=1.2, mu=0.8, damp=6.0,
             if spooled:
                 cmd = wbc.rotor_command([d.qpos[j] for j in JR[nm]],
                                         [d.qpos[j] for j in JS[nm]], hold[nm],
-                                        K_TORS, MT.SPOOL_R, servo_kp=SERVO_KP)
+                                        K_TORS, PAIR_R, servo_kp=SERVO_KP)
             else:
                 cmd = hold[nm]
             for i, a in enumerate(A[nm]):
@@ -4888,7 +4911,8 @@ def test_COMPLIANCE_leaves_the_SWAY_alone_exactly_as_ADR0072_ASSUMED():
     # ⚠️ M123: 3.19 -> 1.88 mm, the walk's sway re-tuned 11 -> 8.75 deg.
     # M129 (ADR-0121): 1.88 -> 2.05 mm, the head carried back and lower.
     # M130: 2.05 -> 1.70 mm, the sway re-tuned to 8.1 deg under the skin.
-    assert out["rigid"]["sway"] == pytest.approx(1.70, abs=0.15)
+    # M161 (ADR-0153): 1.70 -> 1.55 mm, the sway re-tuned to 7.8 deg.
+    assert out["rigid"]["sway"] == pytest.approx(1.55, abs=0.15)
     for label in ("legs", "legs+spine"):
         # ⚠️ **M93 REVERSED the direction.** The compliant plants used to sway
         # slightly MORE than the rigid one (4.66 against 4.60 mm) and now sway
@@ -4909,7 +4933,9 @@ def test_COMPLIANCE_leaves_the_SWAY_alone_exactly_as_ADR0072_ASSUMED():
         # carried back and lower. Still inside the 10 % below.
         # M130 (ADR-0124): 2.23 -> 1.81 mm (+6 % on the rigid 1.70), the sway
         # re-tuned to 8.1 deg under the cat's skin.
-        assert out[label]["sway"] == pytest.approx(1.81, abs=0.20), (
+        # M161 (ADR-0153): 1.81 -> 1.60 mm (+3 % on the rigid 1.55), the sway
+        # re-tuned to 7.8 deg.
+        assert out[label]["sway"] == pytest.approx(1.60, abs=0.20), (
             f"{label} swayed {out[label]['sway']:.2f} mm"
         )
         assert abs(out[label]["sway"] / out["rigid"]["sway"] - 1.0) < 0.10
@@ -4928,7 +4954,8 @@ def test_COMPLIANCE_leaves_the_SWAY_alone_exactly_as_ADR0072_ASSUMED():
     # way and loses; at the old 12.5 deg this plant asks for more, not less.
     # M123 (ADR-0114): 76.8 -> 61.1 N, the sway re-tuned to 8.75 deg.
     # M130 (ADR-0124): 61.1 -> 56.5 N, re-tuned to 8.1 deg under the skin.
-    assert out["rigid"]["raw_peak"] == pytest.approx(56.5, abs=2.0)
+    # M161 (ADR-0153): 56.5 -> 54.5 N, re-tuned to 7.8 deg.
+    assert out["rigid"]["raw_peak"] == pytest.approx(54.5, abs=2.0)
 
 
 def test_COMPLIANCE_costs_the_RIGHTING_a_FACTOR_OF_THREE_when_the_SPINE_has_it():
@@ -5002,7 +5029,8 @@ def test_COMPLIANCE_costs_the_RIGHTING_a_FACTOR_OF_THREE_when_the_SPINE_has_it()
     # sits nearer the roll axis, where it helps the spine's twist less.
     # M130 (ADR-0124): 1.06 -> 0.99 s -- the skin, round the long axis.
     assert rigid_t == pytest.approx(0.99, abs=0.05)
-    assert legs_t is not None and legs_t == pytest.approx(1.089, abs=0.10), (
+    # M161 (ADR-0153): 0.97 s, the longer body (as the rigid plant's, above).
+    assert legs_t is not None and legs_t == pytest.approx(0.97, abs=0.10), (
         f"the shipped drivetrain rights in {legs_t} s"
     )
     assert abs(legs_t - rigid_t) / rigid_t < 0.05, "legs cost under 5 %"
@@ -5210,7 +5238,8 @@ def test_ADR0073s_CABLE_MARGIN_was_bought_by_a_RIGID_TRUNK():
     # M130: 44.3 -> 48.0 N -- the cat's skin (ADR-0124).
     # ⚠️ M158 (ADR-0150): 48.0 -> **207.7 N**. The 48 N was the floor's: the
     # default contact sank a pad 6.3 mm and cushioned the landing.
-    assert box["cable"] == pytest.approx(207.7, rel=0.02), (
+    # M161 (ADR-0153): 207.7 -> saturated, the geared ankle (as motor torque).
+    assert box["cable"] == pytest.approx(MT.TENSION_MAX, rel=0.02), (
         "the rigid-box baseline must reproduce"
     )
 
@@ -5270,7 +5299,7 @@ def test_ADR0073s_CABLE_MARGIN_was_bought_by_a_RIGID_TRUNK():
         # ⚠️ M158 (ADR-0150): on the stiffer pad the held spine no longer
         # protects the leg cable: 192 / 216 / 223 N (saturated) over 0.05 /
         # 0.10 / 0.30 m, against 62-116 N on the soft contact.
-        assert r["cable"] > 0.85 * MT.TENSION_MAX, (
+        assert r["cable"] > 0.8 * MT.TENSION_MAX, (           # M161: 188-223 N
             f"at {h} m the leg cable is {r['cable']:.1f} N -- if it fell back "
             f"inside the rating, the pad got softer"
         )
@@ -5544,7 +5573,7 @@ def test_JOINT_ANGLE_IS_RECOVERABLE_but_the_ANKLE_LOAD_CELL_is_what_pays():
             cmd = wbc.rotor_command([d.qpos[j] for j in JR[n]],
                                     [d.qpos[j] for j in JS[n]],
                                     np.array([60.0, 40.0, 25.0]), K_TORS,
-                                    MT.SPOOL_R, servo_kp=SERVO_KP)
+                                    PAIR_R, servo_kp=SERVO_KP)
             for i, a in enumerate(A[n]):
                 d.ctrl[a] = float(cmd[i])
         mujoco.mj_step(m, d)
@@ -5560,7 +5589,7 @@ def test_JOINT_ANGLE_IS_RECOVERABLE_but_the_ANKLE_LOAD_CELL_is_what_pays():
             if drop_ankle:
                 js = js.copy()
                 js[2] = 0.0
-            qh = wbc.joint_from_encoders(jr, js, a0[n], C, MT.SPOOL_R)
+            qh = wbc.joint_from_encoders(jr, js, a0[n], C, PAIR_R)
             qt = np.array([float(d.qpos[a]) for a in qa[n]])
             e = max(e, float(np.max(np.degrees(np.abs(qh - qt)))))
         return e
@@ -5568,10 +5597,14 @@ def test_JOINT_ANGLE_IS_RECOVERABLE_but_the_ANKLE_LOAD_CELL_is_what_pays():
     ideal, quant = worst(), worst(bits=14)
     no_cell, no_cell_ideal = worst(bits=14, drop_ankle=True), worst(drop_ankle=True)
 
-    assert ideal < 0.01, f"the reconstruction must be exact: {ideal:.4f} deg"
+    # M161 (ADR-0153): 0.013 deg -- the winding equality's softness, read
+    # through the ankle's 12 mm sheave instead of 22, is 1.8x the angle.
+    assert ideal < 0.02, f"the reconstruction must be exact: {ideal:.4f} deg"
     assert quant < 0.02, f"a 14-bit encoder costs almost nothing: {quant:.4f}"
     # ⚠️ the missing ankle load cell dominates by two orders of magnitude
-    assert no_cell > 50.0 * quant, (
+    # M161 (ADR-0153): 27x -- the ankle's 12 mm sheave reads the quantised
+    # rotor 1.8x coarser, so the ratio halved; the cell still dominates.
+    assert no_cell > 20.0 * quant, (
         f"no ankle cell {no_cell:.3f} deg against {quant:.4f} quantised"
     )
     # ⚠️ and a perfect encoder does not rescue it -- it is the cell, not the enc
@@ -5579,7 +5612,7 @@ def test_JOINT_ANGLE_IS_RECOVERABLE_but_the_ANKLE_LOAD_CELL_is_what_pays():
 
     # ⚠️ the error is the spring deflection, so it grows with tension
     def ankle_err(T):
-        dL = MT.SPOOL_R * (T * MT.SPOOL_R / K_TORS)
+        dL = PAIR_R[2] * (T * PAIR_R[2] / K_TORS)          # M161: the ankle's own spool
         return math.degrees(np.linalg.solve(C, np.array([0.0, 0.0, dL]))[2])
 
     # ⚠️ M111: 2.21 -> 1.41 deg and 6.08 -> 3.87. The spring's deflection is a
@@ -5587,8 +5620,10 @@ def test_JOINT_ANGLE_IS_RECOVERABLE_but_the_ANKLE_LOAD_CELL_is_what_pays():
     # angle. The load cell still pays for itself -- by four degrees, not six.
     # ⚠️ M112: the leg G3 at 1.25e5 deflects 1.2x as far per newton -- 1.41 -> 1.69
     # and 3.87 -> 4.64 deg. The price of the compliance ADR-0026 asks for.
-    assert ankle_err(81.1) == pytest.approx(1.69, abs=0.05)
-    assert ankle_err(MT.TENSION_MAX) == pytest.approx(4.64, abs=0.10), (
+    # M161 (ADR-0153): at the ANKLE's own ratings -- its geared cable carries
+    # 1.81x the newtons for the same motor torque, and the error is unchanged.
+    assert ankle_err(PAIR_TCONT[2]) == pytest.approx(1.69, abs=0.05)
+    assert ankle_err(PAIR_TMAX[2]) == pytest.approx(4.64, abs=0.10), (
         "at the peak rating the ankle angle is unknown by nearly five degrees"
     )
 

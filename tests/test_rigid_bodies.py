@@ -273,8 +273,10 @@ def test_the_mjcf_now_swings_like_the_cad_leg():
     # ⚠️ M130 (ADR-0124): 1.5398e-3 -> **1.8040e-3 (+17 %)** -- the cat's
     # skin on the legs (its sleeves are the sheaves' hull, 24.5 g a hind leg)
     # and the femur Ø16. The leg the tendon drive keeps light is now dressed.
-    assert I_mj_hip[1, 1] == pytest.approx(1.8040e-3, rel=0.02), (
-        f"MJCF swing inertia {I_mj_hip[1, 1]:.4e}, CAD says 1.8040e-3"
+    # M161 (ADR-0153): 1.8040e-3 -> **1.7664e-3 (-2.1 %)** -- the geared
+    # ankle's 12 mm sheave, at the far end of the swing.
+    assert I_mj_hip[1, 1] == pytest.approx(1.7664e-3, rel=0.02), (
+        f"MJCF swing inertia {I_mj_hip[1, 1]:.4e}, CAD says 1.7664e-3"
     )
 
     # ⚠️ because most of the leg is joint hardware sitting AT the joints.

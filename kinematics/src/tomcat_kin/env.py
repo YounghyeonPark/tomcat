@@ -96,6 +96,14 @@ class TomcatEnv:
         self.k_tors = np.array(
             [(SPINE_SERIES_K if p in SPINE else self.series_k) * MT.SPOOL_R ** 2
              for p in self.pairs], dtype=float)
+        # ✅ M161 (ADR-0153): each pair's EFFECTIVE spool. The knee and ankle
+        # have a gear stage, so the same motor torque is more cable tension:
+        # `t_max` is the motor's peak per pair, and `res_scale` turns a
+        # residual in hip-spool newtons into the same motor torque on any pair
+        # (a policy's action means a motor torque, whatever cable it pulls).
+        self.spool_r = np.array([MT.spool_r(p) for p in self.pairs], dtype=float)
+        self.t_max = MT.MOTOR_PEAK_NM / self.spool_r
+        self.res_scale = MT.SPOOL_R / self.spool_r
 
         self._sensor = {}
         for i in range(self.model.nsensor):
@@ -177,12 +185,12 @@ class TomcatEnv:
                 bias = np.array([float(self.data.qfrc_bias[a]
                                        - self.data.qfrc_passive[a])
                                  for a in dof[nm]])
-                T = _w.pair_command(G[nm], bias + kp * e + kd * ev,
-                                    MT.TENSION_MAX)
                 idx = [self.pairs.index(f"{nm}_{p}") for p in PAIRS]
+                T = _w.pair_command(G[nm], bias + kp * e + kd * ev,
+                                    self.t_max[idx])
                 cmd = _w.rotor_command(self.data.qpos[[self._jr[i] for i in idx]],
                                        self.data.qpos[[self._js[i] for i in idx]],
-                                       T, self.k_tors[idx], MT.SPOOL_R,
+                                       T, self.k_tors[idx], self.spool_r[idx],
                                        servo_kp=self.servo_kp)
                 for k, i in enumerate(idx):
                     self.data.ctrl[self._act[i]] = float(cmd[k])
@@ -261,8 +269,7 @@ class TomcatEnv:
         is an unstable equilibrium: a fixed tension is a fixed torque, and the
         torque the pose needs changes as it tips. Feedback is the task.
         """
-        tension = np.clip(np.asarray(tension, float), -MT.TENSION_MAX,
-                          MT.TENSION_MAX)
+        tension = np.clip(np.asarray(tension, float), -self.t_max, self.t_max)
         peak = getattr(self, "motor_peak", MT.MOTOR_PEAK_NM)
         cap = np.ones(18)
         if self.friction:
@@ -275,7 +282,7 @@ class TomcatEnv:
             # starves the servo of its own feedback and is not the robot.
             cmd = wbc.rotor_command(self.data.qpos[self._jr],
                                     self.data.qpos[self._js], joint_t,
-                                    self.k_tors, MT.SPOOL_R,
+                                    self.k_tors, self.spool_r,
                                     servo_kp=self.servo_kp)
             if self.envelope:
                 cmd = wbc.envelope_command(cmd, self.data.qpos[self._jr],
@@ -349,7 +356,7 @@ class TomcatEnv:
             js = np.array([obs["load"].get(f"{nm}_{p}", 0.0) for p in PAIRS])
             a0 = np.array([self.a0[f"{nm}_{p}"] for p in PAIRS])
             out[nm] = wbc.joint_from_encoders(jr, js, a0, self.pair_map,
-                                              MT.SPOOL_R)
+                                              MT.LEG_SPOOL_R)
         return out
 
     # -- domain randomisation ---------------------------------------------
@@ -486,7 +493,7 @@ class TomcatEnv:
         feet = float(np.count_nonzero(np.asarray(obs["contact"]) > 1e-6)) / 4.0
         spin = float(np.linalg.norm(obs["imu_gyro"]))
         cost = 0.0 if tension is None else float(
-            np.mean(np.abs(tension)) / MT.TENSION_MAX)
+            np.mean(np.abs(tension) / self.t_max))
         tall = min(1.0, self.stance_height(obs) / 0.17)
         return (1.0 * upright + 0.5 * feet + 1.0 * tall
                 - 0.05 * min(spin, 20.0) - 0.2 * cost)

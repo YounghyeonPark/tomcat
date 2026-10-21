@@ -45,6 +45,11 @@ BONE_R = 6.0
 # Note it is ~39% LONGER than the placeholder, and the banks stack along z, so
 # this pushes directly into girdle HEIGHT.
 MOTOR_D, MOTOR_L = 34.5, 36.1
+#: ✅ M161 (ADR-0153): the knee and ankle motors' gear stage, between G3 and
+#: the spool -- a coaxial star stage (sun in, ring out, carrier fixed) gives
+#: the 2.1:1 a planetary cannot. Its size and mass are `[assumed]`: no part is
+#: chosen, and ADR-0152 wants it at or under ~20 g.
+STAGE_L, STAGE_D, STAGE_G = 6.0, 30.0, 15.0
 SPOOL_D, SPOOL_L = 16.0, 8.0   # variable-radius pulley (ADR-0008); the TAIL's now
 
 #: ✅ M130 (ADR-0123): **each spool is as wide as its pair's cable travel.**
@@ -56,6 +61,24 @@ SPOOL_D, SPOOL_L = 16.0, 8.0   # variable-radius pulley (ADR-0008); the TAIL's n
 CABLE_D = 1.75
 #: Helical groove pitch: 1.15 cable diameters.
 GROOVE_PITCH = 1.15 * CABLE_D
+#: ✅ M161 (ADR-0153): the knee and ankle are geared and wind a thicker cable
+#: on a bigger drum. Per joint, from `params`; the spine and tail keep the hip's.
+_JOINT_I = {"hip": 0, "knee": 1, "ankle": 2}
+
+
+def cable_d(joint: str) -> float:
+    """The cable on `joint`'s spool, mm."""
+    i = _JOINT_I.get(joint, 0)
+    return float(DEFAULT_TENDON.cable_diameter[i]) * MM
+
+
+def spool_radius(joint: str) -> float:
+    """`joint`'s PHYSICAL drum radius, mm (the spine's is its own)."""
+    if joint in _JOINT_I:
+        return float(DEFAULT_TENDON.spool_radius[_JOINT_I[joint]]) * MM
+    return float(DEFAULT_SPINE.motor_spool_radius) * MM
+
+
 #: Turns each cable keeps on the drum at its full pay-out, so the anchor sees
 #: e^(mu * 2 pi) less than the cable.  `[assumed]`
 DEAD_TURNS = 1.0
@@ -77,7 +100,8 @@ def cable_travel(joint: str) -> float:
     if joint == "knee":
         return arms[1] * rom(1)
     if joint == "ankle":
-        return arms[2] * rom(2) + 8.75 * rom(1)
+        # the knee's via is the ankle cable's own bend floor, 5 d (M161)
+        return arms[2] * rom(2) + 5.0 * cable_d("ankle") * rom(1)
     sp = DEFAULT_SPINE
     if joint == "spine_pitch":
         return SPINE_ARM * float(sp.q_max[0] - sp.q_min[0])
@@ -87,7 +111,7 @@ def cable_travel(joint: str) -> float:
 
 
 def grooves(joint: str) -> int:
-    turns = cable_travel(joint) / (2 * np.pi * float(DEFAULT_TENDON.motor_spool_radius) * MM)
+    turns = cable_travel(joint) / (2 * np.pi * spool_radius(joint))
     return int(np.ceil(turns + 2 * DEAD_TURNS - 1e-9))
 
 
@@ -95,7 +119,7 @@ def spool_len(joint: str) -> float:
     """The drum's axial length, mm: its grooves and two end flanges."""
     if joint == "tail":
         return SPOOL_L
-    return grooves(joint) * GROOVE_PITCH + 2 * END_FLANGE
+    return grooves(joint) * 1.15 * cable_d(joint) + 2 * END_FLANGE
 FOOT_Z, FOOT_PITCH = -0.17, 0.0     # paw flat on the ground (digitigrade)
 FRONT_FOOT_X, REAR_FOOT_X = 0.06, 0.04
 TENDON_R = 1.6

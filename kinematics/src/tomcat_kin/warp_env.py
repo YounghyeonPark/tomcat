@@ -167,7 +167,10 @@ class WarpStand:
         self.out = wp.zeros((self.N, nsd), dtype=float, device=device)
         self.T = wp.zeros((self.N, 18), dtype=float, device=device)
         kfac = self.k_tors.copy()
-        kfac = MT.SPOOL_R / kfac * (self.servo_kp + kfac) / self.servo_kp
+        # M161: each pair's own effective spool (the knee and ankle are geared)
+        self.spool_r, self.t_max = cpu.spool_r.copy(), cpu.t_max.copy()
+        self.res_scale = cpu.res_scale.copy()
+        kfac = self.spool_r / kfac * (self.servo_kp + kfac) / self.servo_kp
         self.kfac = wp.array(kfac.astype(np.float32), dtype=float, device=device)
         self.jr = wp.array(np.array(cpu._jr, np.int32), dtype=int, device=device)
         self.js = wp.array(np.array(cpu._js, np.int32), dtype=int, device=device)
@@ -396,7 +399,7 @@ class WarpStand:
     def joint_estimate(self, o):
         """`TomcatEnv.joint_estimate` over worlds: (N, 4, 3)."""
         th = o["rotor"][:, :12] + self._spool18(o)[:, :12]
-        Lc = self.a0[None, :12] - MT.SPOOL_R * th
+        Lc = self.a0[None, :12] - self.spool_r[None, :12] * th
         return (Lc.reshape(self.N, 4, 3) @ self.Cinv.T)
 
     def spine_angle(self, o):
@@ -420,7 +423,7 @@ class WarpStand:
         upright = np.cos(np.radians(np.minimum(180.0, self.tilt(o))))
         feet = np.count_nonzero(o["contact"] > 1e-6, 1) / 4.0
         spin = np.linalg.norm(o["imu_gyro"], axis=1)
-        cost = np.mean(np.abs(T), 1) / MT.TENSION_MAX
+        cost = np.mean(np.abs(T) / self.t_max, 1)
         tall = np.minimum(1.0, self.stance_height(o, q) / 0.17)
         return (upright + 0.5 * feet + tall - 0.05 * np.minimum(spin, 20.0) - 0.2 * cost)
 
@@ -475,8 +478,8 @@ class WarpStand:
     def step(self, action):
         wp = self.wp
         a = np.clip(np.asarray(action, float), -1.0, 1.0)
-        T = np.clip(self.baseline(self._obs) + a * self.residual_n,
-                    -MT.TENSION_MAX, MT.TENSION_MAX)
+        T = np.clip(self.baseline(self._obs) + a * self.residual_n * self.res_scale,
+                    -self.t_max, self.t_max)
         self.T.assign(T.astype(np.float32))
         if self.friction:
             from .tendon import drive_capstan
@@ -709,11 +712,11 @@ class WarpWalk(WarpStand):
         upright = np.cos(np.radians(np.minimum(180.0, self.tilt(o))))
         tall = np.minimum(1.0, self.stance_height(o, q) / 0.17)
         spin = np.linalg.norm(o["imu_gyro"], axis=1)
-        cost = np.mean(np.abs(T), 1) / MT.TENSION_MAX
+        cost = np.mean(np.abs(T) / self.t_max, 1)
         gait = self.trot_match(o) if self.gait_w else 0.0
         slip, clear = self.feet_terms(o)
         self.last_feet = (slip, clear)          # computed once a step; read, do not recompute
-        copper = np.mean((T / MT.TENSION_MAX) ** 2, 1)
+        copper = np.mean((T / self.t_max) ** 2, 1)
         return (2.0 * track + 0.5 * upright + 0.5 * tall + self.gait_w * gait
                 - self.slip_w * slip + self.clear_w * clear
                 - 0.05 * np.minimum(spin, 20.0) - 0.2 * cost - self.cu_w * copper)

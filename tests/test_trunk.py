@@ -155,8 +155,11 @@ def test_the_structure_mass_is_inside_the_budget_the_model_implies():
                                           "cad", "skin_mass.json"), encoding="utf-8"))
     # M130 (ADR-0124): nor is the cat's skin on the trunk's bodies.
     skin = 1e3 * sum(_skin[b]["mass"] for b in ("front", "rear", "seg0", "seg1", "seg2"))
-    budget = T.SP.trunk_mass * T.MM - 18 * 131.7 - 240.0 - g3 - skin
-    assert budget == pytest.approx(1024.4, abs=0.5)
+    # M161 (ADR-0153): nor are the ankle gear stages; the 6.4 g the shell grew
+    # with them IS structure, so the budget rises by it.
+    stages = 4 * T.TP.STAGE_G
+    budget = T.SP.trunk_mass * T.MM - 18 * 131.7 - 240.0 - g3 - skin - stages
+    assert budget == pytest.approx(1030.8, abs=0.5)
     assert struct < budget, "structure %.0f g over the %.0f g budget" % (struct, budget)
     assert struct > 300.0, (
         "structure fell to %.0f g -- a body has probably collapsed again" % struct)

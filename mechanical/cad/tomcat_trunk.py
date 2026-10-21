@@ -89,14 +89,32 @@ ROLE_SPOOL = {"hind": "hip", "fore": "hip", "spine": "spine_pitch"}
 
 
 def row_spool(role: str, name: str | None = None) -> float:
-    """The drum length that sets a row's length, mm."""
-    return TP.spool_len(ROW_SPOOL.get(name, ROLE_SPOOL.get(role, "hip")))
+    """The drum length that sets a row's length, mm.
+
+    M161: a "knee" row holds knee or ankle motors, and since ADR-0153 their
+    drums differ (9.6 / 12.1 mm), so it is as long as the wider."""
+    j = ROW_SPOOL.get(name, ROLE_SPOOL.get(role, "hip"))
+    if j == "knee":
+        return max(TP.spool_len("knee"), TP.spool_len("ankle"))
+    return TP.spool_len(j)
+
+
+#: The rows holding a geared (ankle) motor -- `tendon_exit.DRIVE` puts the ankle
+#: on motor 2, the bottom of the row behind the hind hip and of the row behind
+#: the fore hip.
+STAGED_ROWS = ("hind_r", "fore_r")
 
 
 def row_len(role: str, name: str | None = None) -> float:
-    """A row's length along x: motor, G3 and its widest spool, mm. Without a
-    row `name`, the longest row a `role` has."""
-    return TP.MOTOR_L + row_spool(role, name) + G3_STACK.get(role, 0.0)
+    """A row's length along x: motor, G3, the gear stage and its widest
+    spool, mm. Without a row `name`, the longest row a `role` has.
+
+    ✅ M161 (ADR-0153): the rows that hold the ANKLE motors (`STAGED_ROWS`)
+    carry their gear stage, `TP.STAGE_L`. The hind one is behind its hip, away
+    from the spine, so the hind hip stays; the fore one is between its hip and
+    spine joint 2, so the fore hip moves forward by it."""
+    stage = TP.STAGE_L if name in STAGED_ROWS or (name is None and role in ("hind", "fore")) else 0.0
+    return TP.MOTOR_L + row_spool(role, name) + G3_STACK.get(role, 0.0) + stage
 Z0 = SP.girdle_offset_z * MM
 
 #: Solved symmetric layouts: (centres, outer half-width) for a row of N.

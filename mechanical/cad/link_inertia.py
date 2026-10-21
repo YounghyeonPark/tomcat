@@ -61,7 +61,8 @@ FIXED = {"cable": "meta", "pad": "paw", "ferrule": "femur"}   # M122: conduit fe
 #: ⚠️ Girdle motors are **not in the leg** (P1 centralisation) -- charging them
 #: to the femur is exactly the mistake the tendon drive exists to avoid.
 EXCLUDE = ("motor", "spool", "conduit", "trunk_ferrule",   # trunk-side or harness (M122)
-           "stub")                                             # the trunk's hip stub (M123)
+           "stub",                                             # the trunk's hip stub (M123)
+           "stage")                                            # the knee/ankle gear stage (M161)
 
 #: Solids that lie ALONG a bone. Proximity to a bone *segment* is well-posed for
 #: these -- unlike joint hardware, they are not shared between two links.

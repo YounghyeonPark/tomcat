@@ -51,7 +51,9 @@ def test_each_world_draws_its_OWN_plant_and_it_BITES():
 
 
 def test_a_FINISHED_world_restarts_and_the_others_carry_on():
-    W = WarpStand(4, residual_n=30.0)
+    # M161 (ADR-0153): 30 N no longer throws it -- the body moved (the fore
+    # hip 6 mm forward, +49 g) and it leans 9 deg and holds. 45 N does.
+    W = WarpStand(4, residual_n=45.0)
     # throw world 2 over with its residual pinned; the others hold still
     a = np.zeros((4, 18))
     a[2] = 1.0

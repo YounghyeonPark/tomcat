@@ -11271,7 +11271,8 @@ The MuJoCo harness moved four numbers, and three of them moved the good way.
 ---
 
 ## ADR-0151: a slimmer knee and ankle, priced (trade study, no change)
-- **Status:** Proposed (M159). Prices an option; nothing in the design moves.
+- **Status:** Superseded in part by ADR-0153 (M161): only the ankle is geared,
+  and on its existing cable. Prices an option; nothing in the design moves.
   ADR-0152 prices g = 2 through the budgets: it holds NFR6 only with a stage
   of about 20 g or less.
 - **Question:** The tendon drive keeps the legs light (216 g, motors in the
@@ -11336,8 +11337,8 @@ The MuJoCo harness moved four numbers, and three of them moved the good way.
 ---
 
 ## ADR-0152: the slim knee and ankle (g = 2), priced: a 20 g stage or less
-- **Status:** Accepted as a pricing (M160). Narrows ADR-0151 to one condition;
-  the design does not move until a stage or a motor is found.
+- **Status:** Accepted as a pricing (M160). Its g = 2 knee and ankle were built in
+  M161 and did not fit the hollow hip; ADR-0153 gears the ankle alone.
 - **Method:** `tools/slim_drive.py` re-runs the budgets that sized the robot on
   patched parameters, in a fresh process each time:
   - Both legs are rebuilt in CAD with the knee and ankle sheaves at
@@ -11383,6 +11384,71 @@ The MuJoCo harness moved four numbers, and three of them moved the good way.
     2.2 mm) and the conduits (3.0 -> 3.8 mm OD, bend floor 15 -> 19 mm),
     re-routing the hollow hip's passage and the knee crossing, and re-running
     the plant's tests.
+
+---
+
+## ADR-0153: the ankle geared at its motor, the thigh unchanged
+- **Status:** Accepted (M161). Narrows ADR-0151/0152 to the ankle. Worsens
+  OPEN_RISKS R6.
+- **Question:** ADR-0151/0152 priced slimmer knees and ankles by moving their
+  reduction to a gear stage at the motor (g = 2, thicker cable). Built, that
+  design failed: the knee and ankle conduits, 3.8 mm over the thicker cable,
+  could not turn into the hollow hip. They needed r >= 18.9 mm and the
+  gentlest path in the girdle reached 13.8-16.3. A cat is thick at the thigh
+  and thin below the knee, so what has to be slim is the ankle.
+- **Decision:**
+  - Only the ANKLE is geared: a coaxial star stage (ring 42 / sun 22, 1.909:1,
+    efficiency 0.95 `[assumed]`, 15 g and 6 mm long `[assumed]`), so g = 1.81.
+  - **Same cable, spool and conduit.** ADR-0151 assumed the cable sized to its
+    tension. But the ankle's cable carried 355 / 407 N on the land transient
+    against 3000 N, SF 8.4 / 7.4, so it takes the stage's g in tension. The
+    ankle sheave shrinks by g (22 -> 12.13 mm), not g^(2/3), and needs no new
+    conduit.
+  - The model carries it as a per-joint EFFECTIVE spool
+    (`TendonParams.motor_spool_radius`, `spool_eff()`, `spool_kinematic()`;
+    `mjcf_tendon.spool_r`, `tension_max`). The motor-to-joint torque ratio is
+    M111's exactly, so the motor's torque and angle per joint angle and G3's
+    rate at the joint are unchanged. G3 sits before the stage and keeps its
+    part. A policy's action is now a motor torque's worth on every pair
+    (`TomcatEnv.res_scale`). M158's policy walks the new plant untrained
+    (0 of 6 falls).
+- **What moved, and why:**
+  - **The trunk.** The two ankle rows carry the stages: the trunk is 396 mm
+    (+12) and the hips 282 mm apart (+6; the fore hip moves, the hind hip's
+    ankle row is behind it).
+  - **Mass.** 4.825 -> **4.874 kg**: stages +60 g, legs -2.7 g each, the
+    metatarsus Ø12 -> Ø14 (+3 g each; at Ø12 it was SF 2.46 under the
+    harder-pulled cable), shell +6 g.
+  - **The knee crossing.** The "against" cable's tibia ferrule moved 15 -> 10
+    mm out and its conduit 107 -> 103 mm. Out 15 mm, beyond the 12 mm sheave,
+    the cable turned into the fold; now it turns against it again, worst
+    184 deg, r >= 15.8 mm.
+  - **Re-tuned:** the walk's sway 8.1 -> 7.8 deg (the ZMP optimum moved, as it
+    has with every body since M93); the MuJoCo harness's foothold 10 -> 8 mm,
+    re-swept as in M131. With it the survival holes and the gap ADR-0125 closed
+    stay closed.
+
+  | | M160 | **M161** |
+  |---|---|---|
+  | ankle sheave across | 44 mm | **24 mm** (in the suit 63 -> 42 mm) |
+  | hind leg, hardware | 216 g | 212 g |
+  | body | 4.825 kg | 4.874 kg |
+  | motor peak / continuous | 1.825 / 0.644 N.m | 1.843 / 0.646 N.m |
+  | trot runtime, surveyed / vendor Kt | 19.68 / 14.43 min | 19.54 / **14.35** min |
+  | ankle land tension, hind / fore | 355 / 407 N | 647 / 742 N |
+  | ankle cable SF, fore | 7.4 | **4.04** (target 4) |
+  | ankle bearing C0 needed (2T) | 814 N | **1484 N** (of 1500) |
+
+- **Consequences:**
+  - **R6 is worse.** Read as motor torque, the 0.05 m held drop now saturates
+    the ankle's motor with G3 or without. It reached 93 % on M158's drive.
+  - **The ankle's margins are at their floors.** The cable is at SF 4.04 and
+    the bearing at 99 % of its static rating; a heavier robot crosses both.
+    The ankle cable is now the worst in the leg (642 N against the hip's 558).
+  - **The stage is a part to find.** B1's motor should be bought with a
+    higher-ratio variant in mind; a 15 g, 6 mm star stage is assumed.
+  - The suit follows the sheaves (`cat_suit.SLEEVE` now reads them; it had
+    36/34/22 typed in): 240.2 g, and its checks pass.
 
 ---
 

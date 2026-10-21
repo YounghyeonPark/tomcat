@@ -200,7 +200,8 @@ def test_the_two_diagonals_topple_along_different_axes():
     # come back together -- 57.1 -> 50.5 deg. Same geometry, other direction.
     # M123 (ADR-0114): 225 -> 270 mm apart, 50.5 -> 42.9 deg.
     # M130 (ADR-0123): 270 -> 276 mm apart, 42.9 -> 42.0 deg.
-    assert angle == pytest.approx(42.0, abs=0.5)
+    # M161 (ADR-0153): 276 -> 282 mm apart, 42.0 -> 41.2 deg.
+    assert angle == pytest.approx(41.2, abs=0.5)
 
 
 def test_lateral_spine_sway_matches_the_analytical_model(rig):

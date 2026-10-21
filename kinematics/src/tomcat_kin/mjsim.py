@@ -78,7 +78,18 @@ COP_GAIN = 1.0
 #: The two optima differ by 5.7 mm. The analytic model has no contact
 #: dynamics, and that gap is a sim-to-real fact worth randomising over, not a
 #: defect in either.
-HARNESS_FOOT_X = 0.010
+#:
+#: M161 (ADR-0153): re-swept on the geared-ankle body (fore hip 6 mm forward,
+#: +49 g); the cliff moved DOWN, below ~5 mm:
+#:
+#:     x mm     mean   worst
+#:      4.0     30.4    66.0   <- the cliff
+#:      6.0      4.8    19.3   quietest on average, 1-2 mm from it
+#:      8.0      6.0    14.1   <- this: the least worst, 3-4 mm clear
+#:     10.0      7.2    14.9   the M131 pick
+#:     16.0      7.4    18.5
+#:     20.0     25.5    73.6
+HARNESS_FOOT_X = 0.008
 
 
 def harness_controller(**overrides):

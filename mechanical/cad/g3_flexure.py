@@ -112,7 +112,8 @@ def design(k=None):
     """Width from the stop stress, thickness from the rate, and what follows."""
     k, name = _variant(k)
     n, turns = VARIANTS[name]
-    R = float(DEFAULT_TENDON.motor_spool_radius) * 1e3                # mm
+    # M161: G3 sits before any gear stage, so it is specified on the hip's spool
+    R = float(DEFAULT_TENDON.spool_eff(0)) * 1e3                      # mm
     k_rad = k * 1e-3 * R * R                                          # N.mm/rad
     # the stop sits STOP_MARGIN past the working load: its angle is that torque
     # over the rate. (Read off `size_torsion_spring` until M126, which returns

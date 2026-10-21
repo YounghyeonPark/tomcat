@@ -63,7 +63,21 @@ SHEAVE_HALF_W = 0.004
 
 #: Via-pulley radius (m) — the cable's own minimum bend, 10 x Ø1.75 (ADR-0042).
 #: Spool radius (m) -- `params`' own, so the wound length is `r * theta`.
-SPOOL_R = float(DEFAULT_TENDON.motor_spool_radius)
+#: ⚠️ M161 (ADR-0153): this is the HIP's and the spine's. The knee and ankle
+#: have a gear stage and a smaller EFFECTIVE spool (`LEG_SPOOL_R`, `spool_r`).
+SPOOL_R = float(DEFAULT_TENDON.spool_eff(0))
+#: The leg's effective spool radius per joint (hip, knee, ankle), m.
+LEG_SPOOL_R = DEFAULT_TENDON.spool_eff()
+_JOINT_INDEX = {"hip": 0, "knee": 1, "ankle": 2}
+
+
+def spool_r(tendon: str) -> float:
+    """The effective spool radius (m) behind cable or pair `tendon` -- a leg
+    joint's by name (`LF_knee`, `knee_f`, ...), the spine's otherwise."""
+    for part in tendon.split("_"):
+        if part in _JOINT_INDEX:
+            return float(LEG_SPOOL_R[_JOINT_INDEX[part]])
+    return SPOOL_R
 
 #: Rotor inertia at the motor shaft (kg.m^2). `[assumed]`: the vendor does not
 #: publish it and M39's spec review did not need it. It only has to be large enough
@@ -158,7 +172,15 @@ MOTOR_PEAK_NM = 1.95            # GIM3505-9 peak, `[sourced: motor-downselect]`
 #: and the walk spinning rotors to ~800 rpm.
 MOTOR_NOLOAD_RAD_S = 665.0 * 2.0 * 3.141592653589793 / 60.0
 MOTOR_RATED_NM = 0.71           # its CONTINUOUS rating
-TENSION_MAX = MOTOR_PEAK_NM / float(DEFAULT_TENDON.motor_spool_radius)
+#: The motor's peak as cable tension on the HIP and spine spool (scalar, as it
+#: always was). ⚠️ M161: the knee and ankle cables carry more for the same
+#: motor torque -- `tension_max(name)`.
+TENSION_MAX = MOTOR_PEAK_NM / SPOOL_R
+
+
+def tension_max(tendon: str) -> float:
+    """The motor's peak as tension on `tendon`'s cable (N)."""
+    return MOTOR_PEAK_NM / spool_r(tendon)
 
 #: ✅ M158 (ADR-0150): **the paws crept.** With MuJoCo's defaults (pyramidal
 #: friction cone, `impratio` 1, `solref` 0.02 s) a loaded pad slid at a median
@@ -171,7 +193,7 @@ TENSION_MAX = MOTOR_PEAK_NM / float(DEFAULT_TENDON.motor_spool_radius)
 #: physics steps at the 1e-4 timestep.
 CONTACT_OPTION = 'cone="elliptic" impratio="10"'
 PAD_SOLREF = "0.005 1"
-TENSION_CONTINUOUS = MOTOR_RATED_NM / float(DEFAULT_TENDON.motor_spool_radius)
+TENSION_CONTINUOUS = MOTOR_RATED_NM / SPOOL_R
 
 #: Ankle return spring (ADR-0002 Option B): the ankle has ONE tendon, so the joint
 #: itself carries the return. N.m/rad, from `TendonParams.spring_stiffness[2]`.
@@ -269,7 +291,10 @@ def spool_xml(tendon: str, site: str, pos, k_series: float, indent: int = 6,
     pass.
     """
     pad = " " * indent
+    # ⚠️ M161: G3 is one part on every leg motor, before any gear stage, so its
+    # torsional rate is referred to the hip's spool whatever this cable's is.
     k_tors = float(k_series) * SPOOL_R * SPOOL_R
+    r = spool_r(tendon)
     body = "\n".join([
         f'{pad}<body name="rotor_{tendon}" pos="{pos[0]:.5f} {pos[1]:.5f} '
         f'{pos[2]:.5f}">',
@@ -282,14 +307,14 @@ def spool_xml(tendon: str, site: str, pos, k_series: float, indent: int = 6,
         f'damping="0.0005" armature="1e-6" stiffness="{k_tors:.6f}" '
         f'springref="0"/>',
         f'{pad}    <geom name="gs_{tendon}" type="cylinder" '
-        f'size="{SPOOL_R:.5f} 0.004" quat="0.70711 0.70711 0 0" mass="1e-9" '
+        f'size="{r:.5f} 0.004" quat="0.70711 0.70711 0 0" mass="1e-9" '
         f'contype="0" conaffinity="0"/>',
         f'{pad}  </body>',
         f'{pad}</body>',
     ])
     wind = (f'    <fixed name="w_{tendon}">\n'
-            f'      <joint joint="jr_{tendon}" coef="{SPOOL_R:.6f}"/>\n'
-            f'      <joint joint="js_{tendon}" coef="{SPOOL_R:.6f}"/>\n'
+            f'      <joint joint="jr_{tendon}" coef="{r:.6f}"/>\n'
+            f'      <joint joint="js_{tendon}" coef="{r:.6f}"/>\n'
             f'    </fixed>')
     eq = (f'    <tendon tendon1="{tendon}" tendon2="w_{tendon}" '
           f'polycoef="{a0:.9f} -1 0 0 0" solref="{EQ_SOLREF}" '
@@ -484,8 +509,8 @@ def pulley_actuators(name: str, ankle_pair: bool = True) -> str:
     pairs = ["hip", "knee"] + (["ankle"] if ankle_pair else [])
     return "\n".join(
         f'    <motor name="m_{name}_{p}" tendon="{name}_{p}" gear="-1" '
-        f'ctrlrange="-{TENSION_MAX:.0f} {TENSION_MAX:.0f}" ctrllimited="true" '
-        f'forcerange="-{TENSION_MAX:.0f} {TENSION_MAX:.0f}" forcelimited="true"/>'
+        f'ctrlrange="-{tension_max(p):.0f} {tension_max(p):.0f}" ctrllimited="true" '
+        f'forcerange="-{tension_max(p):.0f} {tension_max(p):.0f}" forcelimited="true"/>'
         for p in pairs)
 
 
@@ -547,8 +572,8 @@ def clamped_actuators(name: str, ankle_pair: bool = True) -> str:
     """
     return "\n".join(
         f'    <motor name="m_{t}" tendon="{t}" gear="-1" '
-        f'ctrlrange="0 {TENSION_MAX:.0f}" ctrllimited="true" '
-        f'forcerange="0 {TENSION_MAX:.0f}" forcelimited="true"/>'
+        f'ctrlrange="0 {tension_max(t):.0f}" ctrllimited="true" '
+        f'forcerange="0 {tension_max(t):.0f}" forcelimited="true"/>'
         for t in tendon_names(name, ankle_pair))
 
 
@@ -654,10 +679,12 @@ def leg_tendon_xml(name: str, leg_p, arms, indent: int = 4,
     # moves the comparison, not just a number. Turning it on is a milestone of
     # its own, with its own re-baseline; this one has a single cause.
     # Meaningless when `spools` builds real rotor bodies -- they carry it there.
-    def _arm_i(r):
-        return ROTOR_ARMATURE * (float(r) / SPOOL_R) ** 2 if rotor_armature else 0.0
+    def _arm_i(r, rs):
+        return ROTOR_ARMATURE * (float(r) / rs) ** 2 if rotor_armature else 0.0
 
-    a_hip, a_knee, a_ankle = (_arm_i(r_hip), _arm_i(r_knee), _arm_i(r_ankle))
+    # M161: each joint reflects the rotor through its OWN spool
+    a_hip, a_knee, a_ankle = (_arm_i(r_hip, LEG_SPOOL_R[0]), _arm_i(r_knee, LEG_SPOOL_R[1]),
+                              _arm_i(r_ankle, LEG_SPOOL_R[2]))
 
     # ⚠️ **Bones do not collide; the PAD is the foot.** Every controller here,
     # and ADR-0009's support-polygon argument, treats a foot as a point at the

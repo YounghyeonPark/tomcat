@@ -220,8 +220,7 @@ class LegParams:
     # knee via on the flexor's other side, and the ankle ferrule stagger is gone.
     # M130 (ADR-0124): + the cat's skin on each link (`skin_mass`), and the
     # femur tube Ø14 -> Ø16 (SF 2.40 under the skin's landing load).
-    link_mass: tuple[float, float, float, float] = (0.11552, 0.07651, 0.03952,
-                                                    0.00852)
+    link_mass: tuple[float, float, float, float] = (0.11633, 0.07573, 0.03674, 0.00853)
 
     # Fraction of each link's LENGTH, measured from that link's PROXIMAL joint,
     # at which its centre of mass sits (dimensionless, 0 = proximal joint,
@@ -232,16 +231,16 @@ class LegParams:
     # at 6-8 %**: the mass is joint hardware sitting ON the proximal joint, not
     # a belly part-way down a bone. The paw is the opposite (87 %) because the
     # pad is at its tip.  `[derived: cad/link_inertia.py]`
-    link_com_frac: tuple[float, float, float, float] = (0.1366, 0.1204, 0.1963, 0.8997)
+    link_com_frac: tuple[float, float, float, float] = (0.1400, 0.1183, 0.2649, 0.8965)
 
     #: Centre of mass in the link's OWN body frame (m), +x along the link from
     #: its proximal joint. The full vector `link_com_frac` cannot carry: the
     #: sheaves stand ~4 mm off the limb plane in +y.  `[derived: cad/link_inertia.py]`
     link_com: tuple[tuple[float, float, float], ...] = (
-        (0.012293, 0.005834, -0.000262),       # femur
-        (0.011443, 0.006758, 0.000958),       # tibia
-        (0.013739, 0.005801, -0.000551),      # meta
-        (0.022492, -0.000012, -0.001033),      # paw
+        (0.012604, 0.005843, -0.000498),      # femur
+        (0.011242, 0.006693, 0.000761),      # tibia
+        (0.018541, 0.002918, -0.000634),      # meta
+        (0.022413, -0.000009, -0.001006),      # paw
     )
 
     #: MJCF `fullinertia` about each link's CoM, in its body frame
@@ -253,10 +252,10 @@ class LegParams:
     #: joint hardware sitting at its joints; a capsule spreads it down the bone.
     #: `[derived: cad/link_inertia.py]`
     link_inertia: tuple[tuple[float, ...], ...] = (
-        (5.9362e-05, 1.6766e-04, 1.3169e-04, 3.3184e-06, 5.9801e-06, -5.2329e-07),
-        (2.3229e-05, 7.7598e-05, 7.3259e-05, -7.9037e-07, 1.3889e-06, -5.6480e-07),
-        (7.8963e-06, 2.5108e-05, 2.7394e-05, 2.9752e-06, -4.7436e-08, -1.2021e-07),
-        (6.1006e-07, 1.0067e-06, 1.2186e-06, 0.0000e+00, 1.2709e-08, 0.0000e+00),
+        (6.0320e-05, 1.7368e-04, 1.3771e-04, 3.4082e-06, 6.2352e-06, -4.5147e-07),
+        (2.1348e-05, 7.5835e-05, 7.2438e-05, -9.4208e-08, 1.8858e-06, -5.2404e-07),
+        (4.7688e-06, 2.4620e-05, 2.6502e-05, 1.8595e-06, -3.3280e-07, -5.9110e-08),
+        (6.1724e-07, 1.0067e-06, 1.2187e-06, 8.6296e-10, 2.0236e-08, 6.7878e-10),
     )
 
     def __post_init__(self) -> None:
@@ -286,6 +285,32 @@ class LegParams:
         return float(sum(self.link_mass))
 
 
+#: ✅ M161 (ADR-0153): **the ankle's reduction moved to a gear stage at its
+#: motor; the thigh keeps its sheaves.** A cat is thick at the thigh and thin
+#: below the knee, so the slim joint is the ANKLE (ADR-0151 priced the knee as
+#: well, and its thicker conduit would not turn into the hollow hip).
+#: ⚠️ And no thicker cable: ADR-0151 assumed the cable sized to its tension,
+#: but the ankle's carries 355-407 N on the land transient against a 3000 N
+#: break -- SF 7.4 on the fore leg -- so it takes the stage's g in tension and
+#: keeps SF >= 4 to g = 1.85. Same cable, spool and conduit; the ankle sheave
+#: shrinks by g, not g^(2/3).
+#: M111's arms and spool, the torque ratio every joint keeps.
+_ARMS_M111 = (0.036, 0.034, 0.022)
+_SPOOL_M111 = 0.00875
+#: The stage, per joint (hip, knee, ankle): a star stage, ring 42 / sun 22, and
+#: its efficiency `[assumed]` -- g = 1.909 x 0.95 = 1.81 on the ankle.
+_LEG_STAGE = (1.0, 1.0, 42.0 / 22.0)
+STAGE_EFFICIENCY = 0.95
+#: Physical spool and cable: unchanged (M41's Ø1.75 on its 8.75 mm drum).
+_LEG_SPOOL = (0.00875, 0.00875, 0.00875)
+_LEG_CABLE_D = (0.00175, 0.00175, 0.00175)
+_LEG_SPOOL_EFF = tuple(
+    s / (g * (STAGE_EFFICIENCY if g != 1.0 else 1.0)) for s, g in zip(_LEG_SPOOL, _LEG_STAGE))
+#: Rounded to 0.01 mm: a turned part, and MJCF writes 6 decimals (the ratio
+#: moves by 3e-5).
+_LEG_ARMS = tuple(round(a / _SPOOL_M111 * r, 5) for a, r in zip(_ARMS_M111, _LEG_SPOOL_EFF))
+
+
 @dataclass(frozen=True)
 class TendonParams:
     """Tendon routing and actuator parameters, per joint.
@@ -311,9 +336,21 @@ class TendonParams:
     # 6.3 % and 9.0 % margin -- for 23.7 g of sheave per leg.
     # ⚠️ The cost is distal mass: +9.2 g per knee, +5.8 g per ankle on moving
     # links, and the swing-inertia price is `[owed]`.
-    joint_moment_arm: tuple[float, ...] = (0.036, 0.034, 0.022)
+    #
+    # ✅ **M161 (ADR-0153): the knee and ankle are 21.4 / 13.9 mm, the reduction
+    # moved to a gear stage at the motor.** ADR-0151/0152 priced it: the sheave
+    # is the drive's last reduction, so a slimmer joint needs the reduction
+    # elsewhere. The arms are set so the motor-to-joint torque ratio is EXACTLY
+    # M111's (`_ARMS_M111[i] / 8.75 mm` against `arm / motor_spool_radius`), so
+    # the motor's torque, its angle per joint angle and G3's rate at the joint
+    # are all unchanged. The hip stays: its sheave is the hollow hip's hub.
+    joint_moment_arm: tuple[float, ...] = _LEG_ARMS
 
-    # Motor spool radius (m) — converts motor torque to cable tension.
+    # Motor spool radius (m) -- the EFFECTIVE one, per joint: what turns motor
+    # torque into cable tension, `tau_motor = T * r` (and so what every torque
+    # and tension conversion in the model uses). For a joint with a gear stage
+    # it is the physical spool over the stage's TORQUE ratio, `spool_radius /
+    # (stage_ratio * stage_efficiency)`; the hip has none.
     #
     # ⚠️ M41: 0.008 -> 0.00875.  LEG_TENDON_SPEC §2 raised it when ADR-0010's mass
     # increase forced the cable from Ø1.5 to Ø1.75 mm, whose minimum bend DIAMETER
@@ -323,7 +360,20 @@ class TendonParams:
     #
     # It is a trade, not a loss: `tau_motor = T * r_spool` costs 9.4 % of peak
     # margin, `v_cable = omega * r_spool` buys the same 9.4 % of foot speed.
-    motor_spool_radius: float = 0.00875
+    #
+    # A scalar is still accepted (the spine's map passes one).
+    motor_spool_radius: float | tuple[float, ...] = _LEG_SPOOL_EFF
+
+    #: ✅ M161: the PHYSICAL spool radius per joint (m), what the CAD draws. A
+    #: thicker cable needs a bigger spool: 10 d across (M41's rule).
+    spool_radius: tuple[float, ...] = _LEG_SPOOL
+    #: The cable per joint (m): the knee and ankle carry 1.59x the tension, so
+    #: 1.26x the diameter (strength goes as area).
+    cable_diameter: tuple[float, ...] = _LEG_CABLE_D
+    #: The gear stage between motor and spool, per joint (1 = none), and its
+    #: efficiency. `[assumed]`: no part is chosen (ADR-0152 wants <= ~20 g).
+    stage_ratio: tuple[float, ...] = _LEG_STAGE
+    stage_efficiency: float = STAGE_EFFICIENCY
 
     #: **G3 -- the series-elastic element on every LEG cable** (N/m), physically a
     #: torsional spring between the motor rotor and the spool:
@@ -455,13 +505,14 @@ class TendonParams:
     #: ✅ M134 (ADR-0128): the crossing is one conduit LENGTH, rounding the
     #: outside of the knee with its ferrule aimed along its cable; the flexor
     #: turns with the fold (307 deg at the stop), the extensor against it.
-    conduit_bend: tuple = ((2.8669, 2.5572),  # hip   164 / 147 deg
+    conduit_bend: tuple = ((2.8670, 2.5573),  # hip   164 / 147 deg
                            (1.9656, 1.9654),  # knee  113 / 113 deg
-                           (5.4062, 4.8974))  # ankle 310 / 281 deg
+                           (5.2689, 5.1102))  # ankle 302 / 293 deg
     #: Running pulleys between spool and anchored sheave: the knee via, on the
     #: ankle pair, and nothing else (ADR-0112).
     #: M132: none -- the knee via is gone.
     pulley_count: tuple = ((0, 0), (0, 0), (0, 0))
+
     #: ✅ M133 (ADR-0127): **the knee crossing is charged at the pose.**
     #: `conduit_bend` carries it at its worst; `TendonMap.capstan_factor(q=...)`
     #: swaps that for the crossing's bend at the pose's |q_knee|, read off
@@ -474,10 +525,10 @@ class TendonParams:
     crossing_knee: tuple = (0.0, 0.2182, 0.4363, 0.6545, 0.8727, 1.0908, 1.309,
                             1.5272, 1.7453, 1.9635, 2.1817, 2.3998, 2.618)
     crossing_bend: tuple = (
-        (1.3916, 1.2320, 1.1950, 1.3020, 1.5111, 1.7293, 1.9504,      # flexor
-         2.1813, 2.4222, 2.6680, 2.9162, 3.1647, 3.4111),
-        (2.3055, 1.5683, 0.9724, 0.6847, 0.7654, 0.9581, 1.1857,      # extensor
-         1.4289, 1.6867, 1.9659, 2.2671, 2.5801, 2.9025))
+        (1.4367, 1.1286, 1.0993, 1.1880, 1.3577, 1.5680, 1.7977,      # flexor
+         2.0382, 2.2854, 2.5370, 2.7960, 3.0696, 3.3644),
+        (1.4582, 0.7262, 0.3979, 0.6069, 0.8251, 1.0442, 1.2854,      # extensor
+         1.5683, 1.8766, 2.1973, 2.5267, 2.8632, 3.2059))
 
     # Series cable compliance: model the tendon as a linear spring of stiffness
     # k_cable (N/m). Under tension T it stretches dL = T / k_cable, so the motor
@@ -490,6 +541,27 @@ class TendonParams:
     # angle (rad) per joint.  Unused in antagonistic mode.  ❓ TBD
     spring_stiffness: tuple[float, ...] = (0.5, 0.5, 0.3)
     spring_rest_angle: tuple[float, ...] = (0.0, 0.4, 0.0)
+
+    def spool_eff(self, i: int | None = None):
+        """The effective spool radius (m) of joint `i`, or all of them as a
+        tuple -- a scalar `motor_spool_radius` broadcast over the joints."""
+        r = self.motor_spool_radius
+        rr = tuple(float(r) for _ in self.joint_moment_arm) if isinstance(
+            r, (int, float)) else tuple(float(x) for x in r)
+        return rr if i is None else rr[i]
+
+    def spool_kinematic(self, i: int | None = None):
+        """Cable wound per motor radian (m) -- the effective radius WITHOUT the
+        stage's loss. The stage turns the motor `1 / efficiency` further than
+        the torque ratio says, which is where its loss goes."""
+        eta = [self.stage_efficiency if g != 1.0 else 1.0
+               for g in self._stage()]
+        rr = tuple(r * e for r, e in zip(self.spool_eff(), eta))
+        return rr if i is None else rr[i]
+
+    def _stage(self):
+        n = len(self.joint_moment_arm)
+        return tuple(self.stage_ratio) if len(self.stage_ratio) == n else (1.0,) * n
 
 
 @dataclass(frozen=True)
@@ -560,7 +632,10 @@ class SpineParams:
     #: The hips are 195 + 65 + 10 = 270 mm apart.
     #: M130 (ADR-0123): 12 mm -- that row's knee/ankle drums are 10.1 mm (were
     #: 8); the hips are 195 + 69 + 12 = **276 mm** apart.
-    front_hip_x: float = 0.012
+    #: ✅ M161 (ADR-0153): **18 mm** -- that row holds the fore ankle motors,
+    #: which gained a 6 mm gear stage; the hips are 195 + 69 + 18 = **282 mm**
+    #: apart. (The hind ankle row is behind its hip, so the hind hip stays.)
+    front_hip_x: float = 0.018
 
     # Per-segment sagittal joint-angle limits (rad), (min, max).  ❓ TBD.
     # ±25° per joint -> ~±75° whole-spine sagittal range.
@@ -668,7 +743,9 @@ class SpineParams:
     # which ADR-0107 priced and nothing carried. `[derived: cad/girdle_inertia.py]`
     # M126 (ADR-0117): 6 x 2.19 g = 13.1 g -- the stiffer spine flexure is thinner.
     # M130 (ADR-0124): each + the skin over it (12.1 / 7.3 / 4.7 g).
-    segment_mass: tuple[float, ...] = (0.14208, 1.23249, 0.13171)
+    # M161 (ADR-0153): the cat's skin re-dealt over the 12 mm longer trunk
+    # (`skin_mass.json`: seg0 -0.02 g, seg1 +0.33, seg2 +0.01).
+    segment_mass: tuple[float, ...] = (0.14206, 1.23282, 0.13172)
 
     # Fraction along each segment (from its INBOARD/rear vertebra) at which that
     # segment's mass acts. 0.5 = uniform rod.  ❓ TBD
@@ -691,8 +768,8 @@ class SpineParams:
     # the head was always inside it, just never anywhere in particular.
     #: ⚠️ **M120: each girdle carries its six leg G3 flexures**, 6 x 5.20 g,
     #: between motor and spool (ADR-0107, drawn in `g3_flexure.py`).
-    front_girdle_mass: float = 1.24170   # M130: + the skin's 88.5 g (ADR-0124)
-    rear_girdle_mass: float = 1.10604     # M123: the tail shrank with the rear body; M130: +0.2 g, the trunk 6 mm longer and the tail with it
+    front_girdle_mass: float = 1.27249   # M130: + the skin's 88.5 g (ADR-0124)
+    rear_girdle_mass: float = 1.13837     # M123: the tail shrank with the rear body; M130: +0.2 g, the trunk 6 mm longer and the tail with it
 
     #: Girdle housing, full extents (m), and the height of its centre above the
     #: girdle mount vertebra.
@@ -787,8 +864,8 @@ class SpineParams:
     # M130 (ADR-0123): the hips 4 mm back (rear) and 2 mm forward (fore), the
     # wider drums -- each girdle's CoM rides its hip.
     # M130 (ADR-0124): and the skin -- the head's foam forward and up.
-    front_girdle_com: tuple[float, float] = (0.04069, 0.03858)
-    rear_girdle_com: tuple[float, float] = (-0.07990, 0.01914)
+    front_girdle_com: tuple[float, float] = (0.04555, 0.03764)
+    rear_girdle_com: tuple[float, float] = (-0.08065, 0.01879)
 
     #: MJCF `fullinertia` about each girdle's CoM, in its own frame
     #: (ixx iyy izz ixy ixz iyz, kg m²).
@@ -820,8 +897,8 @@ class SpineParams:
     #: ✅ M129 (ADR-0121): the head closer in, **Iyy 7.9601e-03 -> 5.6392e-03
     #: (-29 %)**.
     #: M130 (ADR-0124): with the skin on each.
-    front_girdle_inertia: tuple[float, ...] = (3.3686e-03, 7.6694e-03, 5.4411e-03, 1.4218e-08, -2.8668e-03, -1.7393e-05)
-    rear_girdle_inertia: tuple[float, ...] = (1.1464e-03, 1.5937e-03, 1.4015e-03, -4.9334e-08, 2.2792e-04, -1.7556e-05)
+    front_girdle_inertia: tuple[float, ...] = (3.4302e-03, 7.7590e-03, 5.4957e-03, -5.6729e-08, -2.9143e-03, -1.7435e-05)
+    rear_girdle_inertia: tuple[float, ...] = (1.1350e-03, 1.6689e-03, 1.4985e-03, 5.7416e-09, 2.4419e-04, -1.7446e-05)
 
     #: Per-segment `fullinertia`, or `None` to derive it from the segment box.
     #:
@@ -907,7 +984,10 @@ class LoadCase:
     # -> **4.82454** (M134, ADR-0128: the knee crossing's conduits clamped
     # outside the fold -- a femur clamp, its standoff, a longer tibia
     # standoff, two conduits' worth: +2.7 g a leg).
-    body_mass_kg: float = 4.82454
+    # -> **4.87448** (M161, ADR-0153: the ankle geared at its motor -- four
+    # 15 g stages on the girdles, the ankle sheave 22 -> 12.1 mm, the
+    # metatarsus Ø14 for the harder cable, the trunk 12 mm longer).
+    body_mass_kg: float = 4.87448
     n_stance_legs: int = 2             # legs sharing the load (e.g. trot => 2).
     dynamic_factor: float = 1.5        # peak/static impact multiplier.  ❓ TBD
 
@@ -980,14 +1060,14 @@ DEFAULT_TENDON = TendonParams()
 #: trot loads every ankle's flexor -- so the hind table overcharged both fore
 #: ankles by ~50 deg. `[derived: mechanical/cad/tendon_exit.py, role "fore"]`
 DEFAULT_TENDON_FORE = TendonParams(
-    conduit_bend=((2.8669, 2.5572),        # hip   164 / 147 deg
-                  (1.9664, 1.9673),        # knee  113 / 113 deg
-                  (4.9153, 5.3993)),       # ankle 282 / 309 deg
+    conduit_bend=((2.8669, 2.5572),  # hip   164 / 147 deg
+                  (1.9664, 1.9673),  # knee  113 / 113 deg
+                  (5.1162, 5.2092)),  # ankle 293 / 298 deg
     crossing_bend=(
-        (2.3314, 1.5965, 1.0028, 0.7095, 0.7772, 0.9628, 1.1898,      # flexor
-         1.4343, 1.6953, 1.9785, 2.2818, 2.5962, 2.9194),
-        (1.4313, 1.2665, 1.2285, 1.3785, 1.5966, 1.8148, 2.0330,      # extensor
-         2.2521, 2.4807, 2.7214, 2.9662, 3.2116, 3.4550)),
+        (1.4659, 0.7346, 0.3984, 0.6008, 0.8190, 1.0393, 1.2853,      # flexor
+         1.5706, 1.8800, 2.2013, 2.5312, 2.8680, 3.2109),
+        (1.3915, 1.1513, 1.1211, 1.2109, 1.3839, 1.5963, 1.8264,      # extensor
+         2.0666, 2.3132, 2.5639, 2.8171, 3.0783, 3.3554)),
 )
 
 
@@ -1033,21 +1113,21 @@ DEFAULT_FORELEG = LegParams(
     # every SF had been computed on the hind leg's loads).
     # ⚠️ M127: re-measured, as the hind leg.
     # ⚠️ M130: + the skin, as the hind leg; the humerus and the radius Ø16.
-    link_mass=(0.11731, 0.08024, 0.03921, 0.00843),
+    link_mass=(0.11776, 0.07879, 0.03618, 0.00845),
     # ⚠️ Re-derived at the FORE link lengths, not copied from the hind leg:
     # the same hardware on shorter links moves the fractions.
-    link_com_frac=(0.1467, 0.1439, 0.1959, 0.8799),
+    link_com_frac=(0.1509, 0.1339, 0.2664, 0.8784),
     link_com=(
-        (0.014670, 0.005705, 0.000345),      # humerus
-        (0.012954, 0.006424, -0.001067),      # radius
-        (0.012730, 0.005936, -0.000133),      # metacarpus
-        (0.021998, -0.000008, -0.001044),      # paw
+        (0.015092, 0.005743, 0.000490),      # femur
+        (0.012051, 0.006277, -0.000917),      # tibia
+        (0.017315, 0.003106, -0.000128),      # meta
+        (0.021959, -0.000008, -0.001016),      # paw
     ),
     link_inertia=(
-        (6.3868e-05, 1.9794e-04, 1.6004e-04, 4.3532e-06, -7.5832e-06, 9.8712e-07),
-        (2.4241e-05, 8.0461e-05, 7.5692e-05, 9.9362e-09, 3.5128e-08, 7.0886e-07),
-        (8.3005e-06, 2.1445e-05, 2.3267e-05, 2.8170e-06, -3.2402e-07, -4.9543e-08),
-        (6.1316e-07, 9.5458e-07, 1.1547e-06, 0.0000e+00, 4.8073e-08, 0.0000e+00),
+        (6.4179e-05, 2.0356e-04, 1.6616e-04, 4.0885e-06, -8.4030e-06, 1.0330e-06),
+        (2.1744e-05, 7.2611e-05, 6.9188e-05, 1.1828e-06, -2.1590e-08, 6.8567e-07),
+        (4.9512e-06, 2.0228e-05, 2.1890e-05, 1.8206e-06, -2.4054e-07, -1.8697e-08),
+        (6.2029e-07, 9.6109e-07, 1.1617e-06, 3.4993e-10, 5.2819e-08, 6.1534e-10),
     ),
 )
 

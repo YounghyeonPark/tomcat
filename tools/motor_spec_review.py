@@ -73,7 +73,7 @@ BODY_PRE_M41 = 4.045
 #: Spool radius. ⚠️ M41 folded §2's 8.75 mm into `params.py` too, so `SPOOL_SPEC`
 #: and `SPOOL_PARAMS` are now the same number. `SPOOL_PRE_M41` keeps the old one.
 SPOOL_SPEC = 0.00875
-SPOOL_PARAMS = float(DEFAULT_TENDON.motor_spool_radius)
+SPOOL_PARAMS = float(DEFAULT_TENDON.spool_eff(0))      # M161: the hip's
 SPOOL_PRE_M41 = 0.008
 
 N_MOTORS = 19
@@ -91,8 +91,11 @@ def kt_candidates():
 
 def torques_at(body_kg: float, spool_r: float, grid: int = 21):
     """Joint / motor torque per load case, at a body mass and spool radius."""
+    # M161: every joint's effective spool scaled as the hip's is, so the
+    # comparison between spool radii keeps each joint's own ratio
     tp = type(DEFAULT_TENDON)(
-        **{**DEFAULT_TENDON.__dict__, "motor_spool_radius": spool_r})
+        **{**DEFAULT_TENDON.__dict__, "motor_spool_radius": tuple(
+            r * spool_r / SPOOL_SPEC for r in DEFAULT_TENDON.spool_eff())})
     leg, tm = LegModel(DEFAULT_HINDLEG), TendonMap(tp)
     out = {}
     for name, legs, dyn in (("stand", 4, 1.0), ("trot", 2, 1.5), ("land", 1, 2.5)):

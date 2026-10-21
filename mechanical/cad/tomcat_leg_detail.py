@@ -55,7 +55,8 @@ from build123d import (
 
 #: The via-pulley radius is set by the cable's minimum bend, the same rule as the
 #: spool -- `leg_tendons.VIA_R` owns it and the routing solves against it.
-VIA_R = 8.75
+#: M161: 5 x the Ø2.2 knee and ankle cable it carries, 11.0 mm (was 8.75).
+VIA_R = None                       # set below, once `params` is imported
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", "kinematics", "src"))
 from tomcat_kin import LegModel  # noqa: E402
@@ -85,7 +86,10 @@ TUBE = {
     # ✅ M130 (ADR-0124): the femur Ø14 -> **Ø16**. The cat's skin put 244 g on
     # the body and the landing moment with it; at Ø14 the femur was SF 2.40,
     # under the 2.5 line M120 said the next mass increase would cross.
-    "femur": (16.0, 1.0), "tibia": (12.0, 1.0), "meta": (12.0, 1.0),
+    # ✅ M161 (ADR-0153): the metatarsus Ø12 -> **Ø14**. The geared ankle
+    # pulls its cable 1.81x harder through a sheave 0.55x the size, and the
+    # bone between ankle and paw carries it: at Ø12 it was SF 2.46.
+    "femur": (16.0, 1.0), "tibia": (12.0, 1.0), "meta": (14.0, 1.0),
     # ✅ The paw keeps the SMALL section. Its spigot is drawn separately and
     # sized from the metatarsus bore, so the stub itself has no reason to grow
     # with it -- and it is the most distal mass in the leg, where NFR9 is
@@ -114,6 +118,10 @@ BEARING = {"hip": (6.0, 19.0, 6.0), "knee": (6.0, 19.0, 6.0),
 
 CABLE_D = 1.75                    # LEG_TENDON_SPEC §2, re-sized by ADR-0010
 GROOVE_R = 0.55 * CABLE_D         # §3.1's rule, applied to §2's cable = 0.96 mm
+#: ✅ M161 (ADR-0153): the cable per joint -- the geared knee and ankle wind Ø2.2.
+CABLE_D_J = {j: float(d) * 1000.0 for j, d in
+             zip(("hip", "knee", "ankle"), DEFAULT_TENDON.cable_diameter)}
+VIA_R = 5.0 * max(CABLE_D_J["knee"], CABLE_D_J["ankle"])
 FLANGE_H = 1.2                    # groove flange above the cable  [assumed]
 SHEAVE_W = 6.0                    # sheave axial width             [assumed]
 WEB_T = 1.5                       # lightened sheave centre web    [assumed]
@@ -254,7 +262,8 @@ def bonded_insert(tube_id: float, engage: float = ENGAGE, stub: float = 8.0,
 
 
 def sheave(pitch_r: float, width: float = SHEAVE_W, bore: float = 6.0,
-           web: float = WEB_T, lighten: bool = True, grooves=(0.0,)):
+           web: float = WEB_T, lighten: bool = True, grooves=(0.0,),
+           cable_d: float = CABLE_D):
     """Turned, hard-anodised joint sheave. The cable pitch line sits at `pitch_r`.
 
     `pitch_r` IS the tendon moment arm — `checks()` asserts that against
@@ -268,8 +277,9 @@ def sheave(pitch_r: float, width: float = SHEAVE_W, bore: float = 6.0,
     actually be turned, and it is what makes the specified moment arms affordable
     at all. `lighten=False` recovers the solid disc so the saving stays measurable.
     """
-    r_out = pitch_r + GROOVE_R + FLANGE_H
-    throat = CABLE_D * 1.15
+    groove_r = 0.55 * cable_d                     # §3.1's rule, per cable (M161)
+    r_out = pitch_r + groove_r + FLANGE_H
+    throat = cable_d * 1.15
     body = Cylinder(r_out, width)
     # ⚠️ **One groove was not enough and nothing said so.** A joint carries an
     # ANTAGONISTIC PAIR and a via carries every distal run that passes it, so a
@@ -277,12 +287,12 @@ def sheave(pitch_r: float, width: float = SHEAVE_W, bore: float = 6.0,
     # `grooves` is the list of axial offsets, and there is one entry per run that
     # actually touches this pulley.
     for gz in grooves:
-        cut = (Pos(0, 0, gz) * Torus(pitch_r, GROOVE_R)
+        cut = (Pos(0, 0, gz) * Torus(pitch_r, groove_r)
                + Pos(0, 0, gz) * (Cylinder(r_out + 1, throat)
                                   - Cylinder(pitch_r, throat)))
         body = body - cut
     if lighten:
-        rim_in = pitch_r - GROOVE_R - RIM_T
+        rim_in = pitch_r - groove_r - RIM_T
         hub_r = bore / 2 + HUB_T
         depth = (width - web) / 2.0
         if rim_in > hub_r + 1.0 and depth > 0.4:
@@ -430,11 +440,11 @@ def plane_layout(gaps, widths, order=None):
     would put the hip's cable on a via at the ankle.
     """
     order = PLANE_ORDER if order is None else order
-    half = FLANGE_W + CABLE_D * 1.15 / 2
     face = {j: gaps[j] / 2 + widths[j] for j in gaps}
     cur = max(face.values()) + BAND_GAP
     plane = {}
     for nm in order:
+        half = FLANGE_W + CABLE_D_J[nm] * 1.15 / 2       # M161: its own cable
         plane[nm] = cur + half
         cur += 2 * half + BAND_GAP
     out = {}
@@ -447,7 +457,7 @@ def plane_layout(gaps, widths, order=None):
 
 
 def grooved(pitch_r: float, planes, bore: float = 6.0, flange: float = 1.2,
-            lighten: bool = True):
+            lighten: bool = True, cable_d: float = CABLE_D):
     """A pulley with a groove in EACH of `planes` (mm from the limb plane).
 
     ⚠️ **The via-pulleys did not exist.** `leg_tendons` routes the knee and ankle
@@ -459,11 +469,11 @@ def grooved(pitch_r: float, planes, bore: float = 6.0, flange: float = 1.2,
 
     Returns the pulley placed about the joint centre, already offset in y.
     """
-    lo, hi = min(planes) - flange - CABLE_D * 1.15 / 2,         max(planes) + flange + CABLE_D * 1.15 / 2
+    lo, hi = min(planes) - flange - cable_d * 1.15 / 2,         max(planes) + flange + cable_d * 1.15 / 2
     width = hi - lo
     mid = 0.5 * (lo + hi)
     g = sheave(pitch_r, width=width, bore=bore, lighten=lighten,
-               grooves=[pl - mid for pl in planes])
+               grooves=[pl - mid for pl in planes], cable_d=cable_d)
     return mid, g
 
 
@@ -608,7 +618,7 @@ def tendon_drive(q, leg=DEFAULT_LEG, lay=None, role=None):
     role = role or ("fore" if leg is DEFAULT_FORELEG else "hind")
     hx = TE.HIP_X[role]
     groups = {"tendon": [], "motor": [], "spool": [], "conduit": [], "ferrule": [],
-              "trunk_ferrule": [], "anchor": []}
+              "trunk_ferrule": [], "anchor": [], "stage": []}
     routes = {}
     if lay is None:
         lay = plane_layout({"hip": 6.4, "knee": 6.4, "ankle": 4.4},
@@ -627,21 +637,23 @@ def tendon_drive(q, leg=DEFAULT_LEG, lay=None, role=None):
         st = [(np.asarray(r["points"][0], float), 1e-3, 1.0)]
         _, worst = fleet_profile(r["points"], st, [y])
         fleet["%s%+d" % (tendon, side)] = worst
-        groups["tendon"].append(cable(r["points"], y=y))
+        d_c, od_c = CABLE_D_J[tendon], TE.conduit_od(tendon)    # M161: per joint
+        fr = FERRULE[0] * od_c / TE.CONDUIT_OD
+        groups["tendon"].append(cable(r["points"], d=d_c, y=y))
         T, F1 = r["lead"]
-        groups["tendon"].append(_rod(loc(T), loc(F1), CABLE_D / 2))
+        groups["tendon"].append(_rod(loc(T), loc(F1), d_c / 2))
         C = np.array([loc(p) for p in r["conduit"]])
         # every 4th point: the conduit's curve at ~5 mm chords; finer drew a
         # whole robot the renderer ran out of memory on
         Cd = np.vstack([C[::4], C[-1:]])
         for a, b in zip(Cd[:-1], Cd[1:]):
             if np.linalg.norm(b - a) > 1e-6:
-                groups["conduit"].append(_rod(a, b, TE.CONDUIT_OD / 2))
+                groups["conduit"].append(_rod(a, b, od_c / 2))
         d1 = (C[1] - C[0]) / np.linalg.norm(C[1] - C[0])
         d2 = (C[-1] - C[-2]) / np.linalg.norm(C[-1] - C[-2])
         groups["trunk_ferrule"].append(_rod(C[0] - d1 * 2, C[0] + d1 * (FERRULE[1] - 2),
-                                            FERRULE[0]))
-        f2 = _rod(C[-1] - d2 * (FERRULE[1] - 1), C[-1] + d2 * 1, FERRULE[0])
+                                            fr))
+        f2 = _rod(C[-1] - d2 * (FERRULE[1] - 1), C[-1] + d2 * 1, fr)
         if tendon == "hip":
             groups["trunk_ferrule"].append(f2)
         else:
@@ -651,14 +663,14 @@ def tendon_drive(q, leg=DEFAULT_LEG, lay=None, role=None):
             # M132: the ankle conduit runs on from the hub down the femur, is
             # clamped above the knee, crosses it and ends on the tibia
             Ck = np.array([loc(p) for p in r["conduit_knee"]])
-            groups["conduit"].append(_rod(C[-1], Ck[0], TE.CONDUIT_OD / 2))
+            groups["conduit"].append(_rod(C[-1], Ck[0], od_c / 2))
             Ckd = np.vstack([Ck[::4], Ck[-1:]])
             for a, b in zip(Ckd[:-1], Ckd[1:]):
                 if np.linalg.norm(b - a) > 1e-6:
-                    groups["conduit"].append(_rod(a, b, TE.CONDUIT_OD / 2))
+                    groups["conduit"].append(_rod(a, b, od_c / 2))
             d3 = (Ck[-1] - Ck[-2]) / np.linalg.norm(Ck[-1] - Ck[-2])
             groups["ferrule"].append(_rod(Ck[-1] - d3 * (FERRULE[1] - 1), Ck[-1] + d3 * 1,
-                                          FERRULE[0]))
+                                          fr))
             # ...and each end stands off its bone (M134, ADR-0128: outside the
             # knee's fold): a bracket from the tube's axis to the ferrule
             # (tibia) and to the clamp (femur), across to the ankle's plane
@@ -667,10 +679,10 @@ def tendon_drive(q, leg=DEFAULT_LEG, lay=None, role=None):
             groups["ferrule"].append(_rod(np.array([tib[0], 0.0, tib[1]]), fb, 2.0))
             d0 = (Ck[1] - Ck[0]) / np.linalg.norm(Ck[1] - Ck[0])
             groups["ferrule"].append(_rod(Ck[0] - d0 * 1, Ck[0] + d0 * (FERRULE[1] - 1),
-                                          FERRULE[0]))
+                                          fr))
             groups["ferrule"].append(_rod(np.array([fem[0], 0.0, fem[1]]), Ck[0], 2.0))
         an = r["anchor"]
-        groups["anchor"].append(Pos(an[0], y, an[1]) * Sphere(CABLE_D))
+        groups["anchor"].append(Pos(an[0], y, an[1]) * Sphere(d_c))
     routes["fleet"] = fleet
 
     # the motors: cans along x, each spool at the END of its row the drive chose
@@ -686,8 +698,14 @@ def tendon_drive(q, leg=DEFAULT_LEG, lay=None, role=None):
                                          yy - TRACK_Y, zz, TP.MOTOR_D / 2))
         groups["spool"].append(
             xaxis_can(xs - hx - sl / 2, xs - hx + sl / 2,
-                      yy - TRACK_Y, zz, LT.SPOOL_R + GROOVE_R + FLANGE_H)
+                      yy - TRACK_Y, zz, LT.SPOOL_R_J[t] + 0.55 * CABLE_D_J[t] + FLANGE_H)
             - xaxis_can(xs - hx - sl, xs - hx + sl, yy - TRACK_Y, zz, 3.0))
+        if DEFAULT_TENDON.stage_ratio[("hip", "knee", "ankle").index(t)] != 1.0:
+            # M161 (ADR-0153): the gear stage, between G3 and the spool
+            x0 = xs - hx - end * sl / 2
+            groups["stage"].append(xaxis_can(min(x0, x0 - end * TP.STAGE_L),
+                                             max(x0, x0 - end * TP.STAGE_L),
+                                             yy - TRACK_Y, zz, TP.STAGE_D / 2))
     return {k: Compound(v) for k, v in groups.items() if v}, routes
 
 
@@ -854,7 +872,7 @@ def build(leg=DEFAULT_LEG, role=None):
             for b in brg:
                 groups["bearing"].append(Pos(*c) * b)
             planes = LAY[jname]["sheave"]
-            mid, sh = grooved(arms[arm_i], planes, bore=HUB_OD)
+            mid, sh = grooved(arms[arm_i], planes, bore=HUB_OD, cable_d=CABLE_D_J[jname])
             groups["sheave"].append(Pos(c[0], mid, c[2]) * (yaxis((0, 0, 0)) * sh))
             report.setdefault("joints", {})[jname] = {
                 "arm": arms[arm_i], "bearing": HUB_BEARING,
@@ -890,7 +908,7 @@ def build(leg=DEFAULT_LEG, role=None):
         # cable was in the groove it drives. A joint sheave gets one groove per
         # cable that touches it.
         planes = LAY[jname]["sheave"]
-        mid, sh = grooved(arms[arm_i], planes, bore=b_bore)
+        mid, sh = grooved(arms[arm_i], planes, bore=b_bore, cable_d=CABLE_D_J[jname])
         groups["sheave"].append(Pos(c[0], mid, c[2]) * (yaxis((0, 0, 0)) * sh))
         report.setdefault("joints", {})[jname] = {
             "arm": arms[arm_i], "bearing": (b_bore, b_od, b_w),
@@ -910,7 +928,8 @@ def build(leg=DEFAULT_LEG, role=None):
         # SF 1.83 -> 1.61 because the joint pair loses the short arm.
         via = LAY[jname]["via"]
         if via:
-            vmid, vp = grooved(VIA_R, via, bore=b_bore, lighten=False)
+            vmid, vp = grooved(VIA_R, via, bore=b_bore, lighten=False,
+                               cable_d=max(CABLE_D_J["knee"], CABLE_D_J["ankle"]))
             groups["sheave"].append(Pos(c[0], vmid, c[2])
                                     * (yaxis((0, 0, 0)) * vp))
             # ⚠️ **A via IDLES.** It is concentric with the joint but must not
@@ -943,7 +962,7 @@ def build(leg=DEFAULT_LEG, role=None):
     # bolted to it, and P1 — the premise of the whole robot — is undrawn.
     drive, routes = tendon_drive(q, leg, lay=LAY, role=role)
     for k, comp in drive.items():
-        groups[k].extend(comp.solids())
+        groups.setdefault(k, []).extend(comp.solids())     # M161: + "stage"
     # the hub carries its ferrules on an ARC beyond the full ring (M124):
     # the arc spans the four ferrules' angles in the hip plane, padded
     import math as _m

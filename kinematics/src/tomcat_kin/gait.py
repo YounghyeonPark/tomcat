@@ -409,7 +409,16 @@ class GaitParams:
     #      8.1    13.90   <- the new optimum
     #      8.75   11.10   <- the M123 default
     #     10.0     5.59
-    lateral_amplitude: float = math.radians(8.1)
+    #
+    # M161 (ADR-0153): **8.1 -> 7.8 deg.** The geared ankle moved the fore hip
+    # 6 mm forward and put its stages on the girdles (+49 g):
+    #
+    #     deg    ZMP mm
+    #      7.5    12.50
+    #      7.8    13.50   <- the new optimum
+    #      8.1    12.96   <- the M130 default
+    #      8.6    10.64
+    lateral_amplitude: float = math.radians(7.8)
     # Swing-return profile: "matched" (default, C1/C2 -- end velocities equal the
     # stance sweep so the foot lands without scuffing and the transition carries
     # no acceleration impulse) or "cycloid" (the legacy M2 profile, C0 only).

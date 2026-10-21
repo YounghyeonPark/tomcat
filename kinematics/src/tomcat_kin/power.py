@@ -104,7 +104,10 @@ def gait_power(controller, n: int = 96) -> dict:
     from .params import DEFAULT_TENDON
 
     arms = np.asarray(DEFAULT_TENDON.joint_moment_arm, dtype=float)
-    spool = DEFAULT_TENDON.motor_spool_radius
+    spool = np.asarray(DEFAULT_TENDON.spool_eff(), dtype=float)
+    # M161 (ADR-0153): a geared joint's motor turns 1/efficiency further than
+    # its torque ratio says; that extra is the stage's loss
+    spool_w = np.asarray(DEFAULT_TENDON.spool_kinematic(), dtype=float)
     legs = ("LF", "RF", "LR", "RR")
     dt = controller.params.period / n
     cyc = dyn.cycle(controller, n)
@@ -147,7 +150,7 @@ def gait_power(controller, n: int = 96) -> dict:
     # loss, and loss is what the copper term is for.
     mot_tau = np.abs(tau) / arms * spool          # joint-side, for the work
     mot_drive = mot_tau * cap                     # motor-side, for the current
-    mot_w = np.abs(qd) * arms / spool
+    mot_w = np.abs(qd) * arms / spool_w
     current = mot_drive / KT
 
     p_cu = PHASE_FACTOR * (current ** 2) * R_PHASE_PHASE
@@ -231,10 +234,10 @@ def gait_envelope(controller, n: int = 400, arms=None,
 
     arms = np.asarray(DEFAULT_TENDON.joint_moment_arm if arms is None else arms,
                       dtype=float)
-    spool = DEFAULT_TENDON.motor_spool_radius
+    spool = np.asarray(DEFAULT_TENDON.spool_eff(), dtype=float)
     tau, qd, cap = walked_trajectory(controller, n)
     t_mot = np.abs(tau) / arms * spool * cap
-    w_mot = np.abs(qd) * arms / spool
+    w_mot = np.abs(qd) * arms / np.asarray(DEFAULT_TENDON.spool_kinematic(), dtype=float)
     w_nl = no_load_rpm * 2.0 * np.pi / 60.0
     ratio = t_mot / peak_nm + w_mot / w_nl
     need = np.full(3, np.inf)
@@ -286,7 +289,7 @@ def standing_power(n_legs: int = 4, foot=(0.04, -0.17)) -> dict:
     W = com.mass * GRAVITY
 
     arms = np.asarray(DEFAULT_TENDON.joint_moment_arm, dtype=float)
-    R = DEFAULT_TENDON.motor_spool_radius
+    R = np.asarray(DEFAULT_TENDON.spool_eff(), dtype=float)
     per_leg = {}
     motor = {}
     for nm in names:

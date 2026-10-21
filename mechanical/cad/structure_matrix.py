@@ -578,7 +578,7 @@ def arm_speed_trade(radii_mm=None, peak_nm=1.95, proxy_rpm=380.0, n=400):
 
     if radii_mm is None:
         radii_mm = (12, 14, 16, 18, 20, 22, 24, 26, 28, 30, 32, 34, 36, 38, 40)
-    R = float(DEFAULT_TENDON.motor_spool_radius)
+    R = np.asarray(DEFAULT_TENDON.spool_eff(), dtype=float)       # M161: per joint
     tau, qd, cap = power.walked_trajectory(
         gait.GaitController(gait.trot_params()), n)
     trot = [lc for lc in DEFAULT_LOADS if lc.name.startswith("trot")][0]
@@ -609,8 +609,8 @@ def arm_speed_trade(radii_mm=None, peak_nm=1.95, proxy_rpm=380.0, n=400):
                                                joint_moment_arm=tuple(arms)))
             T_s = max(float(np.asarray(
                 budget(LegModel(lp), tm, trot).peak_motor_torque)[j]) for lp in legs)
-            Tt = (np.abs(tau[:, :, j]) / r * R * cap[:, :, j]).ravel()
-            wt = (np.abs(qd[:, :, j]) * r / R).ravel()
+            Tt = (np.abs(tau[:, :, j]) / r * R[j] * cap[:, :, j]).ravel()
+            wt = (np.abs(qd[:, :, j]) * r / R[j]).ravel()
             T_pk, w_nl, prod = best(Tt, wt, T_s)
             need = (float((wt / (1.0 - Tt / peak_nm)).max())
                     if T_s <= peak_nm and Tt.max() < peak_nm else float("inf"))
@@ -619,7 +619,7 @@ def arm_speed_trade(radii_mm=None, peak_nm=1.95, proxy_rpm=380.0, n=400):
             T_land = max(float(np.asarray(
                 budget(LegModel(lp), tm, land).peak_tension)[j]) for lp in legs)
             rows.append({"r_mm": r_mm, "T_static": T_s,
-                         "cable_sf": MC.CABLE_BREAK / T_land,
+                         "cable_sf": MC.CABLE_BREAK_J[j] / T_land,
                          "proxy_rpm_walked": walked * 30.0 / np.pi,
                          "T_pk": T_pk, "rpm": w_nl * 30.0 / np.pi,
                          "product": prod,

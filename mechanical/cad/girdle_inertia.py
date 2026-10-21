@@ -49,6 +49,7 @@ import tomcat_tail as TL                                         # noqa: E402
 import tomcat_trunk as TT                                        # noqa: E402
 import g3_flexure as G3F                                         # noqa: E402
 from tomcat_kin.params import DEFAULT_SPINE as SP                # noqa: E402
+from tomcat_kin.params import DEFAULT_TENDON                     # noqa: E402
 
 #: EVA foam. ⚠️ **The material is a righting decision, not a finish one**
 #: (ADR-0096): the tail is all lever, so it adds 14x more pitch inertia than
@@ -195,6 +196,42 @@ def g3_parts(role: str):
     return out
 
 
+def stage_parts(role: str):
+    """✅ M161 (ADR-0153): the four knee and ankle gear stages on one girdle,
+    each between its G3 and its spool -- `[assumed]` mass and size
+    (`tomcat_packaging.STAGE_*`), as discs on the motor's axis (x)."""
+    import tendon_exit as TE
+    import tomcat_packaging as TP
+    body, x_org = _GIRDLE[role]
+    m = TP.STAGE_G * 1e-3
+    r = TP.STAGE_D / 2 * 1e-3
+    I = np.diag([m * r * r / 2, m * r * r / 4, m * r * r / 4])
+    out = []
+    for side in (+1.0, -1.0):
+        own = TE.motors(role, side)
+        for t in [j for j, g in zip(("hip", "knee", "ankle"), DEFAULT_TENDON.stage_ratio)
+                  if g != 1.0]:
+            mi, end = TE.DRIVE[role][t][:2]
+            _nm, _x, y, z = own[mi]
+            xs = TE.spool_x_of(role, mi, end, side)
+            xg = xs - end * (TE.spool_len_of(role, mi, end) / 2 + TP.STAGE_L / 2)
+            out.append((m, np.array([xg * 1e-3 - x_org, y * 1e-3, z * 1e-3]), I))
+    return out
+
+
+#: ✅ M161 (ADR-0153): the girdle bodies' shells grew with the ankle rows' 6 mm
+#: gear stage: `tomcat_trunk.report` weighs body 0 at 127.8 g (124.2 at M160)
+#: and body 3 at 128.5 g (125.7), the growth at the end that moved (x, mm,
+#: trunk frame: body 0 -128..-122, body 3 262..268). The M101 lump knew neither.
+SHELL_GROWTH = {"hind": (3.6e-3, -0.125), "fore": (2.8e-3, 0.265)}
+
+
+def shell_growth(role: str):
+    m, x = SHELL_GROWTH[role]
+    _body, x_org = _GIRDLE[role]
+    return [(m, np.array([x - x_org, 0.0, 0.0]), np.zeros((3, 3)))]
+
+
 #: ✅ **M123 (ADR-0114): the lump IS the new layout.** The M101 girdle is a
 #: housing box about its hip (CoM 5.7 mm behind it), not the motors at M88's
 #: row positions -- subtracting them from there gave a negative inertia. Each
@@ -234,7 +271,7 @@ def front():
     import skin_mass as SM
     # M130 (ADR-0124): and the cat's skin on it -- the head's foam, the neck
     M, c, I = combine([(m, c, I), head(), SM.part("front", (0.195, 0.0, 0.0))]
-                      + g3_parts("fore"))
+                      + g3_parts("fore") + stage_parts("fore") + shell_growth("fore"))
     return M, (c[0], c[2]), _mat_to_full(I)
 
 
@@ -251,7 +288,7 @@ def rear():
     import skin_mass as SM
     # M130 (ADR-0124): and the cat's skin on it, the tail's sleeve with it
     M, cc, II = combine([(m, c, I), tail_motor(), tail(), SM.part("rear")]
-                        + g3_parts("hind"))
+                        + g3_parts("hind") + stage_parts("hind") + shell_growth("hind"))
     return M, (cc[0], cc[2]), _mat_to_full(II)
 
 

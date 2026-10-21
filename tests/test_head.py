@@ -90,8 +90,10 @@ def test_placing_the_240_g_costs_a_THIRD_of_the_pitch_inertia():
     # ✅ M129 (ADR-0121): **36 % -> 28 %**, the neck 40 % shorter. The head
     # carried back 48 mm and down 30 under the cat's skin; the lever falls
     # 259 -> 231 mm. The first move in this list that the SHAPE paid for.
-    assert a["frac"] == pytest.approx(0.28, abs=0.02)
-    assert a["dcom"] == pytest.approx(7.3, abs=0.5)
+    # M161 (ADR-0153): 28 % -> 31 %, the front girdle 6 mm further forward
+    # with the fore hip, and the head with it.
+    assert a["frac"] == pytest.approx(0.308, abs=0.02)
+    assert a["dcom"] == pytest.approx(7.9, abs=0.5)   # M161: 7.3 -> 7.9 mm, the head further forward
     assert a["lever_after"] > 2.5 * a["lever_before"], (
         "lever %.0f -> %.0f mm" % (a["lever_before"], a["lever_after"])
     )

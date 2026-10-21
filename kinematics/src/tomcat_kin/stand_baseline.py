@@ -81,7 +81,7 @@ def nominal_hold(**env_kw) -> np.ndarray:
             e = env.q_ref[nm] - np.array([float(env.data.qpos[a]) for a in qa])
             ev = -np.array([float(env.data.qvel[a]) for a in dof])
             hold[3 * k:3 * k + 3] = wbc.pair_command(G, bias + 30.0 * e + 1.5 * ev,
-                                                     MT.TENSION_MAX)
+                                                     env.t_max[3 * k:3 * k + 3])
         _HOLD[key] = hold
     return _HOLD[key].copy()
 

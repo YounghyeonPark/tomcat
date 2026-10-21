@@ -64,7 +64,9 @@ def test_every_row_FITS_its_body_with_G3_and_the_bodies_did_not_grow():
     # two hip-station rows and pads: 109.2 mm.
     # M130 (ADR-0123): 109.2 -> 115.2 mm -- the hip 4 mm further back and the
     # row behind it 2 mm longer, both for the wider drums. G3 still did not.
-    assert TT.BODIES[0][1] - TT.BODIES[0][0] == pytest.approx(115.21, abs=0.05)
+    # M161 (ADR-0153): 115.2 -> 121.2 mm -- the row behind the hip carries the
+    # hind ankle's 6 mm gear stage. G3 still did not.
+    assert TT.BODIES[0][1] - TT.BODIES[0][0] == pytest.approx(121.21, abs=0.05)
     assert TT.BODIES[2][1] - TT.BODIES[2][0] == pytest.approx(51.0, abs=0.05)
     for (_nm, b, x, _n, ro) in TT._rows():
         x0, x1 = TT.BODIES[b]

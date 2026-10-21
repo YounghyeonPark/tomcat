@@ -53,10 +53,11 @@ def test_NO_fibre_is_neutral_in_BOTH_pitch_and_yaw():
     # more cover -- 9.8 -> 9.0 %, and the rest below with it.
     # M123 (ADR-0114): the trunk is 21 mm SHORTER, so the same bend spreads
     # over less cover -- 9.0 -> 9.6 %, and yaw 11.6 -> 12.3 %.
-    assert pitch0[1] == pytest.approx(0.096, abs=0.005)
+    # M161 (ADR-0153): the trunk 12 mm longer (the ankle stages): 9.6 -> 9.0 %.
+    assert pitch0[1] == pytest.approx(0.090, abs=0.005)
     yaw0 = SK.fibre_strain(0.0, SK.outline(0.0)[1], span)
     assert yaw0[1] == pytest.approx(0.0, abs=1e-12)
-    assert yaw0[0] == pytest.approx(0.123, abs=0.005)   # M122: 11.6 %; M123: 12.3 %
+    assert yaw0[0] == pytest.approx(0.1155, abs=0.005)   # M122: 11.6 %; M123: 12.3 %; M161: 11.5 %, 12 mm longer
 
 
 def test_the_SEAM_goes_where_the_WORST_of_the_two_is_least():
@@ -96,7 +97,7 @@ def test_the_BELLY_cannot_be_a_stretch_panel():
     rows, _q, _span = SK.strain_table()
     dorsal = [r for r in rows if r[0].startswith("dorsal")][0]
     belly = [r for r in rows if "chest" in r[0]][0]
-    assert dorsal[4] == pytest.approx(0.126, abs=0.01)
+    assert dorsal[4] == pytest.approx(0.1155, abs=0.01)   # M161: 12.6 -> 11.5 %, 12 mm longer
     assert belly[4] == pytest.approx(0.336, abs=0.01)   # M122: 32.1 %; M123: 34.7 %; M130: 33.6 %
     assert belly[4] > 2.5 * dorsal[4], (
         "the belly is %.0f %% against the dorsal %.0f %% -- if the ratio closes, "

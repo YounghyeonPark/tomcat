@@ -57,7 +57,7 @@ def run(policy, v, seed, randomize, skip_s=0.5, history=1):
         n += 1
         if n / c.control_hz >= skip_s:
             th_s = np.array([c.data.qpos[i] for i in c._js])
-            T = -c.k_tors * th_s / MT.SPOOL_R                  # cable, joint side
+            T = -c.k_tors * th_s / c.spool_r                   # cable, joint side
             q = {nm: np.array([c.data.qpos[i] for i in c._qadr(nm)]) for nm in LEGS}
             cap = np.ones(18)
             for k, nm in enumerate(LEGS):
@@ -87,7 +87,15 @@ def summarise(rows, kt):
     ws, fs = rows[:, 36:54], rows[:, 54:72]
     w = np.abs(ws)
     driving = fs * ws > 0.0                       # motor doing work, not braking
-    tau = Tm * MT.SPOOL_R                                     # motor torque, N.m
+    from tomcat_kin.env import LEGS, PAIRS, SPINE
+    from tomcat_kin.params import DEFAULT_TENDON as TP
+    pairs = [f"{nm}_{p}" for nm in LEGS for p in PAIRS] + list(SPINE)
+    sp = np.array([MT.spool_r(p) for p in pairs])             # M161: per pair
+    tau = Tm * sp                                             # motor torque, N.m
+    # M161: the plant is lossless, but a geared motor turns 1/efficiency further
+    eta = np.array([TP.spool_kinematic(PAIRS.index(p.split("_")[1])) / sp[i]
+                    if p not in SPINE else 1.0 for i, p in enumerate(pairs)])
+    w = w / eta
     cu = PW.PHASE_FACTOR * (tau / kt) ** 2 * PW.R_PHASE_PHASE
     mech = tau * w
     legs, spine = slice(0, 12), slice(12, 18)
@@ -119,7 +127,7 @@ def summarise(rows, kt):
         "spine_mech_w": float(mech[:, spine].sum(1).mean()),
         "spine_peak_nm": float(tau[:, spine].max()),
         "by_joint": by_joint,
-        "saturated_frac": float(np.mean(T >= MT.TENSION_MAX * 0.999)),
+        "saturated_frac": float(np.mean(T >= MT.MOTOR_PEAK_NM / sp * 0.999)),
     }
 
 

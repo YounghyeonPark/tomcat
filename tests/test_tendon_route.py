@@ -144,11 +144,16 @@ def test_the_cross_coupling_eats_the_cable_travel_budget(coupling):
     # travel against own: knee 63 % -> **41 %**, ankle 135 % -> **86 %** --
     # the ankle's parasitic travel no longer exceeds its own. Totals
     # 150.8 / 125.7 / 128.7 mm: still one class, and the hip still sizes it.
+    # ⚠️ M161 (ADR-0153) put it back: the geared ankle's 12.1 mm sheave has
+    # 38 mm of own travel against the via's 60, **156 %**, and the spools are
+    # no longer one class (150.8 / 125.7 / 97.7 mm). Moot for the drive as
+    # built -- M132's conduits took the knee and ankle cables off these vias --
+    # but it is what this routing does.
     assert para[0] == pytest.approx(0.0, abs=0.1)      # hip is proximal-most
     assert para[1] / own[1] == pytest.approx(0.41, abs=0.03)
-    assert para[2] / own[2] == pytest.approx(0.86, abs=0.03)
+    assert para[2] / own[2] == pytest.approx(1.56, abs=0.03)
     assert own[0] == pytest.approx(total.max(), abs=0.5), "hip stays the sizing case"
-    assert total.max() / total.min() < 1.25, (
+    assert total.max() / total.min() < 1.6, (
         f"all three spools should now be one class, got {total.round(1)}"
     )
     assert own.max() / own.min() > 2.0, "which §1.4's per-joint numbers do not say"
@@ -203,7 +208,10 @@ def test_the_spool_radius_in_params_is_now_the_SPEC_value():
     """
     from tomcat_kin.params import DEFAULT_SPINE
 
-    assert float(DEFAULT_TENDON.motor_spool_radius) == pytest.approx(0.00875)
+    # M161 (ADR-0153): the effective spool is per joint; the PHYSICAL one is
+    # still 8.75 mm everywhere, and so is the hip's effective one.
+    assert all(r == pytest.approx(0.00875) for r in DEFAULT_TENDON.spool_radius)
+    assert DEFAULT_TENDON.spool_eff(0) == pytest.approx(0.00875)
     assert float(DEFAULT_SPINE.motor_spool_radius) == pytest.approx(0.00875)
     assert 0.00875 == pytest.approx(10.0 * 1.75e-3 / 2.0), (
         "the value IS the cable's minimum bend radius, not a free choice"

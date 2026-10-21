@@ -58,6 +58,10 @@ PROXY_RATED = 0.71
 
 #: Ø1.75 UHMWPE breaking strength, N `[owed: confirm against a real datasheet]`
 CABLE_BREAK = 3000.0
+#: ✅ M161 (ADR-0153): per joint, the knee and ankle on their thicker cable --
+#: strength goes as area, so (d / 1.75)^2 of it (2.2 mm: 1.58x).
+CABLE_BREAK_J = np.array([CABLE_BREAK * (d / DEFAULT_TENDON.cable_diameter[0]) ** 2
+                          for d in DEFAULT_TENDON.cable_diameter])
 
 #: LEG_TENDON_SPEC §2's own safety-factor target on the land transient.
 SF_TARGET = 4.0
@@ -205,7 +209,7 @@ def motor_requirement(b):
     # reason: the trot's fore ankle sets it, not standing.
     tau_w, _qd, cap_w = power.walked_trajectory(ctl, 400)
     arms_w = np.asarray(DEFAULT_TENDON.joint_moment_arm, dtype=float)
-    m_w = np.abs(tau_w) / arms_w * DEFAULT_TENDON.motor_spool_radius * cap_w
+    m_w = np.abs(tau_w) / arms_w * np.asarray(DEFAULT_TENDON.spool_eff()) * cap_w
     trot_rms = float(np.sqrt((m_w ** 2).mean(axis=0)).max())
     stance_hold = float(max(v.max() for v in
                             power.standing_power()["motor_torque"].values()))
@@ -254,7 +258,7 @@ def gate(b):
     """
     land, trot = b["land"], b["trot"]
     out = []
-    sf = CABLE_BREAK / float(land["T"].max())
+    sf = float(np.min(CABLE_BREAK_J / np.asarray(land["T"], dtype=float)))
     out.append(("cable SF on the land transient", sf, SF_TARGET, sf >= SF_TARGET))
     c0 = 2.0 * float(land["T"].max())
     out.append(("bearing static C0 needed (2xT)", c0, 1500.0, c0 <= 1500.0))
